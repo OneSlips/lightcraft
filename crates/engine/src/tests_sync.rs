@@ -31,8 +31,10 @@ impl Scratch {
         std::fs::create_dir_all(&dir).unwrap();
         Scratch(dir)
     }
+    /// `rel` uses `/`; the result is in the platform's native form, as the scan reports paths
+    /// (`join("a/b")` would keep the `/` on Windows).
     fn path(&self, rel: &str) -> String {
-        self.0.join(rel).to_string_lossy().to_string()
+        rel.split('/').fold(self.0.clone(), |p, part| p.join(part)).to_string_lossy().to_string()
     }
 }
 
