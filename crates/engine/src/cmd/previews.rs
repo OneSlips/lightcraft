@@ -161,7 +161,10 @@ struct SmartCounts {
 fn original_only(source: crate::media::SourceRef) -> Option<crate::media::SourceRef> {
     use crate::media::SourceRef;
     match source {
-        SourceRef::File { path, max_edge, loader, denoise, .. } => Some(SourceRef::File { path, max_edge, loader, fallback: None, denoise }),
+        // (a smart preview keeps the file's own colour: an imported camera profile is applied when the original is read)
+        SourceRef::File { path, max_edge, loader, denoise, .. } => {
+            Some(SourceRef::File { path, max_edge, loader, fallback: None, denoise, camera_profile: None })
+        }
         SourceRef::Loaded(d) if d.info.is_some() => Some(SourceRef::Loaded(d)),
         _ => None,
     }

@@ -48,7 +48,7 @@ import and export formats. Ours come from `crates/codecs/src/sniff.rs`, `crates/
 | EXIF / IPTC / XMP embedded on export | ✅ | ✅ with metadata filters | `crates/meta` |
 | Develop presets `.xmp` | ✅ | ✅ import (mapping of supported settings) | |
 | Legacy presets `.lrtemplate` | ✅ (converted) | ✅ import | |
-| Camera / creative profiles (`.dcp`, `.xmp` profiles) | ✅ | ⬜ deliberately (Adobe profile formats are never used); `.cube` LUT profiles ✅ | |
+| Camera / creative profiles (`.dcp`, `.xmp` profiles) | ✅ | 🟡 the user's own `.dcp` camera profiles import (`profile.import`) and replace a raw file's colour model; none ship with the app; `.xmp` profiles ⬜; `.cube` LUT profiles ✅ | |
 | Lens profiles `.lcp` | ✅ | ⬜ deliberately | |
 | Other apps' presets | — | ✅ Luminar `.lmp` / `.mplumpack`, `.zip` bundles | beyond target |
 | Lightroom Classic catalog `.lrcat` | native | 🟡 import (ratings, flags, labels, keywords, collections, virtual copies, supported develop settings; read-only pure-Rust SQLite incl. WAL) | [lightroom-catalog-import.md](lightroom-catalog-import.md) |
