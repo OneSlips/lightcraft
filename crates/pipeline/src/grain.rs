@@ -19,6 +19,8 @@
 //!
 //! Shared with the GPU kernel (`crates/gpu/src/wgsl/finish.wgsl`): keep both in step.
 
+use std::f32::consts::FRAC_1_SQRT_2;
+
 use lightcraft_develop::Grain;
 
 /// Hash constants (shared with the GPU kernel): PCG-style permutation and per-layer seed salts.
@@ -34,6 +36,44 @@ pub const TONE_FLOOR: f32 = 0.35;
 
 /// Grains a cell may hold (a bound for the loop, far above any reachable mean).
 pub const MAX_PER_CELL: u32 = 48;
+
+/// Side of a Poisson cell (grain units). Fixed, so that no slider and no render size moves the
+/// cell grid: Roughness and Size reshape and rescale the same grains instead of reshuffling them.
+pub const CELL: f32 = 2.5;
+
+/// Cells a pixel looks at along each axis beyond its own (the support is at most `CELL·MAX_REACH/2`).
+pub const MAX_REACH: i32 = 8;
+
+/// Outline lumpiness at Roughness 100: a bead's radius varies by up to this fraction with angle.
+pub const LUMP_MAX: f32 = 0.3;
+
+/// Phases (cos, sin of k·π/8) for the beads' outline harmonics.
+const PHASES: [[f32; 2]; 16] = [
+    [1.0, 0.0],
+    [0.923_879_5, 0.382_683_43],
+    [FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+    [0.382_683_43, 0.923_879_5],
+    [0.0, 1.0],
+    [-0.382_683_43, 0.923_879_5],
+    [-FRAC_1_SQRT_2, FRAC_1_SQRT_2],
+    [-0.923_879_5, 0.382_683_43],
+    [-1.0, 0.0],
+    [-0.923_879_5, -0.382_683_43],
+    [-FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+    [-0.382_683_43, -0.923_879_5],
+    [0.0, -1.0],
+    [0.382_683_43, -0.923_879_5],
+    [FRAC_1_SQRT_2, -FRAC_1_SQRT_2],
+    [0.923_879_5, -0.382_683_43],
+];
+
+/// One grain's shape: base radius, density and outline harmonics (amplitude × phase).
+#[derive(Clone, Copy, Debug)]
+struct Bead {
+    r: f32,
+    o: f32,
+    h: [f32; 4],
+}
 
 /// The softening one output pixel applies, as the edge width of a grain (pixels): the width at
 /// which a grain much smaller than a pixel spreads over the noise-equivalent area of a one-pixel
@@ -61,13 +101,17 @@ pub struct GrainParams {
     pub inv_r: f32,
     /// Edge softness (grain units): film softness and the output pixel's footprint.
     pub s: f32,
+    /// `1 / s`.
+    pub inv_s: f32,
     /// Log-normal-like spread of grain radii.
     pub disp: f32,
+    /// Outline lumpiness (0 = round beads).
+    pub lump: f32,
     /// `π·E[r²]·E[o]`: mean grain area times mean density (coverage per grain).
     pub area: f32,
     /// Largest distance at which a grain still covers a point.
     pub support: f32,
-    /// Side of a Poisson cell (the support: a point sees at most 3 × 3 cells).
+    /// Side of a Poisson cell ([`CELL`]).
     pub cell: f32,
     /// `E[∫a²] / E[∫a]` for this softness (the variance formula's exponent per unit coverage).
     pub kappa: f32,
@@ -88,10 +132,11 @@ fn finite(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
 }
 
 /// Mean grain radius as a fraction of the frame's long edge for the Size slider (0..100): about
-/// 4 µm on a 35 mm frame at 0, 10 µm at the default 25, 48 µm at 100.
+/// 4.3 µm on a 35 mm frame at 0, 5 µm at the default 25, 8.9 µm at 100 (0.7, 0.8 and 1.5 px on a
+/// 6000 px export).
 pub fn radius_for_size(size: f64) -> f64 {
     let t = finite(size, 0.0, 100.0, 25.0) / 100.0;
-    0.000_12 + t.powf(1.4) * 0.001_2
+    0.000_12 + t.powf(1.4) * 0.000_126
 }
 
 /// `∫(ρ+wτ)·F(τ)² dτ` moments of the edge profile `F` over τ ∈ [−1, 1]: (∫F², ∫τF²).
@@ -121,7 +166,7 @@ fn edge(tau: f64) -> f64 {
 
 /// `(π·E[r²], E[∫a²] / π·E[r²])` for radius spread `disp` and softness `s` (grain units), over the
 /// radius distribution the renderer draws: `r = exp(disp·z)`, `z = 2(u₁+u₂+u₃) − 3`.
-fn area_and_kappa(disp: f64, s: f64) -> (f64, f64) {
+fn area_and_kappa(disp: f64, lump: f64, s: f64) -> (f64, f64) {
     const N: usize = 12;
     let (i0, i1) = edge_moments();
     let (mut ar, mut a2) = (0.0, 0.0);
@@ -142,6 +187,9 @@ fn area_and_kappa(disp: f64, s: f64) -> (f64, f64) {
         }
     }
     let n = (N * N * N) as f64;
+    // lumpy outlines: E_θ[(1 + L·m(0.6 cos 2θ + 0.4 cos 3θ))²] = 1 + 0.26·L²·E[m²], E[m²] = 0.5861
+    let lumps = 1.0 + 0.26 * lump * lump * 0.586_111;
+    let (ar, a2) = (ar * lumps, a2 * lumps);
     let area = ar / n;
     (area, if area > 0.0 { (a2 / n / area).clamp(1e-6, 1.0) } else { 1.0 })
 }
@@ -165,11 +213,12 @@ impl GrainParams {
         let rough = finite(g.roughness, 0.0, 100.0, 50.0) / 100.0;
         let r_norm = radius_for_size(size);
         let disp = 0.35 * rough;
+        let lump = LUMP_MAX as f64 * rough;
         let film_soft = 0.7 - 0.4 * rough;
         let soft_at = |ppl: f64| (film_soft * film_soft + (PIXEL_SOFTNESS / (r_norm * ppl)).powi(2)).sqrt();
         let s = soft_at(ppl);
-        let (area, kappa) = area_and_kappa(disp, s);
-        let (_, kappa_ref) = area_and_kappa(disp, soft_at(REF_PX_PER_LONG));
+        let (area, kappa) = area_and_kappa(disp, lump, s);
+        let (_, kappa_ref) = area_and_kappa(disp, lump, soft_at(REF_PX_PER_LONG));
         // Amount 100 ≈ 0.06 (8-bit: 15 levels) standard deviation in mid-grey at the reference
         // resolution, a little more for coarse grain
         let target = amount * 0.055 * (0.8 + 0.4 * size / 100.0);
@@ -183,16 +232,18 @@ impl GrainParams {
             let a = t * std::f64::consts::FRAC_PI_2;
             (a.cos(), a.sin())
         };
-        let r_max = (3.0 * disp).exp();
-        let support = (r_max * r_max + s * s).sqrt() + s;
+        let r_max = (3.0 * disp).exp() * (1.0 + lump);
+        let support = ((r_max * r_max + s * s).sqrt() + s).min(CELL as f64 * MAX_REACH as f64 * 0.5 - 0.01);
         Some(GrainParams {
             amp: amp as f32,
             inv_r: (1.0 / r_norm) as f32,
             s: s as f32,
+            inv_s: (1.0 / s) as f32,
             disp: disp as f32,
+            lump: lump as f32,
             area: area as f32,
             support: support as f32,
-            cell: support as f32,
+            cell: CELL,
             kappa: kappa as f32,
             w_field: w_field as f32,
             w_noise: w_noise as f32,
@@ -250,9 +301,10 @@ impl GrainParams {
         // continuously with tone (no grain pops in or out); the shift keeps the mean count at t
         let fw = t.clamp(1e-6, 1.0);
         let end = t + 0.5 * fw;
-        let (r, c, s) = (self.support, self.cell, self.s);
+        let (r, c) = (self.support, self.cell);
         let (i0, j0) = (((x - r) / c).floor() as i32, ((y - r) / c).floor() as i32);
-        let (i1, j1) = ((((x + r) / c).floor() as i32).min(i0.saturating_add(6)), (((y + r) / c).floor() as i32).min(j0.saturating_add(6)));
+        let (i1, j1) =
+            ((((x + r) / c).floor() as i32).min(i0.saturating_add(MAX_REACH)), (((y + r) / c).floor() as i32).min(j0.saturating_add(MAX_REACH)));
         // a cell holds grains while the running product of their uniforms stays above
         // exp(−end) (Poisson arrivals in mark order, `mₖ = −ln Π uᵢ`); full weight above exp(fw − end)
         let (e_end, e_full) = ((-end).exp(), (fw - end).exp());
@@ -282,21 +334,55 @@ impl GrainParams {
                     if d2 >= r * r {
                         continue;
                     }
-                    let rad = pcg(h ^ GRAIN_HASH[3]);
-                    let z = 2.0 * (unit10(rad) + unit10(rad >> 10) + unit10(rad >> 20)) - 3.0;
-                    let ri = (self.disp * z).exp();
-                    let rho2 = ri * ri + s * s;
-                    let tau = (d2.sqrt() - rho2.sqrt()) / s;
-                    if tau >= 1.0 {
+                    let a = self.cover(&self.bead(h), x - gx, y - gy, d2);
+                    if a <= 0.0 {
                         continue;
                     }
-                    let prof = if tau <= -1.0 { 1.0 } else { (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25 };
                     let f = if prod >= e_full { 1.0 } else { ((end + prod.ln()) / fw).clamp(0.0, 1.0) };
-                    keep *= 1.0 - f * density(rad) * ri * ri / (rho2 + s * s * 0.2) * prof;
+                    keep *= 1.0 - f * a;
                 }
             }
         }
         1.0 - keep
+    }
+
+    /// The shape of the grain with hash `h`: radius `exp(disp·z)`, density, and outline harmonics
+    /// (2 and 3 lobes, random phases and strength).
+    #[inline]
+    fn bead(&self, h: u32) -> Bead {
+        let rad = pcg(h ^ GRAIN_HASH[3]);
+        let z = 2.0 * (unit10(rad) + unit10(rad >> 10) + unit10(rad >> 20)) - 3.0;
+        let r = (self.disp * z).exp();
+        if self.lump <= 0.0 {
+            return Bead { r, o: density(rad), h: [0.0; 4] };
+        }
+        let shp = pcg(h ^ GRAIN_HASH[0]);
+        let m = 0.5 + ((shp >> 8) & 15) as f32 * (1.0 / 30.0);
+        let (p2, p3) = (PHASES[(shp & 15) as usize], PHASES[((shp >> 4) & 15) as usize]);
+        Bead { r, o: density(rad), h: [0.6 * m * p2[0], 0.6 * m * p2[1], 0.4 * m * p3[0], 0.4 * m * p3[1]] }
+    }
+
+    /// Coverage (density × softened profile) of `bead` at offset (dx, dy), `d2 = dx² + dy²`.
+    #[inline]
+    fn cover(&self, b: &Bead, dx: f32, dy: f32, d2: f32) -> f32 {
+        let s = self.s;
+        let d = d2.sqrt();
+        let mut r = b.r;
+        if self.lump > 0.0 && d > 1e-6 {
+            // cos/sin of 2θ and 3θ from the direction (no trigonometry)
+            let inv_d = 1.0 / d;
+            let (c, sn) = (dx * inv_d, dy * inv_d);
+            let (c2, s2) = (c * c - sn * sn, 2.0 * c * sn);
+            let (c3, s3) = (c * (4.0 * c * c - 3.0), sn * (3.0 - 4.0 * sn * sn));
+            r *= 1.0 + self.lump * (b.h[0] * c2 + b.h[1] * s2 + b.h[2] * c3 + b.h[3] * s3);
+        }
+        let rho2 = r * r + s * s;
+        let tau = (d - rho2.sqrt()) * self.inv_s;
+        if tau >= 1.0 {
+            return 0.0;
+        }
+        let prof = if tau <= -1.0 { 1.0 } else { (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25 };
+        b.o * r * r / (rho2 + s * s * 0.2) * prof
     }
 
     /// [`GrainParams::field`] for a band of output rows: `xs`, `ys` are the grain-unit positions of
@@ -344,10 +430,11 @@ impl GrainParams {
         keep.fill(1.0);
         let salt = pcg(seed);
         let last = (cols - 1) as f32;
-        // pixel index range (clamped, padded by one) for a parameter interval along a row
-        let krange = |a: f32, b: f32| -> Option<(usize, usize)> {
-            let (lo, hi) = (a.min(b).floor() - 1.0, a.max(b).ceil() + 1.0);
-            if hi.is_nan() || lo.is_nan() || hi < 0.0 || lo > last {
+        // the pixels whose centres lie in a parameter interval along a row (a hair's margin for
+        // rounding: each pixel is tested exactly below)
+        let chord = |a: f32, b: f32| -> Option<(usize, usize)> {
+            let (lo, hi) = ((a - 0.05).ceil(), (b + 0.05).floor());
+            if hi.is_nan() || lo.is_nan() || hi < lo || hi < 0.0 || lo > last {
                 return None;
             }
             Some((lo.max(0.0) as usize, (hi.min(last) as usize).min(cols - 1)))
@@ -397,7 +484,7 @@ impl GrainParams {
                     let pos = pcg(h ^ GRAIN_HASH[2]);
                     let gx = (i as f32 + unit16(pos)) * c;
                     let gy = (j as f32 + unit16(pos >> 16)) * c;
-                    let mut radius: Option<(f32, f32, f32)> = None;
+                    let mut radius: Option<(Bead, f32)> = None;
                     let mut ln_prod = None;
                     for row in 0..rows {
                         let (ddx, ddy) = (gx - (x00 + row as f32 * dx), gy - (y00 + row as f32 * dy));
@@ -406,13 +493,10 @@ impl GrainParams {
                         if perp.abs() >= r {
                             continue;
                         }
-                        let (rho, height, reach) = *radius.get_or_insert_with(|| {
-                            let rad = pcg(h ^ GRAIN_HASH[3]);
-                            let z = 2.0 * (unit10(rad) + unit10(rad >> 10) + unit10(rad >> 20)) - 3.0;
-                            let ri = (self.disp * z).exp();
-                            let rho2 = ri * ri + s * s;
-                            let rho = rho2.sqrt();
-                            (rho, density(rad) * ri * ri / (rho2 + s * s * 0.2), rho + s)
+                        let (bead, reach) = *radius.get_or_insert_with(|| {
+                            let b = self.bead(h);
+                            let rr = b.r * (1.0 + self.lump);
+                            (b, (rr * rr + s * s).sqrt() + s)
                         });
                         if perp.abs() >= reach {
                             continue;
@@ -421,7 +505,7 @@ impl GrainParams {
                         let near = if inv_b > 0.0 {
                             let kc = (ddx * bx + ddy * by) / bb;
                             let half = (reach * reach - perp * perp).max(0.0).sqrt() * inv_b;
-                            krange(kc - half, kc + half)
+                            chord(kc - half, kc + half)
                         } else {
                             Some((0, cols - 1))
                         };
@@ -432,17 +516,16 @@ impl GrainParams {
                                 continue;
                             }
                             let d2 = (x - gx) * (x - gx) + (y - gy) * (y - gy);
-                            if d2 >= r * r {
+                            if d2 >= reach * reach {
                                 continue;
                             }
-                            let tau = (d2.sqrt() - rho) / s;
-                            if tau >= 1.0 {
+                            let a = self.cover(&bead, x - gx, y - gy, d2);
+                            if a <= 0.0 {
                                 continue;
                             }
-                            let prof = if tau <= -1.0 { 1.0 } else { (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25 };
                             let f = if prod >= e_full { 1.0 } else { ((end + *ln_prod.get_or_insert_with(|| prod.ln())) / fw).clamp(0.0, 1.0) };
                             if let Some(kq) = keep.get_mut(q) {
-                                *kq *= 1.0 - f * height * prof;
+                                *kq *= 1.0 - f * a;
                             }
                         }
                     }
@@ -780,21 +863,23 @@ mod tests {
     fn small_pipeline_render_matches_downscaled_full_render() {
         use crate::{RenderRequest, SourceInfo, render};
         use lightcraft_raster::Rgb32f;
-        let src = Rgb32f::filled(1600, 1200, [0.18, 0.18, 0.18]);
+        // big enough that the small render's grain stands well above 8-bit rounding
+        let (w, h) = (2400, 1800);
+        let src = Rgb32f::filled(w, h, [0.18, 0.18, 0.18]);
         let info = SourceInfo::default();
-        for size in [25.0, 90.0] {
-            let s = lightcraft_develop::DevelopSettings { grain: grain(60.0, size, 50.0), ..Default::default() };
-            let full = render(&src, &info, &s, &RenderRequest::fit(1600, 1200)).image;
-            let small = render(&src, &info, &s, &RenderRequest::fit(400, 300)).image;
-            assert_eq!((small.width, small.height), (400, 300));
+        for size in [50.0, 100.0] {
+            let s = lightcraft_develop::DevelopSettings { grain: grain(100.0, size, 50.0), ..Default::default() };
+            let full = render(&src, &info, &s, &RenderRequest::fit(w, h)).image;
+            let small = render(&src, &info, &s, &RenderRequest::fit(w / 4, h / 4)).image;
+            assert_eq!((small.width, small.height), (w / 4, h / 4));
             let lum = |p: &[u8; 4]| (p[0] as f32 + p[1] as f32 + p[2] as f32) / 3.0;
-            let down: Vec<f32> = (0..400 * 300)
+            let down: Vec<f32> = (0..(w / 4) * (h / 4))
                 .map(|i| {
-                    let (x, y) = (i % 400, i / 400);
+                    let (x, y) = (i % (w / 4), i / (w / 4));
                     let mut acc = 0.0;
                     for dy in 0..4 {
                         for dx in 0..4 {
-                            acc += lum(&full.data[(y * 4 + dy) * 1600 + x * 4 + dx]);
+                            acc += lum(&full.data[(y * 4 + dy) * w + x * 4 + dx]);
                         }
                     }
                     acc / 16.0
@@ -807,6 +892,30 @@ mod tests {
             assert!((0.85..1.15).contains(&ratio), "size {size}: grain sd {} (small) vs {} (downscaled)", v1.sqrt(), v0.sqrt());
             assert!(v0.sqrt() > 0.3, "size {size}: visible grain ({})", v0.sqrt());
         }
+    }
+
+    /// Moving Roughness (or the render size) reshapes the same grains: the pattern stays put
+    /// (strongly correlated between nearby settings) instead of reshuffling, and Roughness does
+    /// change it (crisper, lumpier beads), while another seed gives an unrelated pattern.
+    #[test]
+    fn roughness_reshapes_the_same_grains() {
+        let n = 160;
+        let field = |rough: f64, seed: u32, ppl: f64| -> Vec<f32> {
+            let gp = GrainParams::new(&Grain { seed, ..grain(50.0, 100.0, rough) }, ppl).unwrap();
+            (0..n * n).map(|i| gp.field((i % n) as f32 * 0.4, (i / n) as f32 * 0.4, 0.5, seed)).collect()
+        };
+        let corr = |a: &[f32], b: &[f32]| {
+            let ((ma, va), (mb, vb)) = (stats(a), stats(b));
+            let c: f64 = a.iter().zip(b).map(|(x, y)| (*x as f64 - ma) * (*y as f64 - mb)).sum::<f64>() / a.len() as f64;
+            c / (va * vb).sqrt().max(1e-30)
+        };
+        let base = field(40.0, 3, 6000.0);
+        assert!(corr(&base, &field(60.0, 3, 6000.0)) > 0.75, "roughness 40 → 60 keeps the grains");
+        assert!(corr(&base, &field(40.0, 3, 9000.0)) > 0.75, "a bigger render keeps the grains");
+        let (smooth, rough) = (field(0.0, 3, 6000.0), field(100.0, 3, 6000.0));
+        assert!(corr(&smooth, &rough) < 0.95, "roughness changes the beads");
+        assert!(corr(&smooth, &rough) > 0.4, "but not where they are");
+        assert!(corr(&base, &field(40.0, 4, 6000.0)).abs() < 0.1, "another seed is another pattern");
     }
 
     /// Hostile settings (NaN, infinities, far out of range) and positions never panic and give
