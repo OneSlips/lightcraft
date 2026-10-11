@@ -257,6 +257,8 @@ pub struct Session {
     /// The user's point-curve presets (`curve.*`; built-ins: [`cmd::curves::builtin_presets`]),
     /// persisted in prefs.json.
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
+    /// Imported camera profiles (`.dcp`).
+    pub dcp_profiles: Vec<cmd::dcp_profiles::DcpEntry>,
     /// Saved colour-label name sets.
     pub label_sets: Vec<cmd::manage::LabelSet>,
     /// Look-alike signatures by content key (Find Similar).
@@ -373,6 +375,7 @@ impl Session {
             metadata_presets: Vec::new(),
             filter_presets: Vec::new(),
             curve_presets: Vec::new(),
+            dcp_profiles: Vec::new(),
             label_sets: Vec::new(),
             signatures: Default::default(),
             lut_profiles: Vec::new(),
@@ -983,6 +986,8 @@ mod tests_albums_local;
 mod tests_color;
 #[cfg(test)]
 mod tests_crop_angle;
+#[cfg(test)]
+mod tests_dcp;
 #[cfg(test)]
 mod tests_denoise;
 #[cfg(test)]

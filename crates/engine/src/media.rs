@@ -24,6 +24,7 @@ use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{Quality, RenderRequest, Rendered, SourceInfo, StageCache};
 use lightcraft_preview::{Hash128, Hasher128, Lru, PreviewCache};
 use lightcraft_raster::{Histogram, Rgb32f, Rgba8};
+pub use lightcraft_raw::dcp::DcpProfile;
 use serde::{Deserialize, Serialize};
 
 const SETTINGS_HASH_ENTRIES: usize = 1024;
@@ -119,7 +120,9 @@ fn source_edge_needed(p: &Photo, settings: &DevelopSettings, apply_crop: bool, o
 }
 
 /// Decodes a file into a linear Rec.2020 image no larger than `max_edge` (set by the app).
-pub type FileLoader = Arc<dyn Fn(&str, usize) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
+/// The third argument is the photo's imported camera profile ([`crate::cmd::dcp_profiles`]): a raw file is developed
+/// with its colour model.
+pub type FileLoader = Arc<dyn Fn(&str, usize, Option<&DcpProfile>) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
 
 /// A raw file's embedded (camera-rendered) preview as display sRGB, oriented, no larger than
 /// `max_edge` (set by the app). `None`: no usable preview.
@@ -142,7 +145,8 @@ pub struct DenoiseSpec {
 
 /// Decodes a raw file once and develops it twice: as usual, and from the denoised picture in `spec` when that can be
 /// read (`None` when it cannot). Both are at most `max_edge` long and the same size.
-pub type PairLoader = Arc<dyn Fn(&str, usize, &DenoiseSpec) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> + Send + Sync>;
+pub type PairLoader =
+    Arc<dyn Fn(&str, usize, &DenoiseSpec, Option<&DcpProfile>) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> + Send + Sync>;
 
 /// A photo's denoised picture next to its plain one, and the last mix of the two that was asked for.
 pub struct Twin {
@@ -172,11 +176,14 @@ pub struct DecodedSource {
     pub camera_tone: Option<lightcraft_pipeline::tone::CameraTone>,
     /// The same picture developed from the AI-denoised mosaic, when the photo has one cached.
     pub denoised: Option<Arc<Twin>>,
+    /// The imported camera profile (`dcp:…` id) the raw file was developed with, if any: a cached source made with
+    /// another one (or none) doesn't stand in for it.
+    pub camera_profile: Option<String>,
 }
 
 impl DecodedSource {
     pub fn new(image: Arc<Rgb32f>, info: Option<SourceInfo>) -> Self {
-        DecodedSource { image, info, camera_tone: None, denoised: None }
+        DecodedSource { image, info, camera_tone: None, denoised: None, camera_profile: None }
     }
 
     /// The picture to develop for a Denoise `amount` (0 to 1, see [`DevelopSettings::denoise_amount`]): the plain one,
@@ -236,6 +243,8 @@ pub enum SourceRef {
         fallback: Option<std::path::PathBuf>,
         /// The photo has a cached denoised picture: load it with the plain one (see [`PairLoader`]).
         denoise: Option<(DenoiseSpec, PairLoader)>,
+        /// The photo's imported camera profile (id and profile): its raw file is developed with it.
+        camera_profile: Option<(String, Arc<DcpProfile>)>,
     },
     /// A smart preview standing in for a missing original.
     Smart {
@@ -252,9 +261,12 @@ impl SourceRef {
         let image = match self {
             SourceRef::Loaded(a) => return Ok((**a).clone()),
             SourceRef::Demo { scene, max_edge } => crate::demo::scene_pixels(scene, *max_edge)?,
-            SourceRef::File { path, max_edge, loader, fallback, denoise } => {
+            SourceRef::File { path, max_edge, loader, fallback, denoise, camera_profile } => {
+                let dcp = camera_profile.as_ref().map(|(_, p)| p.as_ref());
+                let made_with = camera_profile.as_ref().map(|(id, _)| id.clone());
                 let plain = || match loader {
-                    Some(l) => l(path, *max_edge).map(|(image, info)| DecodedSource::new(Arc::new(image), Some(info))),
+                    Some(l) => l(path, *max_edge, dcp)
+                        .map(|(image, info)| DecodedSource { camera_profile: made_with.clone(), ..DecodedSource::new(Arc::new(image), Some(info)) }),
                     None => Err(format!("no decoder available for {path}")),
                 };
                 // the denoised picture comes with the plain one from a single decode; when it cannot be read the
@@ -268,7 +280,7 @@ impl SourceRef {
                             None => true,
                         };
                         if made {
-                            pair(path, *max_edge, spec).and_then(|(image, twin, info)| {
+                            pair(path, *max_edge, spec, dcp).and_then(|(image, twin, info)| {
                                 if spec.make.is_some() && twin.is_none() {
                                     return Err("the cached AI Denoise picture could not be read; clear the denoise cache and retry".into());
                                 }
@@ -277,6 +289,7 @@ impl SourceRef {
                                     info: Some(info),
                                     camera_tone: None,
                                     denoised: twin.map(|t| Arc::new(Twin::new(Arc::new(t)))),
+                                    camera_profile: made_with.clone(),
                                 })
                             })
                         } else {
@@ -334,6 +347,8 @@ pub struct MediaCache {
     pub rendered: Arc<PreviewCache>,
     /// Which photos have a cached denoised picture, and how to read it.
     pub denoise: DenoiseIndex,
+    /// Imported camera profiles by id ([`crate::cmd::dcp_profiles`]), handed to the decoder of photos using them.
+    pub camera_profiles: std::collections::HashMap<String, Arc<DcpProfile>>,
 }
 
 /// The photos that have a cached denoised picture for the denoise model in use. Only memory: nothing here touches the
@@ -402,6 +417,7 @@ impl Default for MediaCache {
             scenes: Vec::new(),
             rendered: Arc::new(PreviewCache::memory(rendered_budget(budget))),
             denoise: DenoiseIndex::default(),
+            camera_profiles: HashMap::new(),
         }
     }
 }
@@ -622,7 +638,12 @@ impl MediaCache {
     }
 
     fn source_ref_plain(&mut self, p: &Photo, level: SourceLevel, cached: bool) -> SourceRef {
-        if cached && let Some(a) = self.get_source(p.id, level) {
+        let wanted = self.camera_profile_of(p);
+        // (a source developed with another camera profile, or none, doesn't stand in)
+        if cached
+            && let Some(a) = self.get_source(p.id, level)
+            && a.camera_profile == wanted.as_ref().map(|(id, _)| id.clone())
+        {
             return SourceRef::Loaded(Box::new(a));
         }
         // Procedural scenes have a nominal size: "full" is that size, not unbounded.
@@ -644,12 +665,26 @@ impl MediaCache {
                 return SourceRef::Smart { path: sp };
             }
             let mut r = self.origin_ref(&p.source, max_edge);
-            if let SourceRef::File { fallback, .. } = &mut r {
+            if let SourceRef::File { fallback, camera_profile, .. } = &mut r {
                 *fallback = Some(sp);
+                *camera_profile = wanted;
             }
             return r;
         }
-        self.origin_ref(&p.source, max_edge)
+        let mut r = self.origin_ref(&p.source, max_edge);
+        if let SourceRef::File { camera_profile, .. } = &mut r {
+            *camera_profile = wanted;
+        }
+        r
+    }
+
+    /// The imported camera profile photo `p` develops with: its profile setting names one this library has.
+    pub fn camera_profile_of(&self, p: &Photo) -> Option<(String, Arc<DcpProfile>)> {
+        let id = &p.develop.profile.id;
+        if !crate::cmd::dcp_profiles::is_dcp_id(id) {
+            return None;
+        }
+        self.camera_profiles.get(id).map(|d| (id.clone(), d.clone()))
     }
 
     /// How to load `origin` at most `max_edge` pixels long, ignoring decoded sources in memory (a
@@ -662,12 +697,19 @@ impl MediaCache {
                 }
                 match self.scenes.iter().find(|s| s.id == *scene) {
                     Some(s) => SourceRef::Demo { scene: Box::new(s.clone()), max_edge },
-                    None => SourceRef::File { path: format!("demo:{scene}"), max_edge, loader: None, fallback: None, denoise: None },
+                    None => {
+                        SourceRef::File { path: format!("demo:{scene}"), max_edge, loader: None, fallback: None, denoise: None, camera_profile: None }
+                    }
                 }
             }
-            Source::File { path } => {
-                SourceRef::File { path: path.clone(), max_edge, loader: self.file_loader.clone(), fallback: None, denoise: None }
-            }
+            Source::File { path } => SourceRef::File {
+                path: path.clone(),
+                max_edge,
+                loader: self.file_loader.clone(),
+                fallback: None,
+                denoise: None,
+                camera_profile: None,
+            },
         }
     }
 }
@@ -1571,7 +1613,7 @@ mod thumbnail_hash_tests {
     #[test]
     fn source_from_before_content_reload_is_not_accepted() {
         let mut s = session();
-        s.media.file_loader = Some(Arc::new(|_, _| Ok((Rgb32f::new(8, 8), SourceInfo::default()))));
+        s.media.file_loader = Some(Arc::new(|_, _, _| Ok((Rgb32f::new(8, 8), SourceInfo::default()))));
         let old = s.thumb_job(PhotoId(1), 256).unwrap().run();
         assert!(old.loaded.is_some());
         s.catalog
@@ -1640,13 +1682,14 @@ mod tests {
         job.source = SourceRef::File {
             path: "synthetic.arw".into(),
             max_edge: 64,
-            loader: Some(Arc::new(move |_, _| {
+            loader: Some(Arc::new(move |_, _, _| {
                 let mut image = Rgb32f::new(64, 64);
                 image.data.fill([0.1; 3]);
                 Ok((image, loaded_info.clone()))
             })),
             fallback: None,
             denoise: None,
+            camera_profile: None,
         };
         job.info = SourceInfo::default(); // Header facts cannot override decoder facts.
         job.settings = Arc::new(DevelopSettings::default());
@@ -1699,9 +1742,10 @@ mod tests {
         job.source = SourceRef::File {
             path: "/photos/DSC00001.ARW".into(),
             max_edge: 64,
-            loader: Some(Arc::new(move |_, _| Ok((loaded_pixels.clone(), loaded_info.clone())))),
+            loader: Some(Arc::new(move |_, _, _| Ok((loaded_pixels.clone(), loaded_info.clone())))),
             fallback: None,
             denoise: None,
+            camera_profile: None,
         };
         let undo_before = s.undo.len();
         let request = job.request;
