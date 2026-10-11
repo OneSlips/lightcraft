@@ -844,13 +844,8 @@ impl RenderJob {
 /// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB (see
 /// `docs/gpu-pipeline.md`); `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
 pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
-    // LUT profiles have no GPU stage: they render on the CPU
-    if gpu
-        && !lightcraft_pipeline::lut::is_lut_profile(&s.profile.id)
-        && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
-        && req.proof.is_none()
-        && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages)
-    {
+    // (LUT profiles, Refine Edges and soft proofs render on the GPU too)
+    if gpu && let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
         return r;
     }
     match stages {

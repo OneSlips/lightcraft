@@ -255,6 +255,11 @@ fn constants() -> String {
     use lightcraft_pipeline::masks::{AUTO_TOL_CHROMA, AUTO_TOL_EV};
     s += &format!("const AUTO_TOL_EV: f32 = {AUTO_TOL_EV:?};\nconst AUTO_TOL_CHROMA: f32 = {AUTO_TOL_CHROMA:?};\n");
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
+    s += &format!("const GAMUT_WARN: f32 = {:?};\n", lightcraft_pipeline::finish::GAMUT_WARN);
+    use lightcraft_pipeline::output::{PROOF_DEST_WARNING, PROOF_DISPLAY_WARNING};
+    for (name, c) in [("PROOF_DEST", PROOF_DEST_WARNING), ("PROOF_DISP", PROOF_DISPLAY_WARNING)] {
+        s += &format!("const {name}_R: f32 = {:?};\nconst {name}_G: f32 = {:?};\nconst {name}_B: f32 = {:?};\n", c[0], c[1], c[2]);
+    }
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
     }
