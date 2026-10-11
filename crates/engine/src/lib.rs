@@ -241,6 +241,9 @@ pub struct Session {
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Mask effect presets (the Masking panel's Effect menu).
     pub mask_effects: Vec<cmd::mask_effects::MaskEffect>,
+    /// The effect a new mask of each kind (`brush`, `linear`…) starts with: the one last applied
+    /// to a mask of that kind.
+    pub mask_tool_effects: std::collections::BTreeMap<String, String>,
     /// Imported camera profiles (`.dcp`).
     pub dcp_profiles: Vec<cmd::dcp_profiles::DcpEntry>,
     /// Saved colour-label name sets.
@@ -344,6 +347,7 @@ impl Session {
             filter_presets: Vec::new(),
             curve_presets: Vec::new(),
             mask_effects: Vec::new(),
+            mask_tool_effects: Default::default(),
             dcp_profiles: Vec::new(),
             label_sets: Vec::new(),
             signatures: Default::default(),
@@ -900,6 +904,8 @@ mod tests_keyword_list;
 mod tests_libops;
 #[cfg(test)]
 mod tests_library;
+#[cfg(test)]
+mod tests_mask_effects;
 #[cfg(test)]
 mod tests_merge;
 #[cfg(test)]
