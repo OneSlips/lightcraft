@@ -137,9 +137,6 @@ fn new_brush_starts_a_separate_mask_in_paint_mode() {
 fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
     use lightcraft_pipeline::Overlay;
     let mut h = detail("panel.masking");
-    // tall enough for the Exposure slider below the Effect menu to be on screen
-    let r = h.request("ui.resize", json!({"width": 1200, "height": 1000}), T);
-    assert_eq!(r["ok"], true, "{r}");
     exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
     assert!(h.app.ui.mask_overlay);
 
