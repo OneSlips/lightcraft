@@ -229,5 +229,16 @@
   "1 task is still running: {names}. Quitting stops it.": "1 завдання ще виконується: {names}. Вихід зупинить його.",
   "{n} tasks are still running: {names}. Quitting stops them.": "Ще виконуються завдання ({n}): {names}. Вихід зупинить їх.",
   "{what} merge cancelled": "Об’єднання {what} скасовано",
-  "Imported {e} mask effect{} (Masking ▸ Effect)": "Імпортовано ефектів маски: {e}{:.0} (Маски → Ефект)"
+  "Imported {e} mask effect{} (Masking ▸ Effect)": "Імпортовано ефектів маски: {e}{:.0} (Маски → Ефект)",
+  " in {g} group{}": " у групах: {g}{:.0}",
+  " — kept but not applied: {}": " — збережено, але не застосовується: {}",
+  "Delete {n} effect preset{}? This can't be undone.": "Видалити пресети ефектів ({n})?{:.0} Це не можна скасувати.",
+  " · kept, not applied: {}": " · збережено, не застосовується: {}",
+  "{n} preset{}": "Пресетів: {n}{:.0}",
+  "Apply to “{mask}” on Selected Photos": "Застосувати до «{mask}» на вибраних фото",
+  "Effect: {name}": "Ефект: {name}",
+  "Update “{name}” with Current Settings": "Оновити «{name}» поточними налаштуваннями",
+  "Delete the effect preset “{name}”?": "Видалити пресет ефекту «{name}»?",
+  "Delete these {n} effect presets?": "Видалити ці пресети ефектів ({n})?",
+  "Exported {} effect preset{}": "Експортовано пресетів ефектів: {}{:.0}"
 }

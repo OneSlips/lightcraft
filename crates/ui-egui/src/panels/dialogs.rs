@@ -112,6 +112,10 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::Merge { opts } => opts.title(),
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
+        Dialog::SaveEffect { .. } => "New Effect Preset",
+        Dialog::ManageEffects { .. } => "Manage Effect Presets",
+        Dialog::DeleteEffects { names } if names.len() == 1 => "Delete Effect Preset",
+        Dialog::DeleteEffects { .. } => "Delete Effect Presets",
         Dialog::RemoveFolder { disk: true, .. } => "Remove Disk from Library",
         Dialog::RemoveFolder { .. } => "Remove Folder from Library",
         Dialog::SynchronizeFolder { .. } => "Synchronize Folder",
@@ -140,6 +144,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             Dialog::SmartRules { .. } => 680.0,
             Dialog::AllMetadata { .. } => 620.0,
             Dialog::FaceModel { .. } => 460.0,
+            Dialog::ManageEffects { .. } => 560.0,
             _ => 380.0,
         })
         .show(ctx, |ui| {
@@ -876,6 +881,22 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         .color(t.text_dim),
                     );
                 }
+                Dialog::SaveEffect { name, group, fields, amount, brush } => {
+                    if crate::panels::mask_effects::save_body(app, ui, name, group, fields, amount, brush) {
+                        confirm = true;
+                    }
+                }
+                Dialog::ManageEffects { search, selected, rename, confirm_delete, new_group } => {
+                    crate::panels::mask_effects::manage_body(app, ui, search, selected, rename, confirm_delete, new_group)
+                }
+                Dialog::DeleteEffects { names } => {
+                    let what = match names.as_slice() {
+                        [one] => crate::i18n::tr_format!("Delete the effect preset “{name}”?", name = one),
+                        _ => crate::i18n::tr_format!("Delete these {n} effect presets?", n = names.len()),
+                    };
+                    ui.label(what);
+                    ui.label(egui::RichText::new(crate::i18n::tr("Masks keep their sliders. Export presets first to keep a copy.")).color(t.text_dim));
+                }
                 Dialog::ConfirmDelete { count } => {
                     let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
                     ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
@@ -950,7 +971,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             ui.horizontal(|ui| {
                 // a model file LightCraft cannot use has nothing to confirm
                 let unusable_model = matches!(&dlg, Dialog::DenoiseModel { info, .. } | Dialog::FaceModel { info, .. } if info["kind"] == "unsupported");
-                let informational = unusable_model || matches!(dlg, Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. });
+                let informational = unusable_model || matches!(dlg, Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } | Dialog::ManageEffects { .. });
                 let sam = &app.session.segmenter;
                 let (sam_installed, sam_running, sam_failed) = (sam.installed(), sam.download_status().running, sam.download_status().error.is_some());
                 // no download location in this build: nothing to offer but the manual install
@@ -981,7 +1002,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::DenoiseModel { .. } => "Install",
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
                     Dialog::FaceModel { .. } if !informational => "Install",
-                    Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } => "Delete",
+                    Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
+                    Dialog::SaveEffect { .. } => "Create",
                     // (not "Merge": that is photo merging, HDR / panorama, in some languages)
                     Dialog::MoveKeyword { .. } => "Merge Keywords",
                     Dialog::KeywordSet { .. } => "Save",
@@ -1046,6 +1068,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         | Dialog::KeywordTag { .. }
                         | Dialog::KeywordSet { .. }
                         | Dialog::SynchronizeFolder { .. }
+                        | Dialog::SaveEffect { .. }
                 ) =>
             {
                 app.toast(ctx, e)
@@ -1370,9 +1393,13 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
+        Dialog::SaveEffect { name, group, fields, amount, brush } => {
+            crate::panels::mask_effects::save_confirm(app, name, group, fields, *amount, *brush)
+        }
+        Dialog::DeleteEffects { names } => app.run("mask.deleteEffect", json!({"names": names})),
         Dialog::RemoveFolder { path, disk, .. } => app.run("library.removeFolder", json!({"path": path, "disk": disk})),
         d @ Dialog::SynchronizeFolder { .. } => crate::sync::confirm(app, d),
-        Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } => Ok(serde_json::Value::Null),
+        Dialog::About | Dialog::Shortcuts | Dialog::Settings { .. } | Dialog::ManageEffects { .. } => Ok(serde_json::Value::Null),
     }
 }
 

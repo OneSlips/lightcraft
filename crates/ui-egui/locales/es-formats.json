@@ -229,5 +229,16 @@
   "1 task is still running: {names}. Quitting stops it.": "1 tarea sigue en curso: {names}. Salir la detiene.",
   "{n} tasks are still running: {names}. Quitting stops them.": "{n} tareas siguen en curso: {names}. Salir las detiene.",
   "{what} merge cancelled": "Combinación {what} cancelada",
-  "Imported {e} mask effect{} (Masking ▸ Effect)": "{e} efecto(s) de máscara importado(s){:.0} (Máscaras → Efecto)"
+  "Imported {e} mask effect{} (Masking ▸ Effect)": "{e} efecto(s) de máscara importado(s){:.0} (Máscaras → Efecto)",
+  " in {g} group{}": " en {g} grupo(s){:.0}",
+  " — kept but not applied: {}": " — se conservan pero no se aplican: {}",
+  "Delete {n} effect preset{}? This can't be undone.": "¿Eliminar {n} ajuste(s) preestablecido(s) de efecto?{:.0} No se puede deshacer.",
+  " · kept, not applied: {}": " · conservado, no aplicado: {}",
+  "{n} preset{}": "{n} ajuste(s){:.0}",
+  "Apply to “{mask}” on Selected Photos": "Aplicar a «{mask}» en las fotos seleccionadas",
+  "Effect: {name}": "Efecto: {name}",
+  "Update “{name}” with Current Settings": "Actualizar «{name}» con los ajustes actuales",
+  "Delete the effect preset “{name}”?": "¿Eliminar el ajuste preestablecido de efecto «{name}»?",
+  "Delete these {n} effect presets?": "¿Eliminar estos {n} ajustes preestablecidos de efecto?",
+  "Exported {} effect preset{}": "Ajustes de efecto exportados: {}{:.0}"
 }

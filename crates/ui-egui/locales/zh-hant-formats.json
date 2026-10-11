@@ -229,5 +229,16 @@
   "1 task is still running: {names}. Quitting stops it.": "仍有 1 個工作在執行：{names}。結束將停止它。",
   "{n} tasks are still running: {names}. Quitting stops them.": "仍有 {n} 個工作在執行：{names}。結束將停止它們。",
   "{what} merge cancelled": "已取消{what}合併",
-  "Imported {e} mask effect{} (Masking ▸ Effect)": "已匯入 {e} 個遮色片效果{:.0}（遮色片 → 效果）"
+  "Imported {e} mask effect{} (Masking ▸ Effect)": "已匯入 {e} 個遮色片效果{:.0}（遮色片 → 效果）",
+  " in {g} group{}": "（{g} 個群組）{:.0}",
+  " — kept but not applied: {}": " — 已保留但未套用：{}",
+  "Delete {n} effect preset{}? This can't be undone.": "刪除 {n} 個效果預設集？{:.0}此動作無法復原。",
+  " · kept, not applied: {}": " · 已保留，未套用：{}",
+  "{n} preset{}": "{n} 個預設集{:.0}",
+  "Apply to “{mask}” on Selected Photos": "套用到所選照片的「{mask}」",
+  "Effect: {name}": "效果：{name}",
+  "Update “{name}” with Current Settings": "以目前設定更新「{name}」",
+  "Delete the effect preset “{name}”?": "刪除效果預設集「{name}」？",
+  "Delete these {n} effect presets?": "刪除這 {n} 個效果預設集？",
+  "Exported {} effect preset{}": "已匯出 {} 個效果預設集{:.0}"
 }

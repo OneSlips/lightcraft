@@ -67,6 +67,8 @@ mod tests_labels;
 #[cfg(test)]
 mod tests_library_problem;
 #[cfg(test)]
+mod tests_mask_effects;
+#[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
 mod tests_masking_layout;

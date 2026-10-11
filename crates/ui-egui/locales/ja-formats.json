@@ -229,5 +229,16 @@
   "1 task is still running: {names}. Quitting stops it.": "1件のタスクが実行中です：{names}。終了すると停止します。",
   "{n} tasks are still running: {names}. Quitting stops them.": "{n}件のタスクが実行中です：{names}。終了すると停止します。",
   "{what} merge cancelled": "{what}合成をキャンセルしました",
-  "Imported {e} mask effect{} (Masking ▸ Effect)": "マスク効果を{e}件読み込みました{:.0}（マスク → 効果）"
+  "Imported {e} mask effect{} (Masking ▸ Effect)": "マスク効果を{e}件読み込みました{:.0}（マスク → 効果）",
+  " in {g} group{}": "（{g}グループ）{:.0}",
+  " — kept but not applied: {}": " — 保持（適用なし）：{}",
+  "Delete {n} effect preset{}? This can't be undone.": "効果プリセット{n}件を削除しますか？{:.0}元に戻せません。",
+  " · kept, not applied: {}": " · 保持（適用なし）：{}",
+  "{n} preset{}": "{n}件のプリセット{:.0}",
+  "Apply to “{mask}” on Selected Photos": "選択した写真の「{mask}」に適用",
+  "Effect: {name}": "効果：{name}",
+  "Update “{name}” with Current Settings": "「{name}」を現在の設定で更新",
+  "Delete the effect preset “{name}”?": "効果プリセット「{name}」を削除しますか？",
+  "Delete these {n} effect presets?": "これらの効果プリセット{n}件を削除しますか？",
+  "Exported {} effect preset{}": "効果プリセットを{}件書き出しました{:.0}"
 }
