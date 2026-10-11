@@ -2239,6 +2239,30 @@ mod tests {
         assert_ne!(h.app.session.active(), Some(first), "advanced");
     }
 
+    /// The Effects panel's grain sliders include colour grain and the tone response, which drive
+    /// the photo's settings like any develop control.
+    #[test]
+    fn grain_colour_and_response_sliders() {
+        // tall enough for the Effects panel's last slider without scrolling
+        let mut h = demo([1300.0, 1600.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail", "right": "edit"}), t);
+        let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"values": {"grain.amount": 40.0}}}), t);
+        assert_eq!(r["ok"], true, "{r}");
+        // only the Effects section open, so its sliders are on screen
+        h.app.ui.open_sections = vec!["effects".to_string()];
+        h.settle(SETTLE);
+        let grain = |h: &Headless| h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().grain;
+        for (id, text) in [("grain.response", "-30"), ("grain.color", "25")] {
+            assert_eq!(h.request("ui.clickWidget", json!({"id": format!("sliderValue:{id}")}), t)["ok"], true, "{id} is in the panel");
+            h.request("ui.text", json!({"text": text}), t);
+            h.request("ui.key", json!({"key": "Enter"}), t);
+            h.step();
+        }
+        let g = grain(&h);
+        assert_eq!((g.amount, g.color, g.response), (40.0, 25.0, -30.0));
+    }
+
     /// Click a slider's value and type one (issue #322): Return sets it as one undo step, Esc
     /// keeps the old value, and the keys typed don't reach the shortcuts (1 = one star).
     #[test]

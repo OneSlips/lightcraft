@@ -60,10 +60,20 @@ const FIELDS: &[(&str, usize)] = &[
     // the window's offset in the whole output and the whole output's size (pixels)
     ("VIG_VIEW", 4),
     ("GRAIN", 1),
-    ("GRAIN_AMT", 1),
-    ("GRAIN_SC", 1),
-    ("GRAIN_ROUGH", 1),
+    ("GRAIN_AMP", 1),
+    ("GRAIN_INV_R", 1),
+    ("GRAIN_S", 1),
+    ("GRAIN_DISP", 1),
+    ("GRAIN_AREA", 1),
+    ("GRAIN_SUPPORT", 1),
+    ("GRAIN_CELL", 1),
+    ("GRAIN_KAPPA", 1),
+    ("GRAIN_WF", 1),
+    ("GRAIN_WN", 1),
+    ("GRAIN_COLOR", 1),
+    ("GRAIN_GAMMA", 1),
     ("GRAIN_SEED", 1),
+    ("GRAIN_PPL", 1),
     ("GRAIN_AFF", 6),
     ("REFINE_SAT", 1),
     ("CALIB", 1),
@@ -267,12 +277,22 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.b("PROOF_DEST_WARN", pp.dest_warning);
         p.b("PROOF_DISP_WARN", pp.display_warning);
     }
-    if let Some((amt, cell, rough, seed)) = fp.grain {
+    if let Some(g) = fp.grain {
         p.b("GRAIN", true);
-        p.f("GRAIN_AMT", amt);
-        p.f("GRAIN_SC", fp.px_per_long as f32 / cell);
-        p.f("GRAIN_ROUGH", rough);
-        p.u("GRAIN_SEED", seed);
+        p.f("GRAIN_AMP", g.amp);
+        p.f("GRAIN_INV_R", g.inv_r);
+        p.f("GRAIN_S", g.s);
+        p.f("GRAIN_DISP", g.disp);
+        p.f("GRAIN_AREA", g.area);
+        p.f("GRAIN_SUPPORT", g.support);
+        p.f("GRAIN_CELL", g.cell);
+        p.f("GRAIN_KAPPA", g.kappa);
+        p.f("GRAIN_WF", g.w_field);
+        p.f("GRAIN_WN", g.w_noise);
+        p.f("GRAIN_COLOR", g.color);
+        p.f("GRAIN_GAMMA", g.gamma);
+        p.u("GRAIN_SEED", g.seed);
+        p.f("GRAIN_PPL", g.px_per_long);
         let long = fp.ow.max(fp.oh);
         let [a, b, c, d, e, f] = fp.out_to_norm.0;
         let (kx, ky) = (fp.ow / long, fp.oh / long);

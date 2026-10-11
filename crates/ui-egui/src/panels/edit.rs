@@ -288,7 +288,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             control(app, ui, d, c, enabled);
         }
         sub_title(ui, crate::i18n::tr("Grain"));
-        for c in ["grain.amount", "grain.size", "grain.roughness"] {
+        for c in ["grain.amount", "grain.size", "grain.roughness", "grain.color", "grain.response"] {
             control(app, ui, d, c, c == "grain.amount" || d.grain.amount != 0.0);
         }
         ui.add_space(8.0);
