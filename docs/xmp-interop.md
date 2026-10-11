@@ -217,7 +217,9 @@ files, e.g. made with a colour-checker tool — as camera profiles (`dcp:<camera
 listed by `profiles.camera`). Read per DNG specification chapter 6 (`crates/raw/src/dcp.rs`): `ProfileName`,
 `UniqueCameraModel`, `CalibrationIlluminant1/2`, `ColorMatrix1/2`, `ForwardMatrix1/2`, `ProfileHueSatMap*`,
 `ProfileLookTable*`, `ProfileToneCurve` and `BaselineExposureOffset`. Choosing one (`develop.profile {id}`) replaces a raw
-file's colour model when it is decoded — the file's own white balance, analog balance and baseline exposure stay — so the
+file's colour model when it is decoded — the file's own white balance, analog balance and baseline exposure stay, and a
+profile without a `ProfileToneCurve` (most chart-made ones) keeps the photo's own contrast: the DNG's tone curve, else the
+tone of the look fitted to its camera JPEG — so the
 photo's source is decoded again when its profile changes; rendered (non-raw) photos ignore it. Smart previews and the
 web build's render worker keep the file's own colour. A library on disk keeps a copy of each file in `Profiles/`;
 `profile.deleteCamera` (or `profile.deleteImported`) removes one. No profile ships with LightCraft, and the repository

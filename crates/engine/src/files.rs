@@ -380,6 +380,19 @@ fn load_bytes_now(
         let info = raw.info();
         let lens = embedded_lens(&info);
         raw.opcodes.list3.retain(|op| !op.is_lens_correction());
+        // A camera profile without a tone curve of its own (most chart-made ones: a matrix, maybe a hue/saturation map)
+        // keeps the contrast the photo has without it: the file's own DNG tone curve, else the tone of the look fitted
+        // to its camera JPEG. (A chart pins colour, not a rendering: its curve would be a choice, and this one is the
+        // camera's.)
+        let kept_tone = match dcp {
+            Some(p) if p.color.profile.tone_curve.is_none() => raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve).or_else(|| {
+                let own = raw.color.clone();
+                let tone = crate::camera_preview::starting_colour(&mut raw, &bytes).2.map(|look| look.tone);
+                raw.color = own;
+                tone
+            }),
+            _ => None,
+        };
         // An imported camera profile replaces the file's colour model (its matrices and look; the shot's white stays), so
         // the starting colour below comes from it, not from a fitted or built-in look.
         if let Some(p) = dcp {
@@ -461,7 +474,8 @@ fn load_bytes_now(
             let tags = lightcraft_raw::ColorData { profile: Default::default(), ..raw.color.clone() };
             Arc::new(lightcraft_pipeline::CameraColor { tags, developed_for: xy })
         });
-        let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
+        let camera_tone =
+            camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve)).or(kept_tone);
         let local_tone = local_tone(&raw);
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
         return Ok((

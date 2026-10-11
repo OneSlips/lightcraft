@@ -51,6 +51,26 @@ fn a_camera_profile_replaces_the_raw_colour_model_when_decoding() {
 }
 
 #[test]
+fn a_profile_without_a_tone_curve_keeps_the_photos_contrast() {
+    use lightcraft_raw::profile::ToneCurve;
+    // a DNG with a tone curve of its own (our numbers: 18 % grey → 30 %)
+    let plain = crate::tests_xmp::synthetic_dng_with(None, Default::default());
+    let mut raw = lightcraft_raw::decode(&plain).unwrap();
+    raw.color.profile.tone_curve = ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]);
+    let dng = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
+    // a chart-style profile (no curve) keeps the file's curve
+    let (_, info) = crate::files::load_bytes_with(&dng, 64, Some(&swapping_profile("Swap"))).unwrap();
+    let tone = info.camera_tone.expect("the file's tone curve stays");
+    assert!((tone.apply(0.18) - 0.3).abs() < 0.01, "{}", tone.apply(0.18));
+    // a profile with a curve of its own uses that one (18 % → 45 %)
+    let mut curved = swapping_profile("Curved");
+    curved.color.profile.tone_curve = ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.45, 1.0, 1.0]);
+    let (_, info) = crate::files::load_bytes_with(&dng, 64, Some(&curved)).unwrap();
+    let tone = info.camera_tone.expect("the profile's tone curve");
+    assert!((tone.apply(0.18) - 0.45).abs() < 0.01, "{}", tone.apply(0.18));
+}
+
+#[test]
 fn import_choose_cache_persist_and_delete() {
     let dir = temp_dir("session");
     let (lib, files) = (dir.join("lib"), dir.join("files"));
