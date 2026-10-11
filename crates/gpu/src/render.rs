@@ -1265,7 +1265,11 @@ mod tests {
     fn auto_source_picks_the_cpu_candidate() {
         // (creating the device writes the crash sentinel another test swaps out)
         let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(gpu) = crate::device() else { return };
+        let Some(gpu) = crate::device() else {
+            let why = crate::unavailable_reason().unwrap_or_default();
+            assert!(!why.contains("kernels failed to build"), "{why}");
+            return;
+        };
         let _scope = crate::ctx::RenderScope::new(gpu);
         let img = lightcraft_scenes::demo_library()[3].render(640, 427);
         let buf = gpu.upload(rgb_words(&img));
