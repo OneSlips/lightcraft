@@ -46,6 +46,15 @@
   in, instead of moving it back to Program Files (issue #399). If that folder has been deleted since, the upgrade
   installs to Program Files.
 
+### More of the rendering on the GPU
+- LUT profiles, masks with Refine Edges and soft proofing render on the GPU (they used to send the whole render to the
+  CPU), and so do spot removal, defringe and the histogram (they used to bounce the image through the CPU mid-render).
+  Results match the CPU within 1 level in 8 bits.
+- Grid, filmstrip, preset and profile thumbnails render on the GPU once it is ready (about a quarter faster on an RTX
+  5070, and the CPU stays free for decoding raws).
+- While a slider is dragged, the loupe is drawn straight from the GPU: rendering and drawing share the window's
+  graphics device, so drafts are never copied to memory and back (`LIGHTCRAFT_GPU_WINDOW=0` turns this off).
+
 ## 2026-10-10
 
 ### Dialogs fit the window

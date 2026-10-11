@@ -213,6 +213,20 @@ impl<'a> Cx<'a> {
         enc.copy_buffer_to_buffer(src.raw(), 0, dst.raw(), (offset * 4) as u64, (src.len * 4) as u64);
     }
 
+    /// Copy `w × h` texels from `b` (rows of `stride` 32-bit texels, a multiple of 64) into
+    /// `texture` (recorded).
+    pub fn copy_to_texture(&mut self, b: &Buf, stride: usize, texture: &wgpu::Texture, w: usize, h: usize) {
+        let enc = self.enc.get_or_insert_with(|| self.gpu.encoder());
+        enc.copy_buffer_to_texture(
+            wgpu::TexelCopyBufferInfo {
+                buffer: b.raw(),
+                layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some((stride * 4) as u32), rows_per_image: Some(h as u32) },
+            },
+            wgpu::TexelCopyTextureInfo { texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+        );
+    }
+
     pub fn read_rgb(&mut self, b: &Buf, w: usize, h: usize) -> Rgb32f {
         Rgb32f { width: w, height: h, data: self.read(b, w * h * 3) }
     }
@@ -570,8 +584,34 @@ pub(crate) fn profiling() -> bool {
     *ON.get_or_init(|| std::env::var_os("LIGHTCRAFT_PROFILE").is_some())
 }
 
-/// Render on `gpu`, reusing `stages` (if given). `None` (or a result the caller discards) when the
-/// render failed: the reason is recorded with [`crate::ctx::fail`].
+/// A finished render on the window's device, ready to draw: an `Rgba8Unorm` texture (the 8-bit
+/// output, sRGB-curve encoded, as egui's own textures) that never went through host memory.
+#[derive(Clone, Debug)]
+pub struct DisplayFrame {
+    pub texture: wgpu::Texture,
+    pub width: usize,
+    pub height: usize,
+}
+
+/// What a render produced: pixels in host memory, or (asked for with `display` and possible) a
+/// texture on the window's device plus the histogram.
+pub enum Output {
+    Image(Rendered),
+    Display { frame: DisplayFrame, histogram: Histogram },
+}
+
+/// Whether a render of this plan can end in a texture instead of a readback: the device is the
+/// window's, nothing is drawn over the image on the CPU (overlays) or cut from it (a window that
+/// spots grew), and the texture fits the device.
+fn can_display(gpu: &Gpu, plan: &Plan<'_>, req: &RenderRequest) -> bool {
+    let max = gpu.device.limits().max_texture_dimension_2d as usize;
+    gpu.window && req.overlay == lightcraft_pipeline::Overlay::None && plan.keep.is_none() && plan.w <= max && plan.h <= max && plan.w * plan.h > 0
+}
+
+/// Render on `gpu`, reusing `stages` (if given); with `display`, into a texture when
+/// [`can_display`]. `None` (or a result the caller discards) when the render failed: the reason is
+/// recorded with [`crate::ctx::fail`].
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     gpu: &Gpu,
     src: &Arc<Rgb32f>,
@@ -580,7 +620,8 @@ pub fn render(
     req: &RenderRequest,
     stages: Option<&GpuStages>,
     fault: Option<crate::Fault>,
-) -> Option<Rendered> {
+    display: bool,
+) -> Option<Output> {
     let mut t = profiling().then(std::time::Instant::now);
     // Each stage is submitted on its own; under `LIGHTCRAFT_PROFILE` also waited for, so the
     // timings are real.
@@ -705,6 +746,9 @@ pub fn render(
             groups2(w, rows.min(h - y0), [16, 16]),
         );
     }
+    if display && can_display(gpu, &plan, req) {
+        return to_texture(&mut cx, &out, w, h).map(|(frame, histogram)| Output::Display { frame, histogram });
+    }
     // the alpha a mask overlay shows: copied out before the readback below submits
     let overlay_mask = req.overlay.mask(s).map(|m| {
         let list = s.masks.iter().filter(|m| m.visible && !m.components.is_empty());
@@ -751,7 +795,53 @@ pub fn render(
     if let Some(k) = plan.keep {
         image = image.crop(k.x, k.y, k.w, k.h);
     }
-    Some(Rendered { image, histogram, deep: None })
+    Some(Output::Image(Rendered { image, histogram, deep: None }))
+}
+
+/// The finished output `out` (`w × h` packed RGBA8) as a texture on the device, with its
+/// histogram; the same checks as a readback (every pixel written, not entirely black), done on
+/// the device: only the histogram and a pixel count come back.
+fn to_texture(cx: &mut Cx<'_>, out: &Buf, w: usize, h: usize) -> Option<(DisplayFrame, Histogram)> {
+    let n = w * h;
+    let unwritten = cx.zeroed(1);
+    cx.run("unwritten", &[n as u32], &[Some(out), None, Some(&unwritten)], groups1(n));
+    let histogram = histogram(cx, out, w, (0, 0, w, h));
+    let left = cx.read::<u32>(&unwritten, 1).first().copied().unwrap_or(0);
+    if crate::ctx::failed() {
+        return None;
+    }
+    if left > 0 {
+        fail(FailKind::Fatal, format!("the GPU returned an incomplete image ({left} of {n} pixels unwritten)"));
+        return None;
+    }
+    if n >= 4096 && [&histogram.r, &histogram.g, &histogram.b].iter().all(|c| c.first() == Some(&histogram.total)) {
+        fail(FailKind::Blank, "the GPU result is entirely black; rendering it on the CPU to be sure".into());
+        return None;
+    }
+    // texture copies take rows of a multiple of 256 bytes: pad them unless they already are
+    let stride = w.next_multiple_of(64);
+    let padded = (stride != w).then(|| {
+        let b = cx.gpu.buffer(stride * h);
+        cx.run("pad_rows", &[w as u32, h as u32, stride as u32], &[Some(out), Some(&b), None], groups2(w, h, [16, 16]));
+        b
+    });
+    let texture = cx.gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("lightcraft view"),
+        size: wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        // (COPY_SRC: a screenshot or a test can read it back)
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    cx.copy_to_texture(padded.as_ref().unwrap_or(out), stride, &texture, w, h);
+    cx.flush();
+    if crate::ctx::failed() {
+        return None;
+    }
+    Some((DisplayFrame { texture, width: w, height: h }, histogram))
 }
 
 /// Pixels whose alpha is not 255 (cheap: no early exit, so it vectorizes).
