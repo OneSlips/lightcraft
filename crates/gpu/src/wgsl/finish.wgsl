@@ -281,17 +281,22 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
     let c = pf(F_GRAIN_CELL);
     let s = pf(F_GRAIN_S);
     let disp = pf(F_GRAIN_DISP);
-    let i0 = i32(floor((x - r) / c));
-    let j0 = i32(floor((y - r) / c));
-    let i1 = min(i32(floor((x + r) / c)), i0 + GRAIN_MAX_REACH);
-    let j1 = min(i32(floor((y + r) / c)), j0 + GRAIN_MAX_REACH);
+    // the cells within reach, as a start and a bounded count (never a loop up to i32::MAX)
+    let fi0 = floor((x - r) / c);
+    let fj0 = floor((y - r) / c);
+    let i0 = i32(clamp(fi0, -2.0e9, 2.0e9));
+    let j0 = i32(clamp(fj0, -2.0e9, 2.0e9));
+    let ni = min(u32(max(floor((x + r) / c) - fi0, 0.0)), u32(GRAIN_MAX_REACH));
+    let nj = min(u32(max(floor((y + r) / c) - fj0, 0.0)), u32(GRAIN_MAX_REACH));
     let e_end = exp(-end);
     let e_full = exp(fw - end);
     let salt = gpcg(seed);
     var keep = 1.0;
-    for (var j = j0; j <= j1; j++) {
+    for (var dj = 0u; dj <= nj; dj++) {
+        let j = j0 + i32(dj);
         let dy = y - clamp(y, f32(j) * c, (f32(j) + 1.0) * c);
-        for (var i = i0; i <= i1; i++) {
+        for (var di = 0u; di <= ni; di++) {
+            let i = i0 + i32(di);
             let dx = x - clamp(x, f32(i) * c, (f32(i) + 1.0) * c);
             if (dx * dx + dy * dy >= r * r) {
                 continue;
