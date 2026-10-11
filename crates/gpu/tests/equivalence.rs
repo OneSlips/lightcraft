@@ -857,3 +857,118 @@ fn windows_of_a_big_photo_share_one_uploaded_source() {
     lightcraft_gpu::render(&src, &info, &s, &at(1000), Some(&after)).expect("gpu render");
     assert_eq!(lightcraft_gpu::source_uploads() - start, 2);
 }
+
+/// A non-trivial 3D LUT (cross-process look: lifted blacks, warm highlights, swapped-ish blues).
+fn look_lut(n: usize, domain_max: f32) -> lightcraft_pipeline::lut::Lut3d {
+    let mut data = Vec::with_capacity(n * n * n);
+    for b in 0..n {
+        for g in 0..n {
+            for r in 0..n {
+                let c = [r, g, b].map(|v| v as f32 / (n - 1) as f32 * domain_max);
+                data.push([
+                    (0.06 + 0.9 * c[0].powf(0.9) + 0.05 * c[2]).min(1.0),
+                    (0.04 + 0.92 * c[1] * (1.0 - 0.1 * c[2])).min(1.0),
+                    (0.1 + 0.6 * c[2] + 0.2 * c[0] * c[1]).min(1.0),
+                ]);
+            }
+        }
+    }
+    lightcraft_pipeline::lut::Lut3d { size: n, data, domain_min: [0.0; 3], domain_max: [domain_max; 3], title: None }
+}
+
+/// LUT profiles render on the GPU (the table is applied after grain, blended by the amount).
+#[test]
+fn lut_profiles_match() {
+    if !gpu() {
+        return;
+    }
+    let src = scene(1, 900, 600);
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    lightcraft_pipeline::lut::register("lut:gpu-test-17", look_lut(17, 1.0));
+    lightcraft_pipeline::lut::register("lut:gpu-test-domain", look_lut(9, 1.2));
+    for (id, amount) in [("lut:gpu-test-17", 100.0), ("lut:gpu-test-17", 160.0), ("lut:gpu-test-domain", 60.0)] {
+        for (name, edit) in [("default", (|_| {}) as Edit), ("saturated + curves + grain", saturated as Edit)] {
+            let mut s = DevelopSettings::default();
+            edit(&mut s);
+            s.profile.id = id.into();
+            s.profile.amount = amount;
+            check(&format!("{id} {amount} {name}"), &src, &raw, &s, &RenderRequest::fit(640, 640));
+        }
+    }
+}
+
+/// Refine Edges on a mask is the cross guided filter on the device, blended by √refine.
+#[test]
+fn refine_edges_match() {
+    if !gpu() {
+        return;
+    }
+    let src = scene(0, 900, 600);
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    for refine in [15.0, 60.0, 100.0] {
+        let mut s = DevelopSettings::default();
+        typical(&mut s);
+        s.masks = vec![
+            Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Radial { center: Point::new(0.45, 0.55), rx: 0.3, ry: 0.2, angle: 10.0, feather: 30.0, invert: false },
+                }],
+                adjust: lightcraft_develop::LocalAdjustments { exposure: 0.9, saturation: -30.0, ..Default::default() },
+                refine,
+                ..Default::default()
+            },
+            Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Linear { start: Point::new(0.5, 0.0), end: Point::new(0.5, 0.5) },
+                }],
+                adjust: lightcraft_develop::LocalAdjustments { exposure: -0.7, amount: 70.0, ..Default::default() },
+                refine: refine / 2.0,
+                invert: true,
+                ..Default::default()
+            },
+        ];
+        check(&format!("refine edges {refine}"), &src, &raw, &s, &RenderRequest::fit(640, 640));
+        let gpu = |s: &DevelopSettings| lightcraft_gpu::render(&src, &raw, s, &RenderRequest::fit(640, 640), None).expect("gpu render").image;
+        let unrefined = DevelopSettings { masks: s.masks.iter().map(|m| Mask { refine: 0.0, ..m.clone() }).collect(), ..s.clone() };
+        // (a light refine barely moves a soft radial edge; a strong one visibly does)
+        assert!(refine < 50.0 || diff(&gpu(&s), &gpu(&unrefined)).1 > 3, "refine {refine} changes the mask");
+    }
+}
+
+/// Soft proofing on the GPU: proof-space gamut mapping and both gamut warnings, into an output
+/// space and into a display's primaries.
+#[test]
+fn soft_proofs_match() {
+    if !gpu() {
+        return;
+    }
+    use lightcraft_pipeline::{DisplaySpace, OutputSpace, Proof};
+    let src = scene(0, 900, 600);
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    let mut s = DevelopSettings::default();
+    saturated(&mut s);
+    s.color.saturation = 90.0;
+    for (dest_warning, display_warning) in [(false, false), (true, false), (false, true), (true, true)] {
+        for (space, out) in [(OutputSpace::Srgb, OutputSpace::ProPhoto), (OutputSpace::AdobeRgb, OutputSpace::Srgb)] {
+            let proof = Some(Proof { space, dest_warning, display_warning, profile: 0 });
+            let req = RenderRequest { space: out, proof, ..RenderRequest::fit(640, 640) };
+            check(&format!("proof {space:?}→{out:?} warn {dest_warning}/{display_warning}"), &src, &raw, &s, &req);
+            // the destination warning marks the saturated colours (nothing proofed to sRGB or
+            // Adobe RGB falls outside a ProPhoto output, so the display warning can stay silent)
+            if dest_warning {
+                let plain = RenderRequest { proof: Some(Proof { space, dest_warning: false, display_warning, profile: 0 }), ..req };
+                let shown = |r: &RenderRequest| lightcraft_gpu::render(&src, &raw, &s, r, None).expect("gpu render").image;
+                assert!(diff(&shown(&req), &shown(&plain)).1 > 3, "{space:?}→{out:?}: the warning colours some pixels");
+            }
+            let display = DisplaySpace::of(OutputSpace::DisplayP3, 7);
+            let req = RenderRequest { display, ..req };
+            check(&format!("proof {space:?} on a P3 display warn {dest_warning}/{display_warning}"), &src, &raw, &s, &req);
+        }
+    }
+}

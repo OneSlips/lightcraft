@@ -119,6 +119,12 @@ walks the drive.
 - `lightcraft_engine::media::develop` (called by every `RenderJob`): loupe / before / compare views,
   `render_now` (CLI, MCP, control channel renders) and exports render on the GPU when one is
   available; grid/filmstrip thumbnails (many small jobs in parallel) stay on the CPU.
+- Every 8-bit render takes the GPU path whatever its settings: LUT profiles (the `.cube` table
+  rides in the kernel's `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with
+  Refine Edges (the cross guided filter of Auto Mask, blended by √refine before the mask's invert
+  and amount) and soft proofs (proof-space gamut mapping and both gamut warnings, into an output
+  space or a display). Only high-bit-depth exports and Visualize HDR (both need float output)
+  render on the CPU.
 - Anything the GPU path cannot do returns `None` and the CPU renders instead: no adapter (CI
   machines, software-only adapters), `LIGHTCRAFT_GPU=0` or `LIGHTCRAFT_GPU_BACKEND=off` (whole
   process; see [Backends](#backends-environment-variables-and-troubleshooting-issue-136)), the `app.gpu {enabled}`

@@ -664,8 +664,9 @@ pub fn render(
 
     // 5. per-pixel stage
     let mut fp = FinishParams::new(s, &plan.frame, info, w, h, plan.px_per_long, prep.air, req.space);
+    fp.proof = req.proof.map(|pr| pr.params(req.space));
     if let Some(d) = &req.display {
-        fp.for_display(d, None);
+        fp.for_display(d, req.proof);
     }
     let present = Present {
         clarity: prep.clarity.is_some(),
@@ -907,8 +908,18 @@ fn brush_aux(dabs: &[&lightcraft_pipeline::masks::BrushDabs], erase: bool) -> Ve
     aux
 }
 
-/// Cross guided filter (`masks::guided_cross`) of `p` steered by `guide`, max-combined with `p`.
-fn guided_cross_max(cx: &mut Cx<'_>, guide: &Buf, p: &Buf, w: usize, h: usize, sigma: f32, eps: f32) -> Buf {
+/// How [`guided_cross`] combines the filtered plane with its input.
+#[derive(Clone, Copy)]
+enum Combine {
+    /// The larger of the two (Auto Mask strokes).
+    Max,
+    /// The input moved towards the filtered plane by this much (Refine Edges).
+    Mix(f32),
+}
+
+/// Cross guided filter (`masks::guided_cross`) of `p` steered by `guide`, combined with `p`.
+#[allow(clippy::too_many_arguments)]
+fn guided_cross(cx: &mut Cx<'_>, guide: &Buf, p: &Buf, w: usize, h: usize, sigma: f32, eps: f32, how: Combine) -> Buf {
     let n = w * h;
     let (m0, m1) = (cx.gpu.buffer(2 * n), cx.gpu.buffer(2 * n));
     map(cx, "xguided_pre", n, &[0], [Some(guide), Some(p), None], &m0);
@@ -918,7 +929,11 @@ fn guided_cross_max(cx: &mut Cx<'_>, guide: &Buf, p: &Buf, w: usize, h: usize, s
     map(cx, "xguided_ab", n, &[eps.to_bits()], [Some(&b0), Some(&b1), None], &ab);
     let ab = gaussian(cx, &ab, w, h, 2, sigma);
     let q = cx.gpu.buffer(n);
-    map(cx, "xguided_apply", n, &[], [Some(guide), Some(&ab), Some(p)], &q);
+    let mode = match how {
+        Combine::Max => [0, 0],
+        Combine::Mix(k) => [1, k.to_bits()],
+    };
+    map(cx, "xguided_apply", n, &mode, [Some(guide), Some(&ab), Some(p)], &q);
     q
 }
 
@@ -1002,7 +1017,7 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
                             cx.run("shape", &q, &[Some(lin), Some(&prep.log_l), Some(&aux), Some(&stroke), Some(&brush)], groups2(w, h, [16, 16]));
                             let refined = d.auto.then(|| {
                                 let (sigma, eps) = lightcraft_pipeline::masks::auto_refine(d.r);
-                                guided_cross_max(cx, &prep.log_l, &stroke, w, h, sigma, eps)
+                                guided_cross(cx, &prep.log_l, &stroke, w, h, sigma, eps, Combine::Max)
                             });
                             let op = if d.erase { 2 } else { 1 };
                             cx.run(
@@ -1047,6 +1062,15 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
             let cbuf = plane.as_ref().unwrap_or(&comp_plane);
             let k = [n as u32, 0, mi as u32, op];
             cx.run("combine", &k, &[None, None, None, Some(cbuf), Some(&alpha)], groups1(n));
+        }
+        if m.refine > 0.0 {
+            // Refine Edges (`masks::evaluate_one`): the combined alpha follows the photo's edges,
+            // before the mask's invert and amount
+            let k = (m.refine / 100.0).clamp(0.0, 1.0) as f32;
+            let sigma = (0.04 * frame.output_long(w, h) as f32 * k).max(1.0);
+            let plane = cx.slice(&alpha, mi * n, n);
+            let refined = guided_cross(cx, &prep.log_l, &plane, w, h, sigma, 0.02, Combine::Mix(k.sqrt()));
+            cx.copy_into(&refined, &alpha, mi * n);
         }
         let amt = (m.adjust.amount / 100.0) as f32;
         cx.run(

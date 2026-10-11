@@ -927,12 +927,8 @@ fn develop_image(
     stages: Option<&StageCache>,
     gpu: bool,
 ) -> (Rendered, Option<String>) {
-    // LUT profiles have no GPU stage: they render on the CPU
-    let fallback = if gpu
-        && !lightcraft_pipeline::lut::is_lut_profile(&s.profile.id)
-        && !s.masks.iter().any(|m| m.visible && m.refine > 0.0)
-        && req.proof.is_none()
-    {
+    // (LUT profiles, Refine Edges and soft proofs render on the GPU too)
+    let fallback = if gpu {
         match lightcraft_gpu::try_render(src, info, s, req, stages) {
             Ok(r) => return (r, None),
             Err(lightcraft_gpu::Fallback::Failed(why)) => Some(why),

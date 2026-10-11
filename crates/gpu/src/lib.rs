@@ -453,12 +453,14 @@ pub fn try_render(
         // sections switched off with their eye render as if at their defaults (issue #316)
         let effective = s.effective();
         let s: &DevelopSettings = &effective;
-        // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
+        // the kernel writes 8-bit output: high-bit-depth exports render on the CPU
         // Visualize HDR needs the float HDR render: CPU too
+        // (soft proofs to a colour space render on the GPU too; one to an output-device profile's
+        // table does not: the CPU renders it)
         if !enabled()
             || req.depth != lightcraft_pipeline::OutputDepth::U8
-            || req.proof.is_some()
             || req.overlay == lightcraft_pipeline::Overlay::HdrRange
+            || req.proof.is_some_and(|p| p.profile != 0)
         {
             return Err(Fallback::NotTried);
         }
