@@ -971,7 +971,8 @@ fn histogram(cx: &mut Cx<'_>, out: &Buf, w: usize, region: (usize, usize, usize,
     cx.run("histogram", &p, &[Some(out), Some(&bins)], groups2(nx, ny, [16, 16]));
     let v: Vec<u32> = cx.read(&bins, 4 * Histogram::BINS + 1);
     let part = |k: usize| v.get(k * Histogram::BINS..(k + 1) * Histogram::BINS).map_or_else(|| vec![0; Histogram::BINS], <[u32]>::to_vec);
-    Histogram { r: part(0), g: part(1), b: part(2), luma: part(3), total: v.get(4 * Histogram::BINS).copied().unwrap_or(0) }
+    // (SDR bins: an HDR edit's histogram is made after the render, `media::develop`)
+    Histogram { r: part(0), g: part(1), b: part(2), luma: part(3), total: v.get(4 * Histogram::BINS).copied().unwrap_or(0), hdr: None }
 }
 
 /// Noise reduction (`local::denoise`).
