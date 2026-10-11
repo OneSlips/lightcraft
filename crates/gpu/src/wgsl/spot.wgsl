@@ -5,8 +5,11 @@
 // Parameters of spot_prep / spot_apply: W, H, BX, BY, BW, BH, NPTS, R, INNER, OPACITY, OFFX, OFFY,
 // HEAL. `pts`: the stroke's points (x, y; output pixels).
 
-// `f32::MAX` exactly ("doesn't fit", as the CPU's score; a decimal literal may round below it).
-const F32_MAX: f32 = bitcast<f32>(0x7f7fffffu);
+// `f32::MAX` exactly ("doesn't fit", as the CPU's score; a decimal literal may round below it,
+// and naga can't evaluate bitcast in a const).
+fn f32_max() -> f32 {
+    return bitcast<f32>(0x7f7fffffu);
+}
 
 // `Rgb32f::get_clamped`.
 fn px_at(x: i32, y: i32) -> vec3<f32> {
@@ -56,7 +59,7 @@ fn spot_prep(@builtin(global_invocation_id) gid: vec3<u32>) {
     let gy = pu(3u) + gid.y;
     let px = f32(gx) + 0.5;
     let py = f32(gy) + 0.5;
-    var d = F32_MAX;
+    var d = f32_max();
     for (var k = 0u; k < pu(6u); k++) {
         let ex = px - pts[2u * k];
         let ey = py - pts[2u * k + 1u];
@@ -143,7 +146,7 @@ fn spot_score(@builtin(global_invocation_id) gid: vec3<u32>) {
     let tgt = vec2<f32>(pf(2u), pf(3u));
     let src = tgt + vec2<f32>(pts[2u * j], pts[2u * j + 1u]);
     if (!ring_fits(tgt, 4u) || !ring_fits(src, 4u)) {
-        al[j] = F32_MAX;
+        al[j] = f32_max();
         return;
     }
     var s = 0.0;

@@ -19,7 +19,10 @@ const MAX_LSB: u8 = 3;
 fn gpu() -> bool {
     let ok = lightcraft_gpu::available();
     if !ok {
-        eprintln!("skipped: no GPU adapter");
+        let why = lightcraft_gpu::unavailable_reason().unwrap_or_default();
+        // no adapter (CI) skips; an adapter whose kernels don't build is a bug in them
+        assert!(!why.contains("kernels failed to build"), "{why}");
+        eprintln!("skipped: no GPU adapter ({why})");
     }
     ok
 }
