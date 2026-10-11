@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use lightcraft_develop::{BrushStroke, DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, Spot, Treatment, VignetteStyle, WbMode, Wheel};
+use lightcraft_develop::{
+    BrushStroke, DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, Process, Spot, Treatment, VignetteStyle, WbMode, Wheel,
+};
 use lightcraft_geom::{Orientation, Point, Rect};
 use lightcraft_pipeline::{Quality, RenderRequest, SourceInfo, StageCache, render};
 use lightcraft_raster::{Rgb32f, Rgba8};
@@ -529,6 +531,7 @@ fn embedded_lens_perspective_edges_match() {
             radius: 0.6,
         }),
         vignette: Some(EmbeddedVignette { k: [0.4, -0.1, 0.02, 0.0, 0.0], center: Point::new(0.5, 0.5), radius: 0.6 }),
+        stages: Default::default(),
     };
     let info = SourceInfo { lens: Some(lens), ..raw };
     let mut s = DevelopSettings::default();
@@ -559,6 +562,48 @@ fn cached_renders_match_uncached() {
         let warm = lightcraft_gpu::render(&src, &info, &s, &req, Some(&cache)).expect("gpu");
         let fresh = lightcraft_gpu::render(&src, &info, &s, &req, None).expect("gpu");
         assert_eq!(warm.image, fresh.image, "step {k}");
+    }
+}
+
+/// Issue #632: the Highlights / Shadows base of each process (V1: the edge-aware filter of log
+/// luminance; V2: of its fine median, a radius that grows with the render) matches the CPU's, and
+/// a warm cache never hands one process the other's base.
+#[test]
+fn highlights_shadows_base_matches_on_every_process() {
+    if !gpu() {
+        return;
+    }
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    let src = scene(0, 2400, 1600);
+    let cache = StageCache::default();
+    for &(w, h) in &[(720, 480), (2400, 1600)] {
+        let req = RenderRequest::fit(w, h);
+        for p in Process::ALL {
+            let mut s = DevelopSettings { process: p.version(), ..DevelopSettings::default() };
+            s.light.highlights = -100.0;
+            s.light.shadows = 60.0;
+            check(&format!("{p:?} highlights/shadows {w}"), &src, &raw, &s, &req);
+            typical(&mut s);
+            check(&format!("{p:?} typical {w}"), &src, &raw, &s, &req);
+            s.masks = vec![Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Linear { start: Point::new(0.5, 0.0), end: Point::new(0.5, 0.9) },
+                }],
+                adjust: lightcraft_develop::LocalAdjustments { highlights: -70.0, shadows: 40.0, ..Default::default() },
+                ..Default::default()
+            }];
+            check(&format!("{p:?} local highlights {w}"), &src, &raw, &s, &req);
+        }
+        for p in [Process::V1, Process::V2, Process::V1, Process::V2] {
+            let mut s = DevelopSettings { process: p.version(), ..DevelopSettings::default() };
+            s.light.highlights = -100.0;
+            let warm = lightcraft_gpu::render(&src, &raw, &s, &req, Some(&cache)).expect("gpu");
+            let fresh = lightcraft_gpu::render(&src, &raw, &s, &req, None).expect("gpu");
+            assert_eq!(warm.image, fresh.image, "{p:?} at {w} px, cached");
+        }
     }
 }
 
@@ -923,13 +968,13 @@ fn soft_proofs_match() {
     s.color.saturation = 90.0;
     for (dest_warning, display_warning) in [(false, false), (true, false), (false, true), (true, true)] {
         for (space, out) in [(OutputSpace::Srgb, OutputSpace::ProPhoto), (OutputSpace::AdobeRgb, OutputSpace::Srgb)] {
-            let proof = Some(Proof { space, dest_warning, display_warning });
+            let proof = Some(Proof { space, dest_warning, display_warning, profile: 0 });
             let req = RenderRequest { space: out, proof, ..RenderRequest::fit(640, 640) };
             check(&format!("proof {space:?}→{out:?} warn {dest_warning}/{display_warning}"), &src, &raw, &s, &req);
             // the destination warning marks the saturated colours (nothing proofed to sRGB or
             // Adobe RGB falls outside a ProPhoto output, so the display warning can stay silent)
             if dest_warning {
-                let plain = RenderRequest { proof: Some(Proof { space, dest_warning: false, display_warning }), ..req };
+                let plain = RenderRequest { proof: Some(Proof { space, dest_warning: false, display_warning, profile: 0 }), ..req };
                 let shown = |r: &RenderRequest| lightcraft_gpu::render(&src, &raw, &s, r, None).expect("gpu render").image;
                 assert!(diff(&shown(&req), &shown(&plain)).1 > 3, "{space:?}→{out:?}: the warning colours some pixels");
             }

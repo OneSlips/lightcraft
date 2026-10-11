@@ -5,6 +5,10 @@
 //!   (frequency separation — a fast, stable approximation of gradient-domain healing).
 //! - **Remove** is Heal with an automatically chosen source: candidate offsets on rings around the
 //!   spot are scored by how well the source's surrounding annulus matches the target's.
+//! - **Fill** (content-aware) rebuilds the spot from patches of its surroundings instead of one
+//!   source: PatchMatch-based completion ([`lightcraft_inpaint::complete`]), coarse to fine, so the
+//!   structure is chosen at a scale set by the spot's size (the same at preview and export size).
+//!   Deterministic; the source offset is ignored.
 
 use lightcraft_develop::{Spot, SpotMode};
 use lightcraft_geom::Point;
@@ -283,8 +287,11 @@ pub struct SpotLayout {
     /// Alpha at distance d from the stroke: `(1 − smoothstep(inner, r, d)) · opacity`.
     pub inner: f32,
     pub opacity: f32,
-    /// Heal / Remove (tone from the surroundings) rather than Clone.
+    /// Heal / Remove (tone from the surroundings) rather than Clone or Fill.
     pub heal: bool,
+    /// Content-aware Fill: the stroke is rebuilt from the box around it (CPU only; the GPU
+    /// renderer leaves photos with a Fill spot to the CPU).
+    pub fill: bool,
 }
 
 /// `spot`'s layout in a `w × h` output of `frame` (`ppl` = output pixels per long-edge unit);
@@ -301,11 +308,16 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         })
         .collect();
     pts.first()?;
-    let offset = spot.source_offset.map(|o| {
-        let a = to_out.apply(Point::new(0.0, 0.0));
-        let b = to_out.apply(o);
-        ((b.x - a.x) as f32, (b.y - a.y) as f32)
-    });
+    let fill = spot.mode == SpotMode::Fill;
+    let offset = if fill {
+        Some((0.0, 0.0))
+    } else {
+        spot.source_offset.map(|o| {
+            let a = to_out.apply(Point::new(0.0, 0.0));
+            let b = to_out.apply(o);
+            ((b.x - a.x) as f32, (b.y - a.y) as f32)
+        })
+    };
     // Bounding box of the stroke.
     let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for p in &pts {
@@ -314,7 +326,8 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         x1 = x1.max(p.0 + r);
         y1 = y1.max(p.1 + r);
     }
-    let pad = r;
+    // content-aware fill reads the spot's surroundings (the window holds 2 radii around it)
+    let pad = if fill { 2.0 * r } else { r };
     let (bx0, by0) = (((x0 - pad).floor().max(0.0)) as usize, ((y0 - pad).floor().max(0.0)) as usize);
     let (bx1, by1) = (((x1 + pad).ceil() as usize).min(w), ((y1 + pad).ceil() as usize).min(h));
     if bx1 <= bx0 || by1 <= by0 {
@@ -331,15 +344,31 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         bh: by1 - by0,
         inner: r * (1.0 - feather * 0.8),
         opacity: (spot.opacity / 100.0).clamp(0.0, 1.0) as f32,
-        heal: spot.mode != SpotMode::Clone,
+        heal: matches!(spot.mode, SpotMode::Remove | SpotMode::Heal),
+        fill,
     })
+}
+
+/// Content-aware fill of the box: `src` becomes `tgt` with every pixel under the stroke (`alpha > 0`)
+/// rebuilt from the rest of the box. Falls back to a smooth membrane fill when the box holds no whole
+/// patch to copy from.
+fn fill_box(src: &mut [[f32; 3]], tgt: &[[f32; 3]], alpha: &[f32], bw: usize, bh: usize) {
+    let hole: Vec<bool> = alpha.iter().map(|a| *a > 0.0).collect();
+    let flat: Vec<f32> = tgt.iter().flatten().copied().collect();
+    let out = lightcraft_inpaint::complete(bw, bh, 3, &flat, &hole, &lightcraft_inpaint::CompleteParams::default())
+        .unwrap_or_else(|| lightcraft_inpaint::membrane_fill(bw, bh, 3, &flat, &hole));
+    for (d, v) in src.iter_mut().zip(out.as_chunks::<3>().0) {
+        *d = [v[0], v[1], v[2]];
+    }
 }
 
 /// Apply all spots to `img` (output resolution). `ppl` = output pixels per long-edge unit.
 pub fn apply(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64) {
     let (w, h) = (img.width, img.height);
     for spot in spots {
-        let Some(SpotLayout { r, pts, offset, bx: bx0, by: by0, bw, bh, inner, opacity, heal }) = layout(spot, frame, w, h, ppl) else { continue };
+        let Some(SpotLayout { r, pts, offset, bx: bx0, by: by0, bw, bh, inner, opacity, heal, fill }) = layout(spot, frame, w, h, ppl) else {
+            continue;
+        };
         let Some(&first) = pts.first() else { continue };
         let offset = offset.unwrap_or_else(|| auto_source(img, first, r));
         // alpha of the stroke and source patch in the box
@@ -354,6 +383,9 @@ pub fn apply(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64) {
                 src[y * bw + x] = img.sample_bilinear(px + offset.0, py + offset.1);
                 tgt[y * bw + x] = img.get(bx0 + x, by0 + y);
             }
+        }
+        if fill {
+            fill_box(&mut src, &tgt, &alpha, bw, bh);
         }
         let low = if heal {
             // Tone correction from the spot's *surroundings* only: normalized convolution of
@@ -421,6 +453,79 @@ mod tests {
         apply(&mut img, &[spot], &frame, frame.px_per_long(120));
         let c = img.get(60, 40);
         assert!((c[0] - 0.26).abs() < 0.03, "{c:?}");
+    }
+
+    /// Vertical stripes (period `period` px) with a black blot over the middle.
+    fn striped_with_blot(w: usize, h: usize, period: usize) -> Rgb32f {
+        let mut img = Rgb32f::from_fn(w, h, |x, _| if (x / period).is_multiple_of(2) { [0.2; 3] } else { [0.7; 3] });
+        let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w as f32 * 0.04);
+        for y in 0..h {
+            for x in 0..w {
+                if (x as f32 + 0.5 - cx).hypot(y as f32 + 0.5 - cy) < r {
+                    img.set(x, y, [0.0; 3]);
+                }
+            }
+        }
+        img
+    }
+
+    fn fill_spot() -> Spot {
+        // a source offset is ignored by Fill
+        Spot {
+            mode: SpotMode::Fill,
+            points: vec![Point::new(0.5, 0.5)],
+            size: 0.06,
+            feather: 0.0,
+            source_offset: Some(Point::new(0.3, 0.0)),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn fill_rebuilds_structure_deterministically() {
+        let (w, h) = (200, 160);
+        let mut img = striped_with_blot(w, h, 8);
+        let frame = Frame::new(w, h, &DevelopSettings::default(), true);
+        apply(&mut img, &[fill_spot()], &frame, frame.px_per_long(w));
+        // the blot is gone and the stripes continue through it
+        let mut err = 0.0f32;
+        for x in 90..110 {
+            let want = if (x / 8) % 2 == 0 { 0.2 } else { 0.7 };
+            err += (img.get(x, 80)[0] - want).abs();
+        }
+        assert!(err / 20.0 < 0.12, "mean error {}", err / 20.0);
+        let mut again = striped_with_blot(w, h, 8);
+        apply(&mut again, &[fill_spot()], &frame, frame.px_per_long(w));
+        assert_eq!(img.data, again.data);
+    }
+
+    #[test]
+    fn fill_matches_between_preview_and_export_size() {
+        // the same photo at two sizes: the half-size fill matches the full-size one, downsampled
+        let (mut big, mut small) = (striped_with_blot(320, 240, 16), striped_with_blot(160, 120, 8));
+        let (fb, fs) = (Frame::new(320, 240, &DevelopSettings::default(), true), Frame::new(160, 120, &DevelopSettings::default(), true));
+        apply(&mut big, &[fill_spot()], &fb, fb.px_per_long(320));
+        apply(&mut small, &[fill_spot()], &fs, fs.px_per_long(160));
+        let (mut err, mut n) = (0.0f32, 0);
+        for y in 50..70 {
+            for x in 70..90 {
+                let b: f32 = [(0, 0), (1, 0), (0, 1), (1, 1)].iter().map(|(dx, dy)| big.get(2 * x + dx, 2 * y + dy)[0]).sum::<f32>() / 4.0;
+                err += (b - small.get(x, y)[0]).abs();
+                n += 1;
+            }
+        }
+        assert!(err / n as f32 <= 0.08, "mean difference {}", err / n as f32);
+    }
+
+    #[test]
+    fn fill_survives_hostile_spots() {
+        let frame = Frame::new(40, 30, &DevelopSettings::default(), true);
+        for (p, size) in [((0.0, 0.0), 2.0), ((-5.0, 9.0), 0.1), ((0.5, 0.5), 0.0), ((f64::NAN, 0.5), 0.1), ((0.5, 0.5), f64::INFINITY)] {
+            let mut img = Rgb32f::from_fn(40, 30, |x, _| [x as f32 / 40.0; 3]);
+            let spot = Spot { mode: SpotMode::Fill, points: vec![Point::new(p.0, p.1)], size, ..Default::default() };
+            apply(&mut img, &[spot], &frame, frame.px_per_long(40));
+            assert!(img.data.iter().flatten().all(|v| v.is_finite()));
+        }
     }
 
     #[test]
