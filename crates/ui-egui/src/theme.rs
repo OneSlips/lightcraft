@@ -215,12 +215,19 @@ fn craft_font_name(f: &lightcraft_engine::CraftFont) -> String {
     format!("craft-fonts {} {}", f.family, f.style)
 }
 
+/// Points one mouse-wheel notch (a line) scrolls.
+pub const WHEEL_LINE_POINTS: f32 = 100.0;
+
 pub fn apply(ctx: &egui::Context) {
     // Cmd+= / Cmd+- / Cmd+0 (Ctrl on Windows and Linux) are View ▸ Zoom In / Zoom Out / Zoom to Fit
     // for the photo. egui would take the same keys at the end of every frame for its browser-style
     // interface zoom (issue #566); on macOS the native menu bar got them first, elsewhere the whole
     // UI scaled.
     ctx.options_mut(|o| o.zoom_with_keyboard = false);
+    // A mouse wheel notch scrolls 100 points (egui's default 40 took 50+ notches through an open
+    // Edit panel; Lightroom moves about this much per notch). Trackpads report points and are
+    // unaffected.
+    ctx.options_mut(|o| o.input_options.line_scroll_speed = WHEEL_LINE_POINTS);
     let t = Tokens::default();
     ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
     let mut v = Visuals::dark();
