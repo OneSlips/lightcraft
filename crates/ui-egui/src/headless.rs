@@ -2553,6 +2553,54 @@ mod tests {
         assert_ne!(h.app.session.active(), Some(first), "advanced");
     }
 
+    /// A slider drag that ends just past the window's edge (the integration drops that release)
+    /// doesn't keep the slider captured: back over the photo the slider stays put, and a click
+    /// on the photo zooms as usual (the Grain sliders at the bottom of the panel made it easy).
+    #[test]
+    fn a_slider_released_outside_the_window_lets_go() {
+        let mut h = demo([1300.0, 1600.0]);
+        let t = Duration::from_secs(10);
+        h.request("ui.set", json!({"view": "detail", "right": "edit"}), t);
+        let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"values": {"grain.amount": 40.0}}}), t);
+        assert_eq!(r["ok"], true, "{r}");
+        h.app.ui.open_sections = vec!["effects".to_string()];
+        h.settle(SETTLE);
+        let amount = |h: &Headless| h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().grain.amount;
+        let slider = h.app.widgets.iter().find(|(id, _)| id == "slider:grain.amount").map(|(_, r)| *r).expect("the Grain slider");
+        let canvas = h.app.canvas_rect.expect("the photo").center();
+        assert!(matches!(h.app.ui.zoom, crate::state::Zoom::Fit));
+        // drag the slider, then off the bottom of the window, where the button goes up unseen
+        let (a, b) = (slider.center(), slider.center() + egui::vec2(40.0, 0.0));
+        let edge = egui::pos2(b.x, 1599.0);
+        let m = egui::Modifiers::NONE;
+        h.app.synthetic.extend([
+            egui::Event::PointerMoved(a),
+            egui::Event::PointerButton { pos: a, button: egui::PointerButton::Primary, pressed: true, modifiers: m },
+            egui::Event::PointerMoved(b),
+            egui::Event::PointerMoved(edge),
+            egui::Event::PointerGone,
+        ]);
+        h.settle(SETTLE);
+        let dragged = amount(&h);
+        assert!(dragged > 40.0, "the drag moved the slider ({dragged})");
+        // back over the photo, and click it
+        h.app.synthetic.push(egui::Event::PointerMoved(canvas + egui::vec2(5.0, 0.0)));
+        h.settle(SETTLE);
+        // (without the repair egui still drags the slider here: the ↔ cursor sticks and the
+        // drag's undo step stays open)
+        assert_eq!(h.view.ctx.dragged_id(), None, "nothing is dragged once the pointer is back");
+        assert!(h.app.session.interaction.is_none(), "the drag's undo step is closed");
+        assert_ne!(h.last_cursor, egui::CursorIcon::ResizeHorizontal, "the slider's cursor is gone");
+        h.app.synthetic.extend([
+            egui::Event::PointerMoved(canvas),
+            egui::Event::PointerButton { pos: canvas, button: egui::PointerButton::Primary, pressed: true, modifiers: m },
+            egui::Event::PointerButton { pos: canvas, button: egui::PointerButton::Primary, pressed: false, modifiers: m },
+        ]);
+        h.settle(SETTLE);
+        assert_eq!(amount(&h), dragged, "the slider let go");
+        assert!(!matches!(h.app.ui.zoom, crate::state::Zoom::Fit), "the click on the photo zoomed in");
+    }
+
     /// The Effects panel's grain sliders include colour grain and the tone response, which drive
     /// the photo's settings like any develop control.
     #[test]
