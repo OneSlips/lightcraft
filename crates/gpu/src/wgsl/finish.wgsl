@@ -217,16 +217,24 @@ fn gcell(i: i32, j: i32, salt: u32) -> u32 {
     return gpcg((bitcast<u32>(i) * GRAIN_H0) ^ (bitcast<u32>(j) * GRAIN_H1) ^ salt);
 }
 
-fn gunit16(v: u32) -> f32 {
-    return (f32(v & 0xffffu) + 0.5) * (1.0 / 65536.0);
-}
-
-fn gunit10(v: u32) -> f32 {
-    return (f32(v & 0x3ffu) + 0.5) * (1.0 / 1024.0);
+fn gsub_hash(h: u32, j: u32) -> u32 {
+    return gpcg(h ^ ((j + 1u) * 0x9e3779b9u));
 }
 
 fn gunit(v: u32) -> f32 {
     return (f32(v >> 8u) + 0.5) * (1.0 / 16777216.0);
+}
+
+fn gunit16(v: u32) -> f32 {
+    return (f32(v & 0xffffu) + 0.5) * (1.0 / 65536.0);
+}
+
+fn gunit8(v: u32) -> f32 {
+    return (f32(v & 0xffu) + 0.5) * (1.0 / 256.0);
+}
+
+fn gunit4(v: u32) -> f32 {
+    return (f32(v & 15u) + 0.5) * (1.0 / 16.0);
 }
 
 fn grain_per_cell(p: f32) -> f32 {
@@ -241,28 +249,70 @@ fn grain_std(p: f32) -> f32 {
     return (1.0 - p) * sqrt(max(exp(pf(F_GRAIN_KAPPA) * mu) - 1.0, 0.0));
 }
 
-// coverage of the grain with hash `h` at offset (dx, dy): radius, density, lumpy outline, soft edge
-fn grain_cover(h: u32, dx: f32, dy: f32, d2: f32, disp: f32, s: f32) -> f32 {
-    let rad = gpcg(h ^ GRAIN_H3);
-    let z = 2.0 * (gunit10(rad) + gunit10(rad >> 10u) + gunit10(rad >> 20u)) - 3.0;
-    var r = exp(disp * z);
-    let d = sqrt(d2);
+fn grain_sub_count(h: u32) -> u32 {
+    let e = pf(F_GRAIN_CLUMP_E);
+    if (e <= 0.0) {
+        return 1u;
+    }
+    let extra = floor(gunit(gpcg(h ^ GRAIN_H3)) * (2.0 * e + 1.0));
+    return 1u + min(u32(max(extra, 0.0)), GRAIN_MAX_SUB - 1u);
+}
+
+fn grain_sub_offset(hj: u32) -> vec2<f32> {
+    let o = gpcg(hj ^ GRAIN_H0);
+    let d = pf(F_GRAIN_CLUMP_D);
+    return vec2<f32>(d * (gunit8(o) + gunit8(o >> 8u) - 1.0), d * (gunit8(o >> 16u) + gunit8(o >> 24u) - 1.0));
+}
+
+// coverage of grain `hj` at offset (dx, dy) from its centre: radius, density, elongation,
+// orientation, lobed outline, soft edge (0 beyond its reach)
+fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
+    let s = pf(F_GRAIN_S);
     let lump = pf(F_GRAIN_LUMP);
-    if (lump > 0.0 && d > 1e-6) {
-        let shp = gpcg(h ^ GRAIN_H0);
-        let m = 0.5 + f32((shp >> 8u) & 15u) * (1.0 / 30.0);
-        let a2 = f32(shp & 15u) * 0.39269908;
-        let a3 = f32((shp >> 4u) & 15u) * 0.39269908;
-        let c = dx / d;
-        let sn = dy / d;
-        let c2 = c * c - sn * sn;
-        let s2 = 2.0 * c * sn;
-        let c3 = c * (4.0 * c * c - 3.0);
-        let s3 = sn * (3.0 - 4.0 * sn * sn);
-        r = r * (1.0 + lump * m * (0.6 * (cos(a2) * c2 + sin(a2) * s2) + 0.4 * (cos(a3) * c3 + sin(a3) * s3)));
+    let rad = gpcg(hj ^ GRAIN_H3);
+    let z = 2.0 * (gunit8(rad) + gunit8(rad >> 8u) + gunit8(rad >> 16u)) - 3.0;
+    let r0 = exp(pf(F_GRAIN_SPREAD) * z);
+    let o = 0.25 + 0.75 * gunit8(rad >> 24u);
+    let shp = gpcg(hj ^ GRAIN_H1);
+    let a = 2.0 * gunit8(shp) - 1.0;
+    let b = 2.0 * gunit8(shp >> 8u) - 1.0;
+    let n = sqrt(a * a + b * b);
+    var ux = 1.0;
+    var uy = 0.0;
+    if (n > 1e-3) {
+        ux = a / n;
+        uy = b / n;
+    }
+    let asp = 1.0 + pf(F_GRAIN_ASPECT) * gunit4(shp >> 16u);
+    let rr = r0 * sqrt(asp) * (1.0 + lump);
+    let reach = sqrt(rr * rr + s * s) + s;
+    if (d2 >= reach * reach) {
+        return 0.0;
+    }
+    let d = sqrt(d2);
+    var r = r0;
+    if (d > 1e-6) {
+        let inv_d = 1.0 / d;
+        let c = dx * inv_d;
+        let sn = dy * inv_d;
+        if (asp > 1.0) {
+            let cu = c * ux + sn * uy;
+            let cw = sn * ux - c * uy;
+            r = r / sqrt(cu * cu * (1.0 / asp) + cw * cw * asp);
+        }
+        if (lump > 0.0) {
+            let m = 0.5 + f32((shp >> 28u) & 15u) * (1.0 / 30.0);
+            let p2 = GRAIN_PHASES[(shp >> 20u) & 15u];
+            let p3 = GRAIN_PHASES[(shp >> 24u) & 15u];
+            let c2 = c * c - sn * sn;
+            let s2 = 2.0 * c * sn;
+            let c3 = c * (4.0 * c * c - 3.0);
+            let s3 = sn * (3.0 - 4.0 * sn * sn);
+            r = r * (1.0 + lump * (0.6 * m * (p2.x * c2 + p2.y * s2) + 0.4 * m * (p3.x * c3 + p3.y * s3)));
+        }
     }
     let rho2 = r * r + s * s;
-    let tau = (d - sqrt(rho2)) / s;
+    let tau = (d - sqrt(rho2)) * pf(F_GRAIN_INV_S);
     if (tau >= 1.0) {
         return 0.0;
     }
@@ -270,7 +320,26 @@ fn grain_cover(h: u32, dx: f32, dy: f32, d2: f32, disp: f32, s: f32) -> f32 {
     if (tau > -1.0) {
         prof = (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25;
     }
-    return (0.25 + 0.25 * f32(rad >> 30u)) * r * r / (rho2 + s * s * 0.2) * prof;
+    return o * r * r / (rho2 + s * s * 0.2) * prof;
+}
+
+// coverage of clump `h` at offset (dx, dy) from its centre: the union of its grains
+fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> f32 {
+    let sr = pf(F_GRAIN_SUB_REACH);
+    let count = grain_sub_count(h);
+    var t = 1.0;
+    for (var j = 0u; j < count; j++) {
+        let hj = gsub_hash(h, j);
+        let off = grain_sub_offset(hj);
+        let ex = dx - off.x;
+        let ey = dy - off.y;
+        let d2 = ex * ex + ey * ey;
+        if (d2 >= sr * sr) {
+            continue;
+        }
+        t *= 1.0 - grain_sub_cover(hj, ex, ey, d2);
+    }
+    return 1.0 - t;
 }
 
 fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
@@ -279,8 +348,6 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
     let end = t + 0.5 * fw;
     let r = pf(F_GRAIN_SUPPORT);
     let c = pf(F_GRAIN_CELL);
-    let s = pf(F_GRAIN_S);
-    let disp = pf(F_GRAIN_DISP);
     // the cells within reach, as a start and a bounded count (never a loop up to i32::MAX)
     let fi0 = floor((x - r) / c);
     let fj0 = floor((y - r) / c);
@@ -310,13 +377,14 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
                     break;
                 }
                 let pos = gpcg(h ^ GRAIN_H2);
-                let gx = (f32(i) + gunit16(pos)) * c;
-                let gy = (f32(j) + gunit16(pos >> 16u)) * c;
-                let d2 = (x - gx) * (x - gx) + (y - gy) * (y - gy);
-                if (d2 >= r * r) {
+                let cx = (f32(i) + gunit16(pos)) * c;
+                let cy = (f32(j) + gunit16(pos >> 16u)) * c;
+                let ex = x - cx;
+                let ey = y - cy;
+                if (ex * ex + ey * ey >= r * r) {
                     continue;
                 }
-                let a = grain_cover(h, x - gx, y - gy, d2, disp, s);
+                let a = grain_clump_cover(h, ex, ey);
                 if (a <= 0.0) {
                     continue;
                 }
@@ -354,19 +422,28 @@ fn grain_layer(gx: f32, gy: f32, p: f32, seed: u32) -> f32 {
 
 fn grain_apply(gx: f32, gy: f32, lum: f32) -> vec3<f32> {
     let l = clamp(lum, 0.0, 1.0);
-    let p = GRAIN_P_MIN + (GRAIN_P_MAX - GRAIN_P_MIN) * pow(max(1.0 - l, 1e-7), pf(F_GRAIN_GAMMA));
+    let gamma = pf(F_GRAIN_GAMMA);
+    var shade = max(1.0 - l, 1e-7);
+    if (gamma != 1.0) {
+        shade = pow(shade, gamma);
+    }
+    let p = GRAIN_P_MIN + (GRAIN_P_MAX - GRAIN_P_MIN) * shade;
     let seed = pu(F_GRAIN_SEED);
-    let tm = 1.0 - pow(max(1.0 - l, 1e-7), pf(F_GRAIN_GAMMA));
+    let tm = 1.0 - shade;
     let amp = pf(F_GRAIN_AMP) * (GRAIN_TONE_FLOOR + (1.0 - GRAIN_TONE_FLOOR) * 4.0 * tm * (1.0 - tm));
-    let lv = amp * grain_layer(gx, gy, p, seed);
     let color = pf(F_GRAIN_COLOR);
     if (color <= 0.0) {
+        let lv = amp * grain_layer(gx, gy, p, seed);
         return vec3<f32>(lv, lv, lv);
     }
-    let k = amp * color;
-    let c1 = k * grain_layer(gx, gy, p, seed ^ GRAIN_H2);
-    let c2 = k * grain_layer(gx, gy, p, seed ^ GRAIN_H3);
-    return vec3<f32>(lv) + c1 * GRAIN_CHROMA1 + c2 * GRAIN_CHROMA2;
+    // one shared layer and a dye layer per channel: √(1 − c)·mono + √c·dye
+    let wm = sqrt(max(1.0 - color, 0.0));
+    let wc = sqrt(color);
+    let m = wm * amp * grain_layer(gx, gy, p, seed);
+    let rr = wc * amp * grain_layer(gx, gy, p, seed ^ GRAIN_SALT_R);
+    let gg = wc * amp * grain_layer(gx, gy, p, seed ^ GRAIN_SALT_G);
+    let bb = wc * amp * grain_layer(gx, gy, p, seed ^ GRAIN_SALT_B);
+    return vec3<f32>(m + rr, m + gg, m + bb);
 }
 
 fn enc8(v: f32) -> u32 {
