@@ -258,6 +258,15 @@ fn constants() -> String {
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
     }
+    {
+        use lightcraft_pipeline::grain::{CHROMA_DIRS, MAX_PER_CELL, P_MAX, P_MIN, TONE_FLOOR};
+        s += &format!(
+            "const GRAIN_P_MIN: f32 = {P_MIN:?};\nconst GRAIN_P_MAX: f32 = {P_MAX:?};\nconst GRAIN_MAX_PER_CELL: u32 = {MAX_PER_CELL}u;\nconst GRAIN_TONE_FLOOR: f32 = {TONE_FLOOR:?};\n"
+        );
+        for (i, d) in CHROMA_DIRS.iter().enumerate() {
+            s += &format!("const GRAIN_CHROMA{}: vec3<f32> = vec3<f32>({:?}, {:?}, {:?});\n", i + 1, d[0], d[1], d[2]);
+        }
+    }
     for (name, idx) in crate::params::finish_fields() {
         s += &format!("const F_{name}: u32 = {idx}u;\n");
     }

@@ -206,26 +206,140 @@ fn refine_saturation(before: vec3<f32>, after: vec3<f32>, refine: f32) -> vec3<f
     return y1 + (after - y1) * k;
 }
 
-fn ghash(i: i32, j: i32, seed: u32) -> f32 {
-    var v = (bitcast<u32>(i) * GRAIN_H0) ^ (bitcast<u32>(j) * GRAIN_H1) ^ (seed * GRAIN_H2);
-    v ^= v >> 13u;
-    v = v * GRAIN_H3;
-    v ^= v >> 15u;
-    return f32(v & 0xffffu) / 32768.0 - 1.0;
+// --- film grain: a port of `lightcraft_pipeline::grain` (keep in step with it)
+fn gpcg(v: u32) -> u32 {
+    let s = v * 747796405u + 2891336453u;
+    let w = ((s >> ((s >> 28u) + 4u)) ^ s) * 277803737u;
+    return (w >> 22u) ^ w;
 }
 
-fn grain_noise(x: f32, y: f32, seed: u32) -> f32 {
-    let x0 = floor(x);
-    let y0 = floor(y);
-    let fx = x - x0;
-    let fy = y - y0;
-    let i = i32(x0);
-    let j = i32(y0);
-    let u = fx * fx * (3.0 - 2.0 * fx);
-    let v = fy * fy * (3.0 - 2.0 * fy);
-    let a = ghash(i, j, seed) + (ghash(i + 1, j, seed) - ghash(i, j, seed)) * u;
-    let b = ghash(i, j + 1, seed) + (ghash(i + 1, j + 1, seed) - ghash(i, j + 1, seed)) * u;
-    return a + (b - a) * v;
+fn gcell(i: i32, j: i32, salt: u32) -> u32 {
+    return gpcg((bitcast<u32>(i) * GRAIN_H0) ^ (bitcast<u32>(j) * GRAIN_H1) ^ salt);
+}
+
+fn gunit16(v: u32) -> f32 {
+    return (f32(v & 0xffffu) + 0.5) * (1.0 / 65536.0);
+}
+
+fn gunit10(v: u32) -> f32 {
+    return (f32(v & 0x3ffu) + 0.5) * (1.0 / 1024.0);
+}
+
+fn gunit(v: u32) -> f32 {
+    return (f32(v >> 8u) + 0.5) * (1.0 / 16777216.0);
+}
+
+fn grain_per_cell(p: f32) -> f32 {
+    let c = pf(F_GRAIN_CELL);
+    return -log(1.0 - p) / pf(F_GRAIN_AREA) * c * c;
+}
+
+fn grain_std(p: f32) -> f32 {
+    let t = grain_per_cell(p);
+    let fw = min(t, 1.0);
+    let mu = -log(1.0 - p) * (1.0 - fw / (6.0 * max(t, 1e-12)));
+    return (1.0 - p) * sqrt(max(exp(pf(F_GRAIN_KAPPA) * mu) - 1.0, 0.0));
+}
+
+fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
+    let t = grain_per_cell(p);
+    let fw = max(min(t, 1.0), 1e-6);
+    let end = t + 0.5 * fw;
+    let r = pf(F_GRAIN_SUPPORT);
+    let c = pf(F_GRAIN_CELL);
+    let s = pf(F_GRAIN_S);
+    let disp = pf(F_GRAIN_DISP);
+    let i0 = i32(floor((x - r) / c));
+    let j0 = i32(floor((y - r) / c));
+    let i1 = min(i32(floor((x + r) / c)), i0 + 6);
+    let j1 = min(i32(floor((y + r) / c)), j0 + 6);
+    let e_end = exp(-end);
+    let e_full = exp(fw - end);
+    let salt = gpcg(seed);
+    var keep = 1.0;
+    for (var j = j0; j <= j1; j++) {
+        let dy = y - clamp(y, f32(j) * c, (f32(j) + 1.0) * c);
+        for (var i = i0; i <= i1; i++) {
+            let dx = x - clamp(x, f32(i) * c, (f32(i) + 1.0) * c);
+            if (dx * dx + dy * dy >= r * r) {
+                continue;
+            }
+            let base = gcell(i, j, salt);
+            var prod = 1.0;
+            for (var k = 0u; k < GRAIN_MAX_PER_CELL; k++) {
+                let h = gpcg(base + k);
+                prod *= gunit(h);
+                if (prod <= e_end) {
+                    break;
+                }
+                let pos = gpcg(h ^ GRAIN_H2);
+                let gx = (f32(i) + gunit16(pos)) * c;
+                let gy = (f32(j) + gunit16(pos >> 16u)) * c;
+                let d2 = (x - gx) * (x - gx) + (y - gy) * (y - gy);
+                if (d2 >= r * r) {
+                    continue;
+                }
+                let rad = gpcg(h ^ GRAIN_H3);
+                let z = 2.0 * (gunit10(rad) + gunit10(rad >> 10u) + gunit10(rad >> 20u)) - 3.0;
+                let ri = exp(disp * z);
+                let rho2 = ri * ri + s * s;
+                let rho = sqrt(rho2);
+                let tau = (sqrt(d2) - rho) / s;
+                if (tau >= 1.0) {
+                    continue;
+                }
+                var f = 1.0;
+                if (prod < e_full) {
+                    f = clamp((end + log(prod)) / fw, 0.0, 1.0);
+                }
+                var prof = 1.0;
+                if (tau > -1.0) {
+                    prof = (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25;
+                }
+                let a = (0.25 + 0.25 * f32(rad >> 30u)) * ri * ri / (rho2 + s * s * 0.2) * prof;
+                keep *= 1.0 - f * a;
+            }
+        }
+    }
+    return 1.0 - keep;
+}
+
+fn grain_gauss(ix: i32, iy: i32, seed: u32) -> f32 {
+    let h = gcell(ix, iy, gpcg(seed ^ 0x5bd1e995u));
+    let sum = (h & 0xffu) + ((h >> 8u) & 0xffu) + ((h >> 16u) & 0xffu) + (h >> 24u);
+    return ((f32(sum) + 2.0) * (1.0 / 256.0) - 2.0) * 1.7320508;
+}
+
+fn grain_layer(gx: f32, gy: f32, p: f32, seed: u32) -> f32 {
+    var d = 0.0;
+    let wf = pf(F_GRAIN_WF);
+    let wn = pf(F_GRAIN_WN);
+    if (wf > 0.0) {
+        let ir = pf(F_GRAIN_INV_R);
+        d += wf * (p - grain_field(gx * ir, gy * ir, p, seed));
+    }
+    if (wn > 0.0) {
+        let ppl = pf(F_GRAIN_PPL);
+        d -= wn * grain_std(p) * grain_gauss(i32(floor(gx * ppl)), i32(floor(gy * ppl)), seed);
+    }
+    return d;
+}
+
+fn grain_apply(gx: f32, gy: f32, lum: f32) -> vec3<f32> {
+    let l = clamp(lum, 0.0, 1.0);
+    let p = GRAIN_P_MIN + (GRAIN_P_MAX - GRAIN_P_MIN) * pow(max(1.0 - l, 1e-7), pf(F_GRAIN_GAMMA));
+    let seed = pu(F_GRAIN_SEED);
+    let tm = 1.0 - pow(max(1.0 - l, 1e-7), pf(F_GRAIN_GAMMA));
+    let amp = pf(F_GRAIN_AMP) * (GRAIN_TONE_FLOOR + (1.0 - GRAIN_TONE_FLOOR) * 4.0 * tm * (1.0 - tm));
+    let lv = amp * grain_layer(gx, gy, p, seed);
+    let color = pf(F_GRAIN_COLOR);
+    if (color <= 0.0) {
+        return vec3<f32>(lv, lv, lv);
+    }
+    let k = amp * color;
+    let c1 = k * grain_layer(gx, gy, p, seed ^ GRAIN_H2);
+    let c2 = k * grain_layer(gx, gy, p, seed ^ GRAIN_H3);
+    return vec3<f32>(lv) + c1 * GRAIN_CHROMA1 + c2 * GRAIN_CHROMA2;
 }
 
 fn enc8(v: f32) -> u32 {
@@ -503,14 +617,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let py = f32(y) + 0.5;
         let gx = pf(F_GRAIN_AFF) * px + pf(F_GRAIN_AFF + 2u) * py + pf(F_GRAIN_AFF + 4u);
         let gy = pf(F_GRAIN_AFF + 1u) * px + pf(F_GRAIN_AFF + 3u) * py + pf(F_GRAIN_AFF + 5u);
-        let sc = pf(F_GRAIN_SC);
-        let rough = pf(F_GRAIN_ROUGH);
-        let seed = pu(F_GRAIN_SEED);
-        var g = grain_noise(gx * sc, gy * sc, seed);
-        g = g * (1.0 - rough * 0.5) + grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55u) * rough * 0.7;
         let lum = 0.2126 * e.x + 0.7152 * e.y + 0.0722 * e.z;
-        let k = pf(F_GRAIN_AMT) * g * (0.35 + 2.6 * lum * (1.0 - lum));
-        e = e + k;
+        e = e + grain_apply(gx, gy, lum);
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x) | (enc8(e.y) << 8u) | (enc8(e.z) << 16u) | (255u << 24u);
