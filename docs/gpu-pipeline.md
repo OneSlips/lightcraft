@@ -135,8 +135,15 @@ walks the drive.
   (log luminance, dark channel, guided-filter steps, white balance, luminance / colour NR, airlight
   sampling), `mask` (linear / radial / luminance / colour range / brush shapes, combine, finalize),
   `finish` (the whole per-pixel stage) — each mirrors a named CPU function.
-- Per-stage hybrid: defringe and spot removal (rare, CPU-only for now) download the resampled image,
-  run on the CPU and upload; heuristic mask shapes (Sky, Subject, Background, …) and brushes of more
+- Defringe (`fringe_lab`, a separable lightness `minmax` filter, `fringe_apply`; parameters from
+  `optics::defringe_params`) and spot removal (`spot` module, spot by spot in place: `spot_prep`,
+  the Heal tone correction as two device Gaussians, `spot_apply`; Remove's 48 candidate sources are
+  scored by `spot_score` and only the scores are read back; layout and candidates from
+  `spots::{layout, candidates, ring_dirs, score_radii, rank}`) run on the device in `lin_cpu`'s
+  order. The histogram is counted on the device (`hist`, atomics, the same sampling grid as
+  `Histogram::of_srgb8`, so it is exact).
+- Per-stage hybrid: the camera's local tone mapping (ProRAW gain tables, off by default) runs the
+  scene-linear stage on the CPU and uploads; heuristic mask shapes (Sky, Subject, Background, …) and brushes of more
   than 4096 dabs are evaluated on the CPU and uploaded; sources over the buffer limit are resampled
   on the CPU.
 - Stage cache: `GpuStages` mirrors `StageCache` (same keys: source identity + `geo`, `lin_key`,
@@ -281,7 +288,7 @@ A view's stages keep an uploaded source only up to 96 MB (a Preview-level source
 - Keep the loupe texture on the GPU (render into an `egui-wgpu` texture on eframe's device instead of
   reading back); share the device with eframe.
 - WebGPU in the browser build (async init, single device per canvas).
-- Defringe and spot removal kernels; Sky/Subject heuristics (replaced by the segmenter in M12).
+- Sky/Subject heuristics (replaced by the segmenter in M12); the ProRAW local tone map.
 - Tiling for sources / outputs beyond the buffer limit (24 MP+ on WebGPU-default limits, 60 MP+
   on most desktop adapters; these render on the CPU now): tile with overlap equal to the largest
   filter radius, with global values (airlight) from a first pass.
@@ -289,4 +296,3 @@ A view's stages keep an uploaded source only up to 96 MB (a Preview-level source
   faster path for exports.
 - Large-radius blurs at full size (dehaze dark channel at 24 MP) dominate the export: a summed-area
   table or a downsampled dark channel would cut them further.
-- GPU histogram (atomics) to skip the CPU pass over the readback.

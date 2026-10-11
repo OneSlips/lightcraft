@@ -43,6 +43,10 @@ mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub use render::GpuStages;
 
+/// Unit tests that create the device or swap the crash sentinel's path take turns.
+#[cfg(test)]
+pub(crate) static DEVICE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 static ENABLED: AtomicBool = AtomicBool::new(true);
 /// Set when a GPU render failed: the process stays on the CPU from then on.
 static BROKEN: AtomicBool = AtomicBool::new(false);
