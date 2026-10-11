@@ -8,9 +8,14 @@ The Effects panel's Grain (`ctl:grain.*`, `crates/pipeline/src/grain.rs`, GPU po
 Implemented from the published Boolean model of Newson, Delon & Galerne, *Realistic Film Grain
 Rendering* (IPOL 2017). No code was taken from any implementation.
 
-- **Grains** are discs whose centres form a Poisson process. Their radii follow `exp(disp·z)` (z ≈
-  unit normal, bounded to ±3), and each grain has an optical density of 1/4, 1/2, 3/4 or 1, so
-  overlapping grains give continuous tones instead of two flat levels.
+- **Grains** are beads whose centres form a Poisson process on a fixed grid of cells (2.5 mean
+  radii), so no slider and no render size reshuffles them. Their radii follow `exp(disp·z)` (z ≈
+  unit normal, bounded to ±3). Their outlines are lumpy: the radius varies with angle by
+  `L·m·(0.6 cos(2θ − φ₂) + 0.4 cos(3θ − φ₃))` with random phases and strength `m`. Each grain has an
+  optical density of 1/4, 1/2, 3/4 or 1, so overlapping grains give continuous tones instead of two
+  flat levels. Roughness sets the size spread `disp` (0–0.35), the lumpiness `L` (0–0.3) and the
+  film softness (0.7 → 0.3 radii), so it reshapes the same grains: round, even and soft at 0;
+  mixed, irregular and crisp at 100.
 - **Density follows tone.** A pixel of display-encoded luminance `l` has expected grain coverage
   `p = 0.2 + 0.6·(1 − l)^γ`, where darker means denser. The grain density is set so that
   `λ·E[πr²]·E[o] = −ln(1 − p)`. Grains always overlap into irregular clumps and pores: a sparse field
@@ -52,8 +57,8 @@ of about 0.06 (15 levels of 255) in mid-grey there, a little more for coarse gra
 | Control | Range | Meaning |
 |---|---|---|
 | `grain.amount` | 0–100 | strength (XMP `crs:GrainAmount`) |
-| `grain.size` | 0–100 | mean grain radius ≈ 4 µm (0), 10 µm (25), 48 µm (100) on a 35 mm frame (XMP `crs:GrainSize`) |
-| `grain.roughness` | 0–100 | spread of grain sizes and crispness: 0 = even and soft, 100 = mixed and crisp (XMP `crs:GrainFrequency`) |
+| `grain.size` | 0–100 | mean grain radius ≈ 4.3 µm (0), 5 µm (25), 8.9 µm (100) on a 35 mm frame: 0.7, 0.8 and 1.5 px on a 6000 px export (XMP `crs:GrainSize`) |
+| `grain.roughness` | 0–100 | grain shape: 0 = round, even and soft beads; 100 = mixed sizes, lumpy outlines, crisp (XMP `crs:GrainFrequency`) |
 | `grain.color` | 0–100 | colour grain: two more grain layers in opponent colour directions (neutral on average) |
 | `grain.response` | −100–100 | where grain is strongest: shadows (−) … midtones (0) … highlights (+) |
 | `grain.seed` | integer | the grain pattern (stable per photo) |
@@ -63,14 +68,15 @@ model. LightCraft keeps both in its own settings; Camera Raw has no equivalents.
 
 ## Performance
 
-- **GPU:** the per-pixel kernel evaluates the at most 3 × 3 cells around each pixel. On the 24 MP
-  test export, the finish pass with readback takes about 42 ms with grain vs 36 ms without.
+- **GPU:** the per-pixel kernel evaluates the cells within a grain's reach of each pixel. On the
+  24 MP test export it adds ≈ 20 ms to the finish pass (≈ 40 ms without grain).
 - **CPU:** works on bands of 8 output rows. Each grain is generated once per band and splatted onto
-  the pixels its disc reaches, so it costs about 95 ns per pixel single-threaded at the default size
-  (`band_matches_per_pixel` checks the result equals the per-pixel evaluation).
-- **CPU timings on 32 threads:** a 24 MP export's finish stage goes from ≈ 110 ms to ≈ 390 ms at
-  Size 25. With Color it is ≈ 600 ms (three layers). A 1500 px render costs ≈ 50 ms more. The old
-  value noise cost ≈ 35 ms at 24 MP.
+  the pixels its bead reaches (`band_matches_per_pixel` checks the result equals the per-pixel
+  evaluation). That is about 290 ns per pixel single-threaded at the default size (220 ns at
+  Roughness 0; the lumpy outlines cost the rest).
+- **CPU timings on 32 threads:** a 24 MP export's finish stage goes from ≈ 110 ms to ≈ 480 ms at
+  Size 25, and ≈ 1.1 s with Color (three layers). A 1500 px render costs ≈ 15 ms more. The old value
+  noise cost ≈ 35 ms at 24 MP. CPU-only exports with grain are therefore over the 1 s budget.
 
 The CPU cost is above the old grain's: it is the price of evaluating real grains. Interactive
 renders use the GPU path when an adapter exists.

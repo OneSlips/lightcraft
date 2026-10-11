@@ -241,6 +241,38 @@ fn grain_std(p: f32) -> f32 {
     return (1.0 - p) * sqrt(max(exp(pf(F_GRAIN_KAPPA) * mu) - 1.0, 0.0));
 }
 
+// coverage of the grain with hash `h` at offset (dx, dy): radius, density, lumpy outline, soft edge
+fn grain_cover(h: u32, dx: f32, dy: f32, d2: f32, disp: f32, s: f32) -> f32 {
+    let rad = gpcg(h ^ GRAIN_H3);
+    let z = 2.0 * (gunit10(rad) + gunit10(rad >> 10u) + gunit10(rad >> 20u)) - 3.0;
+    var r = exp(disp * z);
+    let d = sqrt(d2);
+    let lump = pf(F_GRAIN_LUMP);
+    if (lump > 0.0 && d > 1e-6) {
+        let shp = gpcg(h ^ GRAIN_H0);
+        let m = 0.5 + f32((shp >> 8u) & 15u) * (1.0 / 30.0);
+        let a2 = f32(shp & 15u) * 0.39269908;
+        let a3 = f32((shp >> 4u) & 15u) * 0.39269908;
+        let c = dx / d;
+        let sn = dy / d;
+        let c2 = c * c - sn * sn;
+        let s2 = 2.0 * c * sn;
+        let c3 = c * (4.0 * c * c - 3.0);
+        let s3 = sn * (3.0 - 4.0 * sn * sn);
+        r = r * (1.0 + lump * m * (0.6 * (cos(a2) * c2 + sin(a2) * s2) + 0.4 * (cos(a3) * c3 + sin(a3) * s3)));
+    }
+    let rho2 = r * r + s * s;
+    let tau = (d - sqrt(rho2)) / s;
+    if (tau >= 1.0) {
+        return 0.0;
+    }
+    var prof = 1.0;
+    if (tau > -1.0) {
+        prof = (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25;
+    }
+    return (0.25 + 0.25 * f32(rad >> 30u)) * r * r / (rho2 + s * s * 0.2) * prof;
+}
+
 fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
     let t = grain_per_cell(p);
     let fw = max(min(t, 1.0), 1e-6);
@@ -249,17 +281,22 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
     let c = pf(F_GRAIN_CELL);
     let s = pf(F_GRAIN_S);
     let disp = pf(F_GRAIN_DISP);
-    let i0 = i32(floor((x - r) / c));
-    let j0 = i32(floor((y - r) / c));
-    let i1 = min(i32(floor((x + r) / c)), i0 + 6);
-    let j1 = min(i32(floor((y + r) / c)), j0 + 6);
+    // the cells within reach, as a start and a bounded count (never a loop up to i32::MAX)
+    let fi0 = floor((x - r) / c);
+    let fj0 = floor((y - r) / c);
+    let i0 = i32(clamp(fi0, -2.0e9, 2.0e9));
+    let j0 = i32(clamp(fj0, -2.0e9, 2.0e9));
+    let ni = min(u32(max(floor((x + r) / c) - fi0, 0.0)), u32(GRAIN_MAX_REACH));
+    let nj = min(u32(max(floor((y + r) / c) - fj0, 0.0)), u32(GRAIN_MAX_REACH));
     let e_end = exp(-end);
     let e_full = exp(fw - end);
     let salt = gpcg(seed);
     var keep = 1.0;
-    for (var j = j0; j <= j1; j++) {
+    for (var dj = 0u; dj <= nj; dj++) {
+        let j = j0 + i32(dj);
         let dy = y - clamp(y, f32(j) * c, (f32(j) + 1.0) * c);
-        for (var i = i0; i <= i1; i++) {
+        for (var di = 0u; di <= ni; di++) {
+            let i = i0 + i32(di);
             let dx = x - clamp(x, f32(i) * c, (f32(i) + 1.0) * c);
             if (dx * dx + dy * dy >= r * r) {
                 continue;
@@ -279,24 +316,14 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
                 if (d2 >= r * r) {
                     continue;
                 }
-                let rad = gpcg(h ^ GRAIN_H3);
-                let z = 2.0 * (gunit10(rad) + gunit10(rad >> 10u) + gunit10(rad >> 20u)) - 3.0;
-                let ri = exp(disp * z);
-                let rho2 = ri * ri + s * s;
-                let rho = sqrt(rho2);
-                let tau = (sqrt(d2) - rho) / s;
-                if (tau >= 1.0) {
+                let a = grain_cover(h, x - gx, y - gy, d2, disp, s);
+                if (a <= 0.0) {
                     continue;
                 }
                 var f = 1.0;
                 if (prod < e_full) {
                     f = clamp((end + log(prod)) / fw, 0.0, 1.0);
                 }
-                var prof = 1.0;
-                if (tau > -1.0) {
-                    prof = (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25;
-                }
-                let a = (0.25 + 0.25 * f32(rad >> 30u)) * ri * ri / (rho2 + s * s * 0.2) * prof;
                 keep *= 1.0 - f * a;
             }
         }
