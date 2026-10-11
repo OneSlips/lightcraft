@@ -63,10 +63,15 @@ const FIELDS: &[(&str, usize)] = &[
     ("GRAIN_AMP", 1),
     ("GRAIN_INV_R", 1),
     ("GRAIN_S", 1),
-    ("GRAIN_DISP", 1),
+    ("GRAIN_INV_S", 1),
+    ("GRAIN_SPREAD", 1),
+    ("GRAIN_ASPECT", 1),
     ("GRAIN_LUMP", 1),
+    ("GRAIN_CLUMP_E", 1),
+    ("GRAIN_CLUMP_D", 1),
     ("GRAIN_AREA", 1),
     ("GRAIN_SUPPORT", 1),
+    ("GRAIN_SUB_REACH", 1),
     ("GRAIN_CELL", 1),
     ("GRAIN_KAPPA", 1),
     ("GRAIN_WF", 1),
@@ -283,10 +288,15 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.f("GRAIN_AMP", g.amp);
         p.f("GRAIN_INV_R", g.inv_r);
         p.f("GRAIN_S", g.s);
-        p.f("GRAIN_DISP", g.disp);
+        p.f("GRAIN_INV_S", g.inv_s);
+        p.f("GRAIN_SPREAD", g.spread);
+        p.f("GRAIN_ASPECT", g.aspect);
         p.f("GRAIN_LUMP", g.lump);
+        p.f("GRAIN_CLUMP_E", g.clump_extra);
+        p.f("GRAIN_CLUMP_D", g.clump_d);
         p.f("GRAIN_AREA", g.area);
         p.f("GRAIN_SUPPORT", g.support);
+        p.f("GRAIN_SUB_REACH", g.sub_reach);
         p.f("GRAIN_CELL", g.cell);
         p.f("GRAIN_KAPPA", g.kappa);
         p.f("GRAIN_WF", g.w_field);

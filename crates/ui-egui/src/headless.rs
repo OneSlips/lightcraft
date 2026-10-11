@@ -2287,8 +2287,8 @@ mod tests {
         assert!(!matches!(h.app.ui.zoom, crate::state::Zoom::Fit), "the click on the photo zoomed in");
     }
 
-    /// The Effects panel's grain sliders include colour grain and the tone response, which drive
-    /// the photo's settings like any develop control.
+    /// The Effects panel's grain sliders include colour grain, the tone response, size variation,
+    /// clumping and the seed, which drive the photo's settings like any develop control.
     #[test]
     fn grain_colour_and_response_sliders() {
         // tall enough for the Effects panel's last slider without scrolling
@@ -2301,14 +2301,16 @@ mod tests {
         h.app.ui.open_sections = vec!["effects".to_string()];
         h.settle(SETTLE);
         let grain = |h: &Headless| h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().grain;
-        for (id, text) in [("grain.response", "-30"), ("grain.color", "25")] {
+        for (id, text) in
+            [("grain.response", "-30"), ("grain.color", "25"), ("grain.sizeVariation", "70"), ("grain.clumping", "80"), ("grain.seed", "7")]
+        {
             assert_eq!(h.request("ui.clickWidget", json!({"id": format!("sliderValue:{id}")}), t)["ok"], true, "{id} is in the panel");
             h.request("ui.text", json!({"text": text}), t);
             h.request("ui.key", json!({"key": "Enter"}), t);
             h.step();
         }
         let g = grain(&h);
-        assert_eq!((g.amount, g.color, g.response), (40.0, 25.0, -30.0));
+        assert_eq!((g.amount, g.color, g.response, g.size_variation, g.clumping, g.seed), (40.0, 25.0, -30.0, 70.0, 80.0, 7));
     }
 
     /// Click a slider's value and type one (issue #322): Return sets it as one undo step, Esc
