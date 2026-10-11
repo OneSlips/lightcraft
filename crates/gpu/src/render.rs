@@ -727,10 +727,8 @@ pub fn render(
         fail(FailKind::Fatal, format!("the GPU returned an incomplete image ({unwritten} of {n} pixels unwritten)"));
         return None;
     }
-    let histogram = match plan.keep {
-        Some(k) => Histogram::of_srgb8(&image.crop(k.x, k.y, k.w, k.h)),
-        None => Histogram::of_srgb8(&image),
-    };
+    let region = plan.keep.map_or((0, 0, w, h), |k| (k.x, k.y, k.w, k.h));
+    let histogram = histogram(&mut cx, &out, w, region);
     lap("histogram", &mut t, &mut cx);
     // An entirely black result (upstream work that did not run would give that too): redo it on
     // the CPU, which costs time only for the rare photo that really is black.
@@ -766,8 +764,9 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
     let s = &*plan.settings;
-    let img = if lightcraft_pipeline::lin_needs_cpu(s, info) {
-        // defringe / spot removal / local tone mapping: CPU
+    let img = if lightcraft_pipeline::local_tone::enabled(info, s) {
+        // the camera's local tone mapping (ProRAW gain table, off by default): the whole
+        // scene-linear stage on the CPU
         let mut img = match host.sampled.take() {
             Some(i) => i,
             None => cx.read_rgb(sampled, w, h),
@@ -775,11 +774,14 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
         lightcraft_pipeline::lin_cpu(&mut img, info, plan);
         cx.gpu.upload(rgb_words(&img))
     } else {
+        // `lin_cpu`'s order: white balance, defringe, spots, red eye
         let m = local::wb_matrix_for(info, s);
         let mut p = vec![m.is_some() as u32];
         p.extend(m.unwrap_or_default().iter().flatten().map(|v| v.to_bits()));
         let out = cx.gpu.buffer(n * 3);
         map(cx, "wb_k", n, &p, [Some(sampled), None, None], &out);
+        let out = defringe(cx, out, plan);
+        let out = spots(cx, out, plan);
         if plan.eyes.is_empty() {
             out
         } else {
@@ -791,6 +793,96 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
         }
     };
     denoise(cx, img, plan)
+}
+
+/// Defringe (`optics::defringe`) of the white-balanced image.
+fn defringe(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>) -> Buf {
+    use lightcraft_pipeline::optics;
+    let Some(dp) = optics::defringe_params(&plan.settings, plan.px_per_long / optics::DEFRINGE_REF_LONG) else { return img };
+    let (w, h) = (plan.w, plan.h);
+    let n = w * h;
+    let lab = cx.gpu.buffer(n * 3);
+    map(cx, "fringe_lab", n, &[], [Some(&img), None, None], &lab);
+    // the lightness channel, then its min and max around each pixel
+    let l = cx.gpu.buffer(n);
+    map(cx, "subsample", n, &[3], [Some(&lab), None, None], &l);
+    // (a radius past the image reads the same pixels as one at its size)
+    let r = dp.radius.min(w.max(h)) as u32;
+    let filtered = |cx: &mut Cx<'_>, max: u32| {
+        let tmp = cx.gpu.buffer(n);
+        cx.run("minmax", &[w as u32, h as u32, r, 0, max], &[Some(&l), Some(&tmp)], groups2(w, h, [16, 16]));
+        let out = cx.gpu.buffer(n);
+        cx.run("minmax", &[w as u32, h as u32, r, 1, max], &[Some(&tmp), Some(&out)], groups2(w, h, [16, 16]));
+        out
+    };
+    let (lo, hi) = (filtered(cx, 0), filtered(cx, 1));
+    // the kernel writes only the pixels it changes
+    let out = cx.copy(&img);
+    let p = [dp.purple.0, dp.purple.1, dp.green.0, dp.green.1, dp.purple_strength, dp.green_strength].map(f32::to_bits);
+    map(cx, "fringe_apply", n, &p, [Some(&lab), Some(&lo), Some(&hi)], &out);
+    out
+}
+
+/// Spot removal (`spots::apply`), spot by spot on `img` in place: each spot reads the image as
+/// the earlier ones left it.
+fn spots(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>) -> Buf {
+    use lightcraft_pipeline::spots;
+    let (w, h) = (plan.w, plan.h);
+    for spot in &plan.settings.spots {
+        let Some(l) = spots::layout(spot, &plan.frame, w, h, plan.px_per_long) else { continue };
+        let Some(&first) = l.pts.first() else { continue };
+        let offset = match l.offset {
+            Some(o) => o,
+            None => auto_source(cx, &img, w, h, first, l.r),
+        };
+        let pts = cx.gpu.upload(&l.pts.iter().flat_map(|p| [p.0, p.1]).collect::<Vec<f32>>());
+        let nb = l.bw * l.bh;
+        let (al, sp, df, wt) = (cx.gpu.buffer(nb), cx.gpu.buffer(3 * nb), cx.gpu.buffer(3 * nb), cx.gpu.buffer(nb));
+        let mut p = vec![w as u32, h as u32, l.bx as u32, l.by as u32, l.bw as u32, l.bh as u32, l.pts.len() as u32];
+        p.extend([l.r, l.inner, l.opacity, offset.0, offset.1].map(f32::to_bits));
+        p.push(l.heal as u32);
+        let groups = groups2(l.bw, l.bh, [16, 16]);
+        cx.run("spot_prep", &p, &[Some(&img), Some(&pts), Some(&al), Some(&sp), Some(&df), Some(&wt)], groups);
+        // Heal: the tone correction is the masked difference's normalized blur
+        let blurred = l.heal.then(|| {
+            let sigma = (l.r * 0.6).max(1.0);
+            (gaussian(cx, &df, l.bw, l.bh, 3, sigma), gaussian(cx, &wt, l.bw, l.bh, 1, sigma))
+        });
+        let (bd, bm) = blurred.as_ref().map_or((&df, &wt), |(d, m)| (d, m));
+        cx.run("spot_apply", &p, &[Some(&img), Some(&pts), Some(&al), Some(&sp), Some(bd), Some(bm)], groups);
+    }
+    img
+}
+
+/// `spots::auto_source` on the device: every candidate scored at once, the 48 scores read back.
+fn auto_source(cx: &mut Cx<'_>, img: &Buf, w: usize, h: usize, target: (f32, f32), r: f32) -> (f32, f32) {
+    use lightcraft_pipeline::spots;
+    let cands = spots::candidates(r);
+    let mut data: Vec<f32> = cands.iter().flat_map(|d| [d.0, d.1]).collect();
+    data.extend(spots::ring_dirs().iter().flat_map(|d| [d.0, d.1]));
+    let pts = cx.gpu.upload(&data);
+    let [around, within] = spots::score_radii(r);
+    let mut p = vec![w as u32, h as u32];
+    p.extend([target.0, target.1].iter().chain(&around).chain(&within).map(|v| v.to_bits()));
+    let scores = cx.gpu.buffer(cands.len());
+    cx.run("spot_score", &p, &[Some(img), Some(&pts), Some(&scores), None, None, None], [cands.len().div_ceil(64) as u32, 1, 1]);
+    let scores: Vec<f32> = cx.read(&scores, cands.len());
+    spots::rank(&cands, &scores).first().copied().unwrap_or_else(|| spots::fallback_source(r))
+}
+
+/// The output's histogram (`Histogram::of_srgb8` of the `region` x, y, w, h of the `w`-wide
+/// packed RGBA8 `out`, on the same sampling grid), counted on the device.
+fn histogram(cx: &mut Cx<'_>, out: &Buf, w: usize, region: (usize, usize, usize, usize)) -> Histogram {
+    let (x0, y0, rw, rh) = region;
+    let step = (((rw * rh) as f64 / 1_000_000.0).sqrt().ceil() as usize).max(1);
+    let (nx, ny) = (rw.div_ceil(step), rh.div_ceil(step));
+    let bins = cx.zeroed(4 * Histogram::BINS + 1);
+    let p = [w, x0, y0, nx, ny, step].map(|v| v as u32);
+    cx.run("histogram", &p, &[Some(out), Some(&bins)], groups2(nx, ny, [16, 16]));
+    let v: Vec<u32> = cx.read(&bins, 4 * Histogram::BINS + 1);
+    let part = |k: usize| v.get(k * Histogram::BINS..(k + 1) * Histogram::BINS).map_or_else(|| vec![0; Histogram::BINS], <[u32]>::to_vec);
+    // (SDR bins: an HDR edit's histogram is made after the render, `media::develop`)
+    Histogram { r: part(0), g: part(1), b: part(2), luma: part(3), total: v.get(4 * Histogram::BINS).copied().unwrap_or(0), hdr: None }
 }
 
 /// Noise reduction (`local::denoise`).
@@ -1184,6 +1276,27 @@ mod tests {
             map(cx, "log_lum_k", w * h, &[], [Some(&src), None, None], &o);
         });
         time("guided sigma=1.75", &mut |cx| drop(guided(cx, &src, w, h, 1.75, 0.01)));
+    }
+
+    /// The device scores Remove's candidate sources like the CPU and picks the same one.
+    #[test]
+    fn auto_source_picks_the_cpu_candidate() {
+        // (creating the device writes the crash sentinel another test swaps out)
+        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(gpu) = crate::device() else { return };
+        let _scope = crate::ctx::RenderScope::new(gpu);
+        let img = lightcraft_scenes::demo_library()[3].render(640, 427);
+        let buf = gpu.upload(rgb_words(&img));
+        let mut differ = Vec::new();
+        for (tx, ty, r) in [(25.6, 213.0, 19.2), (320.0, 192.0, 19.2), (100.0, 50.0, 12.0), (600.0, 400.0, 25.0), (320.0, 213.0, 6.0)] {
+            let mut cx = Cx::new(gpu);
+            let g = auto_source(&mut cx, &buf, img.width, img.height, (tx, ty), r);
+            let c = lightcraft_pipeline::spots::auto_source(&img, (tx, ty), r);
+            if g != c {
+                differ.push(((tx, ty, r), g, c));
+            }
+        }
+        assert!(differ.is_empty(), "(target, gpu, cpu): {differ:?}");
     }
 
     #[test]

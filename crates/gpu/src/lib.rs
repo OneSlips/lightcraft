@@ -45,6 +45,10 @@ mod render;
 #[cfg(not(target_arch = "wasm32"))]
 pub use render::GpuStages;
 
+/// Unit tests that create the device or swap the crash sentinel's path take turns.
+#[cfg(test)]
+pub(crate) static DEVICE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
 static ENABLED: AtomicBool = AtomicBool::new(true);
 /// Set when a GPU render failed: the process stays on the CPU from then on.
 static BROKEN: AtomicBool = AtomicBool::new(false);
@@ -465,6 +469,10 @@ pub fn try_render(
             return Err(Fallback::NotTried);
         }
         let s = &*lightcraft_pipeline::settings_for(s, req);
+        // content-aware Fill spots (`spots::fill_box`) have no GPU kernel: the CPU renders the photo
+        if s.spots.iter().any(|sp| sp.mode == lightcraft_develop::SpotMode::Fill) {
+            return Err(Fallback::NotTried);
+        }
         // in flight until this returns; not tried once the process is ending (issue #620)
         let _work = exit::enter().ok_or(Fallback::NotTried)?;
         let gpu = device().ok_or(Fallback::NotTried)?;
