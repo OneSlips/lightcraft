@@ -1377,7 +1377,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Ok(v) = &r {
                 let n = v["imported"].as_array().map_or(0, Vec::len);
                 let failed = v["failed"].as_array().map_or(0, Vec::len);
+                // Lightroom local adjustment presets land in the Masking panel's Effect menu
+                let effects = v["effects"].as_array().map_or(0, Vec::len);
+                if effects > 0 {
+                    app.toast(
+                        &ctx,
+                        crate::i18n::tr_format!("Imported {e} mask effect{} (Masking ▸ Effect)", if effects == 1 { "" } else { "s" }, e = effects),
+                    );
+                }
                 let mut msg = match (n, failed) {
+                    (0, 0) if effects > 0 => return Some(r),
                     (0, 0) => "No new presets".to_string(),
                     (n, 0) => crate::i18n::tr_format!("Imported {n} preset{}", if n == 1 { "" } else { "s" }, n = n),
                     (n, f) => crate::i18n::tr_format!(
