@@ -84,7 +84,7 @@ calibration: M0–M13 took ≈ 25 active hours against an estimate of ≈ 110–
 - **AI features** (subject / sky / people masks, generative remove) need model weights with
   licences we can ship; classical fallbacks first. No permissively licensed sky-segmentation or
   raw-denoise model was found; we may need to train our own.
-- **Camera colour and lens data** is a data problem: we never use Adobe's matrices, DCPs or LCPs.
+- **Camera colour and lens data** is a data problem: we never use Adobe's matrices, DCPs or LCPs (users may import their own `.dcp` camera profiles).
   DNG-embedded data first, then our own calibration; long-tail coverage grows over time and needs
   people with cameras, lenses and charts.
 - **Raw-format sources:** decoders are written from prose format descriptions (even ones published

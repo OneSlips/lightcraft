@@ -228,5 +228,6 @@
   "+{n} more": "+{n} ще",
   "1 task is still running: {names}. Quitting stops it.": "1 завдання ще виконується: {names}. Вихід зупинить його.",
   "{n} tasks are still running: {names}. Quitting stops them.": "Ще виконуються завдання ({n}): {names}. Вихід зупинить їх.",
-  "{what} merge cancelled": "Об’єднання {what} скасовано"
+  "{what} merge cancelled": "Об’єднання {what} скасовано",
+  "Imported {e} mask effect{} (Masking ▸ Effect)": "Імпортовано ефектів маски: {e}{:.0} (Маски → Ефект)"
 }

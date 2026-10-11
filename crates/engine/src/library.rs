@@ -141,10 +141,14 @@ struct PrefsFile {
     filter_presets: Vec<crate::cmd::filters::FilterPreset>,
     /// Point-curve presets.
     curve_presets: Vec<crate::cmd::curves::CurvePreset>,
+    /// Mask effect presets.
+    mask_effects: Vec<crate::cmd::mask_effects::MaskEffect>,
     /// Colour-label name sets.
     label_sets: Vec<crate::cmd::manage::LabelSet>,
     /// Imported LUT profiles.
     lut_profiles: Vec<crate::cmd::lut_profiles::LutProfile>,
+    /// Imported camera profiles (`.dcp`).
+    dcp_profiles: Vec<crate::cmd::dcp_profiles::DcpEntry>,
     /// Keyword sets, the one in use, recent keywords.
     keyword_sets: Vec<crate::cmd::keywords::KeywordSet>,
     keyword_set: Option<String>,
@@ -332,9 +336,12 @@ impl Session {
         self.metadata_presets = prefs.metadata_presets;
         self.filter_presets = prefs.filter_presets;
         self.curve_presets = prefs.curve_presets;
+        self.mask_effects = prefs.mask_effects;
         self.label_sets = prefs.label_sets;
         self.lut_profiles = prefs.lut_profiles;
         crate::cmd::lut_profiles::register_all(self);
+        self.dcp_profiles = prefs.dcp_profiles;
+        crate::cmd::dcp_profiles::register_all(self);
         self.keyword_sets = prefs.keyword_sets;
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
@@ -567,8 +574,10 @@ impl Session {
             metadata_presets: self.metadata_presets.clone(),
             filter_presets: self.filter_presets.clone(),
             curve_presets: self.curve_presets.clone(),
+            mask_effects: self.mask_effects.clone(),
             label_sets: self.label_sets.clone(),
             lut_profiles: self.lut_profiles.clone(),
+            dcp_profiles: self.dcp_profiles.clone(),
             keyword_sets: self.keyword_sets.clone(),
             keyword_set: self.keyword_set.clone(),
             recent_keywords: self.recent_keywords.clone(),

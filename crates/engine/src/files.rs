@@ -11,6 +11,8 @@ use lightcraft_pipeline::SourceInfo;
 use lightcraft_raster::Rgb32f;
 use lightcraft_raster::resample::{Filter, fit};
 
+use lightcraft_raw::dcp::DcpProfile;
+
 use crate::media::{DenoiseSpec, FileLoader, FileProbe, PairLoader, PreviewLoader, ProbeInfo};
 
 fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
@@ -308,20 +310,30 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
 /// instead of each one waking the pool from outside and waiting for it (which costs more than the
 /// loops themselves when the machine is busy).
 pub fn load_bytes(bytes: &[u8], max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None).map(|(img, _, info)| (img, info)))
+    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None, None).map(|(img, _, info)| (img, info)))
+}
+
+/// [`load_bytes`] developing a raw file with an imported camera profile (`dcp`) in place of its own colour model.
+pub fn load_bytes_with(bytes: &[u8], max_edge: usize, dcp: Option<&DcpProfile>) -> Result<(Rgb32f, SourceInfo), String> {
+    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None, dcp).map(|(img, _, info)| (img, info)))
 }
 
 /// [`load_bytes`] taking the file's bytes: a raw file's bytes are freed as soon as it is decoded
 /// (less memory held while it is developed).
-pub fn load_vec(bytes: Vec<u8>, max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, None).map(|(img, _, info)| (img, info)))
+pub fn load_vec(bytes: Vec<u8>, max_edge: usize, dcp: Option<&DcpProfile>) -> Result<(Rgb32f, SourceInfo), String> {
+    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, None, dcp).map(|(img, _, info)| (img, info)))
 }
 
 /// [`load_vec`] that also develops the photo's cached denoised picture (`spec`) from the same decode: the plain
 /// picture, the denoised one (`None` when it cannot be read or does not fit this raw: the plain one is then all
 /// there is) and the source facts. Both pictures are the same size.
-pub fn load_vec_pair(bytes: Vec<u8>, max_edge: usize, spec: &DenoiseSpec) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
-    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, Some(spec)))
+pub fn load_vec_pair(
+    bytes: Vec<u8>,
+    max_edge: usize,
+    spec: &DenoiseSpec,
+    dcp: Option<&DcpProfile>,
+) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
+    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, Some(spec), dcp))
 }
 
 /// The denoised camera RGB of `raw` from its cached product, as the plain development would have it: the default
@@ -350,6 +362,7 @@ fn load_bytes_now(
     bytes: std::borrow::Cow<'_, [u8]>,
     max_edge: usize,
     denoise: Option<&DenoiseSpec>,
+    dcp: Option<&DcpProfile>,
 ) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
     if lightcraft_raw::probe(&bytes).is_some() {
         let mut raw = match lightcraft_raw::decode(&bytes).map_err(|e| preview_reason(&bytes, e)) {
@@ -367,6 +380,24 @@ fn load_bytes_now(
         let info = raw.info();
         let lens = embedded_lens(&info);
         raw.opcodes.list3.retain(|op| !op.is_lens_correction());
+        // A camera profile without a tone curve of its own (most chart-made ones: a matrix, maybe a hue/saturation map)
+        // keeps the contrast the photo has without it: the file's own DNG tone curve, else the tone of the look fitted
+        // to its camera JPEG. (A chart pins colour, not a rendering: its curve would be a choice, and this one is the
+        // camera's.)
+        let kept_tone = match dcp {
+            Some(p) if p.color.profile.tone_curve.is_none() => raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve).or_else(|| {
+                let own = raw.color.clone();
+                let tone = crate::camera_preview::starting_colour(&mut raw, &bytes).2.map(|look| look.tone);
+                raw.color = own;
+                tone
+            }),
+            _ => None,
+        };
+        // An imported camera profile replaces the file's colour model (its matrices and look; the shot's white stays), so
+        // the starting colour below comes from it, not from a fitted or built-in look.
+        if let Some(p) = dcp {
+            raw.color = p.applied_to(&raw.color);
+        }
         // Without colour matrices of its own, white balance is relative to the as-shot look (`Photo::relative_wb`).
         let own_matrix = lightcraft_raw::color::has_matrix(&raw.color);
         // the source's segmentation mattes (DNG semantic masks), read while the starting colour is fitted
@@ -443,7 +474,8 @@ fn load_bytes_now(
             let tags = lightcraft_raw::ColorData { profile: Default::default(), ..raw.color.clone() };
             Arc::new(lightcraft_pipeline::CameraColor { tags, developed_for: xy })
         });
-        let camera_tone = camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve));
+        let camera_tone =
+            camera_look.as_ref().map(|p| p.tone).or_else(|| raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve)).or(kept_tone);
         let local_tone = local_tone(&raw);
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
         return Ok((
@@ -619,13 +651,13 @@ pub fn fs_preview_loader() -> PreviewLoader {
 /// The filesystem-backed [`PairLoader`]: the file is read and decoded once, and developed as usual and from the photo's
 /// denoised picture. It holds two pictures at once, so it counts for more at the memory gate than a plain load.
 pub fn fs_pair_loader() -> PairLoader {
-    Arc::new(|path: &str, max_edge: usize, spec: &DenoiseSpec| {
+    Arc::new(|path: &str, max_edge: usize, spec: &DenoiseSpec, dcp: Option<&DcpProfile>| {
         let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
         let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 4 } else { 10 };
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
         let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-        let r = load_vec_pair(bytes, max_edge, spec);
+        let r = load_vec_pair(bytes, max_edge, spec, dcp);
         crate::memory::release();
         r
     })
@@ -639,13 +671,13 @@ pub fn fs_pair_loader() -> PairLoader {
 /// interactive loads (the loupe, exports) never wait — they are counted, so background work
 /// yields to them.
 pub fn fs_hooks() -> (FileLoader, FileProbe) {
-    let loader: FileLoader = Arc::new(|path: &str, max_edge: usize| {
+    let loader: FileLoader = Arc::new(|path: &str, max_edge: usize, dcp: Option<&DcpProfile>| {
         let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
         let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
         let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-        let r = load_vec(bytes, max_edge);
+        let r = load_vec(bytes, max_edge, dcp);
         // the file, the samples and the intermediate images are gone: give their pages back
         crate::memory::release();
         r
@@ -772,7 +804,7 @@ mod tests {
         product::write(&path, &camera_rgb, key).unwrap();
         let spec = DenoiseSpec { product: path, key: key.into(), make: None };
         let (ordinary, _) = load_bytes(&bytes, 2048).unwrap();
-        let (plain, cached, _) = load_vec_pair(bytes, 2048, &spec).unwrap();
+        let (plain, cached, _) = load_vec_pair(bytes, 2048, &spec, None).unwrap();
         assert_eq!(plain.data, ordinary.data, "requesting a twin must not change the ordinary path");
         let cached = cached.unwrap();
         assert_eq!((plain.width, plain.height), (24, 32));

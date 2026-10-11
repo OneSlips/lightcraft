@@ -1350,12 +1350,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
             }
-            // .cube LUTs (and those inside zips / folders) become profiles
+            // .cube LUTs (and those inside zips / folders) become profiles, .dcp files camera profiles
             let lut_paths: Vec<&String> = paths
                 .iter()
                 .filter(|p| {
                     let l = p.to_ascii_lowercase();
-                    l.ends_with(".cube") || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
+                    l.ends_with(".cube") || l.ends_with(".dcp") || l.ends_with(".zip") || std::path::Path::new(p.as_str()).is_dir()
                 })
                 .collect();
             let profiles = if lut_paths.is_empty() {
@@ -1367,7 +1367,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     .and_then(|v| v["imported"].as_array().map(Vec::len))
                     .unwrap_or(0)
             };
-            let preset_paths: Vec<&String> = paths.iter().filter(|p| !p.to_ascii_lowercase().ends_with(".cube")).collect();
+            let preset_paths: Vec<&String> = paths
+                .iter()
+                .filter(|p| {
+                    let l = p.to_ascii_lowercase();
+                    !l.ends_with(".cube") && !l.ends_with(".dcp")
+                })
+                .collect();
             let r = if preset_paths.is_empty() {
                 Ok(json!({"imported": [], "failed": [], "skipped": 0}))
             } else {
@@ -1386,7 +1392,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Ok(v) = &r {
                 let n = v["imported"].as_array().map_or(0, Vec::len);
                 let failed = v["failed"].as_array().map_or(0, Vec::len);
+                // Lightroom local adjustment presets land in the Masking panel's Effect menu
+                let effects = v["effects"].as_array().map_or(0, Vec::len);
+                if effects > 0 {
+                    app.toast(
+                        &ctx,
+                        crate::i18n::tr_format!("Imported {e} mask effect{} (Masking ▸ Effect)", if effects == 1 { "" } else { "s" }, e = effects),
+                    );
+                }
                 let mut msg = match (n, failed) {
+                    (0, 0) if effects > 0 => return Some(r),
                     (0, 0) => "No new presets".to_string(),
                     (n, 0) => crate::i18n::tr_format!("Imported {n} preset{}", if n == 1 { "" } else { "s" }, n = n),
                     (n, f) => crate::i18n::tr_format!(
