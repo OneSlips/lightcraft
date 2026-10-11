@@ -41,7 +41,14 @@ mod params;
 mod render;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use render::GpuStages;
+pub use render::{DisplayFrame, GpuStages, Output};
+/// The wgpu the renderer is built on (the same crate eframe uses: hosts hand over its device).
+#[cfg(not(target_arch = "wasm32"))]
+pub use wgpu;
+
+/// Unit tests that create the device or swap the crash sentinel's path take turns.
+#[cfg(test)]
+pub(crate) static DEVICE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
 /// Set when a GPU render failed: the process stays on the CPU from then on.
@@ -382,16 +389,88 @@ pub fn stage_bytes(stages: &StageCache) -> usize {
 pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
     #[cfg(not(target_arch = "wasm32"))]
     {
+        match run(src, info, s, req, stages, false)? {
+            render::Output::Image(r) => Some(r),
+            // (not asked for)
+            render::Output::Display { .. } => None,
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (src, info, s, req, stages);
+        None
+    }
+}
+
+/// [`render`] for the window: when the device is the window's ([`adopt_window_device`]) and the
+/// render allows it, the result stays on the device as a texture to draw ([`Output::Display`]);
+/// otherwise pixels as from [`render`]. `None`: render on the CPU instead.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn render_display(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Output> {
+    run(src, info, s, req, stages, true)
+}
+
+/// Whether renders run on the window's device (and so can be handed over as textures).
+pub fn on_window_device() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        existing_device().is_some_and(|g| g.window)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        false
+    }
+}
+
+/// Render on the window's device (eframe's) instead of a device of its own, so finished views can
+/// be drawn without reading them back ([`render_display`]). Builds the kernels on it (~0.4–2 s:
+/// call it off the UI thread), in place of [`warm_up`]. When that fails, or the window's device
+/// doesn't suit (a software adapter, too few storage buffers), a device of its own is created as
+/// before; `Err` says why the window's wasn't used. Does nothing once a device exists.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn adopt_window_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo) -> Result<(), String> {
+    if env_disabled() || !ENABLED.load(Ordering::Relaxed) {
+        return Err("GPU rendering is off".into());
+    }
+    let _work = exit::enter().ok_or("LightCraft is closing")?;
+    let mut declined = None;
+    let g = GPU.get_or_init(|| {
+        let adopted = if info.device_type == wgpu::DeviceType::Cpu {
+            Err(format!("software adapter ({}) skipped: the CPU pipeline is faster", info.name))
+        } else {
+            // (building the kernels is a long call into the driver: the crash sentinel covers it)
+            let limits = device.limits();
+            backend::with_init_marker(wgpu::Backends::from(info.backend), || {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx::Gpu::with_device(device, queue, info, limits, true)))
+                    .unwrap_or_else(|_| Err("kernel setup panicked".into()))
+            })
+        };
+        adopted.or_else(|e| {
+            log::warn!("gpu: not rendering on the window's device ({e}); creating one");
+            declined = Some(e);
+            let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
+            backend::with_init_marker(backends, || {
+                std::panic::catch_unwind(|| ctx::Gpu::new(backends)).unwrap_or_else(|_| Err("device creation panicked".into()))
+            })
+        })
+    });
+    match (g, declined) {
+        (Ok(g), None) if g.window => Ok(()),
+        (_, Some(e)) => Err(e),
+        (Ok(_), None) => Err("a device of its own was created first".into()),
+        (Err(e), None) => Err(e.clone()),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, display: bool) -> Option<Output> {
+    {
         // sections switched off with their eye render as if at their defaults (issue #316)
         let effective = s.effective();
         let s: &DevelopSettings = &effective;
-        // the kernel writes 8-bit output: high-bit-depth exports (and soft proofs) render on the CPU
+        // the kernel writes 8-bit output: high-bit-depth exports render on the CPU
         // Visualize HDR needs the float HDR render: CPU too
-        if !enabled()
-            || req.depth != lightcraft_pipeline::OutputDepth::U8
-            || req.proof.is_some()
-            || req.overlay == lightcraft_pipeline::Overlay::HdrRange
-        {
+        if !enabled() || req.depth != lightcraft_pipeline::OutputDepth::U8 || req.overlay == lightcraft_pipeline::Overlay::HdrRange {
             return None;
         }
         let s = &*lightcraft_pipeline::settings_for(s, req);
@@ -404,7 +483,7 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
         let (r, scoped) = {
             let _scope = ctx::RenderScope::new(gpu);
             let errors = ctx::ErrorScopes::push(gpu);
-            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(gpu, src, info, s, req, ext.as_deref(), fault)));
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| render::render(gpu, src, info, s, req, ext.as_deref(), fault, display)));
             (r, errors.pop())
         };
         // An error the device raised explains the readback failures that follow it; a buffer
@@ -426,7 +505,8 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
                     e.clear();
                 }
                 let what = match &r {
-                    Some(r) => format!("{}×{}", r.image.width, r.image.height),
+                    Some(Output::Image(r)) => format!("{}×{}", r.image.width, r.image.height),
+                    Some(Output::Display { frame, .. }) => format!("{}×{}", frame.width, frame.height),
                     None => "GPU render".into(),
                 };
                 let reason = match f.kind {
@@ -454,10 +534,5 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
             }
             (Ok(r), None) => r,
         }
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (src, info, s, req, stages);
-        None
     }
 }

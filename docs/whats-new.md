@@ -10,6 +10,15 @@
   preset pickers in Import and Settings ▸ Import scroll the same way.
 - Importing a large collection and opening its library no longer compare every preset with every other.
 
+### More of the rendering on the GPU
+- LUT profiles, masks with Refine Edges and soft proofing render on the GPU (they used to send the whole render to the
+  CPU), and so do spot removal, defringe and the histogram (they used to bounce the image through the CPU mid-render).
+  Results match the CPU within 1 level in 8 bits.
+- Grid, filmstrip, preset and profile thumbnails render on the GPU once it is ready (about a quarter faster on an RTX
+  5070, and the CPU stays free for decoding raws).
+- While a slider is dragged, the loupe is drawn straight from the GPU: rendering and drawing share the window's
+  graphics device, so drafts are never copied to memory and back (`LIGHTCRAFT_GPU_WINDOW=0` turns this off).
+
 ## 2026-10-10
 
 ### Activity stack
