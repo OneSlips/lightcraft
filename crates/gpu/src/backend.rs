@@ -352,8 +352,8 @@ mod tests {
     }
     use super::*;
 
-    /// The tests that set the process-wide marker take turns.
-    static GLOBAL: Mutex<()> = Mutex::new(());
+    // The tests that set the process-wide marker take turns, with each other and with the
+    // render tests that create the device: all of them hold `crate::DEVICE_TEST_LOCK`.
 
     #[test]
     fn parses_backend_names() {
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn a_panic_inside_the_scope_still_removes_the_marker() {
-        let _turn = GLOBAL.lock().unwrap_or_else(|e| e.into_inner());
+        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join(format!("lc-gpu-panic-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);
