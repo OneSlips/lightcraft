@@ -69,6 +69,11 @@ const MODULES: &[Module] = &[
         entries: &["shape", "combine", "finalize"],
     },
     Module {
+        src: include_str!("wgsl/present.wgsl"),
+        bindings: &[("px", false, "u32"), ("dst", true, "u32"), ("count", true, "atomic<u32>")],
+        entries: &["unwritten", "pad_rows"],
+    },
+    Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
         entries: &["orient", "sample_affine", "sample_warp"],
@@ -236,6 +241,8 @@ pub struct Gpu {
     free: std::sync::Mutex<Vec<Tracked>>,
     /// Largest storage buffer the device accepts (bytes).
     pub max_buffer: u64,
+    /// The device is the window's (eframe's): renders can hand it textures to draw directly.
+    pub window: bool,
 }
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
@@ -324,6 +331,15 @@ impl Gpu {
             ..Default::default()
         }))
         .map_err(|e| format!("{}: device creation failed ({e})", info.name))?;
+        Gpu::with_device(device, queue, info, limits, false)
+    }
+
+    /// The renderer on an existing device: the window's (`window`, see [`crate::adopt_window_device`])
+    /// or one [`Gpu::new`] created with `limits`. Builds the kernels (~0.4–2 s: not on the UI thread).
+    pub fn with_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo, limits: wgpu::Limits, window: bool) -> Result<Gpu, String> {
+        if limits.max_storage_buffers_per_shader_stage < 10 {
+            return Err(format!("{} has too few storage buffers per shader stage ({} < 10)", info.name, limits.max_storage_buffers_per_shader_stage));
+        }
         // Errors outside a render's error scopes (see `ErrorScopes`): log, and stop using the GPU.
         device.on_uncaptured_error(std::sync::Arc::new(|e| {
             log::error!("gpu: {e}");
@@ -372,8 +388,14 @@ impl Gpu {
             mapped_at_creation: false,
         });
         let max_buffer = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
-        log::info!("gpu: {} ({:?}), buffers ≤ {} MiB", info.name, info.backend, max_buffer >> 20);
-        Ok(Gpu { device, queue, info, kernels, dummy, free: Default::default(), max_buffer })
+        log::info!(
+            "gpu: {} ({:?}), buffers ≤ {} MiB{}",
+            info.name,
+            info.backend,
+            max_buffer >> 20,
+            if window { ", the window's device" } else { "" }
+        );
+        Ok(Gpu { device, queue, info, kernels, dummy, free: Default::default(), max_buffer, window })
     }
 
     /// A buffer of `len` 32-bit values with undefined contents (a recycled one when possible).
