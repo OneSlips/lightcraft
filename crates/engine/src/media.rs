@@ -785,9 +785,12 @@ impl RenderJob {
                 // the plain picture, or (Denoise amount above 0 and a denoised picture cached) the mix the amount asks for
                 let src = &source.image_for(self.settings.denoise_amount());
                 let info = source.info_or(self.info);
-                // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
-                // the GPU when there is one.
-                let gpu = self.cache.is_none();
+                // Views and exports use the GPU when there is one (waiting for the device if it is
+                // still being created). Thumbnails (grid, filmstrip, preset and profile previews)
+                // use it once it is ready - ~20-30 % faster than the CPU at 256 px with six jobs
+                // side by side (`crates/gpu/tests/thumbs_bench.rs`), and the cores stay free for
+                // decoding - but never wait for it: at startup they render on the CPU.
+                let gpu = self.cache.is_none() || lightcraft_gpu::ready();
                 let mut rendered = develop(src, &info, &self.settings, &self.request, self.stages.as_deref(), gpu);
                 // for a display profile: the image goes to the display's values, the histogram
                 // and the cached view preview stay sRGB

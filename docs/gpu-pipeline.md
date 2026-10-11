@@ -104,7 +104,11 @@ walks the drive.
 ## Where it is used
 - `lightcraft_engine::media::develop` (called by every `RenderJob`): loupe / before / compare views,
   `render_now` (CLI, MCP, control channel renders) and exports render on the GPU when one is
-  available; grid/filmstrip thumbnails (many small jobs in parallel) stay on the CPU.
+  available. Thumbnails (grid, filmstrip, preset and profile previews, faces) render on the GPU
+  once the device is ready (`lightcraft_gpu::ready()`) and on the CPU until then, so they never
+  wait for device creation at startup. Six workers rendering 256 px thumbnails: 3.6 ms each on an
+  RTX 5070 vs 4.3–5.2 ms on 32 CPU threads (`crates/gpu/tests/thumbs_bench.rs`), and the cores stay
+  free for raw decoding.
 - Every 8-bit render takes the GPU path whatever its settings: LUT profiles (the `.cube` table
   rides in the kernel's `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with
   Refine Edges (the cross guided filter of Auto Mask, blended by √refine before the mask's invert
