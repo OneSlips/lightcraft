@@ -22,6 +22,14 @@ Foundation project licensed under the Apache License 2.0, and from the CIE 1931 
 functions it ships (CIE, CC-BY-4.0). The matrices were fitted by the LightCraft contributors
 (2026) with tools/spectral_camera_table.py. See assets/ATTRIBUTION.md.
 
+crates/camprof (lightcraft-camprof) ports the camera-profiling engine of RADcamProfiles
+(https://github.com/OneSlips/RADcamProfiles, commit dd8003f, crates/engine), Copyright (c) 2026 RAD Films -
+Roman Alurkoff, licensed under the MIT License and relicensed under the MIT License or the Apache License 2.0
+by its author for LightCraft. The port was modified by the LightCraft contributors (2026); each ported file
+says so. It carries the CIE 1931 2-degree colour-matching functions and the CIE standard illuminants A, D50,
+D55, D65, D75 and E (CIE / ISO/CIE 11664 published tables), and the published reference values (CIELAB D50)
+of the X-Rite ColorChecker 24 as made before November 2014. See assets/ATTRIBUTION.md.
+
 crates/inpaint (lightcraft-inpaint) ports the inpainting (PatchMatch completion) and Poisson membrane
 fill code of PhotoCraft (https://github.com/storytold/photocraft, crates/algo/src/inpaint.rs and
 poisson.rs), Copyright the PhotoCraft contributors, licensed under the MIT License or the Apache

@@ -3096,6 +3096,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-camprof"
+version = "0.7.1"
+dependencies = [
+ "lightcraft-color",
+ "lightcraft-raw",
+]
+
+[[package]]
 name = "lightcraft-catalog"
 version = "0.7.1"
 dependencies = [
