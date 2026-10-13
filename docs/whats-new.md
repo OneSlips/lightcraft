@@ -1,5 +1,18 @@
 # What's new in LightCraft
 
+## 2026-10-22
+
+### AI masks with open models
+- **Subject**, **Background**, **Sky**, **People** and **Landscape** masks now use AI models instead of
+  guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
+  need it, after a dialog that shows its size and licence. Without a model the mask is made the old
+  way and the Masking panel says it is approximate, with a button to get the model.
+- **People**: pick everyone or one person and the parts — face skin, body skin, hair, clothes,
+  eyebrows, eye whites, irises, lips, teeth.
+- **Landscape**: sky, water, vegetation, mountains, architecture, natural or artificial ground.
+- **Update** recomputes a mask made before its model was installed.
+- Everything runs on your computer, in LightCraft's own code; nothing is uploaded.
+
 ## 2026-10-21
 
 ### Sharper resampling in HDR and panorama merges
