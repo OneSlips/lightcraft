@@ -27,9 +27,15 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 #[cfg(not(target_arch = "wasm32"))]
+pub mod birefnet;
+#[cfg(not(target_arch = "wasm32"))]
 mod clip;
 #[cfg(not(target_arch = "wasm32"))]
+mod deform;
+#[cfg(not(target_arch = "wasm32"))]
 mod detector;
+#[cfg(not(target_arch = "wasm32"))]
+mod feat;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fetch;
 pub mod mask;
@@ -39,6 +45,8 @@ mod neck;
 mod nn;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod remote;
+#[cfg(not(target_arch = "wasm32"))]
+mod swin;
 pub mod tokenizer;
 #[cfg(not(target_arch = "wasm32"))]
 mod tracker;
@@ -57,6 +65,8 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub use birefnet::{BIREFNET_SIDE, BiRefNet, is_birefnet_dir};
+#[cfg(not(target_arch = "wasm32"))]
 pub use tracker::Click;
 
 #[derive(Debug, thiserror::Error)]
@@ -65,6 +75,10 @@ pub enum Error {
     Model(String),
     #[error("SAM 3 model files not found in {0} (expected model.safetensors, vocab.json, merges.txt)")]
     Missing(PathBuf),
+    #[error("BiRefNet model: {0}")]
+    BiRefNet(String),
+    #[error("BiRefNet model files not found in {0} (expected model.safetensors)")]
+    BiRefNetMissing(PathBuf),
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Candle(#[from] candle_core::Error),

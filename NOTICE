@@ -40,6 +40,16 @@ the facebook/sam3 checkpoint only when they choose to (in the app, or by hand), 
 License (https://github.com/facebookresearch/sam3/blob/main/LICENSE), a separate, non-OSI
 licence. See docs/ai-masks.md.
 
+crates/segment/src/birefnet.rs, swin.rs, deform.rs and feat.rs port the inference code of BiRefNet
+(https://github.com/ZhengPeng7/BiRefNet: models/birefnet.py, models/backbones/swin_v1.py,
+models/modules/{decoder_blocks,lateral_blocks,aspp,deform_conv}.py, config.py), Copyright (c) 2024
+ZhengPeng7, licensed under the MIT License; its Swin Transformer backbone derives from the Swin
+Transformer code, Copyright (c) 2021 Microsoft (written by Ze Liu, Yutong Lin, Yixuan Wei),
+licensed under the MIT License. The MIT License's permission notice is the one in LICENSE-MIT
+(with these copyright lines). The port was modified by the LightCraft contributors (2026):
+translated from Python/PyTorch to Rust and restructured; each ported file says so. BiRefNet
+weights are not part of LightCraft and are never distributed with it.
+
 AI denoise weights are not part of LightCraft and are never distributed with it.
 The default build offers user-supplied models only. The optional rawnind-model
 feature offers a separately downloaded RawNIND UtNet2 Bayer checkpoint under

@@ -30,6 +30,13 @@ fn weights(src: usize, dst: usize) -> Vec<(usize, Vec<f32>)> {
 /// An 8-bit RGB image (`w × h`, row-major) stretched to `side × side`, scaled to −1..1 and laid
 /// out channel-first (`[3, side, side]`), as SAM 3's processor does.
 pub fn preprocess(rgb: &[u8], w: usize, h: usize, side: usize) -> Result<Vec<f32>> {
+    preprocess_normalized(rgb, w, h, side, [0.5; 3], [0.5; 3])
+}
+
+/// An 8-bit RGB image (`w × h`, row-major) stretched to `side × side` (Pillow's bilinear
+/// resampling, rounded to 8 bits), mapped to `(v / 255 − mean) / std` per channel and laid out
+/// channel-first (`[3, side, side]`).
+pub fn preprocess_normalized(rgb: &[u8], w: usize, h: usize, side: usize, mean: [f32; 3], std: [f32; 3]) -> Result<Vec<f32>> {
     let n = w.checked_mul(h).and_then(|n| n.checked_mul(3)).ok_or_else(|| Error::Model("image too large".into()))?;
     if w == 0 || h == 0 || rgb.len() < n {
         return Err(Error::Model(format!("image buffer of {} bytes for {w} × {h}", rgb.len())));
@@ -62,10 +69,10 @@ pub fn preprocess(rgb: &[u8], w: usize, h: usize, side: usize) -> Result<Vec<f32
                 }
             }
             for (c, a) in acc.iter().enumerate() {
-                // Pillow rounds to 8 bits; then /255 and (x − 0.5) / 0.5
+                // Pillow rounds to 8 bits; then /255 and (x − mean) / std
                 let v = a.round().clamp(0.0, 255.0) / 255.0;
-                if let Some(d) = out.get_mut((c * side + oy) * side + ox) {
-                    *d = (v - 0.5) / 0.5;
+                if let (Some(d), Some(m), Some(s)) = (out.get_mut((c * side + oy) * side + ox), mean.get(c), std.get(c)) {
+                    *d = (v - m) / s;
                 }
             }
         }
