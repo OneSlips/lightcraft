@@ -20,6 +20,7 @@ use lightcraft_develop::SegMask;
 use lightcraft_segment::{
     Encoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
     birefnet::{BIREFNET_SIDE, BiRefNet},
+    people::{Face, FaceModel, PeopleMap, PeopleModel, PeopleRequest, people_mask},
     remote::{self, Operation, Request, text_logits},
     scene::{Scene, SceneModel},
 };
@@ -66,6 +67,8 @@ pub struct Job {
     pub kind: Kind,
     pub tag: Tag,
     pub reply: mpsc::Sender<Outcome>,
+    /// Where the slow steps (loading a model, analyzing a photo) show as activity rows.
+    pub activity: Option<crate::activity::Activity>,
 }
 
 /// A finished request: the segmentation (`None`: nothing selected / nothing to report).
@@ -196,11 +199,25 @@ struct State {
     scene: Option<(PathBuf, SceneModel)>,
     /// EoMT's scene for a photo (Sky, People, Landscape and Subject share it).
     scene_cache: Option<(u64, Scene)>,
+    people: Option<(PathBuf, PeopleModel)>,
+    /// Selfie Multiclass's classes for a photo.
+    people_cache: Option<(u64, PeopleMap)>,
+    face: Option<(PathBuf, FaceModel)>,
+    /// The faces (with landmarks) of a photo.
+    faces_cache: Option<(u64, Vec<Face>)>,
+    /// The last rendered input of the open models (several of them may run on one photo).
+    input_cache: Option<(u64, Input)>,
 }
 
 impl State {
     fn any_loaded(&self) -> bool {
-        self.model.is_some() || self.remote.is_some() || self.sam2.is_some() || self.subject.is_some() || self.scene.is_some()
+        self.model.is_some()
+            || self.remote.is_some()
+            || self.sam2.is_some()
+            || self.subject.is_some()
+            || self.scene.is_some()
+            || self.people.is_some()
+            || self.face.is_some()
     }
 
     /// Forget what was computed for photos (a failed request may have left it half done).
@@ -209,6 +226,9 @@ impl State {
         self.sam2_cache = None;
         self.subject_cache = None;
         self.scene_cache = None;
+        self.people_cache = None;
+        self.faces_cache = None;
+        self.input_cache = None;
     }
 }
 
@@ -343,6 +363,7 @@ fn sam2_encoded<'a>(state: &'a mut State, shared: &Shared, job: &mut Job) -> Res
         state.sam2_cache = None;
         let input = render(job)?;
         let _busy = Flag::raise(&shared.encoding);
+        let _row = row(job, "SAM 2.1");
         let m = state.sam2.as_ref().map(|(_, m)| m).ok_or("SAM 2.1 did not load")?;
         let t = web_time::Instant::now();
         let enc = m.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
@@ -404,50 +425,131 @@ fn landscape_classes(class: &str) -> &'static [&'static str] {
     }
 }
 
-/// An automatic selection: square logits over the photo and their side; `None` when nothing of the
-/// kind was found.
+/// An activity row for a slow step of `job` (analyzing a photo with `name`).
+fn row(job: &Job, name: &str) -> Option<crate::activity::TaskGuard> {
+    job.activity.as_ref().map(|a| {
+        let t = a.start("ai", "Analyzing photo for AI masks", crate::activity::Cancel::No);
+        t.detail(name);
+        t
+    })
+}
+
+/// The open models' input for `job`'s photo, rendered once per photo.
+fn photo<'a>(cache: &'a mut Option<(u64, Input)>, job: &mut Job) -> Result<&'a Input, String> {
+    if cache.as_ref().is_none_or(|(k, _)| *k != job.key || job.key == 0) {
+        *cache = None;
+        *cache = Some((job.key, render(job)?));
+    }
+    cache.as_ref().map(|(_, i)| i).ok_or_else(|| "the photo is not available".to_string())
+}
+
+/// Run `f` on the model in `slot` and the photo, unless `cache` holds its result for the photo.
+fn cached<'a, M, T>(
+    slot: &Option<(PathBuf, M)>,
+    cache: &'a mut Option<(u64, T)>,
+    input: &mut Option<(u64, Input)>,
+    shared: &Shared,
+    job: &mut Job,
+    name: &str,
+    f: impl FnOnce(&M, &Input) -> lightcraft_segment::Result<T>,
+) -> Result<&'a T, String> {
+    if cache.as_ref().is_none_or(|(k, _)| *k != job.key) {
+        *cache = None;
+        let m = slot.as_ref().map(|(_, m)| m).ok_or_else(|| format!("{name} did not load"))?;
+        let img = photo(input, job)?;
+        let _busy = Flag::raise(&shared.encoding);
+        let _row = row(job, name);
+        let t = web_time::Instant::now();
+        let out = f(m, img).map_err(|e| format!("{name}: {e}"))?;
+        log::info!("{name}: {}×{} in {:?}", img.w, img.h, t.elapsed());
+        *cache = Some((job.key, out));
+    }
+    cache.as_ref().map(|(_, v)| v).ok_or_else(|| format!("{name} is not ready"))
+}
+
+/// Load the model in `slot` from `dir` (forgetting what it computed when it moves).
+fn ensure<M, T>(
+    slot: &mut Option<(PathBuf, M)>,
+    cache: &mut Option<(u64, T)>,
+    shared: &Shared,
+    dir: &std::path::Path,
+    name: &str,
+    open: impl FnOnce(&std::path::Path) -> lightcraft_segment::Result<M>,
+) -> Result<(), String> {
+    if slot.as_ref().is_none_or(|(d, _)| d != dir) {
+        *cache = None;
+    }
+    load(slot, shared, dir, name, open).map(|_| ())
+}
+
+/// An automatic selection; `None` when nothing of the kind was found.
 fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel) -> Result<Option<SegMask>, String> {
     let invert = |l: Vec<f32>| l.into_iter().map(|v| -v).collect::<Vec<f32>>();
+    let background = *what == AutoKind::Background;
     match model {
-        AutoModel::Subject => {
-            if state.subject.as_ref().is_none_or(|(d, _)| *d != job.dir) {
-                state.subject_cache = None;
-            }
-            load(&mut state.subject, shared, &job.dir, "BiRefNet", BiRefNet::load)?;
-            if state.subject_cache.as_ref().is_none_or(|(k, _)| *k != job.key) {
-                state.subject_cache = None;
-                let input = render(job)?;
-                let _busy = Flag::raise(&shared.encoding);
-                let m = state.subject.as_ref().map(|(_, m)| m).ok_or("BiRefNet did not load")?;
-                let t = web_time::Instant::now();
-                let logits = m.segment(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
-                log::info!("BiRefNet: subject of {}×{} in {:?}", input.w, input.h, t.elapsed());
-                state.subject_cache = Some((job.key, logits));
-            }
-            let logits = state.subject_cache.as_ref().map(|(_, l)| l.clone()).ok_or("BiRefNet is not ready")?;
-            let logits = if *what == AutoKind::Background { invert(logits) } else { logits };
+        AutoModel::Subject(dir) => {
+            ensure(&mut state.subject, &mut state.subject_cache, shared, &dir, "BiRefNet", BiRefNet::load)?;
+            let logits = cached(&state.subject, &mut state.subject_cache, &mut state.input_cache, shared, job, "BiRefNet", |m, i| {
+                m.segment(&i.rgb, i.w, i.h)
+            })?
+            .clone();
+            let logits = if background { invert(logits) } else { logits };
             Ok(Some(SegMask::from_logits(BIREFNET_SIDE, &logits)))
         }
-        AutoModel::Scene => {
-            if state.scene.as_ref().is_none_or(|(d, _)| *d != job.dir) {
-                state.scene_cache = None;
-            }
-            load(&mut state.scene, shared, &job.dir, "EoMT", SceneModel::load)?;
-            if state.scene_cache.as_ref().is_none_or(|(k, _)| *k != job.key) {
-                state.scene_cache = None;
-                let input = render(job)?;
-                let _busy = Flag::raise(&shared.encoding);
-                let m = state.scene.as_ref().map(|(_, m)| m).ok_or("EoMT did not load")?;
-                let t = web_time::Instant::now();
-                let scene = m.segment(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
-                log::info!("EoMT: scene of {}×{} in {:?}", input.w, input.h, t.elapsed());
-                state.scene_cache = Some((job.key, scene));
-            }
-            let scene = state.scene_cache.as_ref().map(|(_, s)| s).ok_or("EoMT is not ready")?;
+        AutoModel::Scene(dir) => {
+            ensure(&mut state.scene, &mut state.scene_cache, shared, &dir, "EoMT", SceneModel::load)?;
+            let scene =
+                cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h))?;
             let Some(probs) = scene_probs(scene, what) else { return Ok(None) };
             let logits = lightcraft_segment::grid::to_square_logits(&probs, scene.width, scene.height, SCENE_SIDE);
-            let logits = if *what == AutoKind::Background { invert(logits) } else { logits };
+            let logits = if background { invert(logits) } else { logits };
             Ok(Some(SegMask::from_logits(SCENE_SIDE, &logits)))
+        }
+        AutoModel::People { people, face, scene } => {
+            let map = match &people {
+                Some(dir) => {
+                    ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
+                    Some(cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| {
+                        m.segment(&i.rgb, i.w, i.h)
+                    })?)
+                }
+                None => None,
+            };
+            if matches!(what, AutoKind::Subject | AutoKind::Background) {
+                // a person is the subject when there is one; else EoMT's most confident thing
+                let person_there = map.as_ref().is_some_and(|m| m.person_share() > 0.005);
+                if !person_there && let Some(scene) = scene {
+                    return auto(state, shared, job, what, AutoModel::Scene(scene));
+                }
+                let Some(map) = map else { return Ok(None) };
+                let req = PeopleRequest::parse(0, &[]).ok_or("people request")?;
+                let input = photo(&mut state.input_cache, job)?;
+                return Ok(people_mask(&req, &input.rgb, input.w, input.h, Some(map), &[]).map(|g| {
+                    let logits = if background { invert(g.logits) } else { g.logits };
+                    SegMask::from_logits(g.side, &logits)
+                }));
+            }
+            let AutoKind::People { person, parts } = what else { return Err("not a People selection".into()) };
+            let req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
+            let faces: Vec<Face> = match &face {
+                Some(dir) => {
+                    ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
+                    cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+                        m.faces(&i.rgb, i.w, i.h)
+                    })?
+                    .clone()
+                }
+                None => Vec::new(),
+            };
+            let map = match &people {
+                Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
+                None => None,
+            };
+            let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+            Ok(people_mask(&req, &input.rgb, input.w, input.h, map, &faces).map(|g| match g.rect {
+                Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
+                None => SegMask::from_logits(g.side, &g.logits),
+            }))
         }
     }
 }
@@ -463,8 +565,8 @@ fn scene_probs(scene: &Scene, what: &AutoKind) -> Option<Vec<f32>> {
             let names = landscape_classes(class);
             Some(scene.class_probability(&class_ids(|n| names.contains(&n))))
         }
-        AutoKind::People { person: 0 } => Some(scene.class_probability(&person)).filter(|p| found(p)),
-        AutoKind::People { person: n } => {
+        AutoKind::People { person: 0, .. } => Some(scene.class_probability(&person)).filter(|p| found(p)),
+        AutoKind::People { person: n, .. } => {
             // people counted from the left (by the centre of their mask)
             let mut people: Vec<(f32, &Vec<f32>)> = scene
                 .instances
@@ -519,6 +621,7 @@ fn encoded<'a>(state: &'a mut State, shared: &Shared, job: &mut Job) -> Result<(
         state.cache = None;
         let input = render(job)?;
         let _busy = Flag::raise(&shared.encoding);
+        let _row = row(job, "SAM 3");
         let m = state.model.as_mut().map(|(_, m)| m).ok_or("the model did not load")?;
         let t = web_time::Instant::now();
         let mut enc = m.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
@@ -583,7 +686,7 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
 
 fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<SegMask>, String> {
     if let Kind::Auto { what, model } = &job.kind {
-        let (what, model) = (what.clone(), *model);
+        let (what, model) = (what.clone(), model.clone());
         return auto(state, shared, job, &what, model);
     }
     if job.sam2 {
@@ -675,7 +778,7 @@ mod tests {
     fn job(tag: Tag, reply: &mpsc::Sender<Outcome>) -> Job {
         // an empty folder: loading fails with an error (no model files)
         let dir = std::env::temp_dir().join(format!("lc-sam3-worker-none-{}", std::process::id()));
-        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone() }
+        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None }
     }
 
     #[test]

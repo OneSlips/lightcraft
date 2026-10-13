@@ -82,3 +82,11 @@ downloads cities15000.zip, admin1CodesASCII.txt and countryInfo.txt from GeoName
 (https://download.geonames.org/export/dump/) into the settings folder. GeoNames data is licensed
 under Creative Commons Attribution 4.0 (https://creativecommons.org/licenses/by/4.0/);
 attribution: "GeoNames, geonames.org". The lookup code (crates/geocode) is our own.
+
+crates/segment/src/tflite reads TensorFlow Lite model files: it was written from the public
+FlatBuffers format and the field order and enums of TensorFlow Lite's schema.fbs (Copyright The
+TensorFlow Authors, Apache License 2.0); no code was copied. crates/segment/src/mediapipe.rs holds
+the face-landmark index lists of MediaPipe's face_landmarks_connections (Copyright 2023 The
+MediaPipe Authors, Apache License 2.0). The MediaPipe models (Selfie Multiclass, Face Landmarker;
+Apache License 2.0, Google) are not part of LightCraft: a user downloads them only when they choose
+to, from Google's own storage.

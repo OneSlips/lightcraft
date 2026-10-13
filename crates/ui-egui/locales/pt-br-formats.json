@@ -250,5 +250,6 @@
   "· {in_source} identical copies": "· {in_source} cópias idênticas",
   "The AI model download failed: {e}": "O download do modelo de IA falhou: {e}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licença: {licence}, uma licença de código aberto que permite qualquer uso, inclusive trabalho comercial.",
-  "A one-time download of about {mb} MB, saved in {dir}": "Um download único de cerca de {mb} MB, salvo em {dir}"
+  "A one-time download of about {mb} MB, saved in {dir}": "Um download único de cerca de {mb} MB, salvo em {dir}",
+  "Person {n}": "Pessoa {n}"
 }

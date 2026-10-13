@@ -350,7 +350,8 @@ fn automatic_masks_without_their_model_are_approximate() {
         (json!({"kind": "subject"}), "subject"),
         (json!({"kind": "background"}), "subject"),
         (json!({"kind": "sky"}), "scene"),
-        (json!({"kind": "people"}), "scene"),
+        (json!({"kind": "people"}), "people"),
+        (json!({"kind": "people", "parts": ["Lips"]}), "face"),
         (json!({"kind": "landscape", "class": "water"}), "scene"),
     ] {
         let r = s.execute("mask.add", &p).unwrap();
@@ -401,4 +402,56 @@ fn a_damaged_automatic_model_is_an_error_not_a_crash() {
     let d = s.develop_of(s.active().unwrap()).unwrap();
     assert!(d.masks.iter().any(|m| matches!(m.components[0].shape, lightcraft_develop::MaskShape::Sky { seg: None })));
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With the real models (`LIGHTCRAFT_AI_MODELS_TEST_DIR`: a models folder holding them, e.g. the
+/// app's `<settings>/models`): every automatic mask the installed models allow is computed, stored
+/// with the mask, and the analysis shows in the activity stack while it runs. Skipped without it.
+#[cfg(feature = "sam")]
+#[test]
+fn automatic_masks_with_the_real_models() {
+    let Some(root) = std::env::var_os("LIGHTCRAFT_AI_MODELS_TEST_DIR").map(std::path::PathBuf::from) else {
+        eprintln!("skipped: set LIGHTCRAFT_AI_MODELS_TEST_DIR");
+        return;
+    };
+    let mut s = Session::with_demo();
+    s.segmenter.models_root = Some(root);
+    s.segmenter.background = true;
+    let id = s.active().unwrap();
+    let mut wanted = Vec::new();
+    for p in [
+        json!({"kind": "subject"}),
+        json!({"kind": "sky"}),
+        json!({"kind": "landscape", "class": "vegetation"}),
+        json!({"kind": "people"}),
+        json!({"kind": "people", "parts": ["Hair", "Lips"]}),
+    ] {
+        let r = s.execute("mask.add", &p).unwrap();
+        if r["pending"] == true {
+            wanted.push(r["activeMask"].as_u64().unwrap());
+        }
+    }
+    let mut saw_row = false;
+    let t = Instant::now();
+    let mut messages = Vec::new();
+    while s.segmenter.busy() {
+        saw_row |= s.activity.list().iter().any(|r| r.kind == "ai");
+        messages.extend(s.segment_poll().messages);
+        assert!(t.elapsed() < Duration::from_secs(600), "never finished");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    messages.extend(s.segment_poll().messages);
+    eprintln!("computed {} masks; messages: {messages:?}", wanted.len());
+    assert!(s.activity.list().iter().all(|r| r.kind != "ai"), "rows end with the work");
+    let d = s.develop_of(id).unwrap();
+    for m in &wanted {
+        let mask = d.masks.iter().find(|x| u64::from(x.id) == *m).unwrap();
+        let shape = &mask.components[0].shape;
+        let stored = crate::segment::AutoKind::of(shape).and_then(|k| k.seg_of(shape).cloned()).flatten();
+        // (the demo photos have no people: those may come back as "not found")
+        if stored.is_none() {
+            assert!(!messages.is_empty(), "mask {m}: no segmentation and no message");
+        }
+    }
+    assert!(wanted.is_empty() || saw_row, "the analysis showed in the activity stack");
 }

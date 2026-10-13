@@ -65,6 +65,8 @@ mod neck;
 #[cfg(not(target_arch = "wasm32"))]
 mod nn;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod people;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod remote;
 #[cfg(not(target_arch = "wasm32"))]
 mod sam2;

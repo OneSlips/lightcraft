@@ -1,17 +1,28 @@
 # AI masks
 
-LightCraft's AI masks run in pure Rust (`crates/segment`, on [candle](https://github.com/huggingface/candle)
-plus plain-Rust kernels), on the CPU, with the largest matrix products on the GPU through wgpu
-(DX12 / Vulkan / Metal) when one is available. Each mask type uses an openly licensed model that
-LightCraft can host and download without accounts:
+LightCraft's AI masks run in pure Rust in `crates/segment`: the larger models on
+[candle](https://github.com/huggingface/candle) plus plain-Rust kernels, Google's MediaPipe models on
+a small built-in TFLite interpreter that reads the files Google publishes, unchanged. Everything runs
+on the CPU (an experimental GPU path for the largest matrix products is opt-in, see Speed). Each mask
+type uses a model whose weights are openly licensed, which LightCraft can host and download without
+accounts:
 
-| Mask | Model | Licence (weights) | Download | Fallback without it |
-|---|---|---|---|---|
-| **Subject**, **Background** | BiRefNet-portrait (Swin-L) | MIT | 885 MB | the people EoMT finds; else a heuristic |
-| **Sky**, **People**, **Landscape** | EoMT-S, COCO panoptic (DINOv2 ViT-S) | MIT (backbone Apache-2.0) | 96 MB | Sky: a heuristic; People / Landscape: nothing (approximate) |
-| **Object** (clicks) | SAM 2.1 Hiera-Tiny | Apache-2.0 | 156 MB | SAM 3 if installed; else offers SAM 2.1 |
-| **Describe** (text) | SAM 3 (optional) | SAM License (Meta, gated) | 3.4 GB | none: the dialog explains how to install SAM 3 |
-| Depth (planned for Depth Range) | Depth Anything V2 Small | Apache-2.0 | 99 MB | — |
+| Mask | Model | Weights licence | Training-data tier | Download | Without it |
+|---|---|---|---|---|---|
+| **People**: entire person, face / body skin, hair, clothes | MediaPipe Selfie Multiclass (Google) | Apache-2.0 | A (Google's own) | 16 MB | the entire person from EoMT; parts: not available |
+| **People**: eyebrows, eye sclera, iris and pupil, lips, teeth; telling people apart | MediaPipe Face Landmarker (BlazeFace + FaceMesh-V2, Google) | Apache-2.0 | A (Google's own) | 4 MB | not available |
+| **Subject**, **Background** | BiRefNet-portrait (Swin-L) | MIT | pending (maintainer decision) | 885 MB | the person from MediaPipe, else EoMT's most confident object, else a heuristic |
+| **Sky**, **Landscape**; People without MediaPipe | EoMT-S, COCO panoptic (DINOv2 ViT-S) | MIT (backbone Apache-2.0) | pending (maintainer decision) | 96 MB | Sky: a heuristic; Landscape: approximate (empty) |
+| **Object** (clicks) | SAM 2.1 Hiera-Tiny (Meta) | Apache-2.0 | A (Meta's own) | 156 MB | SAM 3 if installed |
+| **Describe** (text) | SAM 3 (optional) | SAM License (Meta, gated) | — | 3.4 GB | none: the dialog explains how to install SAM 3 |
+
+Depth Anything V2 Small is ported (`crates/segment/src/depth.rs`) but **not offered**: its training
+data includes SA-1B (whose licence restricts derivative works) and Virtual KITTI 2 (non-commercial).
+Tiers: **A** the rights holder released the weights permissively and the training data is theirs or
+cleared; **pending** the weights are permissive but a training dataset is research-only without an
+explicit derived-data clause — a maintainer decision, shown in the app as "licence pending a
+maintainer decision"; models whose weights or data explicitly forbid commercial use (tier B) are
+never offered.
 
 **No model is required.** None is part of LightCraft, its repository or its installers. Each is
 downloaded once, into its own folder of the models folder, only after the user agreed (the dialog
@@ -27,8 +38,11 @@ In the Masking panel (M):
 - **Subject**, **Sky**, **Background**: one click. With the model installed the mask appears as
   the heuristic at once and is replaced by the model's selection a moment later ("Analyzing the
   photo for AI masks…" under the tiles; one undo step). Background is the subject inverted.
-- **People**: everyone in the photo (`mask.add {"kind": "people", "person": n}` selects the n-th
-  person from the left).
+- **People**: pick everyone or Person 1–4 (counted from the left, by their face) and the parts —
+  Entire Person, Face Skin, Body Skin, Hair, Clothes, Eyebrows, Eye Sclera, Iris and Pupil, Lips,
+  Teeth — then **Create Mask** (`mask.add {"kind": "people", "person": n, "parts": [...]}`). Face
+  parts come from landmarks (polygons; teeth are the bright part of the mouth opening) and need a
+  face that isn't in profile; with several people, body parts go to the person whose face is nearest.
 - **Landscape**: pick a class under the tiles — Sky, Water, Vegetation, Mountains, Architecture,
   Natural Ground, Artificial Ground.
 - **Update**: a mask made before its model was installed (or an older document) keeps its
