@@ -3276,6 +3276,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-genfill"
+version = "0.7.1"
+dependencies = [
+ "lightcraft-color",
+ "lightcraft-fetch",
+ "lightcraft-raster",
+ "miniz_oxide 0.8.9",
+ "png",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lightcraft-geocode"
 version = "0.7.1"
 dependencies = [
