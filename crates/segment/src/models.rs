@@ -29,8 +29,14 @@ pub enum ModelId {
     Subject,
     /// Sky, People, Background, Landscape: EoMT-S COCO panoptic (MIT).
     Scene,
-    /// Depth: Depth Anything V2 Small (Apache-2.0).
+    /// Depth: Depth Anything V2 Small (Apache-2.0). Not offered: its training data (SA-1B's
+    /// derivative clause, Virtual KITTI 2 non-commercial) is a likely reject (docs/ai-masks.md).
     Depth,
+    /// People: hair, face skin, body skin, clothes — MediaPipe Selfie Multiclass (Apache-2.0, Google).
+    People,
+    /// Faces: BlazeFace + FaceMesh-V2 landmarks for eyes, irises, brows, lips, teeth — MediaPipe
+    /// Face Landmarker (Apache-2.0, Google).
+    Face,
 }
 
 /// One downloadable model.
@@ -58,6 +64,9 @@ pub struct ModelInfo {
     pub token_env: Option<&'static str>,
     /// May LightCraft's own mirrors redistribute it (permissive licence, not gated)?
     pub open: bool,
+    /// The licence of its training data is a maintainer decision still to make (tier C in
+    /// docs/ai-masks.md): the app says so wherever it offers the model.
+    pub licence_pending: bool,
 }
 
 impl ModelInfo {
@@ -154,6 +163,7 @@ pub const SUBJECT: ModelInfo = ModelInfo {
     mirrors_env: "LIGHTCRAFT_SUBJECT_MIRRORS",
     token_env: None,
     open: true,
+    licence_pending: true,
 };
 
 pub const SCENE: ModelInfo = ModelInfo {
@@ -170,6 +180,7 @@ pub const SCENE: ModelInfo = ModelInfo {
     mirrors_env: "LIGHTCRAFT_SCENE_MIRRORS",
     token_env: None,
     open: true,
+    licence_pending: true,
 };
 
 pub const SAM2: ModelInfo = ModelInfo {
@@ -186,6 +197,7 @@ pub const SAM2: ModelInfo = ModelInfo {
     mirrors_env: "LIGHTCRAFT_SAM2_MIRRORS",
     token_env: None,
     open: true,
+    licence_pending: false,
 };
 
 pub const DEPTH: ModelInfo = ModelInfo {
@@ -202,6 +214,7 @@ pub const DEPTH: ModelInfo = ModelInfo {
     mirrors_env: "LIGHTCRAFT_DEPTH_MIRRORS",
     token_env: None,
     open: true,
+    licence_pending: false,
 };
 
 pub const SAM3: ModelInfo = ModelInfo {
@@ -218,10 +231,63 @@ pub const SAM3: ModelInfo = ModelInfo {
     mirrors_env: crate::fetch::MIRRORS_ENV,
     token_env: Some(crate::fetch::TOKEN_ENV),
     open: false,
+    licence_pending: false,
 };
 
-/// Every model, in the order the app lists them.
-pub const MODELS: &[ModelInfo] = &[SUBJECT, SCENE, SAM2, DEPTH, SAM3];
+/// MediaPipe Selfie Multiclass 256 (float32, version 1).
+pub const PEOPLE_FILES: &[FileSpec<'static>] = &[FileSpec {
+    name: "selfie_multiclass_256x256.tflite",
+    size: Some(16_371_837),
+    sha256: Some("c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0"),
+    max: 16_371_837,
+}];
+
+/// MediaPipe Face Landmarker bundle (float16, version 1): a zip of BlazeFace (short range),
+/// FaceMesh-V2 and the blendshapes model (unused).
+pub const FACE_FILES: &[FileSpec<'static>] = &[FileSpec {
+    name: "face_landmarker.task",
+    size: Some(3_758_596),
+    sha256: Some("64184e229b263107bc2b804c6625db1341ff2bb731874b0bcc2fe6544e0bc9ff"),
+    max: 3_758_596,
+}];
+
+pub const PEOPLE: ModelInfo = ModelInfo {
+    id: ModelId::People,
+    key: "people",
+    dir_name: "mediapipe-selfie-multiclass",
+    title: "MediaPipe people",
+    purpose: "People: hair, face skin, body skin and clothes",
+    files: PEOPLE_FILES,
+    license_name: "Apache-2.0",
+    license_url: "https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf",
+    page_url: "https://ai.google.dev/edge/mediapipe/solutions/vision/image_segmenter",
+    default_mirrors: &["https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/1"],
+    mirrors_env: "LIGHTCRAFT_PEOPLE_MIRRORS",
+    token_env: None,
+    open: true,
+    licence_pending: false,
+};
+
+pub const FACE: ModelInfo = ModelInfo {
+    id: ModelId::Face,
+    key: "face",
+    dir_name: "mediapipe-face-landmarker",
+    title: "MediaPipe faces",
+    purpose: "People: eyes, irises, eyebrows, lips and teeth",
+    files: FACE_FILES,
+    license_name: "Apache-2.0",
+    license_url: "https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf",
+    page_url: "https://ai.google.dev/edge/mediapipe/solutions/vision/face_landmarker",
+    default_mirrors: &["https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1"],
+    mirrors_env: "LIGHTCRAFT_FACE_MIRRORS",
+    token_env: None,
+    open: true,
+    licence_pending: false,
+};
+
+/// Every model the app offers, in the order it lists them (Depth Anything is ported but not
+/// offered, see [`ModelId::Depth`]).
+pub const MODELS: &[ModelInfo] = &[PEOPLE, FACE, SUBJECT, SCENE, SAM2, SAM3];
 
 /// The entry for `id`.
 pub fn info(id: ModelId) -> &'static ModelInfo {
@@ -231,6 +297,8 @@ pub fn info(id: ModelId) -> &'static ModelInfo {
         ModelId::Subject => &SUBJECT,
         ModelId::Scene => &SCENE,
         ModelId::Depth => &DEPTH,
+        ModelId::People => &PEOPLE,
+        ModelId::Face => &FACE,
     }
 }
 
@@ -245,7 +313,7 @@ mod tests {
 
     #[test]
     fn every_model_has_one_entry_with_pinned_files() {
-        for id in [ModelId::Sam3, ModelId::Sam2, ModelId::Subject, ModelId::Scene, ModelId::Depth] {
+        for id in [ModelId::Sam3, ModelId::Sam2, ModelId::Subject, ModelId::Scene, ModelId::People, ModelId::Face] {
             assert_eq!(MODELS.iter().filter(|m| m.id == id).count(), 1, "{id:?}");
             assert_eq!(info(id).id, id);
         }

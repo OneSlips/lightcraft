@@ -1976,5 +1976,8 @@
   "Select Object and Describe (optional; Meta's licence, gated)": "オブジェクトを選択と説明（任意、Meta のライセンス、アクセス制限あり）",
   "AI Model Status": "AI モデルの状態",
   "Download AI Model": "AI モデルをダウンロード",
-  "Cancel AI Model Download": "AI モデルのダウンロードをキャンセル"
+  "Cancel AI Model Download": "AI モデルのダウンロードをキャンセル",
+  "Test build: whether this model's training data allows LightCraft to offer it is pending a maintainer decision.": "テスト版： このモデルの学習データにより LightCraft がこのモデルを提供できるかどうかは、メンテナーの判断待ちです。",
+  "People: hair, face skin, body skin and clothes": "人物： 髪、顔の肌、体の肌、衣服",
+  "People: eyes, irises, eyebrows, lips and teeth": "人物： 目、虹彩、眉、唇、歯"
 }

@@ -1479,6 +1479,14 @@ fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error:
         ))
         .color(t.text_label),
     );
+    if m.licence_pending {
+        ui.label(
+            egui::RichText::new(crate::i18n::tr(
+                "Test build: whether this model's training data allows LightCraft to offer it is pending a maintainer decision.",
+            ))
+            .color(t.text_dim),
+        );
+    }
     let r = ui.link(crate::i18n::tr("Read the licence")).on_hover_text(&m.license_url);
     crate::widgets::register(ui.ctx(), "link:aiModelLicense", r.rect);
     if r.clicked() {

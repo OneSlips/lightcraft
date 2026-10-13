@@ -298,7 +298,7 @@ fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
         return;
     }
     let ids: Vec<&str> = models.iter().filter_map(|m| m["id"].as_str()).collect();
-    for id in ["subject", "scene", "sam2", "depth", "sam3"] {
+    for id in ["people", "face", "subject", "scene", "sam2", "sam3"] {
         assert!(ids.contains(&id), "{id} in {ids:?}");
     }
     for m in models {

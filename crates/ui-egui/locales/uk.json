@@ -2166,5 +2166,8 @@
   "Select Object and Describe (optional; Meta's licence, gated)": "Вибір об’єкта та Опис (необов’язково; ліцензія Meta, доступ обмежено)",
   "AI Model Status": "Стан моделей ШІ",
   "Download AI Model": "Завантажити модель ШІ",
-  "Cancel AI Model Download": "Скасувати завантаження моделі ШІ"
+  "Cancel AI Model Download": "Скасувати завантаження моделі ШІ",
+  "Test build: whether this model's training data allows LightCraft to offer it is pending a maintainer decision.": "Тестова збірка: чи дозволяють навчальні дані цієї моделі LightCraft пропонувати її, ще мають вирішити супровідники.",
+  "People: hair, face skin, body skin and clothes": "Люди: волосся, шкіра обличчя, шкіра тіла та одяг",
+  "People: eyes, irises, eyebrows, lips and teeth": "Люди: очі, райдужки, брови, губи та зуби"
 }

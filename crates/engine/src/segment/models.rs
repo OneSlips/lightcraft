@@ -31,6 +31,9 @@ pub struct ModelStatus {
     pub page_url: String,
     /// Permissively licensed and ungated (LightCraft may host it).
     pub open: bool,
+    /// Whether its training data's licence is a maintainer decision still to make (shown as
+    /// "licence pending a maintainer decision"; docs/ai-masks.md).
+    pub licence_pending: bool,
     /// Download locations configured (built-in and the user's).
     pub mirrors: usize,
     pub download: DownloadStatus,
@@ -115,6 +118,7 @@ impl Segmenter {
                     license_url: m.license_url.to_string(),
                     page_url: m.page_url.to_string(),
                     open: m.open,
+                    licence_pending: m.licence_pending,
                     mirrors: self.model_mirrors(m.key).len(),
                     download: self.model_download_status(m.key),
                 })
