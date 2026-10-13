@@ -39,11 +39,9 @@ fn matches_litert() {
         eprintln!("skipped: set LIGHTCRAFT_MEDIAPIPE_DIR and LIGHTCRAFT_TFLITE_REF");
         return;
     };
-    for (name, file) in [
-        ("selfie", "selfie_multiclass_256x256.tflite"),
-        ("detector", "face_detector.tflite"),
-        ("landmarks", "face_landmarks_detector.tflite"),
-    ] {
+    for (name, file) in
+        [("selfie", "selfie_multiclass_256x256.tflite"), ("detector", "face_detector.tflite"), ("landmarks", "face_landmarks_detector.tflite")]
+    {
         let t = std::time::Instant::now();
         let model = Model::from_bytes(&model_bytes(&dir, file)).unwrap();
         eprintln!("{name}: loaded in {:?}, inputs {:?}, outputs {:?}", t.elapsed(), model.input_shapes(), model.output_shapes());
@@ -67,4 +65,46 @@ fn matches_litert() {
             assert!(*rel < 1e-3, "{name} output {oi}: relative error {rel}");
         }
     }
+}
+
+/// Damaged copies of the real face detector load as errors or run without panicking.
+#[test]
+fn damaged_real_model_never_panics() {
+    let Some(dir) = std::env::var_os("LIGHTCRAFT_MEDIAPIPE_DIR").map(PathBuf::from) else {
+        eprintln!("skipped: set LIGHTCRAFT_MEDIAPIPE_DIR");
+        return;
+    };
+    let good = model_bytes(&dir, "face_detector.tflite");
+    let x = vec![0.1f32; 128 * 128 * 3];
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed
+    };
+    let (mut loaded, mut tries) = (0, 0);
+    // truncations, then random byte changes in the first 64 KiB (the graph's tables) and anywhere
+    for n in (0..good.len()).step_by(997) {
+        tries += 1;
+        if Model::from_bytes(&good[..n]).is_ok() {
+            loaded += 1;
+        }
+    }
+    for i in 0..400 {
+        let mut bad = good.clone();
+        for _ in 0..1 + i % 4 {
+            let span = if i % 2 == 0 { 65536.min(bad.len()) } else { bad.len() };
+            let at = (next() % span as u64) as usize;
+            bad[at] = next() as u8;
+        }
+        tries += 1;
+        if let Ok(m) = Model::from_bytes(&bad) {
+            loaded += 1;
+            if m.input_shapes() == vec![vec![1, 128, 128, 3]] {
+                let _ = m.run(&[&x]);
+            }
+        }
+    }
+    eprintln!("{loaded} of {tries} damaged copies still loaded");
 }

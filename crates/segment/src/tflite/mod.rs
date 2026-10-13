@@ -24,11 +24,9 @@ pub mod zip;
 
 use std::path::Path;
 
-use candle_core::{Device, Tensor};
-
 use crate::{Error, Result};
 use fb::Table;
-use ops::{Act, BinOp, Binary, Conv, Depthwise, MaxPool, Pad, Resize, Sum, Transpose, TransposeConv, Unary, Window};
+use ops::{Act, BinOp, Binary, Conv, Depthwise, MaxPool, Packed, Pad, Pool, Post, Resize, Sum, Transpose, TransposeConv, Unary, Window};
 
 /// Largest tensor (elements): 256 MB of `f32`.
 const MAX_ELEMS: usize = 64 << 20;
@@ -38,6 +36,8 @@ const MAX_OPS: usize = 8192;
 const MAX_TENSORS: usize = 1 << 16;
 /// Largest model file.
 const MAX_FILE: u64 = 1 << 30;
+/// Most activation values over all operators (4 GB of `f32`).
+const MAX_TOTAL: usize = 1 << 30;
 
 fn bad(msg: &str) -> Error {
     Error::Message(format!("TFLite model: {msg}"))
@@ -138,12 +138,54 @@ enum Kind {
     Unary(Unary),
     Pad(Pad),
     Transpose(Transpose),
-    Softmax { inner: usize, beta: f32 },
+    Softmax {
+        inner: usize,
+        beta: f32,
+    },
     Sum(Sum),
     Resize(Resize),
-    Concat { outer: usize, inners: Vec<usize>, act: Act },
+    Concat {
+        outer: usize,
+        inners: Vec<usize>,
+        post: Post,
+    },
     /// RESHAPE (and DEQUANTIZE of an `f32` tensor): the same values.
     Copy,
+}
+
+impl Kind {
+    fn name(&self) -> &'static str {
+        match self {
+            Kind::Conv(c) if c.g.kh == 1 && c.g.kw == 1 => "conv 1x1",
+            Kind::Conv(_) => "conv",
+            Kind::Depthwise(_) => "depthwise",
+            Kind::TransposeConv(_) => "transpose conv",
+            Kind::MaxPool(_) => "max pool",
+            Kind::Binary(_) => "binary",
+            Kind::Unary(_) => "unary",
+            Kind::Pad(_) => "pad",
+            Kind::Transpose(_) => "transpose",
+            Kind::Softmax { .. } => "softmax",
+            Kind::Sum(_) => "sum",
+            Kind::Resize(_) => "resize",
+            Kind::Concat { .. } => "concat",
+            Kind::Copy => "copy",
+        }
+    }
+}
+
+impl Kind {
+    /// The post-operation a following activation or PRELU can be folded into.
+    fn post_mut(&mut self) -> Option<&mut Post> {
+        match self {
+            Kind::Conv(k) => Some(&mut k.post),
+            Kind::Depthwise(k) => Some(&mut k.post),
+            Kind::TransposeConv(k) => Some(&mut k.post),
+            Kind::MaxPool(k) => Some(&mut k.post),
+            Kind::Binary(k) => Some(&mut k.post),
+            _ => None,
+        }
+    }
 }
 
 struct Step {
@@ -151,6 +193,8 @@ struct Step {
     /// The tensors the kernel reads (data operands only, in kernel order).
     ins: Vec<usize>,
     out: usize,
+    /// Values of the output.
+    len: usize,
 }
 
 /// A loaded TFLite model, ready to run (thread-safe; [`Model::run`] takes `&self`).
@@ -162,6 +206,7 @@ pub struct Model {
     outputs: Vec<usize>,
     /// Tensors no longer needed after each step.
     free_after: Vec<Vec<usize>>,
+    pool: Pool,
 }
 
 /// Shape as 4-D (leading ones).
@@ -177,10 +222,7 @@ fn dims4(s: &[usize]) -> Result<[usize; 4]> {
 }
 
 fn numel(s: &[usize]) -> Result<usize> {
-    s.iter()
-        .try_fold(1usize, |a, &d| a.checked_mul(d))
-        .filter(|&n| n <= MAX_ELEMS)
-        .ok_or_else(|| bad(&format!("tensor of shape {s:?} is too large")))
+    s.iter().try_fold(1usize, |a, &d| a.checked_mul(d)).filter(|&n| n <= MAX_ELEMS).ok_or_else(|| bad(&format!("tensor of shape {s:?} is too large")))
 }
 
 /// Normalize a possibly negative axis of a rank-`rank` tensor.
@@ -283,7 +325,10 @@ fn parse(buf: &[u8]) -> Result<Model> {
         let dtype = t.u8(1, 0)?;
         let name = t.string(3)?;
         let bi = t.u32(2, 0)? as usize;
-        let data: &[u8] = if bi == 0 || bi >= buffers.len() {
+        if bi >= buffers.len() && bi != 0 {
+            return Err(bad(&format!("tensor {name}: buffer {bi} out of range")));
+        }
+        let data: &[u8] = if bi == 0 {
             &[]
         } else {
             // Buffer: data 0, offset 1, size 2 (offset/size: data stored after the FlatBuffer)
@@ -309,15 +354,15 @@ fn parse(buf: &[u8]) -> Result<Model> {
             Some(match dtype {
                 FLOAT32 => {
                     want(4)?;
-                    Const::F(data.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+                    Const::F(data.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect())
                 }
                 FLOAT16 => {
                     want(2)?;
-                    Const::F(data.chunks_exact(2).map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]]))).collect())
+                    Const::F(data.as_chunks::<2>().0.iter().map(|c| f16_to_f32(u16::from_le_bytes(*c))).collect())
                 }
                 INT32 => {
                     want(4)?;
-                    Const::I(data.chunks_exact(4).map(|c| i32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect())
+                    Const::I(data.as_chunks::<4>().0.iter().map(|c| i32::from_le_bytes(*c)).collect())
                 }
                 t => return Err(bad(&format!("tensor {name}: type {t} is not supported (FLOAT32, FLOAT16, INT32 are)"))),
             })
@@ -326,9 +371,8 @@ fn parse(buf: &[u8]) -> Result<Model> {
         b.consts.push(c);
     }
 
-    let index = |v: i32| -> Result<usize> {
-        usize::try_from(v).ok().filter(|&v| v < tv.len()).ok_or_else(|| bad(&format!("tensor index {v} out of range")))
-    };
+    let index =
+        |v: i32| -> Result<usize> { usize::try_from(v).ok().filter(|&v| v < tv.len()).ok_or_else(|| bad(&format!("tensor index {v} out of range"))) };
     let inputs: Vec<usize> = g.vector(1, 4)?.i32s()?.into_iter().map(index).collect::<Result<_>>()?;
     let outputs: Vec<usize> = g.vector(2, 4)?.i32s()?.into_iter().map(index).collect::<Result<_>>()?;
     for &i in &inputs {
@@ -343,14 +387,26 @@ fn parse(buf: &[u8]) -> Result<Model> {
     if ov.len() > MAX_OPS {
         return Err(bad(&format!("{} operators (at most {MAX_OPS})", ov.len())));
     }
-    let mut steps = Vec::with_capacity(ov.len());
+    let mut ops = Vec::with_capacity(ov.len());
+    // readers of each tensor (graph outputs count as one)
+    let mut uses = vec![0usize; tv.len()];
+    for &o in &outputs {
+        uses[o] += 1;
+    }
     for i in 0..ov.len() {
         // Operator: opcode_index 0, inputs 1, outputs 2, builtin_options_type 3, builtin_options 4
         let op = ov.table(i)?;
         let code = codes.get(op.u32(0, 0)? as usize).copied().ok_or_else(|| bad("operator code index out of range"))?;
         let ins = op.vector(1, 4)?.i32s()?;
-        let outs = op.vector(2, 4)?.i32s()?;
-        let opts = op.table(4)?;
+        for &t in &ins {
+            if let Some(u) = usize::try_from(t).ok().and_then(|t| uses.get_mut(t)) {
+                *u += 1;
+            }
+        }
+        ops.push((code, ins, op.vector(2, 4)?.i32s()?, op.table(4)?));
+    }
+    let mut steps: Vec<Step> = Vec::with_capacity(ops.len());
+    for (i, (code, ins, outs, opts)) in ops.into_iter().enumerate() {
         let [out] = outs[..] else {
             return Err(bad(&format!("operator {i} ({}) has {} outputs", op_name(code), outs.len())));
         };
@@ -361,10 +417,20 @@ fn parse(buf: &[u8]) -> Result<Model> {
         if b.consts[out].is_some() || b.live[out] {
             return Err(bad(&format!("operator {i} ({}): output {} is written twice", op_name(code), b.tensors[out].name)));
         }
-        let step = compile(&mut b, code, &ins, out, opts).map_err(|e| match e {
+        let ctx = |e: Error| match e {
             Error::Message(m) => Error::Message(format!("{m} (operator {i}, {})", op_name(code))),
             e => e,
-        })?;
+        };
+        // an activation or PRELU right after the operator that is its only input folds into it
+        if let Some(last) = steps.last_mut()
+            && usize::try_from(input(&ins, 0)).is_ok_and(|x| x == last.out && uses[x] == 1)
+            && fuse(&b, last, code, &ins, out).map_err(ctx)?
+        {
+            last.out = out;
+            b.live[out] = true;
+            continue;
+        }
+        let step = compile(&mut b, code, &ins, out, opts).map_err(ctx)?;
         if let Some(s) = step {
             steps.push(s);
             b.live[out] = true;
@@ -392,8 +458,44 @@ fn parse(buf: &[u8]) -> Result<Model> {
             free_after[*l].push(t);
         }
     }
+    let total = steps.iter().try_fold(0usize, |t, s| t.checked_add(s.len)).filter(|&t| t <= MAX_TOTAL);
+    if total.is_none() {
+        return Err(bad("the graph's activations are too large"));
+    }
     let consts = b.consts.into_iter().map(|c| if let Some(Const::F(v)) = c { Some(v) } else { None }).collect();
-    Ok(Model { tensors: b.tensors, consts, steps, inputs, outputs, free_after })
+    Ok(Model { tensors: b.tensors, consts, steps, inputs, outputs, free_after, pool: Pool::default() })
+}
+
+/// Fold RELU / RELU6 / RELU_N1_TO_1 / PRELU into `step` (whose output is the operator's only
+/// input) when its post-operation can take it.
+fn fuse(b: &Builder, step: &mut Step, code: i32, ins: &[i32], out: usize) -> Result<bool> {
+    let x = step.out;
+    if b.tensors.get(x).map(|t| &t.shape) != b.tensors.get(out).map(|t| &t.shape) {
+        return Ok(false);
+    }
+    let Some(post) = step.kind.post_mut() else { return Ok(false) };
+    if !post.is_identity() {
+        return Ok(false);
+    }
+    let act = match code {
+        RELU => Act::Relu,
+        RELU6 => Act::Relu6,
+        RELU_N1_TO_1 => Act::ReluN1To1,
+        PRELU => {
+            // per-channel alpha only: [.., 1, C]
+            let Ok(alpha) = b.floats(input(ins, 1), "alpha") else { return Ok(false) };
+            let a = b.shape(input(ins, 1))?;
+            let channels = b.tensors.get(x).and_then(|t| t.shape.last().copied()).unwrap_or(0);
+            if a.last() != Some(&channels) || a.iter().rev().skip(1).any(|&d| d != 1) || alpha.len() != channels {
+                return Ok(false);
+            }
+            post.alpha = Some(alpha.to_vec());
+            return Ok(true);
+        }
+        _ => return Ok(false),
+    };
+    post.act = act;
+    Ok(true)
 }
 
 /// Check the computed output shape against the declared one.
@@ -430,7 +532,8 @@ fn same(p: i8) -> Result<bool> {
 }
 
 fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Table>) -> Result<Option<Step>> {
-    let step = |kind: Kind, ins: Vec<usize>| Ok(Some(Step { kind, ins, out }));
+    let len = numel(&b.tensors[out].shape)?;
+    let step = |kind: Kind, ins: Vec<usize>| Ok(Some(Step { kind, ins, out, len }));
     match code {
         DEQUANTIZE | RESHAPE => {
             let x = input(ins, 0);
@@ -468,23 +571,16 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
             );
             let w = b.floats(wt, "CONV_2D weights")?;
             let k = kh * kw * ic;
-            // [o, k] → [k, o]
-            let mut t = vec![0f32; w.len()];
-            for (oi, row) in w.chunks_exact(k.max(1)).enumerate() {
-                for (ki, v) in row.iter().enumerate() {
-                    if let Some(d) = t.get_mut(ki * oc + oi) {
-                        *d = *v;
-                    }
-                }
-            }
+            // [o, k] → k × o
             let conv = Conv {
                 g,
-                o: oc,
-                w: Tensor::from_vec(t, (k, oc), &Device::Cpu)?,
+                w: Packed::new(k, oc, |ki, oi| w.get(oi * k + ki).copied().unwrap_or(0.0)),
                 bias: bias_of(b, input(ins, 2), oc)?,
-                act: Act::from_code(o.i8(3, 0)?)?,
+                post: Post::act(Act::from_code(o.i8(3, 0)?)?),
             };
             expect_shape(b, out, &conv.out_shape())?;
+            // the im2col matrix
+            numel(&[conv.g.n, conv.g.oh, conv.g.ow, k])?;
             step(Kind::Conv(conv), vec![b.data(x)?])
         }
         DEPTHWISE_CONV_2D => {
@@ -509,7 +605,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 mult: oc / d[3],
                 w: b.floats(wt, "DEPTHWISE_CONV_2D weights")?.to_vec(),
                 bias: bias_of(b, input(ins, 2), oc)?,
-                act: Act::from_code(o.i8(4, 0)?)?,
+                post: Post::act(Act::from_code(o.i8(4, 0)?)?),
             };
             expect_shape(b, out, &dw.out_shape())?;
             step(Kind::Depthwise(dw), vec![b.data(x)?])
@@ -533,21 +629,16 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
             let (_, pt) = ops::pad_before(same, oh, kh, sh, 1);
             let (_, pl) = ops::pad_before(same, ow, kw, sw, 1);
             let w = b.floats(wt, "TRANSPOSE_CONV weights")?;
-            // [o, kh, kw, in] → [in, (kh, kw, o)]
-            let kko = kh * kw * oc;
-            let mut t = vec![0f32; w.len()];
-            for (i, v) in w.iter().enumerate() {
-                let (oi, rest) = (i / (kh * kw * ic).max(1), i % (kh * kw * ic).max(1));
-                let (tap, ci) = (rest / ic.max(1), rest % ic.max(1));
-                if let Some(d) = t.get_mut(ci * kko + tap * oc + oi) {
-                    *d = *v;
-                }
-            }
+            // [o, kh, kw, in] → in × (kh, kw, o)
+            let khw = kh * kw;
+            let weights = Packed::new(ic, khw * oc, |ci, col| {
+                let (tap, oi) = (col / oc.max(1), col % oc.max(1));
+                w.get((oi * khw + tap) * ic + ci).copied().unwrap_or(0.0)
+            });
             let tc = TransposeConv {
                 n,
                 h: d[1],
                 w: d[2],
-                c: ic,
                 oh,
                 ow,
                 o: oc,
@@ -557,11 +648,13 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 sw,
                 pt,
                 pl,
-                weights: Tensor::from_vec(t, (ic, kko), &Device::Cpu)?,
+                weights,
                 bias: bias_of(b, input(ins, 3), oc)?,
-                act: Act::from_code(o.i8(3, 0)?)?,
+                post: Post::act(Act::from_code(o.i8(3, 0)?)?),
             };
             numel(&os)?;
+            // the product before the scatter
+            numel(&[n, d[1], d[2], kh * kw * oc])?;
             expect_shape(b, out, &tc.out_shape())?;
             step(Kind::TransposeConv(tc), vec![b.data(x)?])
         }
@@ -578,7 +671,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                     (usize_of(o.i32(2, 0)?, "stride")?, usize_of(o.i32(1, 0)?, "stride")?),
                     (1, 1),
                 ),
-                act: Act::from_code(o.i8(5, 0)?)?,
+                post: Post::act(Act::from_code(o.i8(5, 0)?)?),
             };
             expect_shape(b, out, &mp.out_shape())?;
             step(Kind::MaxPool(mp), vec![b.data(x)?])
@@ -589,7 +682,11 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 Some(o) if code != PRELU => Act::from_code(o.i8(0, 0)?)?,
                 _ => Act::None,
             };
-            let (x, y) = (input(ins, 0), input(ins, 1));
+            let (mut x, mut y) = (input(ins, 0), input(ins, 1));
+            // commutative: put the full-size operand first (the fast path)
+            if code != PRELU && numel(&b.shape(x)?)? < numel(&b.shape(y)?)? {
+                std::mem::swap(&mut x, &mut y);
+            }
             let (sx, sy) = (b.shape(x)?, b.shape(y)?);
             let (a, c) = (dims4(&sx)?, dims4(&sy)?);
             let shape = ops::broadcast(a, c)?;
@@ -600,7 +697,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 MUL => BinOp::Mul,
                 _ => BinOp::Prelu,
             };
-            step(Kind::Binary(Binary { op, a, b: c, out: shape, act }), vec![b.data(x)?, b.data(y)?])
+            step(Kind::Binary(Binary { op, a, b: c, out: shape, post: Post::act(act) }), vec![b.data(x)?, b.data(y)?])
         }
         RELU | RELU6 | RELU_N1_TO_1 | LOGISTIC => {
             let x = input(ins, 0);
@@ -723,7 +820,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 data.push(b.data(t)?);
             }
             expect_shape(b, out, &shape)?;
-            step(Kind::Concat { outer, inners, act: Act::from_code(o.i8(1, 0)?)? }, data)
+            step(Kind::Concat { outer, inners, post: Post::act(Act::from_code(o.i8(1, 0)?)?) }, data)
         }
         c => Err(bad(&format!("operator {} is not supported", op_name(c)))),
     }
@@ -759,24 +856,54 @@ impl Model {
     /// Run the graph: one row-major `f32` buffer per input (in model order, NHWC), the outputs in
     /// model order.
     pub fn run(&self, inputs: &[&[f32]]) -> Result<Vec<Vec<f32>>> {
-        let vals = self.execute(inputs, false)?;
-        self.outputs
-            .iter()
-            .map(|&o| match (vals.get(o).and_then(|v| v.as_ref()), self.consts.get(o).and_then(|c| c.as_ref())) {
-                (Some(v), _) | (None, Some(v)) => Ok(v.clone()),
-                _ => Err(bad("an output was not computed")),
-            })
-            .collect()
+        let mut vals = self.execute(inputs, false, None)?;
+        let mut outs: Vec<Vec<f32>> = Vec::with_capacity(self.outputs.len());
+        for (i, &o) in self.outputs.iter().enumerate() {
+            let v = match vals.get_mut(o).and_then(Option::take) {
+                Some(v) => v,
+                None => {
+                    // a constant output, or one listed twice
+                    let earlier = self.outputs.iter().take(i).position(|&p| p == o).and_then(|j| outs.get(j));
+                    earlier.or_else(|| self.consts.get(o).and_then(|c| c.as_ref())).ok_or_else(|| bad("an output was not computed"))?.clone()
+                }
+            };
+            outs.push(v);
+        }
+        for v in vals.into_iter().flatten() {
+            self.pool.give(v);
+        }
+        Ok(outs)
     }
 
     /// Every computed tensor by name (for comparisons with a reference interpreter).
     #[doc(hidden)]
     pub fn run_traced(&self, inputs: &[&[f32]]) -> Result<Vec<(String, Vec<f32>)>> {
-        let vals = self.execute(inputs, true)?;
+        let vals = self.execute(inputs, true, None)?;
         Ok(vals.into_iter().zip(&self.tensors).filter_map(|(v, t)| Some((t.name.clone(), v?))).collect())
     }
 
-    fn execute(&self, inputs: &[&[f32]], keep: bool) -> Result<Vec<Option<Vec<f32>>>> {
+    /// Time spent per operator kind in one run (for tuning).
+    #[doc(hidden)]
+    pub fn profile(&self, inputs: &[&[f32]]) -> Result<Vec<(&'static str, std::time::Duration)>> {
+        let mut p = Vec::new();
+        self.execute(inputs, false, Some(&mut p))?;
+        let mut total: Vec<(&'static str, std::time::Duration)> = Vec::new();
+        for (k, d) in p {
+            match total.iter_mut().find(|(n, _)| *n == k) {
+                Some(t) => t.1 += d,
+                None => total.push((k, d)),
+            }
+        }
+        total.sort_by_key(|t| std::cmp::Reverse(t.1));
+        Ok(total)
+    }
+
+    fn execute(
+        &self,
+        inputs: &[&[f32]],
+        keep: bool,
+        mut prof: Option<&mut Vec<(&'static str, std::time::Duration)>>,
+    ) -> Result<Vec<Option<Vec<f32>>>> {
         if inputs.len() != self.inputs.len() {
             return Err(bad(&format!("{} inputs given, the model takes {}", inputs.len(), self.inputs.len())));
         }
@@ -787,11 +914,26 @@ impl Model {
             if x.len() != n {
                 return Err(bad(&format!("input {} takes {n} values ({:?}), {} given", def.name, def.shape, x.len())));
             }
-            if let Some(v) = vals.get_mut(t) {
-                *v = Some(x.to_vec());
+            let mut v = self.pool.take(n);
+            v.copy_from_slice(x);
+            if let Some(slot) = vals.get_mut(t) {
+                *slot = Some(v);
             }
         }
         for (si, s) in self.steps.iter().enumerate() {
+            let frees = self.free_after.get(si).map(|v| v.as_slice()).unwrap_or(&[]);
+            // a reshape of a value read for the last time moves it
+            if let (Kind::Copy, Some(&x)) = (&s.kind, s.ins.first())
+                && !keep
+                && frees.contains(&x)
+                && let Some(v) = vals.get_mut(x).and_then(Option::take)
+            {
+                if let Some(slot) = vals.get_mut(s.out) {
+                    *slot = Some(v);
+                }
+                continue;
+            }
+            let mut y = self.pool.take(s.len);
             let get = |t: usize| -> Result<&[f32]> {
                 vals.get(t)
                     .and_then(|v| v.as_deref())
@@ -799,31 +941,41 @@ impl Model {
                     .ok_or_else(|| bad(&format!("tensor {t} has no value")))
             };
             let x = get(*s.ins.first().ok_or_else(|| bad("operator without input"))?)?;
-            let y = match &s.kind {
-                Kind::Conv(k) => k.run(x)?,
-                Kind::Depthwise(k) => k.run(x)?,
-                Kind::TransposeConv(k) => k.run(x)?,
-                Kind::MaxPool(k) => k.run(x)?,
-                Kind::Binary(k) => k.run(x, get(*s.ins.get(1).ok_or_else(|| bad("missing operand"))?)?)?,
-                Kind::Unary(k) => k.run(x),
-                Kind::Pad(k) => k.run(x)?,
-                Kind::Transpose(k) => k.run(x)?,
-                Kind::Softmax { inner, beta } => ops::softmax(x, *inner, *beta),
-                Kind::Sum(k) => k.run(x)?,
-                Kind::Resize(k) => k.run(x)?,
-                Kind::Concat { outer, inners, act } => {
+            let t0 = std::time::Instant::now();
+            let o = &mut y;
+            match &s.kind {
+                Kind::Conv(k) => k.run(x, o, &self.pool)?,
+                Kind::Depthwise(k) => k.run(x, o)?,
+                Kind::TransposeConv(k) => k.run(x, o, &self.pool)?,
+                Kind::MaxPool(k) => k.run(x, o)?,
+                Kind::Binary(k) => k.run(x, get(*s.ins.get(1).ok_or_else(|| bad("missing operand"))?)?, o)?,
+                Kind::Unary(k) => k.run(x, o)?,
+                Kind::Pad(k) => k.run(x, o)?,
+                Kind::Transpose(k) => k.run(x, o)?,
+                Kind::Softmax { inner, beta } => ops::softmax(x, *inner, *beta, o)?,
+                Kind::Sum(k) => k.run(x, o)?,
+                Kind::Resize(k) => k.run(x, o)?,
+                Kind::Concat { outer, inners, post } => {
                     let xs = s.ins.iter().map(|&t| get(t)).collect::<Result<Vec<_>>>()?;
-                    ops::concat(&xs, *outer, inners, *act)?
+                    ops::concat(&xs, *outer, inners, post, o)?
                 }
-                Kind::Copy => x.to_vec(),
-            };
+                Kind::Copy => {
+                    if x.len() != o.len() {
+                        return Err(bad("reshape size"));
+                    }
+                    o.copy_from_slice(x);
+                }
+            }
+            if let Some(p) = prof.as_deref_mut() {
+                p.push((s.kind.name(), t0.elapsed()));
+            }
             if let Some(v) = vals.get_mut(s.out) {
                 *v = Some(y);
             }
             if !keep {
-                for &t in self.free_after.get(si).map(|v| v.as_slice()).unwrap_or(&[]) {
-                    if let Some(v) = vals.get_mut(t) {
-                        *v = None;
+                for &t in frees {
+                    if let Some(v) = vals.get_mut(t).and_then(Option::take) {
+                        self.pool.give(v);
                     }
                 }
             }
@@ -855,5 +1007,262 @@ mod tests {
         let noise: Vec<u8> = (0..4096u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
         assert!(Model::from_bytes(&noise).is_err());
         assert!(Model::load(Path::new("/nonexistent/model.tflite")).is_err());
+    }
+
+    /// A FlatBuffer value for the tiny test writer below.
+    enum V {
+        U8(u8),
+        I32(i32),
+        U32(u32),
+        Ints(Vec<i32>),
+        Bytes(Vec<u8>),
+        Str(&'static str),
+        T(Vec<Option<V>>),
+        Ts(Vec<Vec<Option<V>>>),
+    }
+
+    /// Writes tables front to back: vtable, table (every field in a 4-byte slot), then the
+    /// objects its offsets point to (offsets always point forward, as the format requires).
+    struct Writer(Vec<u8>);
+
+    impl Writer {
+        fn align(&mut self) {
+            while !self.0.len().is_multiple_of(4) {
+                self.0.push(0);
+            }
+        }
+
+        fn patch(&mut self, at: usize, target: usize) {
+            self.0[at..at + 4].copy_from_slice(&((target - at) as u32).to_le_bytes());
+        }
+
+        fn table(&mut self, fields: &[Option<V>]) -> usize {
+            self.align();
+            let vt = self.0.len();
+            let n = fields.len();
+            self.0.extend(((4 + 2 * n) as u16).to_le_bytes());
+            self.0.extend(((4 + 4 * n) as u16).to_le_bytes());
+            for (i, f) in fields.iter().enumerate() {
+                self.0.extend((if f.is_some() { 4 + 4 * i as u16 } else { 0 }).to_le_bytes());
+            }
+            self.align();
+            let pos = self.0.len();
+            self.0.extend(((pos - vt) as i32).to_le_bytes());
+            let mut pending = Vec::new();
+            for f in fields {
+                let at = self.0.len();
+                match f {
+                    None => self.0.extend([0; 4]),
+                    Some(V::U8(v)) => self.0.extend([*v, 0, 0, 0]),
+                    Some(V::I32(v)) => self.0.extend(v.to_le_bytes()),
+                    Some(V::U32(v)) => self.0.extend(v.to_le_bytes()),
+                    Some(v) => {
+                        self.0.extend([0; 4]);
+                        pending.push((at, v));
+                    }
+                }
+            }
+            for (at, v) in pending {
+                let target = self.object(v);
+                self.patch(at, target);
+            }
+            pos
+        }
+
+        fn object(&mut self, v: &V) -> usize {
+            self.align();
+            let p = self.0.len();
+            match v {
+                V::Ints(xs) => {
+                    self.0.extend((xs.len() as u32).to_le_bytes());
+                    xs.iter().for_each(|x| self.0.extend(x.to_le_bytes()));
+                }
+                V::Bytes(b) => {
+                    self.0.extend((b.len() as u32).to_le_bytes());
+                    self.0.extend(b);
+                }
+                V::Str(s) => {
+                    self.0.extend((s.len() as u32).to_le_bytes());
+                    self.0.extend(s.as_bytes());
+                    self.0.push(0);
+                }
+                V::T(f) => return self.table(f),
+                V::Ts(ts) => {
+                    self.0.extend((ts.len() as u32).to_le_bytes());
+                    let slots: Vec<usize> = ts
+                        .iter()
+                        .map(|_| {
+                            let at = self.0.len();
+                            self.0.extend([0; 4]);
+                            at
+                        })
+                        .collect();
+                    for (t, at) in ts.iter().zip(slots) {
+                        let target = self.table(t);
+                        self.patch(at, target);
+                    }
+                }
+                _ => panic!("scalars live in tables"),
+            }
+            p
+        }
+    }
+
+    fn build(root: &[Option<V>]) -> Vec<u8> {
+        let mut w = Writer(vec![0; 4]);
+        let r = w.table(root);
+        w.patch(0, r);
+        w.0
+    }
+
+    fn tensor(shape: &[i32], dtype: u8, buffer: u32, name: &'static str) -> Vec<Option<V>> {
+        vec![Some(V::Ints(shape.to_vec())), Some(V::U8(dtype)), Some(V::U32(buffer)), Some(V::Str(name))]
+    }
+
+    fn op(code_index: u32, ins: &[i32], outs: &[i32], options: Option<Vec<Option<V>>>) -> Vec<Option<V>> {
+        vec![Some(V::U32(code_index)), Some(V::Ints(ins.to_vec())), Some(V::Ints(outs.to_vec())), None, options.map(V::T)]
+    }
+
+    /// float16 bits of 0, ±0.5, ±1, ±2.
+    fn half(v: f32) -> u16 {
+        let b = match v.abs() {
+            0.0 => 0,
+            0.5 => 0x3800,
+            1.0 => 0x3c00,
+            2.0 => 0x4000,
+            _ => panic!("no float16 bits for {v}"),
+        };
+        if v < 0.0 { b | 0x8000 } else { b }
+    }
+
+    const WEIGHTS: [f32; 6] = [1.0, -0.5, 2.0, 0.0, -1.0, 0.5];
+
+    /// input [1, 4, 4, 2] → CONV_2D (float16 weights through DEQUANTIZE, 3 × 3, SAME, stride 2)
+    /// → RELU → RESHAPE [1, 12]; `conv_code` replaces CONV_2D's operator code.
+    fn tiny_model(conv_code: i32) -> Vec<u8> {
+        let w16: Vec<u8> = (0..54).flat_map(|i| half(WEIGHTS[i % 6]).to_le_bytes()).collect();
+        let bias: Vec<u8> = [0.5f32, -1.0, 0.25].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let shape: Vec<u8> = [1i32, 12].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let code = |c: i32| vec![Some(V::U8(c.min(127) as u8)), None, Some(V::I32(1)), Some(V::I32(c))];
+        let graph = vec![
+            Some(V::Ts(vec![
+                tensor(&[1, 4, 4, 2], FLOAT32, 0, "input"),
+                tensor(&[3, 3, 3, 2], FLOAT16, 1, "w16"),
+                tensor(&[3, 3, 3, 2], FLOAT32, 0, "w"),
+                tensor(&[3], FLOAT32, 2, "bias"),
+                tensor(&[1, 2, 2, 3], FLOAT32, 0, "conv"),
+                tensor(&[1, 2, 2, 3], FLOAT32, 0, "relu"),
+                tensor(&[2], INT32, 3, "shape"),
+                tensor(&[1, 12], FLOAT32, 0, "output"),
+            ])),
+            Some(V::Ints(vec![0])),
+            Some(V::Ints(vec![7])),
+            Some(V::Ts(vec![
+                op(0, &[1], &[2], None),
+                // Conv2DOptions: SAME, stride 2 × 2, no activation
+                op(1, &[0, 2, 3], &[4], Some(vec![Some(V::U8(0)), Some(V::I32(2)), Some(V::I32(2)), Some(V::U8(0))])),
+                op(2, &[4], &[5], None),
+                op(3, &[5, 6], &[7], None),
+            ])),
+        ];
+        let empty = vec![];
+        build(&[
+            Some(V::U32(3)),
+            Some(V::Ts(vec![code(DEQUANTIZE), code(conv_code), code(RELU), code(RESHAPE)])),
+            Some(V::Ts(vec![graph])),
+            Some(V::Str("test")),
+            Some(V::Ts(vec![empty, vec![Some(V::Bytes(w16))], vec![Some(V::Bytes(bias))], vec![Some(V::Bytes(shape))]])),
+        ])
+    }
+
+    fn tiny_input() -> Vec<f32> {
+        (0..32).map(|i| i as f32 * 0.1 - 1.0).collect()
+    }
+
+    /// The tiny model by hand: SAME 4 → 2 with k = 3, s = 2 pads 0 before, 1 after.
+    fn tiny_expected() -> Vec<f32> {
+        let x = tiny_input();
+        let bias = [0.5f32, -1.0, 0.25];
+        let mut out = Vec::new();
+        for oy in 0..2 {
+            for ox in 0..2 {
+                for o in 0..3 {
+                    let mut acc = bias[o];
+                    for ky in 0..3 {
+                        for kx in 0..3 {
+                            let (iy, ix) = (oy * 2 + ky, ox * 2 + kx);
+                            if iy >= 4 || ix >= 4 {
+                                continue;
+                            }
+                            for c in 0..2 {
+                                acc += x[(iy * 4 + ix) * 2 + c] * WEIGHTS[(((o * 3 + ky) * 3 + kx) * 2 + c) % 6];
+                            }
+                        }
+                    }
+                    out.push(acc.max(0.0));
+                }
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn runs_a_hand_built_model() {
+        let m = Model::from_bytes(&tiny_model(CONV_2D)).unwrap();
+        assert_eq!(m.input_shapes(), vec![vec![1, 4, 4, 2]]);
+        assert_eq!(m.output_shapes(), vec![vec![1, 12]]);
+        // DEQUANTIZE folded at load, RELU fused into the convolution, RESHAPE moves
+        assert_eq!(m.steps.len(), 2);
+        let want = tiny_expected();
+        assert!(want.contains(&0.0) && want.iter().any(|v| *v > 0.0));
+        for _ in 0..3 {
+            // repeated runs reuse pooled (stale) buffers
+            let out = m.run(&[&tiny_input()]).unwrap();
+            assert_eq!(out.len(), 1);
+            for (a, b) in out[0].iter().zip(&want) {
+                assert!((a - b).abs() < 1e-5, "{a} vs {b}");
+            }
+        }
+        // the traced run names every computed tensor
+        let trace = m.run_traced(&[&tiny_input()]).unwrap();
+        assert!(trace.iter().any(|(n, _)| n == "output"));
+        // wrong inputs are errors
+        assert!(m.run(&[]).is_err());
+        assert!(m.run(&[&[0.0; 3]]).is_err());
+    }
+
+    #[test]
+    fn unsupported_operators_are_named() {
+        // FULLY_CONNECTED (9) in place of CONV_2D
+        let e = Model::from_bytes(&tiny_model(9)).err().unwrap().to_string();
+        assert!(e.contains("not supported") && e.contains("builtin operator 9"), "{e}");
+    }
+
+    #[test]
+    fn damaged_models_never_panic() {
+        let good = tiny_model(CONV_2D);
+        let x = tiny_input();
+        let mut loaded = 0;
+        let mut check = |bytes: &[u8]| {
+            if let Ok(m) = Model::from_bytes(bytes) {
+                loaded += 1;
+                let shapes = m.input_shapes();
+                let inputs: Vec<Vec<f32>> = shapes.iter().map(|s| x.iter().copied().cycle().take(s.iter().product()).collect()).collect();
+                let refs: Vec<&[f32]> = inputs.iter().map(|v| v.as_slice()).collect();
+                let _ = m.run(&refs);
+            }
+        };
+        for n in 0..good.len() {
+            check(&good[..n]);
+        }
+        for i in 0..good.len() {
+            for flip in [0xff, 0x01, 0x80] {
+                let mut bad = good.clone();
+                bad[i] ^= flip;
+                check(&bad);
+            }
+        }
+        // some damage leaves a loadable model (e.g. weight bytes), most doesn't
+        assert!(loaded > 0);
     }
 }
