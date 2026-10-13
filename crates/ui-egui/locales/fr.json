@@ -2340,5 +2340,20 @@
   "Checking the GPU…": "Vérification du GPU…",
   "CPU": "Processeur",
   "A face model uses the GPU only when a check shows it gives the same results faster.": "Un modèle de visages n’utilise le GPU que si une vérification montre qu’il donne les mêmes résultats plus vite.",
-  "Checking the GPU for faces": "Vérification du GPU pour les visages"
+  "Checking the GPU for faces": "Vérification du GPU pour les visages",
+  "Download an AI Model?": "Télécharger un modèle d’IA ?",
+  "AI masks are not available in this build.": "Les masques IA ne sont pas disponibles dans cette version.",
+  "The model is installed: these AI masks are ready.": "Le modèle est installé : ces masques IA sont prêts.",
+  "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.": "Ce modèle d’IA ne fait pas partie de LightCraft, et tout le reste fonctionne sans lui : tant qu’il n’est pas installé, ce masque est créé par une méthode plus simple et approximative.",
+  "Read the licence": "Lire la licence",
+  "AI model download stopped: it resumes where it left off next time.": "Téléchargement du modèle d’IA arrêté : il reprendra là où il s’est arrêté la prochaine fois.",
+  "The AI model is installed: new AI masks use it.": "Le modèle d’IA est installé : les nouveaux masques IA l’utilisent.",
+  "Select Subject: people with fine hair and edges": "Sélectionner le sujet : personnes, cheveux et contours fins",
+  "Sky, People, Background and Landscape": "Ciel, personnes, arrière-plan et paysage",
+  "Select Object: click what to select": "Sélectionner un objet : cliquez sur ce qu’il faut sélectionner",
+  "Depth Range masks": "Masques de plage de profondeur",
+  "Select Object and Describe (optional; Meta's licence, gated)": "Sélectionner un objet et Décrire (facultatif ; licence de Meta, accès restreint)",
+  "AI Model Status": "État des modèles d’IA",
+  "Download AI Model": "Télécharger le modèle d’IA",
+  "Cancel AI Model Download": "Annuler le téléchargement du modèle d’IA"
 }

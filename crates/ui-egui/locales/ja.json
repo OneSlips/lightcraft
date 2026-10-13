@@ -2342,5 +2342,20 @@
   "Checking the GPU…": "GPU を確認中…",
   "CPU": "CPU",
   "A face model uses the GPU only when a check shows it gives the same results faster.": "顔モデルが GPU を使うのは、同じ結果をより速く出せると確認できた場合だけです。",
-  "Checking the GPU for faces": "顔用の GPU を確認中"
+  "Checking the GPU for faces": "顔用の GPU を確認中",
+  "Download an AI Model?": "AI モデルをダウンロードしますか？",
+  "AI masks are not available in this build.": "このビルドでは AI マスクを使用できません。",
+  "The model is installed: these AI masks are ready.": "モデルはインストール済みです。これらの AI マスクを使用できます。",
+  "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.": "この AI モデルは LightCraft に含まれておらず、他の機能はすべてモデルなしで動作します。インストールされるまで、このマスクはより簡易な近似的な方法で作成されます。",
+  "Read the licence": "ライセンスを読む",
+  "AI model download stopped: it resumes where it left off next time.": "AI モデルのダウンロードを停止しました。次回は中断した位置から再開します。",
+  "The AI model is installed: new AI masks use it.": "AI モデルがインストールされました。新しい AI マスクで使用されます。",
+  "Select Subject: people with fine hair and edges": "被写体を選択： 細い髪や輪郭まで人物を選択",
+  "Sky, People, Background and Landscape": "空、人物、背景、風景",
+  "Select Object: click what to select": "オブジェクトを選択： 選択したいものをクリック",
+  "Depth Range masks": "深度範囲マスク",
+  "Select Object and Describe (optional; Meta's licence, gated)": "オブジェクトを選択と説明（任意、Meta のライセンス、アクセス制限あり）",
+  "AI Model Status": "AI モデルの状態",
+  "Download AI Model": "AI モデルをダウンロード",
+  "Cancel AI Model Download": "AI モデルのダウンロードをキャンセル"
 }

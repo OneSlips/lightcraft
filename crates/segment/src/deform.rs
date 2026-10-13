@@ -8,7 +8,7 @@
 //! once at load time.
 //!
 //! Modified work (MIT): the semantics follow `models/modules/deform_conv.py` of BiRefNet
-//! (Copyright (c) 2024 ZhengPeng7, MIT licence, <https://github.com/ZhengPeng7/BiRefNet>) and
+//! (Copyright (c) 2024 ZhengPeng, MIT licence, <https://github.com/ZhengPeng7/BiRefNet>) and
 //! the documented behaviour of `torchvision.ops.deform_conv2d` (BSD-3-Clause); reimplemented in
 //! Rust by the LightCraft contributors in 2026. See NOTICE.
 

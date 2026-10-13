@@ -297,5 +297,8 @@
   "Move {n} photo{} to “{}”": "Déplacer {n} photo{} vers « {} »",
   "Move {n} photo{} to “{}”?": "Déplacer {n} photo{} vers « {} » ?",
   "Listing folders — folders: {folders}, files: {files}": "Liste des dossiers — dossiers : {folders}, fichiers : {files}",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place.",
+  "The AI model download failed: {e}": "Le téléchargement du modèle d’IA a échoué : {e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licence : {licence}, une licence open source qui autorise tout usage, y compris le travail commercial.",
+  "A one-time download of about {mb} MB, saved in {dir}": "Un téléchargement unique d’environ {mb} Mo, enregistré dans {dir}"
 }

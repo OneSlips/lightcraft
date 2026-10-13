@@ -2188,5 +2188,20 @@
   "Color Overlay on B&W": "Sobreposição de cor em P&B",
   "Image on Black": "Imagem sobre preto",
   "Image on White": "Imagem sobre branco",
-  "White on Black": "Branco sobre preto"
+  "White on Black": "Branco sobre preto",
+  "Download an AI Model?": "Baixar um modelo de IA?",
+  "AI masks are not available in this build.": "As máscaras de IA não estão disponíveis nesta versão.",
+  "The model is installed: these AI masks are ready.": "O modelo está instalado: estas máscaras de IA estão prontas.",
+  "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.": "Este modelo de IA não faz parte do LightCraft, e todo o resto funciona sem ele: até que seja instalado, esta máscara é feita por um método mais simples e aproximado.",
+  "Read the licence": "Ler a licença",
+  "AI model download stopped: it resumes where it left off next time.": "Download do modelo de IA interrompido: ele continua de onde parou na próxima vez.",
+  "The AI model is installed: new AI masks use it.": "O modelo de IA está instalado: as novas máscaras de IA o usam.",
+  "Select Subject: people with fine hair and edges": "Selecionar assunto: pessoas com cabelos e bordas finos",
+  "Sky, People, Background and Landscape": "Céu, pessoas, fundo e paisagem",
+  "Select Object: click what to select": "Selecionar objeto: clique no que deseja selecionar",
+  "Depth Range masks": "Máscaras de intervalo de profundidade",
+  "Select Object and Describe (optional; Meta's licence, gated)": "Selecionar objeto e Descrever (opcional; licença da Meta, acesso restrito)",
+  "AI Model Status": "Status dos modelos de IA",
+  "Download AI Model": "Baixar modelo de IA",
+  "Cancel AI Model Download": "Cancelar download do modelo de IA"
 }

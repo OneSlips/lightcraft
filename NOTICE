@@ -52,7 +52,7 @@ licence. See docs/ai-masks.md.
 crates/segment/src/birefnet.rs, swin.rs, deform.rs and feat.rs port the inference code of BiRefNet
 (https://github.com/ZhengPeng7/BiRefNet: models/birefnet.py, models/backbones/swin_v1.py,
 models/modules/{decoder_blocks,lateral_blocks,aspp,deform_conv}.py, config.py), Copyright (c) 2024
-ZhengPeng7, licensed under the MIT License; its Swin Transformer backbone derives from the Swin
+ZhengPeng, licensed under the MIT License; its Swin Transformer backbone derives from the Swin
 Transformer code, Copyright (c) 2021 Microsoft (written by Ze Liu, Yutong Lin, Yixuan Wei),
 licensed under the MIT License. The MIT License's permission notice is the one in LICENSE-MIT
 (with these copyright lines). The port was modified by the LightCraft contributors (2026):

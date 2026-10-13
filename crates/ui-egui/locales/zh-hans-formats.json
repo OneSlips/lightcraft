@@ -297,5 +297,8 @@
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "“{to}”已经是另一个人。合并后成为一个人；撤销会再把他们分开。",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "已添加 {what} 合并（{mp}）：完整尺寸（{full}）所需的内存超出了这台电脑的内存",
   "Listing folders — folders: {folders}, files: {files}": "正在列出文件夹 — 文件夹：{folders}，文件：{files}",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已添加 {what} 合并（{mp}），这是全景图的最大尺寸（完整尺寸：{full}）"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已添加 {what} 合并（{mp}），这是全景图的最大尺寸（完整尺寸：{full}）",
+  "The AI model download failed: {e}": "AI 模型下载失败：{e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "许可证：{licence}，一种允许任何用途（包括商业工作）的开源许可证。",
+  "A one-time download of about {mb} MB, saved in {dir}": "一次性下载约 {mb} MB，保存在 {dir}"
 }
