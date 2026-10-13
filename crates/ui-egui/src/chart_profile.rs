@@ -88,6 +88,9 @@ pub struct ChartProfileState {
     pub other_bodies: bool,
     /// "Adopt for This Body" also makes the profile the body's default.
     pub adopt_as_default: bool,
+    /// Photos whose body serial was read from their file (imported before serials were kept):
+    /// `true` while the read is under way.
+    pub serial_reads: HashMap<PhotoId, bool>,
 }
 
 fn file_name(path: &str) -> String {
@@ -329,7 +332,10 @@ fn build_now(
         name: opts.name.clone(),
     };
     let apply: Vec<PhotoId> = (0..2).filter_map(|i| shot(i).and_then(|s| s.photo)).collect();
-    let serial = first.body.clone();
+    let bodies: Vec<String> = first.body.clone().into_iter().collect();
+    // the chart photos' serials, for catalog entries made before serials were kept
+    let serials: Vec<(PhotoId, String)> =
+        (0..2).filter_map(|i| shot(i).and_then(|s| Some((s.photo?, s.prepared.as_ref()?.serial.clone()?)))).collect();
     let fp = fingerprint(app, opts);
     app.chart_profile.error = None;
     crate::tasks::spawn(
@@ -343,7 +349,10 @@ fn build_now(
             Ok::<_, String>((out.dcp, report))
         },
         move |app, ctx, result| match result.and_then(|(dcp, mut report)| {
-            let installed = cp::install(&mut app.session, &dcp, serial, on_exists, &apply).map_err(|e| e.to_string())?;
+            let installed = cp::install(&mut app.session, &dcp, bodies, on_exists, &apply).map_err(|e| e.to_string())?;
+            for (photo, serial) in &serials {
+                lightcraft_engine::cmd::dcp_profiles::backfill_serial(&mut app.session, *photo, serial);
+            }
             if let (Some(o), Some(i)) = (report.as_object_mut(), installed.as_object()) {
                 o.extend(i.clone());
             }

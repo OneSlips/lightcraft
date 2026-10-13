@@ -5,12 +5,16 @@
 ### Camera profiles: per body, and looks on top
 - LightCraft's profiles (Color, Neutral, Vivid, the creative ones…) are now looks that sit on the photo's camera
   profile instead of replacing it: pick Neutral on your own chart-made profile and you get Neutral on your camera's
-  measured colour. The profile row reads "Neutral · on Canon EOS R5 C 71 · Daylight · Photo". Camera Profiles ▸
-  LightCraft Camera Color goes back to the built-in colour.
+  measured colour. The profile row shows the look, with "on Canon EOS R5 C 71 · Daylight · Photo" under it (long
+  names are shortened to fit the panel; hover for the whole name). Camera Profiles ▸ LightCraft Camera Color goes
+  back to the built-in colour.
 - A profile made from a chart remembers the camera body it was shot with. Raws from that body imported later
   develop with it on their own (never over a profile you picked); Photo ▸ Apply Camera Body Profiles does it for
   photos already in the library. The Camera Profiles menu shows your body's profiles; Browse Other Camera Profiles
-  shows the ones made on your other bodies, and Adopt for This Body makes one of them this body's too.
+  shows the ones made on your other bodies, and Adopt for This Body makes one of them this body's too. A profile
+  made from a photo is always that body's own, also in libraries imported before body serials were kept (LightCraft
+  reads the serial from the file); one of the body's profiles that isn't its default offers "Make default for this
+  body".
 - Hovering a camera profile in the profile menu or browser now previews its colours.
 
 ### Create Camera Profile from Color Chart, reworked

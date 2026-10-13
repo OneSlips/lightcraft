@@ -615,6 +615,14 @@ impl Session {
         });
     }
 
+    /// Apply and keep (the op log saves it with the library) without an undo step: facts the
+    /// catalog learns about a photo, not edits (a body serial read from its file).
+    pub(crate) fn record_quietly(&mut self, op: Op) -> Result<()> {
+        self.apply_catalog(op.clone())?;
+        self.pending_log.push(op);
+        Ok(())
+    }
+
     /// Apply without recording undo (interactive previews).
     fn apply_silent(&mut self, op: Op) -> Result<()> {
         self.catalog.apply(op)?;

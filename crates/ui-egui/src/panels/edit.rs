@@ -156,18 +156,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     divider(ui);
     // profile row
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 14, bottom: 14 }).show(ui, |ui| {
+        let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
+        let look = crate::i18n::profile_label(&d.profile.id, name).to_string();
+        // the camera calibration the look sits on, when it is a camera profile: a line of its own
+        let on = d
+            .calibration_id()
+            .filter(|c| *c != d.profile.id)
+            .and_then(|cal| app.session.profile_info(cal))
+            .map(|(cal_name, _)| crate::i18n::tr_format!("on {calibration}", calibration = cal_name));
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(13.0)).color(t.text_dim));
-            let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
-            // the look, on the camera calibration when it is a camera profile
-            let mut shown = crate::i18n::profile_label(&d.profile.id, name).to_string();
-            if let Some(cal) = d.calibration_id().filter(|c| *c != d.profile.id)
-                && let Some((cal_name, _)) = app.session.profile_info(cal)
-            {
-                shown = crate::i18n::tr_format!("{look} · on {calibration}", look = shown, calibration = cal_name);
-            }
-            let r = crate::widgets::dropdown(ui, "profile", &shown, t.font(15.0), t.text_label);
-            egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
+            // the browse button first, at the right: the look's name gets the width left (elided)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::icon_button(
                     ui,
@@ -182,8 +181,29 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 {
                     let _ = app.run("panel.profiles", json!({}));
                 }
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    let font = t.font(15.0);
+                    // (the dropdown's chevron takes 20 px)
+                    let max = (ui.available_width() - 24.0).max(12.0);
+                    let shown = elide_end(&look, max, |s| ui.fonts_mut(|f| f.layout_no_wrap(s.to_string(), font.clone(), t.text).size().x));
+                    let mut r = crate::widgets::dropdown(ui, "profile", &shown, font, t.text_label);
+                    if shown != look {
+                        r = r.on_hover_text(&look);
+                    }
+                    egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
+                });
             });
         });
+        if let Some(on) = on {
+            let font = t.font(11.5);
+            let max = ui.available_width().max(12.0);
+            let shown = elide_end(&on, max, |s| ui.fonts_mut(|f| f.layout_no_wrap(s.to_string(), font.clone(), t.text).size().x));
+            let r = ui.add(egui::Label::new(egui::RichText::new(&shown).font(font).color(t.text_dim)).truncate());
+            register(ui.ctx(), "label:profileCalibration", r.rect);
+            if shown != on {
+                r.on_hover_text(&on);
+            }
+        }
         // the camera body's own profile, or adopting another body's, on its own line
         ui.horizontal_wrapped(|ui| body_hint(app, ui, d.calibration_id().unwrap_or("")));
     });
@@ -630,17 +650,87 @@ fn camera_profiles_menu(
     }
 }
 
-/// Beside the profile name: "Body default" for a body's own profile picked for it, or "Adopt for
-/// This Body" for a profile made on another body.
+/// `text` cut at its end to fit `max` (as `width` measures it), with "…": the start of a profile
+/// name says the most (camera, body, light). Never empty.
+fn elide_end(text: &str, max: f32, width: impl Fn(&str) -> f32) -> String {
+    if width(text) <= max {
+        return text.to_string();
+    }
+    let n = text.chars().count();
+    for keep in (1..n).rev() {
+        let head: String = text.chars().take(keep).collect();
+        let cand = format!("{}…", head.trim_end());
+        if width(&cand) <= max {
+            return cand;
+        }
+    }
+    "…".to_string()
+}
+
+/// A photo imported before the catalog kept body serials: read its serial from the file, once,
+/// off the UI thread, so its body is judged by the serial its camera profiles list. `true` while
+/// that read is under way (the body hint waits for it rather than offering a wrong Adopt).
+fn learn_serial(app: &mut LightcraftApp, photo: lightcraft_catalog::PhotoId) -> bool {
+    use lightcraft_engine::cmd::dcp_profiles as dp;
+    let known = app.session.catalog.photo(photo).is_none_or(|p| !p.meta.serial.trim().is_empty());
+    if known {
+        return false;
+    }
+    if let Some(pending) = app.chart_profile.serial_reads.get(&photo) {
+        return *pending;
+    }
+    let Some(path) = dp::photo_file(&app.session, photo) else {
+        app.chart_profile.serial_reads.insert(photo, false);
+        return false;
+    };
+    app.chart_profile.serial_reads.insert(photo, true);
+    let started = crate::tasks::spawn(
+        app,
+        "serial",
+        None,
+        move || dp::read_serial(&path),
+        move |app, _ctx, serial| {
+            app.chart_profile.serial_reads.insert(photo, false);
+            if let Some(serial) = serial {
+                dp::backfill_serial(&mut app.session, photo, &serial);
+            }
+        },
+    );
+    if started.is_err() {
+        app.chart_profile.serial_reads.insert(photo, false);
+    }
+    true
+}
+
+/// Under the profile: "body default" for a body's own default profile; a small "Make default for
+/// this body" link for one of the body's own profiles that isn't its default; "Adopt for This Body"
+/// (and "Also make it this body's default") only for a profile made on another body.
 fn body_hint(app: &mut LightcraftApp, ui: &mut egui::Ui, profile: &str) {
     use lightcraft_engine::cmd::dcp_profiles as dp;
     let t = Tokens::get(ui.ctx());
     let Some(photo) = app.session.active() else { return };
+    if learn_serial(app, photo) {
+        return;
+    }
     let Some((relation, serial, is_default)) = dp::photo_profile_status(&app.session, photo) else { return };
     match relation {
         "body" if is_default => {
             ui.label(egui::RichText::new(crate::i18n::tr("body default")).size(11.0).color(t.text_dim))
                 .on_hover_text(crate::i18n::tr_format!("This camera body's own profile ({body})", body = dp::body_label(&serial)));
+        }
+        "body" => {
+            let r = ui.add(
+                egui::Label::new(egui::RichText::new(crate::i18n::tr("Make default for this body")).size(11.0).color(t.accent).underline())
+                    .sense(Sense::click()),
+            );
+            register(ui.ctx(), "link:makeBodyDefault", r.rect);
+            let r = r.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(crate::i18n::tr_format!(
+                "Photos from body {body} develop with this profile by default",
+                body = dp::body_label(&serial)
+            ));
+            if r.clicked() {
+                let _ = app.run("profile.setBodyDefault", json!({"profile": profile, "photo": photo.0}));
+            }
         }
         "otherBody" => {
             let label = crate::i18n::tr_format!("Adopt for This Body ({body})", body = dp::body_label(&serial));

@@ -1,9 +1,10 @@
 {
+  "on {calibration}": "sur {calibration}",
+  "Photos from body {body} develop with this profile by default": "Les photos du boîtier {body} sont développées avec ce profil par défaut",
   "The chart's greys measure about {cct:.0} K": "Les gris de la charte mesurent environ {cct:.0} K",
   "Both charts are set to {light}; set the second to {other}.": "Les deux chartes sont réglées sur {light} ; réglez la deuxième sur {other}.",
   "Chart · greys about {cct:.0} K": "Charte · gris environ {cct:.0} K",
   "body {body} (from file name)": "boîtier {body} (d'après le nom de fichier)",
-  "{look} · on {calibration}": "{look} · sur {calibration}",
   "Camera profile “{name}” replaced": "Profil d'appareil « {name} » remplacé",
   "A profile “{name}” is already there.": "Un profil « {name} » existe déjà.",
   "Used by {n} photos; they will update.": "Utilisé par {n} photos ; elles seront mises à jour.",

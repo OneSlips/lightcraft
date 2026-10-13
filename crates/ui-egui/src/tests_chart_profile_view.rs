@@ -189,3 +189,66 @@ fn the_second_chart_picker_lists_charts_first_and_the_edit_panel_hints_bodies() 
     assert!(!has(&h, "button:adoptForBody"), "its own now");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn rect(h: &Headless, id: &str) -> egui::Rect {
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("no widget {id}"))
+}
+
+/// The catalog forgets a photo's serial, as a library made before serials were kept has it.
+fn forget_serial(h: &mut Headless, id: u64) {
+    let id = lightcraft_catalog::PhotoId(id);
+    let mut meta = h.app.session.catalog.photo(id).unwrap().meta.clone();
+    meta.serial.clear();
+    h.app.session.catalog.apply(lightcraft_catalog::Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+}
+
+/// A profile made from a photo of a library from before serials were kept is that body's own: no
+/// Adopt. A long profile name fits the narrowest right panel (elided, the browse button in view);
+/// one of the body's profiles that isn't its default offers only "Make default for this body".
+#[test]
+fn the_profile_row_fits_a_narrow_panel_and_a_bodys_own_profile_offers_no_adopt() {
+    let dir = std::env::temp_dir().join(format!("lc-ui-ownbody-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let paths = [write(&dir, "_71_4940.dng", "D55", Some("012345678971"), true), write(&dir, "_71_4941.dng", "A", Some("012345678971"), true)];
+    let (mut h, ids) = session_with(&paths);
+    for &id in &ids {
+        forget_serial(&mut h, id);
+    }
+    h.app.session.execute("library.select", &json!({"ids": [ids[0]], "active": ids[0]})).unwrap();
+    let long = "Canon EOS R5 C 71 · Daylight · Photo · 2026-04-18 with a name much longer than the panel";
+    let made = h.app.session.execute("profile.createFromChart", &json!({"id": ids[0], "illuminant": "D55", "name": long})).unwrap();
+    assert_eq!(made["bodies"], json!(["012345678971"]), "{made}");
+    h.app.ui.right_width = crate::state::RIGHT_WIDTH.min;
+    h.request("ui.set", json!({"view": "detail", "right": "edit"}), T);
+    h.settle(T);
+    let panel = rect(&h, "panel:right_panel");
+    let browse = rect(&h, "icon:profileBrowser");
+    assert!(panel.contains_rect(browse), "the browse button stays in the panel: {browse:?} in {panel:?}");
+    let look = rect(&h, "dropdown:profile");
+    assert!(look.right() <= browse.left() + 0.5, "the look's name ends before the button: {look:?} {browse:?}");
+    let on = rect(&h, "label:profileCalibration");
+    assert!(on.right() <= panel.right() + 0.5, "the profile line is elided to the panel: {on:?} {panel:?}");
+    assert!(!has(&h, "button:adoptForBody"), "the profile made from this photo is this body's");
+    assert!(!has(&h, "link:makeBodyDefault"), "and already its default");
+    assert_eq!(h.app.session.catalog.photo(lightcraft_catalog::PhotoId(ids[0])).unwrap().meta.serial, "012345678971", "the serial was learnt");
+
+    // the second photo (serial still unknown to the catalog) is read in the background, then matches
+    let second = h.app.session.execute("profile.createFromChart", &json!({"path": paths[1], "illuminant": "A", "apply": false})).unwrap();
+    h.app.session.execute("profile.setBodyDefault", &json!({"profile": made["id"], "serial": "012345678971"})).unwrap();
+    h.app.session.execute("library.select", &json!({"ids": [ids[1]], "active": ids[1]})).unwrap();
+    h.app.session.execute("develop.cameraProfile", &json!({"id": second["id"]})).unwrap();
+    h.settle(T);
+    assert!(h.step_until(T, |h| !h.app.session.catalog.photo(lightcraft_catalog::PhotoId(ids[1])).unwrap().meta.serial.is_empty()));
+    h.settle(T);
+    assert!(!has(&h, "button:adoptForBody"), "a profile of this body: no Adopt");
+    assert!(!has(&h, "check:adoptAsDefault"));
+    assert!(has(&h, "link:makeBodyDefault"), "this body's, not its default: the small link");
+    assert!(panel.contains_rect(rect(&h, "link:makeBodyDefault")));
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "link:makeBodyDefault"}), T)["ok"], true);
+    h.settle(T);
+    let e = h.app.session.dcp_profiles.iter().find(|e| e.id == second["id"].as_str().unwrap()).unwrap();
+    assert_eq!(e.body_defaults, ["012345678971"]);
+    assert!(!has(&h, "link:makeBodyDefault"), "now its default");
+    let _ = std::fs::remove_dir_all(&dir);
+}

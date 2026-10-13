@@ -1,9 +1,10 @@
 {
+  "on {calibration}": "на {calibration}",
+  "Photos from body {body} develop with this profile by default": "Знімки з корпусу {body} типово обробляються з цим профілем",
   "The chart's greys measure about {cct:.0} K": "Сірі поля мішені показують близько {cct:.0} K",
   "Both charts are set to {light}; set the second to {other}.": "Для обох мішеней вибрано «{light}»; для другої виберіть «{other}».",
   "Chart · greys about {cct:.0} K": "Мішень · сірі близько {cct:.0} K",
   "body {body} (from file name)": "корпус {body} (з імені файлу)",
-  "{look} · on {calibration}": "{look} · на {calibration}",
   "Camera profile “{name}” replaced": "Профіль камери «{name}» замінено",
   "A profile “{name}” is already there.": "Профіль «{name}» уже є.",
   "Used by {n} photos; they will update.": "Використовується в {n} знімках; вони оновляться.",

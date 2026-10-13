@@ -290,3 +290,48 @@ fn lights_by_their_words_and_auto_no_longer() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The catalog forgets photo `id`'s serial, as a library made before serials were kept has it.
+fn forget_serial(s: &mut Session, id: PhotoId) {
+    let mut meta = s.catalog.photo(id).unwrap().meta.clone();
+    meta.serial.clear();
+    s.catalog.apply(lightcraft_catalog::Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+}
+
+#[test]
+fn a_profile_made_from_a_photo_of_an_old_library_is_that_bodys_own() {
+    use crate::cmd::dcp_profiles as dp;
+    let (mut s, dir) = library("oldlib");
+    let id = import(&mut s, &chart(&dir, "_71_4940.dng", "D65", Some("012345678971")));
+    forget_serial(&mut s, id);
+    assert_eq!(dp::catalog_body(s.catalog.photo(id).unwrap()).as_deref(), Some("file:71"));
+    let r = s.execute("profile.createFromChart", &json!({"id": id.0, "illuminant": "D65"})).unwrap();
+    // the profile is the body's, by its serial
+    assert_eq!(r["bodies"], json!(["012345678971"]), "{r}");
+    // the catalog learnt the photo's serial; the photo's profile is its body's own: no Adopt
+    assert_eq!(s.catalog.photo(id).unwrap().meta.serial, "012345678971");
+    let (relation, _, is_default) = dp::photo_profile_status(&s, id).unwrap();
+    assert_eq!((relation, is_default), ("body", true));
+    assert_eq!(dp::hidden_for_photo(&s, Some(id)), 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_profile_listing_only_the_serial_matches_once_the_serial_is_read() {
+    use crate::cmd::dcp_profiles as dp;
+    let (mut s, dir) = library("readserial");
+    let id = import(&mut s, &chart(&dir, "_71_1.dng", "D65", Some("SN71")));
+    s.execute("profile.createFromChart", &json!({"id": id.0, "illuminant": "D65"})).unwrap();
+    // a profile from an earlier build: the serial only
+    for e in &mut s.dcp_profiles {
+        e.bodies = vec!["SN71".into()];
+    }
+    forget_serial(&mut s, id);
+    assert_eq!(dp::photo_profile_status(&s, id).unwrap().0, "otherBody");
+    let path = dp::photo_file(&s, id).unwrap();
+    let serial = dp::read_serial(&path).unwrap();
+    assert!(dp::backfill_serial(&mut s, id, &serial));
+    assert!(!dp::backfill_serial(&mut s, id, "OTHER"), "a known serial is never replaced");
+    assert_eq!(dp::photo_profile_status(&s, id).unwrap().0, "body");
+    let _ = std::fs::remove_dir_all(&dir);
+}

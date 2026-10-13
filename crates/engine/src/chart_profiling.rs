@@ -57,6 +57,8 @@ pub struct Prepared {
     /// The camera body: its serial number (EXIF `BodySerialNumber`), else `file:XX` from the first
     /// two characters of the file name ([`body_key`]), else `None`.
     pub body: Option<String>,
+    /// The body's serial number alone (no file-name key), to give the photo's catalog entry.
+    pub serial: Option<String>,
     /// The capture date, `YYYY-MM-DD`, when the file has it.
     pub captured: Option<String>,
     /// Where the chart was found, if it was.
@@ -189,12 +191,13 @@ pub fn prepare_named(bytes: &[u8], file_name: Option<&str>) -> Result<Prepared, 
     let meta = if raw.metadata.serial_number.is_some() && raw.metadata.capture_time.is_some() { None } else { Some(lightcraft_meta::extract(bytes)) };
     let serial = raw.metadata.serial_number.clone().or_else(|| meta.as_ref().and_then(|m| m.serial_number.clone()));
     let body = body_key(serial.as_deref(), file_name);
+    let serial = serial.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let captured = raw
         .metadata
         .capture_time
         .or_else(|| meta.as_ref().and_then(|m| m.capture_time))
         .map(|t| format!("{:04}-{:02}-{:02}", t.year, t.month, t.day));
-    Ok(Prepared { body, captured, frame: Arc::new(frame), camera_model, display, orientation, located, color: raw.color })
+    Ok(Prepared { body, serial, captured, frame: Arc::new(frame), camera_model, display, orientation, located, color: raw.color })
 }
 
 impl Prepared {
@@ -237,6 +240,7 @@ pub fn scan_path(path: &str) -> Option<ChartScan> {
         display: Rgba8::new(1, 1),
         orientation: raw.orientation,
         body: None,
+        serial: None,
         captured: None,
         located: Some(located),
         color: raw.color,
@@ -546,12 +550,12 @@ pub fn report_json(preps: &[&Prepared], out: &Outcome) -> Value {
 pub fn install(
     s: &mut crate::Session,
     dcp: &lightcraft_raw::dcp::DcpProfile,
-    serial: Option<String>,
+    bodies: Vec<String>,
     on_exists: crate::cmd::dcp_profiles::OnExists,
     apply_to: &[lightcraft_catalog::PhotoId],
 ) -> crate::Result<Value> {
     use crate::cmd::dcp_profiles::Added;
-    let (entry, replaced) = match crate::cmd::dcp_profiles::add_profile(s, dcp.clone(), serial, on_exists, "profile.createFromChart")? {
+    let (entry, replaced) = match crate::cmd::dcp_profiles::add_profile(s, dcp.clone(), bodies, on_exists, "profile.createFromChart")? {
         Added::New(e) => (e, false),
         Added::Replaced(e) => (e, true),
         Added::Exists(e, used) => {
@@ -671,6 +675,7 @@ mod tests {
             display: Rgba8::new(1, 1),
             orientation: Default::default(),
             body: None,
+            serial: None,
             captured: None,
             located: None,
             color: Default::default(),

@@ -272,7 +272,8 @@ fn profile_changed(s: &mut Session, id: &str, profile: DcpProfile) {
 /// library's `Profiles/` folder (the temp folder without a library on disk). `serial` is the camera
 /// body's serial number, kept with the entry (not in the file). A profile of the same name for the
 /// same camera is handled as `on_exists` says.
-pub fn add_profile(s: &mut Session, mut profile: DcpProfile, serial: Option<String>, on_exists: OnExists, c: &str) -> Result<Added> {
+pub fn add_profile(s: &mut Session, mut profile: DcpProfile, bodies: Vec<String>, on_exists: OnExists, c: &str) -> Result<Added> {
+    let bodies: Vec<String> = bodies.iter().map(|b| norm_serial(b)).filter(|b| !b.is_empty()).collect();
     let name = if profile.name.trim().is_empty() { "Camera Profile".to_string() } else { profile.name.trim().to_string() };
     profile.name = name.clone();
     if let Some(there) = existing(s, &name, &profile.camera_model).cloned() {
@@ -296,8 +297,10 @@ pub fn add_profile(s: &mut Session, mut profile: DcpProfile, serial: Option<Stri
                 let old = std::fs::read(&there.file).map_err(|e| bad(c, format!("{}: {e}", there.file)))?;
                 std::fs::write(&there.file, &bytes).map_err(|e| bad(c, format!("{}: {e}", there.file)))?;
                 let mut entry = there.clone();
-                if let Some(sn) = serial.filter(|sn| !entry.bodies.is_empty() && !entry.bodies.contains(sn)) {
-                    entry.bodies.push(sn);
+                if !entry.bodies.is_empty() {
+                    for b in bodies.iter().filter(|b| !entry.bodies.contains(b)).collect::<Vec<_>>() {
+                        entry.bodies.push(b.clone());
+                    }
                 }
                 if let Some(slot) = s.dcp_profiles.iter_mut().find(|p| p.id == there.id) {
                     *slot = entry.clone();
@@ -334,7 +337,7 @@ pub fn add_profile(s: &mut Session, mut profile: DcpProfile, serial: Option<Stri
         name,
         camera_model: profile.camera_model.clone(),
         file: to.to_string_lossy().to_string(),
-        bodies: serial.into_iter().map(|s| norm_serial(&s)).filter(|s| !s.is_empty()).collect(),
+        bodies,
         body_defaults: Vec::new(),
         serial: None,
     };
@@ -456,8 +459,13 @@ fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
         apply_to.extend(second.as_ref().and_then(|((i, _), _)| *i));
     }
     let on_exists = OnExists::parse(str_param(p, "onExists")).ok_or_else(|| bad(C, "`onExists` is ask, replace, keepBoth or fail"))?;
-    let serial = prep_a.body.clone();
-    let installed = crate::chart_profiling::install(s, &out.dcp, serial, on_exists, &apply_to)?;
+    let installed = crate::chart_profiling::install(s, &out.dcp, prep_a.body.clone().into_iter().collect(), on_exists, &apply_to)?;
+    // the chart photos' catalog entries learn their serial (libraries from before serials were kept)
+    for (photo, prep) in [(id, Some(&prep_a)), (second.as_ref().and_then(|((i, _), _)| *i), prep_b.as_ref())] {
+        if let (Some(photo), Some(serial)) = (photo, prep.and_then(|p| p.serial.clone())) {
+            backfill_serial(s, photo, &serial);
+        }
+    }
     let preps: Vec<&crate::chart_profiling::Prepared> = std::iter::once(&prep_a).chain(prep_b.as_ref()).collect();
     let mut report = crate::chart_profiling::report_json(&preps, &out);
     if let (Some(o), Some(i)) = (report.as_object_mut(), installed.as_object()) {
@@ -550,9 +558,56 @@ pub fn is_file_body(body: &str) -> bool {
     body.trim().starts_with("file:")
 }
 
+/// Give photo `id`'s catalog entry the body serial read from its file, when it has none (photos
+/// imported before serials were kept). Not an edit: no undo step, but saved with the library.
+pub fn backfill_serial(s: &mut Session, id: lightcraft_catalog::PhotoId, serial: &str) -> bool {
+    let serial = norm_serial(serial);
+    let Some(p) = s.catalog.photo(id) else { return false };
+    if serial.is_empty() || !p.meta.serial.trim().is_empty() {
+        return false;
+    }
+    let mut meta = p.meta.clone();
+    meta.serial = serial;
+    s.record_quietly(lightcraft_catalog::Op::SetMeta { id, meta: Box::new(meta) }).is_ok()
+}
+
 /// A photo's body as the catalog knows it (its serial, else its file name's key): cheap.
 pub fn catalog_body(p: &lightcraft_catalog::Photo) -> Option<String> {
     crate::chart_profiling::body_key(Some(&p.meta.serial), Some(&p.file_name))
+}
+
+/// The keys a photo's body is known by in the catalog: its serial when the catalog has it, else its
+/// file name's key ([`catalog_body`]). A photo whose serial isn't known yet (a library from before
+/// serials were kept) learns it ([`backfill_serial`]) before its profile's body is judged.
+pub fn catalog_keys(p: &lightcraft_catalog::Photo) -> Vec<String> {
+    catalog_body(p).into_iter().collect()
+}
+
+/// [`relation`] for a photo known by several keys ([`catalog_keys`]): its own when any matches.
+pub fn relation_keys(e: &DcpEntry, keys: &[String]) -> &'static str {
+    match keys.iter().find(|k| e.bodies.contains(&norm_serial(k))) {
+        Some(k) => relation(e, Some(k)),
+        None => relation(e, keys.first().map(String::as_str)),
+    }
+}
+
+/// [`body_default_for`] over every key of a photo's body (the first that has one).
+fn body_default_keys(s: &Session, camera: &str, keys: &[String]) -> Option<String> {
+    keys.iter().find_map(|k| body_default_for(s, camera, k))
+}
+
+/// The file a photo was imported from, when it is a file.
+pub fn photo_file(s: &Session, id: lightcraft_catalog::PhotoId) -> Option<PathBuf> {
+    match &s.catalog.photo(id)?.source {
+        lightcraft_catalog::Source::File { path } => Some(PathBuf::from(path)),
+        _ => None,
+    }
+}
+
+/// The body serial number in a photo file's metadata (reads the file: off the UI thread).
+pub fn read_serial(path: &Path) -> Option<String> {
+    let bytes = std::fs::read(path).ok()?;
+    lightcraft_meta::extract(&bytes).serial_number.map(|s| norm_serial(&s)).filter(|s| !s.is_empty())
 }
 
 /// Whether profile `e` (made for a camera model named as raw converters name it) is for a photo
@@ -609,8 +664,7 @@ pub fn auto_pick(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
         return false;
     }
     // (its serial number when the file has one, else its file name's key: a real serial wins)
-    let Some(body) = catalog_body(p) else { return false };
-    let Some(id) = body_default_for(s, &p.meta.camera, &body) else { return false };
+    let Some(id) = body_default_keys(s, &p.meta.camera, &catalog_keys(p)) else { return false };
     let mut d = (*p.develop).clone();
     choose(s, &mut d, &id);
     p.develop = Arc::new(d);
@@ -659,10 +713,22 @@ fn serial_param(s: &Session, p: &Value, c: &str) -> Result<String> {
         .ok_or_else(|| bad(c, "the photo's file doesn't say which camera body took it (no serial number, and its file name gives no body)"))
 }
 
+/// After [`serial_param`] read a photo's serial from its file: the catalog keeps it, so the photo
+/// matches what was just adopted or made default (libraries from before serials were kept).
+fn remember_serial(s: &mut Session, p: &Value, serial: &str) {
+    if str_param(p, "serial").is_some() || is_file_body(serial) {
+        return;
+    }
+    if let Some(id) = p.get("photo").and_then(Value::as_u64).map(lightcraft_catalog::PhotoId).or_else(|| s.active()) {
+        backfill_serial(s, id, serial);
+    }
+}
+
 fn adopt(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.adoptForBody";
     let id = str_param(p, "profile").ok_or_else(|| bad(C, "missing `profile`"))?.to_string();
     let serial = serial_param(s, p, C)?;
+    remember_serial(s, p, &serial);
     let make_default = p.get("makeDefault").and_then(Value::as_bool).unwrap_or(false);
     let label = format!("Adopt Camera Profile for Body {}", body_label(&serial));
     let e = edit_entry(s, C, &id, &label, |e| {
@@ -707,6 +773,7 @@ fn set_body_default(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.setBodyDefault";
     let id = str_param(p, "profile").ok_or_else(|| bad(C, "missing `profile`"))?.to_string();
     let serial = serial_param(s, p, C)?;
+    remember_serial(s, p, &serial);
     let label = format!("Default Camera Profile for Body {}", body_label(&serial));
     let others: Vec<(usize, DcpEntry)> =
         s.dcp_profiles.iter().cloned().enumerate().filter(|(_, o)| o.id != id && o.body_defaults.contains(&serial)).collect();
@@ -830,10 +897,11 @@ pub fn body_specs() -> Vec<CommandSpec> {
 /// a serial (from the catalog only: cheap enough for every frame).
 pub fn photo_profile_status(s: &Session, photo: lightcraft_catalog::PhotoId) -> Option<(&'static str, String, bool)> {
     let p = s.catalog.photo(photo)?;
+    let keys = catalog_keys(p);
     let serial = catalog_body(p)?;
     let e = s.dcp_profiles.iter().find(|e| Some(e.id.as_str()) == p.develop.calibration_id())?;
-    let is_default = body_default_for(s, &p.meta.camera, &serial).as_deref() == Some(e.id.as_str());
-    Some((relation(e, Some(&serial)), serial, is_default))
+    let is_default = body_default_keys(s, &p.meta.camera, &keys).as_deref() == Some(e.id.as_str());
+    Some((relation_keys(e, &keys), serial, is_default))
 }
 
 /// The camera profiles a photo's profile menu lists (`(id, name, body label)`): its body's own and
@@ -843,10 +911,10 @@ pub fn menu_for_photo(
     photo: Option<lightcraft_catalog::PhotoId>,
     others: bool,
 ) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
-    let serial = photo.and_then(|id| s.catalog.photo(id)).and_then(|p| catalog_body(p));
+    let keys = photo.and_then(|id| s.catalog.photo(id)).map(|p| catalog_keys(p)).unwrap_or_default();
     let (mut mine, mut theirs) = (Vec::new(), Vec::new());
     for e in &s.dcp_profiles {
-        match relation(e, serial.as_deref()) {
+        match relation_keys(e, &keys) {
             "otherBody" => {
                 if others {
                     let label = e.bodies.iter().map(|b| body_label(b)).collect::<Vec<_>>().join(", ");
@@ -861,8 +929,8 @@ pub fn menu_for_photo(
 
 /// How many camera profiles a photo's menu hides (made for other bodies).
 pub fn hidden_for_photo(s: &Session, photo: Option<lightcraft_catalog::PhotoId>) -> usize {
-    let serial = photo.and_then(|id| s.catalog.photo(id)).and_then(|p| catalog_body(p));
-    s.dcp_profiles.iter().filter(|e| relation(e, serial.as_deref()) == "otherBody").count()
+    let keys = photo.and_then(|id| s.catalog.photo(id)).map(|p| catalog_keys(p)).unwrap_or_default();
+    s.dcp_profiles.iter().filter(|e| relation_keys(e, &keys) == "otherBody").count()
 }
 
 /// A Lightroom sidecar names camera profile `name` (`crs:CameraProfile`): when the user has a
