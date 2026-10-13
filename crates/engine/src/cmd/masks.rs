@@ -22,9 +22,9 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             feather: f64_or(p, "feather", 50.0),
             invert: bool_or(p, "invert", false),
         },
-        "sky" => MaskShape::Sky,
-        "subject" => MaskShape::Subject,
-        "background" => MaskShape::Background,
+        "sky" => MaskShape::Sky { seg: seg_param(p) },
+        "subject" => MaskShape::Subject { seg: seg_param(p) },
+        "background" => MaskShape::Background { seg: seg_param(p) },
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
             hi: f64_or(p, "hi", 1.0),
@@ -585,6 +585,58 @@ pub fn specs() -> Vec<CommandSpec> {
             "{} — stop the SAM 3 download (what has arrived is kept, and a new download resumes from it) → {cancelled}",
             super::always,
             |s, _| Ok(json!({"cancelled": s.segmenter.cancel_download()}))
+        ),
+        cmd!(
+            query "ai.models.status",
+            "AI Model Status",
+            [],
+            None,
+            "{} — every AI mask model this build knows (subject, scene, sam2, depth, sam3): what it does, whether it is installed (and where), its size and licence, and its download's progress → {available, models: [{id, title, purpose, installed, dir, sizeBytes, license, licenseUrl, pageUrl, open, mirrors, download}]}",
+            super::always,
+            |s, _| Ok(json!({"available": crate::segment::Segmenter::AVAILABLE, "models": s.segmenter.model_status()}))
+        ),
+        cmd!(
+            query "ai.models.download",
+            "Download AI Model",
+            [],
+            None,
+            "{id, acknowledged: true} — download AI model `id` (see ai.models.status for its size and licence) in the background; only after the user agreed to it. Watch ai.models.status; ai.models.cancel stops it (it resumes later) → {started, installed, downloading}",
+            super::always,
+            |s, p| {
+                let c = "ai.models.download";
+                let keys = || crate::segment::models::keys().join(", ");
+                let id = str_param(p, "id").ok_or_else(|| bad(c, format!("which model? `id`: one of {}", keys())))?.to_string();
+                let Some(m) = s.segmenter.model_status().into_iter().find(|m| m.id == id) else {
+                    return Err(bad(c, format!("unknown AI model `{id}` (one of {})", keys())));
+                };
+                if p.get("acknowledged").and_then(Value::as_bool) != Some(true) {
+                    return Err(bad(
+                        c,
+                        format!(
+                            "the {} model is a {:.0} MB download under the {} licence ({}): pass `acknowledged: true` once the user has agreed to download it",
+                            m.title,
+                            m.size_bytes as f64 / 1e6,
+                            m.license,
+                            m.license_url
+                        ),
+                    ));
+                }
+                let activity = s.activity.clone();
+                let started = s.segmenter.start_model_download(&id, &activity).map_err(ai_err)?;
+                Ok(json!({"started": started, "installed": s.segmenter.model_installed(&id), "downloading": s.segmenter.model_download_status(&id).running}))
+            }
+        ),
+        cmd!(
+            query "ai.models.cancel",
+            "Cancel AI Model Download",
+            [],
+            None,
+            "{id} — stop AI model `id`'s download (what has arrived is kept, and a new download resumes from it) → {cancelled}",
+            super::always,
+            |s, p| {
+                let id = str_param(p, "id").ok_or_else(|| bad("ai.models.cancel", "which model? `id`"))?;
+                Ok(json!({"cancelled": s.segmenter.cancel_model_download(id)}))
+            }
         ),
         cmd!(
             "mask.refine",
