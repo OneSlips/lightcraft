@@ -1,4 +1,5 @@
 {
+  "{look} · on {calibration}": "{look} · auf {calibration}",
   "Auto ({cct:.0} K → {light})": "Automatisch ({cct:.0} K → {light})",
   "Chart · {cct:.0} K ({light})": "Karte · {cct:.0} K ({light})",
   "Camera profile “{name}” replaced": "Kameraprofil „{name}“ ersetzt",

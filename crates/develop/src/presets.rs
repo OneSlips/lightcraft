@@ -118,7 +118,8 @@ impl SettingsGroup {
             SettingsGroup::Spots => &["spots"],
             SettingsGroup::RedEye => &["red_eye"],
             SettingsGroup::LensBlur => &["lens_blur"],
-            SettingsGroup::Calibration => &["calibration"],
+            // (the camera profile is the camera calibration)
+            SettingsGroup::Calibration => &["calibration", "camera_profile"],
         }
     }
 }

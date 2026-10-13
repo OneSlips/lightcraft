@@ -1,4 +1,5 @@
 {
+  "{look} · on {calibration}": "{look} · 基於 {calibration}",
   "Auto ({cct:.0} K → {light})": "自動（{cct:.0} K → {light}）",
   "Chart · {cct:.0} K ({light})": "色卡 · {cct:.0} K（{light}）",
   "Camera profile “{name}” replaced": "已取代相機描述檔「{name}」",

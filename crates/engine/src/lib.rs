@@ -1029,6 +1029,8 @@ mod tests_albums_local;
 #[cfg(test)]
 mod tests_body_profiles;
 #[cfg(test)]
+mod tests_camera_layers;
+#[cfg(test)]
 mod tests_chart_profile;
 #[cfg(test)]
 mod tests_color;

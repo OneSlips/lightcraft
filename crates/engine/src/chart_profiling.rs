@@ -538,10 +538,10 @@ pub fn install(
             continue;
         }
         let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
-        if d.profile.id == entry.id {
+        if d.calibration_id() == Some(entry.id.as_str()) {
             continue;
         }
-        d.profile.id = entry.id.clone();
+        crate::cmd::dcp_profiles::choose(s, &mut d, &entry.id);
         s.set_develop(id, d, "Profile")?;
         applied.push(id.0);
     }

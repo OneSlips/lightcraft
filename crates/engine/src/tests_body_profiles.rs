@@ -43,8 +43,10 @@ fn import(s: &mut Session, path: &str) -> PhotoId {
     PhotoId(r["imported"][0].as_u64().unwrap_or_else(|| panic!("{r}")))
 }
 
+/// The camera profile a photo develops with, else its look (`lc.color`: LightCraft's own colour).
 fn profile_of(s: &Session, id: PhotoId) -> String {
-    s.catalog.photo(id).unwrap().develop.profile.id.clone()
+    let d = &s.catalog.photo(id).unwrap().develop;
+    d.calibration_id().unwrap_or(&d.profile.id).to_string()
 }
 
 #[test]
@@ -142,9 +144,12 @@ fn a_bodys_own_profile_is_picked_at_import_and_never_over_a_choice() {
     assert_eq!(profile_of(&s, same), pid);
     assert_eq!(profile_of(&s, other), "lc.color");
     assert_eq!(profile_of(&s, none), "lc.color");
-    // a profile the user chose stays, also through applyBodyDefaults
+    // a look keeps the body's profile; LightCraft's own colour chosen by the user stays, also
+    // through applyBodyDefaults
     s.execute("library.select", &json!({"ids": [same.0]})).unwrap();
     s.execute("develop.profile", &json!({"id": "lc.vivid"})).unwrap();
+    assert_eq!(profile_of(&s, same), pid);
+    s.execute("develop.cameraProfile", &json!({"id": ""})).unwrap();
     let r = s.execute("profile.applyBodyDefaults", &json!({"ids": [same.0, other.0, none.0]})).unwrap();
     assert_eq!(r["changed"], json!([]));
     assert_eq!(r["skipped"], 3);

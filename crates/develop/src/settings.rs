@@ -109,7 +109,14 @@ pub struct DevelopSettings {
     /// value that isn't a process number.
     #[serde(default = "ProcessVersion::legacy", skip_serializing_if = "ProcessVersion::is_legacy")]
     pub process: ProcessVersion,
+    /// The look (`profile.id`: LightCraft's Basic, Creative… profiles), applied on the camera
+    /// calibration below.
     pub profile: Profile,
+    /// The camera calibration: a camera profile (`dcp:…`) whose matrices and hue/saturation map
+    /// replace the raw file's colour model; empty: LightCraft's own camera colour. Edits from before
+    /// the two were separate name a camera profile in `profile.id` instead ([`Self::calibration_id`]).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub camera_profile: String,
     pub treatment: Treatment,
     pub wb: WhiteBalance,
     pub light: Light,
@@ -149,6 +156,7 @@ impl Default for DevelopSettings {
             version: SCHEMA_VERSION,
             process: ProcessVersion::LATEST,
             profile: Profile::default(),
+            camera_profile: String::new(),
             treatment: Treatment::Color,
             wb: WhiteBalance::default(),
             light: Light::default(),

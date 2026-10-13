@@ -1340,11 +1340,15 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 apply_import_defaults(s, &mut p);
                 if let Some(sc) = &sidecar {
                     crate::sidecar::merge_into(&mut p, sc, &now);
+                    // Lightroom's camera profile, when it is one of the user's: no warning then
+                    let mapped = sc.camera_profile.as_deref().is_some_and(|name| crate::cmd::dcp_profiles::from_xmp_name(s, &mut p, name));
                     report.sidecars += 1;
-                    report.warnings.extend(sc.warnings.iter().cloned().map(|mut warning| {
-                        warning.path = path.clone();
-                        warning
-                    }));
+                    report.warnings.extend(sc.warnings.iter().filter(|w| !(mapped && w.code == ImportWarningCode::CameraProfile)).cloned().map(
+                        |mut warning| {
+                            warning.path = path.clone();
+                            warning
+                        },
+                    ));
                 }
                 if let Some(mp) = opts.metadata_preset.as_ref().and_then(|n| s.metadata_presets.iter().find(|m| m.name.eq_ignore_ascii_case(n))) {
                     crate::cmd::metadata::apply_to(&mut p.meta, &mp.fields);

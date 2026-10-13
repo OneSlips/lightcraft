@@ -1,4 +1,5 @@
 {
+  "{look} · on {calibration}": "{look} · {calibration} 上",
   "Auto ({cct:.0} K → {light})": "自動（{cct:.0} K → {light}）",
   "Chart · {cct:.0} K ({light})": "チャート · {cct:.0} K（{light}）",
   "Camera profile “{name}” replaced": "カメラプロファイル「{name}」を置き換えました",

@@ -1,4 +1,5 @@
 {
+  "{look} · on {calibration}": "{look} · на {calibration}",
   "Auto ({cct:.0} K → {light})": "Авто ({cct:.0} K → {light})",
   "Chart · {cct:.0} K ({light})": "Мішень · {cct:.0} K ({light})",
   "Camera profile “{name}” replaced": "Профіль камери «{name}» замінено",

@@ -184,7 +184,35 @@ pub fn existing<'a>(s: &'a Session, name: &str, camera_model: &str) -> Option<&'
 
 /// How many photos develop with profile `id`.
 pub fn used_by(s: &Session, id: &str) -> usize {
-    s.catalog.photos().filter(|p| p.develop.profile.id == id).count()
+    s.catalog.photos().filter(|p| p.develop.calibration_id() == Some(id)).count()
+}
+
+/// Choose profile `id` in `d`, the two layers apart: a camera profile (`dcp:…`) sets the camera
+/// calibration and keeps the look (a camera profile with a look of its own, a tone curve or look
+/// table, comes with it: "As profile"); `""` goes back to LightCraft's own camera colour; any other
+/// id sets the look and keeps the calibration. Edits from before the two were separate (a camera
+/// profile as the look) keep their camera profile as the calibration.
+pub fn choose(s: &Session, d: &mut lightcraft_develop::DevelopSettings, id: &str) {
+    let legacy = d.camera_profile.is_empty() && is_dcp_id(&d.profile.id);
+    if is_dcp_id(id) {
+        let own_look = s.media.camera_profiles.get(id).is_some_and(|p| p.color.profile.tone_curve.is_some() || p.color.profile.look_table.is_some());
+        d.camera_profile = id.to_string();
+        if own_look {
+            d.profile.id = id.to_string();
+        } else if is_dcp_id(&d.profile.id) {
+            d.profile.id = lightcraft_develop::Profile::default().id;
+        }
+    } else if id.is_empty() || id == lightcraft_develop::BUILTIN_CAMERA_COLOR {
+        d.camera_profile = lightcraft_develop::BUILTIN_CAMERA_COLOR.to_string();
+        if is_dcp_id(&d.profile.id) {
+            d.profile.id = lightcraft_develop::Profile::default().id;
+        }
+    } else {
+        if legacy {
+            d.camera_profile = d.profile.id.clone();
+        }
+        d.profile.id = id.to_string();
+    }
 }
 
 /// The first free "name 2", "name 3"… for `camera_model`.
@@ -563,12 +591,13 @@ pub fn photo_serial(s: &Session, id: lightcraft_catalog::PhotoId) -> Option<Stri
 /// At import (and for `profile.applyBodyDefaults`): the photo's body default, when it still has the
 /// default profile. Nothing else is ever replaced.
 pub fn auto_pick(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
-    if p.meta.serial.trim().is_empty() || p.develop.profile.id != lightcraft_develop::Profile::default().id || !p.develops_raw() {
+    // (only a calibration never chosen: LightCraft's own colour chosen explicitly stays)
+    if p.meta.serial.trim().is_empty() || !p.develop.camera_profile.is_empty() || p.develop.look_is_camera_profile() || !p.develops_raw() {
         return false;
     }
     let Some(id) = body_default_for(s, &p.meta.camera, &p.meta.serial) else { return false };
     let mut d = (*p.develop).clone();
-    d.profile.id = id;
+    choose(s, &mut d, &id);
     p.develop = Arc::new(d);
     true
 }
@@ -789,7 +818,7 @@ pub fn photo_profile_status(s: &Session, photo: lightcraft_catalog::PhotoId) -> 
     if serial.is_empty() {
         return None;
     }
-    let e = s.dcp_profiles.iter().find(|e| e.id == p.develop.profile.id)?;
+    let e = s.dcp_profiles.iter().find(|e| Some(e.id.as_str()) == p.develop.calibration_id())?;
     let is_default = body_default_for(s, &p.meta.camera, &serial).as_deref() == Some(e.id.as_str());
     Some((relation(e, Some(&serial)), serial, is_default))
 }
@@ -821,4 +850,18 @@ pub fn menu_for_photo(
 pub fn hidden_for_photo(s: &Session, photo: Option<lightcraft_catalog::PhotoId>) -> usize {
     let serial = photo.and_then(|id| s.catalog.photo(id)).map(|p| norm_serial(&p.meta.serial)).filter(|v| !v.is_empty());
     s.dcp_profiles.iter().filter(|e| relation(e, serial.as_deref()) == "otherBody").count()
+}
+
+/// A Lightroom sidecar names camera profile `name` (`crs:CameraProfile`): when the user has a
+/// camera profile of that name for the photo's camera, it becomes the photo's camera calibration
+/// (its look stays). Nothing changes otherwise, or when the photo has a calibration already.
+pub fn from_xmp_name(s: &Session, p: &mut lightcraft_catalog::Photo, name: &str) -> bool {
+    if p.develop.calibration_id().is_some() {
+        return false;
+    }
+    let Some(e) = s.dcp_profiles.iter().find(|e| e.name == name.trim() && same_camera(e, &p.meta.camera)) else { return false };
+    let mut d = (*p.develop).clone();
+    choose(s, &mut d, &e.id);
+    p.develop = Arc::new(d);
+    true
 }

@@ -103,7 +103,7 @@ fn a_chart_photo_becomes_a_camera_profile_that_reproduces_the_chart() {
     let dcp = lightcraft_raw::dcp::parse_dcp(&std::fs::read(&file).unwrap()).unwrap();
     assert_eq!((dcp.name.as_str(), dcp.camera_model.as_str()), ("Studio D55", "LightCraft Chart Camera"));
     assert!(dcp.color.profile.hue_sat_map[0].is_some());
-    assert_eq!(s.catalog.photo(id).unwrap().develop.profile.id, pid, "the chart photo develops with it");
+    assert_eq!(s.catalog.photo(id).unwrap().develop.calibration_id(), Some(pid.as_str()), "the chart photo develops with it");
 
     // developed with the new profile, the chart is reproduced; with the file's naive matrix it isn't
     let (plain, _) = crate::files::load_bytes(&dng, 4096).unwrap();

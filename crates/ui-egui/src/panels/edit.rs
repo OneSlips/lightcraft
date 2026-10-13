@@ -159,7 +159,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(13.0)).color(t.text_dim));
             let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
-            let r = crate::widgets::dropdown(ui, "profile", crate::i18n::profile_label(&d.profile.id, name), t.font(15.0), t.text_label);
+            // the look, on the camera calibration when it is a camera profile
+            let mut shown = crate::i18n::profile_label(&d.profile.id, name).to_string();
+            if let Some(cal) = d.calibration_id().filter(|c| *c != d.profile.id)
+                && let Some((cal_name, _)) = app.session.profile_info(cal)
+            {
+                shown = crate::i18n::tr_format!("{look} · on {calibration}", look = shown, calibration = cal_name);
+            }
+            let r = crate::widgets::dropdown(ui, "profile", &shown, t.font(15.0), t.text_label);
             egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
             body_hint(app, ui, &d.profile.id);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -516,7 +523,7 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
         && let Some((name, _)) = app.session.profile_info(hovered_id)
     {
         let mut s = d.clone();
-        s.profile.id = hovered_id.clone();
+        lightcraft_engine::cmd::dcp_profiles::choose(&app.session, &mut s, hovered_id);
         s.profile.amount = 100.0;
         app.hover_preview =
             Some(crate::HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(hovered_id, name)), settings: s });
@@ -542,6 +549,15 @@ fn camera_profiles_menu(
     let t = Tokens::get(ui.ctx());
     let others = app.chart_profile.other_bodies;
     let (mine, theirs) = dp::menu_for_photo(&app.session, photo, others);
+    let calibration = photo.and_then(|id| app.session.catalog.photo(id)).and_then(|p| p.develop.calibration_id().map(str::to_string));
+    // back to LightCraft's own camera colour
+    let r = ui.selectable_label(calibration.is_none(), crate::i18n::tr("LightCraft Camera Color"));
+    register(ui.ctx(), "profileMenu:builtinCameraColor", r.rect);
+    if r.clicked() {
+        *action = Some(("develop.cameraProfile", json!({"id": ""})));
+    }
+    ui.separator();
+    let cur = calibration.as_deref().unwrap_or(cur);
     let serial = photo.and_then(|id| app.session.catalog.photo(id)).map(|p| p.meta.serial.trim().to_string()).filter(|s| !s.is_empty());
     let entry = |ui: &mut egui::Ui, id: &str, name: &str, pick: &mut (Option<String>, Option<String>), action: &mut Option<(&'static str, Value)>| {
         let r = ui.selectable_label(id == cur, name);

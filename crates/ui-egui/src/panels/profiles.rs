@@ -125,7 +125,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             && saved_id == id
             && let Some((p_name, _)) = app.session.profile_info(&saved_profile_id)
         {
-            let s = with_profile_id(&d, &saved_profile_id);
+            let s = with_profile_id(&app.session, &d, &saved_profile_id);
             app.hover_preview = Some(HoverPreview {
                 label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(&saved_profile_id, p_name)),
                 settings: s,
@@ -136,11 +136,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
-/// `d` with profile `profile_id` (at 100 % unless it is the applied one).
-fn with_profile_id(d: &DevelopSettings, profile_id: &str) -> DevelopSettings {
+/// `d` with profile `profile_id` chosen as the menus choose it (a camera profile sets the camera
+/// calibration, a look the look; at 100 % unless it is the applied one).
+fn with_profile_id(session: &lightcraft_engine::Session, d: &DevelopSettings, profile_id: &str) -> DevelopSettings {
     let mut s = d.clone();
-    if s.profile.id != profile_id {
-        s.profile.id = profile_id.to_string();
+    if s.profile.id != profile_id && s.calibration_id() != Some(profile_id) {
+        lightcraft_engine::cmd::dcp_profiles::choose(session, &mut s, profile_id);
         s.profile.amount = 100.0;
     }
     s
@@ -163,7 +164,7 @@ fn cell_ui(
     let resp = ui.interact(cell, egui::Id::new(&key), Sense::click());
     register(ui.ctx(), key, cell);
     let thumb = Rect::from_min_size(cell.min, vec2(cell.width(), th));
-    let s = with_profile_id(d, p_id);
+    let s = with_profile_id(&app.session, d, p_id);
     let painter = ui.painter();
     painter.rect_filled(thumb, 3.0, t.canvas);
     if let Some(job) = app.session.variant_job(id, &s, THUMB_EDGE)
