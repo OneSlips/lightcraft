@@ -112,8 +112,8 @@ fn load(app: &mut LightcraftApp, slot: usize, photo: Option<PhotoId>, path: Stri
     Ok(json!({"slot": slot, "path": shown}))
 }
 
-/// Open the dialog on the active photo (a raw photo of a ColorChecker); a second selected photo
-/// becomes the second chart.
+/// Open the dialog on the active photo (a raw photo of a ColorChecker); with exactly two photos
+/// selected, the other becomes the second chart.
 pub fn open(app: &mut LightcraftApp) -> Result<Value, String> {
     let mut ids = app.session.targets(&json!({}));
     if let Some(active) = app.session.active()
@@ -130,7 +130,9 @@ pub fn open(app: &mut LightcraftApp) -> Result<Value, String> {
     app.chart_profile = ChartProfileState::default();
     app.ui.dialog = Some(Dialog::ChartProfile { opts: ChartProfileDialog::default() });
     load(app, 0, Some(first), path)?;
-    if let Some(&second) = ids.get(1)
+    // exactly two photos selected: the other is the second chart (another light)
+    if ids.len() == 2
+        && let Some(&second) = ids.get(1)
         && let Some(p) = path_of(app, second)
     {
         load(app, 1, Some(second), p)?;

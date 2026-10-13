@@ -2,6 +2,16 @@
 
 ## 2026-10-13
 
+### Camera profiles from a color chart
+- Photo ▸ Create Camera Profile from Color Chart… makes a DNG camera profile for your own camera from a raw photo of
+  a ColorChecker 24. The chart is found on its own (drag its corners if it isn't); choose the light it was shot
+  under (or let LightCraft tell from the chart's greys), Accurate or Natural, and a name. The new profile is listed
+  under Camera Profiles like an imported `.dcp`, the chart photo uses it right away, and a report shows how close
+  each patch comes (ΔE).
+- Add a second chart photo under another light, such as tungsten, for a dual-illuminant profile: each light gets its
+  own calibration, and photos in between are rendered by their white balance between the two.
+- The profiling engine is RADcamProfiles, contributed by its author.
+
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you
   let go. On a 64 MP raw the first of those renders decoded the whole file again, which held up the loupe's
