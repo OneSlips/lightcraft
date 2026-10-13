@@ -14,7 +14,7 @@
 use candle_core::{D, Module, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, LayerNorm, Linear, VarBuilder};
 
-use crate::cpu::{Act, linear, pool2, window_attention};
+use crate::cpu::{Act, add_act, linear, pool2, window_attention};
 use crate::nn::{ln, to_vec};
 use crate::{Error, Result, nn};
 
@@ -395,8 +395,8 @@ impl FpnNeck {
         Ok(Self { lateral, top_down: cfg.top_down.clone() })
     }
 
-    /// The three finest levels (NCHW, 256 channels; 1/4, 1/8 and 1/16 of the input) from the
-    /// stage outputs.
+    /// The three finest levels (channel-last `[1, H, W, 256]`; 1/4, 1/8 and 1/16 of the input)
+    /// from the stage outputs.
     pub fn forward(&self, stages: &[Tensor]) -> Result<Vec<Tensor>> {
         let n = self.lateral.len();
         if stages.len() != n {
@@ -406,11 +406,13 @@ impl FpnNeck {
         let mut prev: Option<Tensor> = None;
         for i in (0..n).rev() {
             let (Some(s), Some(l)) = (stages.get(i), self.lateral.get(i)) else { return Err(Error::Model("neck".into())) };
-            let lat = linear(s, l, Act::None, None)?.permute((0, 3, 1, 2))?.contiguous()?;
+            let lat = linear(s, l, Act::None, None)?;
             let cur = match &prev {
                 Some(p) if self.top_down.contains(&i) && i + 1 != n => {
-                    let (_, _, h, w) = p.dims4()?;
-                    (lat + p.upsample_nearest2d(2 * h, 2 * w)?)?
+                    // nearest-neighbour 2× upsampling, channel-last
+                    let (b, h, w, c) = p.dims4()?;
+                    let up = p.reshape((b * h, 1, w, 1, c))?.broadcast_as((b * h, 2, w, 2, c))?.contiguous()?.reshape((b, 2 * h, 2 * w, c))?;
+                    add_act(&lat, &up, false)?
                 }
                 _ => lat,
             };

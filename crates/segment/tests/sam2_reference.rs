@@ -76,15 +76,16 @@ fn matches_reference() {
         assert!(rel_err(&format!("stage{i}"), &vec(s), &vec(&r[&format!("stage{i}")])) < 1e-3);
     }
     for (i, l) in levels.iter().enumerate() {
-        assert!(rel_err(&format!("fpn{i}"), &vec(l), &vec(&r[&format!("fpn{i}")])) < 1e-3);
+        let l = l.permute((0, 3, 1, 2)).unwrap();
+        assert!(rel_err(&format!("fpn{i}"), &vec(&l), &vec(&r[&format!("fpn{i}")])) < 1e-3);
     }
     let t = std::time::Instant::now();
     let enc = model.encode_pixels(px).unwrap();
     eprintln!("encode: {:?}", t.elapsed());
-    let (image, s0, s1) = enc.features();
-    assert!(rel_err("image (+no memory)", &vec(image), &vec(&r["image"])) < 1e-3);
-    assert!(rel_err("s0", &vec(s0), &vec(&r["s0"])) < 1e-3);
-    assert!(rel_err("s1", &vec(s1), &vec(&r["s1"])) < 1e-3);
+    let (image, s0, s1) = enc.features().unwrap();
+    assert!(rel_err("image (+no memory)", &vec(&image), &vec(&r["image"])) < 1e-3);
+    assert!(rel_err("s0", &vec(&s0), &vec(&r["s0"])) < 1e-3);
+    assert!(rel_err("s1", &vec(&s1), &vec(&r["s1"])) < 1e-3);
 
     for name in ["one", "two"] {
         let c = clicks(&r[&format!("{name}_clicks")]);

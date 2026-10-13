@@ -24,6 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             dec_ms.push(t.elapsed().as_secs_f64() * 1000.0);
         }
     }
+    let enc = model.encode(&rgb, w, h)?;
+    let mut best = f64::MAX;
+    for _ in 0..30 {
+        let t = std::time::Instant::now();
+        let _ = model.segment_clicks(&enc, &[Click { x: 0.5, y: 0.5, positive: true }])?;
+        best = best.min(t.elapsed().as_secs_f64() * 1000.0);
+    }
+    eprintln!("decode best of 30: {best:.1} ms");
     eprintln!("encode ms {enc_ms:?}");
     eprintln!("decode ms {:?}", dec_ms.iter().map(|d| (d * 10.0).round() / 10.0).collect::<Vec<_>>());
     Ok(())

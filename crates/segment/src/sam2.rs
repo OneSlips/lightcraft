@@ -69,7 +69,7 @@ pub struct Sam2 {
     image: usize,
     backbone: Hiera,
     neck: FpnNeck,
-    /// `[1, 256, 1, 1]`.
+    /// `[1, 1, 1, 256]`.
     no_memory: Tensor,
     decoder: Tracker,
 }
@@ -97,15 +97,25 @@ impl Sam2 {
         let cfg = HieraConfig::from_json(&read_config(dir)?)?;
         let w = weights::Weights::open(&dir.join(WEIGHTS_FILE))?;
         let vb = VarBuilder::from_backend(Box::new(weights::Backend(w)), DType::F32, device.clone());
-        let backbone = Hiera::new(&cfg, vb.pp("vision_encoder.backbone"))?;
-        let neck = FpnNeck::new(&cfg, vb.pp("vision_encoder.neck"))?;
-        let no_memory = vb.get((1, 1, FPN), "no_memory_embedding")?.reshape((1, FPN, 1, 1))?;
+        Self::from_vb(&cfg, vb, device)
+    }
+
+    fn from_vb(cfg: &HieraConfig, vb: VarBuilder, device: Device) -> Result<Self> {
+        let backbone = Hiera::new(cfg, vb.pp("vision_encoder.backbone"))?;
+        let neck = FpnNeck::new(cfg, vb.pp("vision_encoder.neck"))?;
+        let no_memory = vb.get((1, 1, FPN), "no_memory_embedding")?.reshape((1, 1, 1, FPN))?;
         let decoder = Tracker::with_geometry(vb.clone(), cfg.image, cfg.grid())?;
         Ok(Self { device, image: cfg.image, backbone, neck, no_memory, decoder })
     }
 
     pub fn device(&self) -> &Device {
         &self.device
+    }
+
+    /// Side of the predicted masks: [`SAM2_MASK_SIDE`] for the released checkpoints (1/4 of the
+    /// 1024 input).
+    pub fn mask_side(&self) -> usize {
+        self.image / 4
     }
 
     /// Run the image encoder on an RGB image (8-bit, row-major, `w × h`), stretched to the
@@ -127,7 +137,7 @@ impl Sam2 {
         let levels = self.neck.forward(&stages)?;
         let [l0, l1, l2] = &levels[..] else { return Err(Error::Model("neck: expected three levels".into())) };
         let l2 = l2.broadcast_add(&self.no_memory)?;
-        Ok(Sam2Encoded { features: self.decoder.features(&[l0.clone(), l1.clone(), l2])? })
+        Ok(Sam2Encoded { features: self.decoder.features_nhwc(l0, l1, &l2)? })
     }
 
     /// Segment one object from clicks (positions normalized to the image, 0..1). One click: the
@@ -165,7 +175,7 @@ impl Sam2 {
         self.decoder.embed_clicks(clicks).map_err(sam2_err)
     }
 
-    /// The backbone's four stage outputs (NHWC) and the neck's three levels (NCHW, before the
+    /// The backbone's four stage outputs and the neck's three levels (all channel-last; before the
     /// decoder's projections); tests.
     pub fn encoder_stages(&self, pixels: &Tensor) -> Result<(Vec<Tensor>, Vec<Tensor>)> {
         let stages = self.backbone.forward(&pixels.to_device(&self.device)?).map_err(sam2_err)?;
@@ -175,10 +185,10 @@ impl Sam2 {
 }
 
 impl Sam2Encoded {
-    /// The decoder's features: the 64 × 64 image embedding (with the no-memory embedding),
-    /// and the projected 256 × 256 and 128 × 128 levels (tests).
-    pub fn features(&self) -> (&Tensor, &Tensor, &Tensor) {
-        (&self.features.image, &self.features.s0, &self.features.s1)
+    /// The decoder's features, channel-first: the 64 × 64 image embedding (with the no-memory
+    /// embedding), and the projected 256 × 256 and 128 × 128 levels (tests).
+    pub fn features(&self) -> Result<(Tensor, Tensor, Tensor)> {
+        self.features.planar().map_err(sam2_err)
     }
 }
 
@@ -191,6 +201,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// A tiny Hiera with random weights runs end to end: shapes, windows, pooling, decoder.
+    #[test]
+    fn tiny_random_model_runs() {
+        let cfg = HieraConfig {
+            embed: 8,
+            blocks_per_stage: vec![1, 2, 2, 1],
+            dims: vec![8, 16, 32, 64],
+            heads: vec![1, 2, 2, 4],
+            windows: vec![8, 4, 6, 4],
+            global: vec![3],
+            pos_bkg: [3, 3],
+            q_pool: 3,
+            image: 128,
+            top_down: vec![2, 3],
+        };
+        let map = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&map, DType::F32, &Device::Cpu);
+        let model = Sam2::from_vb(&cfg, vb, Device::Cpu).unwrap();
+        assert_eq!(model.mask_side(), 32);
+        let rgb: Vec<u8> = (0..50 * 40 * 3).map(|i| (i * 7 % 256) as u8).collect();
+        let enc = model.encode(&rgb, 50, 40).unwrap();
+        let (image, s0, s1) = enc.features().unwrap();
+        assert_eq!((image.dims(), s0.dims(), s1.dims()), (&[1, 256, 8, 8][..], &[1, 32, 32, 32][..], &[1, 64, 16, 16][..]));
+        let one = [Click { x: 0.3, y: 0.6, positive: true }];
+        let p = model.segment_clicks(&enc, &one).unwrap();
+        assert_eq!(p.logits.len(), 32 * 32);
+        assert!(p.logits.iter().all(|v| v.is_finite()) && (0.0..=1.0).contains(&p.score));
+        let two = [one[0], Click { x: 1.0, y: 0.0, positive: false }];
+        assert_eq!(model.segment_clicks(&enc, &two).unwrap().logits.len(), 32 * 32);
+        let d = model.decode(&enc, &two).unwrap();
+        assert_eq!((d.masks.dims(), d.iou.len()), (&[4, 32, 32][..], 4));
+        // bad inputs are errors
+        assert!(model.segment_clicks(&enc, &[]).is_err());
+        assert!(model.encode(&rgb, 50, 41).is_err());
+        assert!(model.encode_pixels(&Tensor::zeros((1, 3, 64, 64), DType::F32, &Device::Cpu).unwrap()).is_err());
+    }
+
+    #[test]
+    fn model_and_features_can_cross_threads() {
+        fn shared<T: Send + Sync>() {}
+        shared::<Sam2>();
+        shared::<Sam2Encoded>();
     }
 
     #[test]
