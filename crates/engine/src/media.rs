@@ -1241,6 +1241,14 @@ impl crate::Session {
     /// temporary preview while hovering a preset or profile; nothing is committed or cached).
     pub fn preview_job(&mut self, id: PhotoId, max_w: usize, max_h: usize, apply_crop: bool, settings: &DevelopSettings) -> Option<RenderJob> {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
+        // the source as these settings develop it: another camera profile (or none) decodes anew
+        let mut p = (**self.catalog.photo(id)?).clone();
+        if self.media.camera_profile_of(&p).map(|c| c.0) != {
+            p.develop = Arc::new(settings.clone());
+            self.media.camera_profile_of(&p).map(|c| c.0)
+        } {
+            job.source = self.media.source_ref(&p, job.level);
+        }
         job.settings = Arc::new(settings.clone());
         job.key = settings.hash64() ^ ((max_w as u64) << 40) ^ ((max_h as u64) << 20) ^ (apply_crop as u64) ^ (job.level as u64) << 60;
         Some(job)
@@ -1264,9 +1272,11 @@ impl crate::Session {
     /// hash, so a variant renders once; `key` is derived from the same hash, so a frontend can
     /// keep one texture per variant.
     pub fn variant_job(&mut self, id: PhotoId, settings: &DevelopSettings, edge: usize) -> Option<RenderJob> {
-        let p = self.catalog.photo(id)?.clone();
+        let mut p = (**self.catalog.photo(id)?).clone();
         let edge = edge.clamp(16, SourceLevel::Thumb.max_edge());
         let level = SourceLevel::Thumb;
+        // decoded as these settings develop it (their camera profile, or none)
+        p.develop = Arc::new(settings.clone());
         let source = self.media.source_ref(&p, level);
         let ck = Self::variant_key(&p, settings, edge);
         Some(RenderJob {
