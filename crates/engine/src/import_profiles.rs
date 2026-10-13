@@ -246,7 +246,8 @@ pub fn plan(s: &Session, candidates: &[&ImportCandidate], choice: &ProfileChoice
         if c.kind != lightcraft_catalog::MediaKind::Raw || c.duplicate.is_some() || c.error.is_some() || c.preview_only.is_some() {
             continue;
         }
-        let key = (c.camera.trim().to_string(), c.body.clone());
+        let camera = display_camera(&c.camera);
+        let key = (camera.clone(), c.body.clone());
         let row = rows.entry(key).or_insert_with(|| {
             let (profile, how) = resolve(s, choice, &c.camera, c.body.as_deref());
             let own = match (&profile, &c.body) {
@@ -254,7 +255,7 @@ pub fn plan(s: &Session, candidates: &[&ImportCandidate], choice: &ProfileChoice
                 _ => false,
             };
             PlanRow {
-                camera: c.camera.trim().to_string(),
+                camera,
                 body_label: c.body.as_deref().map(dp::body_label).unwrap_or_default(),
                 body: c.body.clone(),
                 profile_name: profile_name(s, profile.as_deref()),
@@ -357,6 +358,37 @@ pub fn plan_command(s: &mut Session, p: &Value) -> crate::Result<Value> {
     let refs: Vec<&ImportCandidate> = cands.iter().collect();
     let rows = plan(s, &refs, &choice);
     let mut out = plan_json(&rows);
-    out["duplicates"] = json!(cands.iter().filter(|c| c.duplicate.is_some()).count());
+    let raws = cands.iter().filter(|c| c.kind == lightcraft_catalog::MediaKind::Raw);
+    // raws already in this catalog (by path or content); a raw whose bytes repeat a file earlier in
+    // the source is a copy there, not in the catalog; other kinds don't take camera profiles
+    let (mut duplicates, mut copies) = (0, 0);
+    for c in raws.filter(|c| c.duplicate.is_some()) {
+        if c.existing.is_some() {
+            duplicates += 1;
+        } else {
+            copies += 1;
+        }
+    }
+    out["duplicates"] = json!(duplicates);
+    out["copiesInSource"] = json!(copies);
     Ok(out)
+}
+
+/// A camera as people name it, from the catalog's `Make Model` (`Canon Canon EOS R5 C` →
+/// `Canon EOS R5 C`, `NIKON CORPORATION NIKON Z 6` → `NIKON Z 6`, `SONY ILCE-9` → `Sony ILCE-9`),
+/// as [`lightcraft_camprof::camera_name`] names cameras in profile names.
+pub fn display_camera(camera: &str) -> String {
+    let words: Vec<&str> = camera.split_whitespace().collect();
+    let Some(first) = words.first() else { return String::new() };
+    // the make ends where the model repeats its first word: the model alone then
+    if let Some(k) = (1..words.len()).find(|&k| words.get(k).is_some_and(|w| w.eq_ignore_ascii_case(first))) {
+        return words.get(k..).unwrap_or_default().join(" ");
+    }
+    // else a make in capitals reads in title case (`SONY` → `Sony`); other spellings stay
+    let shouted = first.chars().count() > 1 && first.chars().all(|c| !c.is_lowercase());
+    if shouted {
+        let model = words.get(1..).unwrap_or_default().join(" ");
+        return lightcraft_camprof::camera_name(first, &model);
+    }
+    words.join(" ")
 }

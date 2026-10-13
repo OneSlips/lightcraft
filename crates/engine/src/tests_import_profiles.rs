@@ -188,3 +188,42 @@ fn a_look_and_a_preset_go_on_top_of_the_calibration() {
     assert!(s.catalog.photo(id).is_none_or(|p| p.deleted) || !s.catalog.photos().any(|p| p.id == id));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn cameras_are_named_without_the_make_twice() {
+    use crate::import_profiles::display_camera;
+    assert_eq!(display_camera("Canon Canon EOS R5 C"), "Canon EOS R5 C");
+    assert_eq!(display_camera("NIKON CORPORATION NIKON Z 6"), "NIKON Z 6");
+    assert_eq!(display_camera("SONY ILCE-9"), "Sony ILCE-9");
+    assert_eq!(display_camera(" "), "");
+}
+
+/// Duplicates are photos already in this catalog: a folder of new raws (with identical other files
+/// beside them, as a library's thumbnail folder has) has none, and its rows add up to its raws.
+#[test]
+fn duplicates_are_only_raws_already_in_the_catalog() {
+    let (mut s, dir) = library("dups");
+    let card = dir.join("card");
+    let thumbs = card.join("thumbs");
+    std::fs::create_dir_all(&thumbs).unwrap();
+    let mut png = Vec::new();
+    let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[90, 3, 9, 255]; 64] };
+    png.extend(lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap());
+    for i in 0..4 {
+        std::fs::write(thumbs.join(format!("t{i}.png")), &png).unwrap();
+    }
+    let first = raw(&card, "A1.dng", "D65", Some("SN71"));
+    raw(&card, "A2.dng", "D50", Some("SN71"));
+    raw(&card, "_SA1.dng", "A", None);
+    let plan = |s: &mut Session| s.execute("import.profilePlan", &json!({"paths": [card.to_string_lossy()]})).unwrap();
+    let r = plan(&mut s);
+    assert_eq!((r["photos"].as_u64(), r["duplicates"].as_u64(), r["copiesInSource"].as_u64()), (Some(3), Some(0), Some(0)), "{r}");
+    let rows: u64 = r["rows"].as_array().unwrap().iter().filter_map(|row| row["photos"].as_u64()).sum();
+    assert_eq!(rows, 3);
+    assert_eq!(r["rows"][0]["camera"], "LightCraft Chart Camera");
+    // one of them imported: now it is a duplicate, and no longer among the photos
+    s.execute("library.import", &json!({"paths": [first]})).unwrap();
+    let r = plan(&mut s);
+    assert_eq!((r["photos"].as_u64(), r["duplicates"].as_u64()), (Some(2), Some(1)), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

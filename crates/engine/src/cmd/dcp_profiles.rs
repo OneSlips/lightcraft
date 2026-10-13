@@ -849,7 +849,7 @@ pub fn body_specs() -> Vec<CommandSpec> {
             "Camera Profiles for Import",
             [],
             None,
-            "{paths: [file or folder], cameraProfile?: as library.import} → {rows: [{camera, body (serial, else file:XX), bodyLabel, profile (null: LightCraft's colour), profileName, how: auto | chosen | all, own, photos, fromSidecar}], photos, keptFromSidecar, duplicates}: the camera profile each body's raws would get at import (new raws only)",
+            "{paths: [file or folder], cameraProfile?: as library.import} → {rows: [{camera (as people name it: Canon EOS R5 C), body (serial, else file:XX), bodyLabel, profile (null: LightCraft's colour), profileName, how: auto | chosen | all, own, photos, fromSidecar}], photos, keptFromSidecar, duplicates (raws already in this catalog, not counted in photos), copiesInSource (raws whose bytes repeat another file of the source)}: the camera profile each body's raws would get at import (new raws only)",
             always,
             crate::import_profiles::plan_command
         ),
