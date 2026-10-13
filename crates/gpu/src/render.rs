@@ -1369,6 +1369,8 @@ mod tests {
     /// workgroup, windows wider than the image, and 1, 2 (as two planes) and 3 channels.
     #[test]
     fn gaussian_matches_cpu() {
+        // (creating the device writes the crash sentinel another test swaps out)
+        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use lightcraft_raster::blur;
         let Some(gpu) = crate::device() else { return };
         let _scope = crate::ctx::RenderScope::new(gpu);
@@ -1396,6 +1398,8 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_kernels() {
+        // (creating the device writes the crash sentinel another test swaps out)
+        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let Some(gpu) = crate::device() else { return };
         let _scope = crate::ctx::RenderScope::new(gpu);
         let (w, h) = (6000, 4000);
