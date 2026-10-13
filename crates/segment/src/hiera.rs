@@ -14,7 +14,7 @@
 use candle_core::{D, Module, Tensor};
 use candle_nn::{Conv2d, Conv2dConfig, LayerNorm, Linear, VarBuilder};
 
-use crate::cpu::{Act, attention, linear};
+use crate::cpu::{Act, linear, pool2, window_attention};
 use crate::nn::{ln, to_vec};
 use crate::{Error, Result, nn};
 
@@ -134,7 +134,7 @@ impl HieraConfig {
         // 1/4 … 1/32 of the input must be whole, and the first window must tile the 1/4 grid
         let grid = self.image / 4;
         let w0 = self.windows.first().copied().unwrap_or(0);
-        if self.image == 0 || self.image % 32 != 0 || self.image > 4096 || w0 == 0 || grid % w0 != 0 {
+        if self.image == 0 || !self.image.is_multiple_of(32) || self.image > 4096 || w0 == 0 || !grid.is_multiple_of(w0) {
             return bad("input size");
         }
         if self.top_down.iter().any(|l| *l >= n) {
@@ -147,11 +147,6 @@ impl HieraConfig {
     pub fn grid(&self) -> usize {
         self.image / 16
     }
-}
-
-/// 2 × 2 max pooling of an NHWC tensor.
-fn pool2(x: &Tensor) -> Result<Tensor> {
-    Ok(x.permute((0, 3, 1, 2))?.max_pool2d(2)?.permute((0, 2, 3, 1))?.contiguous()?)
 }
 
 /// `[B, H, W, C]` → windows `[B·nh·nw, w, w, C]` (zero padding to a multiple of `w`).
@@ -200,7 +195,16 @@ impl Block {
             Some(p) => linear(&xn, p, Act::None, None)?,
             None => x.clone(),
         };
-        let a = if self.window > 0 {
+        let a = if xn.device().is_cpu() {
+            // windows, padding and query pooling inside one multi-threaded kernel
+            let qkv = linear(&xn, &self.qkv, Act::None, None)?;
+            let bias = match self.qkv.bias() {
+                Some(b) => b.clone(),
+                None => Tensor::zeros(3 * self.dim_out, candle_core::DType::F32, xn.device())?,
+            };
+            let hd = self.dim_out / self.heads;
+            window_attention(&qkv, &bias, self.heads, self.window, self.pool, (hd as f64).powf(-0.5))?
+        } else if self.window > 0 {
             let (win, _, _) = partition(&xn, self.window)?;
             let a = self.attention(&win)?;
             // after query pooling, the windows and the map are half the size
@@ -231,7 +235,7 @@ impl Block {
             (q, h, w)
         };
         let (q, k, v) = (q.transpose(1, 2)?.contiguous()?, k.transpose(1, 2)?.contiguous()?, v.transpose(1, 2)?.contiguous()?);
-        let o = attention(&q, &k, &v, (hd as f64).powf(-0.5))?;
+        let o = nn::sdpa(&q, &k, &v, None, (hd as f64).powf(-0.5))?;
         Ok(o.transpose(1, 2)?.reshape((b, hq, wq, self.dim_out))?)
     }
 }
@@ -423,6 +427,67 @@ impl FpnNeck {
 mod tests {
     use super::*;
     use candle_core::Device;
+
+    /// The windowed attention the plain way: pad the map with the padding token, partition,
+    /// pool the queries, attend, un-partition.
+    fn window_attention_reference(qkv: &Tensor, bias: &Tensor, heads: usize, window: usize, pool: bool, scale: f64) -> Tensor {
+        let (b, h, w, c3) = qkv.dims4().unwrap();
+        let dim = c3 / 3;
+        let hd = dim / heads;
+        let (ph, pw) = if window > 0 { (h.div_ceil(window) * window, w.div_ceil(window) * window) } else { (h, w) };
+        let src = qkv.flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let bias_v = bias.to_vec1::<f32>().unwrap();
+        let mut padded = Vec::with_capacity(b * ph * pw * c3);
+        for bi in 0..b {
+            for y in 0..ph {
+                for x in 0..pw {
+                    if y < h && x < w {
+                        let at = ((bi * h + y) * w + x) * c3;
+                        padded.extend_from_slice(&src[at..at + c3]);
+                    } else {
+                        padded.extend_from_slice(&bias_v);
+                    }
+                }
+            }
+        }
+        let padded = Tensor::from_vec(padded, (b, ph, pw, c3), qkv.device()).unwrap();
+        let win = if window > 0 { partition(&padded, window).unwrap().0 } else { padded };
+        let (nw, wh, ww, _) = win.dims4().unwrap();
+        let qkv5 = win.reshape((nw, wh * ww, 3, heads, hd)).unwrap();
+        let part = |i: usize| qkv5.narrow(2, i, 1).unwrap().squeeze(2).unwrap();
+        let (mut q, k, v) = (part(0), part(1), part(2));
+        let (qh, qw) = if pool { (wh / 2, ww / 2) } else { (wh, ww) };
+        if pool {
+            q = pool2(&q.reshape((nw, wh, ww, dim)).unwrap()).unwrap().reshape((nw, qh * qw, heads, hd)).unwrap();
+        }
+        let t = |x: &Tensor| x.transpose(1, 2).unwrap().contiguous().unwrap();
+        let o = nn::sdpa(&t(&q), &t(&k), &t(&v), None, scale).unwrap();
+        let o = o.transpose(1, 2).unwrap().reshape((nw, qh, qw, dim)).unwrap();
+        let (oh, ow) = if pool { (h / 2, w / 2) } else { (h, w) };
+        if window > 0 {
+            let ws = if pool { window / 2 } else { window };
+            unpartition(&o, ws, (oh.div_ceil(ws) * ws, ow.div_ceil(ws) * ws), (oh, ow)).unwrap()
+        } else {
+            o.narrow(1, 0, oh).unwrap().narrow(2, 0, ow).unwrap()
+        }
+    }
+
+    #[test]
+    fn window_attention_matches_partitioned_attention() {
+        let d = Device::Cpu;
+        let (heads, dim) = (2, 24);
+        for (h, w, window, pool) in
+            [(10, 9, 4, false), (10, 8, 4, true), (12, 12, 6, true), (14, 10, 6, true), (7, 5, 0, false), (8, 6, 0, true), (16, 16, 8, false)]
+        {
+            let qkv = Tensor::randn(0f32, 1., (2, h, w, 3 * dim), &d).unwrap();
+            let bias = Tensor::randn(0f32, 1., 3 * dim, &d).unwrap();
+            let got = crate::cpu::window_attention(&qkv, &bias, heads, window, pool, 0.2).unwrap();
+            let want = window_attention_reference(&qkv, &bias, heads, window, pool, 0.2);
+            assert_eq!(got.dims(), want.dims(), "{h}x{w} window {window} pool {pool}");
+            let err = (got - want).unwrap().abs().unwrap().flatten_all().unwrap().max(0).unwrap().to_scalar::<f32>().unwrap();
+            assert!(err < 1e-5, "{h}x{w} window {window} pool {pool}: {err}");
+        }
+    }
 
     #[test]
     fn windows_round_trip_with_padding() {

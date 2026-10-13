@@ -97,6 +97,16 @@ impl Attention {
         Ok(self.o.forward(x)?)
     }
 
+    /// [`Self::forward`] without a bias, through the multi-threaded CPU kernels (SAM 2).
+    pub fn forward_fast(&self, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor> {
+        use crate::cpu::{Act, linear};
+        let q = linear(q, &self.q, Act::None, None)?;
+        let k = linear(k, &self.k, Act::None, None)?;
+        let v = linear(v, &self.v, Act::None, None)?;
+        let o = crate::cpu::mha(&q, &k, &v, self.heads, (self.head_dim as f64).powf(-0.5))?;
+        linear(&o, &self.o, Act::None, None)
+    }
+
     /// `q`, `k`, `v`: `[B, L, hidden]`; `bias` broadcastable to `[B, heads, Lq, Lk]`.
     pub fn forward(&self, q: &Tensor, k: &Tensor, v: &Tensor, bias: Option<&Tensor>) -> Result<Tensor> {
         let (b, lq, _) = q.dims3()?;
