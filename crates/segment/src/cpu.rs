@@ -1,9 +1,17 @@
-//! Multi-threaded CPU kernels for the hot paths of the SAM 2 encoder.
+//! Multi-threaded CPU kernels for the hot paths of SAM 2 (encoder and mask decoder).
 //!
 //! candle runs element-wise operations (bias, GELU, residual adds) on one thread, and its
-//! batched matmul is slow for many small matrices (the Hiera windows). These kernels split the
-//! same arithmetic over rayon's threads; on other devices the plain candle operations run.
-//! Original LightCraft code.
+//! batched matmul is slow for many small matrices (the Hiera windows). These kernels compute
+//! the same arithmetic over rayon's threads: linear-layer epilogues, softmax attention with
+//! packed 4 × 8 micro-kernels, Hiera's windowed attention with query pooling (read straight
+//! from the qkv projection, padding tokens included), and the mask decoder's upscaling
+//! epilogue. On other devices the plain candle operations run.
+//!
+//! Modified work (Apache License 2.0, §4(b)): the operations reproduce the Python/PyTorch SAM 2
+//! code of Hugging Face Transformers (`models/sam2/modeling_sam2.py`: `Sam2MultiScaleAttention`,
+//! `window_partition`, `Sam2Attention`, `Sam2MaskDecoder`), Copyright The HuggingFace Team and
+//! Meta Platforms, Inc.; reimplemented by the LightCraft contributors in 2026 as fused CPU
+//! kernels. See NOTICE.
 
 use candle_core::{CpuStorage, CustomOp1, CustomOp2, CustomOp3, Layout, Shape, Tensor};
 use candle_nn::Linear;
@@ -159,29 +167,6 @@ pub fn add_act(a: &Tensor, b: &Tensor, gelu: bool) -> Result<Tensor> {
         return Ok(if gelu { s.gelu_erf()? } else { s });
     }
     Ok(a.contiguous()?.apply_op2_no_bwd(&b.contiguous()?, &AddAct { gelu })?)
-}
-
-/// GELU (erf), multi-threaded on the CPU.
-struct Gelu;
-
-impl CustomOp1 for Gelu {
-    fn name(&self) -> &'static str {
-        "lc-gelu"
-    }
-
-    fn cpu_fwd(&self, s: &CpuStorage, l: &Layout) -> CResult<(CpuStorage, Shape)> {
-        let x = f32s(s, l, "gelu")?;
-        let mut out = vec![0f32; x.len()];
-        out.par_chunks_mut(1 << 14).zip(x.par_chunks(1 << 14)).for_each(|(o, x)| o.iter_mut().zip(x).for_each(|(o, x)| *o = gelu(*x)));
-        Ok((CpuStorage::F32(out), l.shape().clone()))
-    }
-}
-
-pub fn gelu_erf(x: &Tensor) -> Result<Tensor> {
-    if !x.device().is_cpu() {
-        return Ok(x.gelu_erf()?);
-    }
-    Ok(x.contiguous()?.apply_op1_no_bwd(&Gelu)?)
 }
 
 /// 2 × 2 max pooling (stride 2, odd edges dropped) of an NHWC tensor.
@@ -539,6 +524,80 @@ impl CustomOp2 for WindowAttention {
 pub fn window_attention(qkv: &Tensor, bias: &Tensor, heads: usize, window: usize, pool: bool, scale: f64) -> Result<Tensor> {
     Ok(qkv.contiguous()?.apply_op2_no_bwd(bias, &WindowAttention { heads, window, pool, scale: scale as f32 })?)
 }
+/// The epilogue of a kernel-2, stride-2 transposed convolution computed as a per-pixel matmul
+/// `[h·w, 4·c]` (blocks `(dy, dx, c)`, no bias): adds the bias, places each 2 × 2 block, adds
+/// the skip features `[1, 2h, 2w, c]`, then applies the optional layer norm over `c` and GELU.
+pub struct UpEpilogue {
+    /// `[4·c]`.
+    bias: Vec<f32>,
+    /// Layer-norm weight, bias and eps.
+    ln: Option<(Vec<f32>, Vec<f32>, f32)>,
+}
+
+impl UpEpilogue {
+    pub fn new(bias: Vec<f32>, ln: Option<(Vec<f32>, Vec<f32>, f32)>) -> Self {
+        Self { bias, ln }
+    }
+}
+
+impl CustomOp2 for UpEpilogue {
+    fn name(&self) -> &'static str {
+        "lc-up-epilogue"
+    }
+
+    fn cpu_fwd(&self, s1: &CpuStorage, l1: &Layout, s2: &CpuStorage, l2: &Layout) -> CResult<(CpuStorage, Shape)> {
+        let (y, res) = (f32s(s1, l1, "upscale")?, f32s(s2, l2, "upscale skip")?);
+        let (n, c4) = l1.shape().dims2()?;
+        let (one, h2, w2, c) = l2.shape().dims4()?;
+        let ln_ok = self.ln.as_ref().is_none_or(|(g, b, _)| g.len() == c && b.len() == c);
+        if one != 1 || c == 0 || c4 != 4 * c || n != (h2 / 2) * (w2 / 2) || h2 % 2 != 0 || w2 % 2 != 0 || self.bias.len() != c4 || !ln_ok {
+            candle_core::bail!("upscale: {:?} into {:?}", l1.shape(), l2.shape())
+        }
+        let w = w2 / 2;
+        let mut out = vec![0f32; res.len()];
+        out.par_chunks_mut(w2 * c).zip(res.par_chunks(w2 * c)).enumerate().for_each(|(oy, (o, r))| {
+            let (iy, dy) = (oy / 2, oy % 2);
+            for (ox, (op, rp)) in o.chunks_exact_mut(c).zip(r.chunks_exact(c)).enumerate() {
+                let (ix, dx) = (ox / 2, ox % 2);
+                let at = (iy * w + ix) * c4 + (dy * 2 + dx) * c;
+                let (Some(src), Some(b)) = (y.get(at..at + c), self.bias.get((dy * 2 + dx) * c..(dy * 2 + dx + 1) * c)) else { continue };
+                for (((o, s), b), r) in op.iter_mut().zip(src).zip(b).zip(rp) {
+                    *o = s + b + r;
+                }
+                if let Some((g, beta, eps)) = &self.ln {
+                    let mean = op.iter().sum::<f32>() / c as f32;
+                    let var = op.iter().map(|v| (v - mean) * (v - mean)).sum::<f32>() / c as f32;
+                    let inv = 1.0 / (var + eps).sqrt();
+                    for ((o, g), beta) in op.iter_mut().zip(g).zip(beta) {
+                        *o = (*o - mean) * inv * g + beta;
+                    }
+                }
+                op.iter_mut().for_each(|v| *v = gelu(*v));
+            }
+        });
+        Ok((CpuStorage::F32(out), l2.shape().clone()))
+    }
+}
+
+/// Applies [`UpEpilogue`] to `y` `[h·w, 4·c]` with the skip features `res` `[1, 2h, 2w, c]`.
+pub fn up_epilogue(y: &Tensor, res: &Tensor, ep: &UpEpilogue) -> Result<Tensor> {
+    if !y.device().is_cpu() {
+        let (_, h2, w2, c) = res.dims4()?;
+        let bias = Tensor::from_slice(&ep.bias, ep.bias.len(), y.device())?;
+        let blocks = y.broadcast_add(&bias)?.reshape((h2 / 2, w2 / 2, 2, 2 * c))?.transpose(1, 2)?.contiguous()?;
+        let x = (blocks.reshape((1, h2, w2, c))? + res)?;
+        let x = match &ep.ln {
+            Some((g, b, eps)) => {
+                let (g, b) = (Tensor::from_slice(g, c, y.device())?, Tensor::from_slice(b, c, y.device())?);
+                candle_core::Module::forward(&candle_nn::LayerNorm::new(g, b, f64::from(*eps)), &x)?
+            }
+            None => x,
+        };
+        return Ok(x.gelu_erf()?);
+    }
+    Ok(y.contiguous()?.apply_op2_no_bwd(&res.contiguous()?, ep)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,10 +631,37 @@ mod tests {
         let b = Tensor::randn(0f32, 1., (2, 5, 7, 3), &d).unwrap();
         assert!(close(&add_act(&a, &b, false).unwrap(), &(&a + &b).unwrap()) < 1e-6);
         assert!(close(&add_act(&a, &b, true).unwrap(), &(&a + &b).unwrap().gelu_erf().unwrap()) < 1e-6);
-        assert!(close(&gelu_erf(&a).unwrap(), &a.gelu_erf().unwrap()) < 1e-6);
         let want = a.permute((0, 3, 1, 2)).unwrap().max_pool2d(2).unwrap().permute((0, 2, 3, 1)).unwrap();
         assert_eq!(pool2(&a).unwrap().dims(), &[2, 2, 3, 3]);
         assert!(close(&pool2(&a).unwrap(), &want) < 1e-6);
+    }
+
+    #[test]
+    fn upscale_epilogue_matches_transposed_convolution() {
+        let d = Device::Cpu;
+        let (h, w, cin, c) = (3, 5, 6, 4);
+        let x = Tensor::randn(0f32, 1., (1, cin, h, w), &d).unwrap();
+        let conv = candle_nn::ConvTranspose2d::new(
+            Tensor::randn(0f32, 1., (cin, c, 2, 2), &d).unwrap(),
+            Some(Tensor::randn(0f32, 1., c, &d).unwrap()),
+            candle_nn::ConvTranspose2dConfig { stride: 2, ..Default::default() },
+        );
+        let skip = Tensor::randn(0f32, 1., (1, c, 2 * h, 2 * w), &d).unwrap();
+        let (g, beta) = (Tensor::randn(0f32, 1., c, &d).unwrap(), Tensor::randn(0f32, 1., c, &d).unwrap());
+        let norm = candle_nn::LayerNorm::new(g.clone(), beta.clone(), 1e-6);
+        let sum = (conv.forward(&x).unwrap() + &skip).unwrap().permute((0, 2, 3, 1)).unwrap().contiguous().unwrap();
+        // the convolution as a per-pixel linear map to (dy, dx, c) blocks
+        let wl = conv.weight().permute((2, 3, 1, 0)).unwrap().contiguous().unwrap().reshape((4 * c, cin)).unwrap();
+        let b = conv.bias().unwrap().to_vec1::<f32>().unwrap().repeat(4);
+        let y = x.permute((0, 2, 3, 1)).unwrap().reshape((h * w, cin)).unwrap().matmul(&wl.t().unwrap()).unwrap();
+        let skip = skip.permute((0, 2, 3, 1)).unwrap().contiguous().unwrap();
+        let plain = UpEpilogue::new(b.clone(), None);
+        assert!(close(&up_epilogue(&y, &skip, &plain).unwrap(), &sum.gelu_erf().unwrap()) < 1e-4);
+        let normed = UpEpilogue::new(b, Some((g.to_vec1().unwrap(), beta.to_vec1().unwrap(), 1e-6)));
+        let want = norm.forward(&sum).unwrap().gelu_erf().unwrap();
+        assert!(close(&up_epilogue(&y, &skip, &normed).unwrap(), &want) < 1e-4);
+        // a mismatched skip map is an error, not a panic
+        assert!(up_epilogue(&y, &skip.narrow(1, 0, 4).unwrap(), &plain).is_err());
     }
 }
 
