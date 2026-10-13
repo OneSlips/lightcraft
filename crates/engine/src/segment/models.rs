@@ -200,3 +200,19 @@ impl Segmenter {
         false
     }
 }
+
+/// The key of the open model an error from [`Segmenter::require_model`] says is missing (the UI
+/// then offers its download), if it is one.
+pub fn missing_model(error: &str) -> Option<&'static str> {
+    #[cfg(feature = "sam")]
+    return lightcraft_segment::models::MODELS
+        .iter()
+        .filter(|m| m.open)
+        .find(|m| error.starts_with(&format!("The {} {MODEL_NOT_INSTALLED}", m.title)))
+        .map(|m| m.key);
+    #[cfg(not(feature = "sam"))]
+    {
+        let _ = error;
+        None
+    }
+}

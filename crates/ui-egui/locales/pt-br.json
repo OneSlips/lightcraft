@@ -1998,5 +1998,20 @@
   "Recognition models": "Modelos de reconhecimento",
   "No graphics processor found: LightCraft renders on the CPU, which is much slower. Details in Help → System Info.": "Nenhum processador gráfico encontrado: o LightCraft renderiza na CPU, o que é muito mais lento. Detalhes em Ajuda → Informações do sistema.",
   "On NixOS, start it from `nix develop`.": "No NixOS, inicie-o a partir de `nix develop`.",
-  "Files with the same content as another file in this import: only the first is imported.": "Arquivos com o mesmo conteúdo de outro arquivo desta importação: apenas o primeiro é importado."
+  "Files with the same content as another file in this import: only the first is imported.": "Arquivos com o mesmo conteúdo de outro arquivo desta importação: apenas o primeiro é importado.",
+  "Download an AI Model?": "Baixar um modelo de IA?",
+  "AI masks are not available in this build.": "As máscaras de IA não estão disponíveis nesta versão.",
+  "The model is installed: these AI masks are ready.": "O modelo está instalado: estas máscaras de IA estão prontas.",
+  "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.": "Este modelo de IA não faz parte do LightCraft, e todo o resto funciona sem ele: até que seja instalado, esta máscara é feita por um método mais simples e aproximado.",
+  "Read the licence": "Ler a licença",
+  "AI model download stopped: it resumes where it left off next time.": "Download do modelo de IA interrompido: ele continua de onde parou na próxima vez.",
+  "The AI model is installed: new AI masks use it.": "O modelo de IA está instalado: as novas máscaras de IA o usam.",
+  "Select Subject: people with fine hair and edges": "Selecionar assunto: pessoas com cabelos e bordas finos",
+  "Sky, People, Background and Landscape": "Céu, pessoas, fundo e paisagem",
+  "Select Object: click what to select": "Selecionar objeto: clique no que deseja selecionar",
+  "Depth Range masks": "Máscaras de intervalo de profundidade",
+  "Select Object and Describe (optional; Meta's licence, gated)": "Selecionar objeto e Descrever (opcional; licença da Meta, acesso restrito)",
+  "AI Model Status": "Status dos modelos de IA",
+  "Download AI Model": "Baixar modelo de IA",
+  "Cancel AI Model Download": "Cancelar download do modelo de IA"
 }

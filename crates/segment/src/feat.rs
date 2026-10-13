@@ -6,7 +6,7 @@
 //! the gathers of the convolutions ([`crate::deform`]) cache-friendly.
 //!
 //! Modified work (MIT): the semantics follow the BiRefNet code (`models/birefnet.py`,
-//! Copyright (c) 2024 ZhengPeng7, MIT licence, <https://github.com/ZhengPeng7/BiRefNet>) and
+//! Copyright (c) 2024 ZhengPeng, MIT licence, <https://github.com/ZhengPeng7/BiRefNet>) and
 //! PyTorch's `F.interpolate`; reimplemented in Rust by the LightCraft contributors in 2026.
 //! See NOTICE.
 
@@ -166,6 +166,19 @@ pub fn matmul(a: &[f32], k: usize, w: &Tensor) -> Result<Vec<f32>> {
     let rows = a.len() / k;
     if rows == 0 {
         return Ok(Vec::new());
+    }
+    // large products go to the accelerator (the GPU) when one is installed; weights are kept there
+    if w.device().is_cpu()
+        && let [wk, n] = w.dims()
+        && *wk == k
+    {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        w.id().hash(&mut h);
+        let weights = || w.flatten_all().and_then(|t| t.to_vec1::<f32>()).ok();
+        if let Some(c) = crate::accel::gemm(a, rows, k, *n, h.finish(), &weights) {
+            return Ok(c);
+        }
     }
     let t = Tensor::from_slice(a, (rows, k), w.device())?;
     Ok(t.matmul(w)?.flatten_all()?.to_vec1::<f32>()?)

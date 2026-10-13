@@ -134,13 +134,16 @@ fn background_requests_never_wait_and_failures_come_back_as_messages() {
     s.segmenter.background = true;
     let id = s.active().unwrap();
     s.segmenter.dir = Some(tmp("missing"));
+    s.segmenter.models_root = Some(tmp("missing-open"));
     for (cmd, p) in [("mask.add", json!({"kind": "object"})), ("mask.add", json!({"kind": "prompt", "text": "sky"})), ("segment.prepare", json!({}))]
     {
         let t = Instant::now();
         let e = s.execute(cmd, &p).unwrap_err().to_string();
         assert!(t.elapsed() < Duration::from_millis(500), "{cmd}");
         if Segmenter::AVAILABLE {
-            assert!(e.starts_with(NOT_INSTALLED), "{cmd}: {e}");
+            // Object offers the open SAM 2.1, Describe needs SAM 3
+            let want = if p["kind"] == "prompt" { NOT_INSTALLED } else { "The SAM 2.1 model is not installed" };
+            assert!(e.starts_with(want), "{cmd}: {e}");
         } else {
             assert!(e.contains("not available"), "{cmd}: {e}");
         }
@@ -318,16 +321,84 @@ fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
     // missing: an error that says how to get it
     let e = s.segmenter.require_model("scene").unwrap_err();
     assert!(e.contains(crate::segment::models::MODEL_NOT_INSTALLED) && e.contains("ai.models.download"), "{e}");
+    assert_eq!(crate::segment::models::missing_model(&e), Some("scene"), "the UI can offer the download: {e}");
+    assert_eq!(crate::segment::models::missing_model("something else"), None);
     // in place (a file of the pinned size): installed, and a download starts nothing
     let dir = root.join("eomt-s-coco");
     std::fs::create_dir_all(&dir).unwrap();
     let f = std::fs::File::create(dir.join("model.safetensors")).unwrap();
     f.set_len(95_927_796).unwrap();
     drop(f);
+    assert!(s.segmenter.require_model("scene").is_err(), "config.json is part of the model");
+    std::fs::write(dir.join("config.json"), vec![b' '; 6_426]).unwrap();
     assert_eq!(s.segmenter.require_model("scene").unwrap(), dir);
     let r = s.execute("ai.models.download", &json!({"id": "scene", "acknowledged": true})).unwrap();
     assert_eq!((r["started"].as_bool(), r["installed"].as_bool()), (Some(false), Some(true)), "{r}");
     let st = s.execute("ai.models.status", &json!({})).unwrap();
     assert!(st["models"].as_array().unwrap().iter().any(|m| m["id"] == "scene" && m["installed"] == true), "{st}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Subject, Sky, Background, People and Landscape without their model: made by the heuristic, and
+/// the result says so (naming the model to get); Update says what's missing.
+#[test]
+fn automatic_masks_without_their_model_are_approximate() {
+    let mut s = Session::with_demo();
+    s.segmenter.models_root = Some(tmp("auto-none"));
+    s.segmenter.dir = Some(tmp("auto-none-sam3"));
+    for (p, model) in [
+        (json!({"kind": "subject"}), "subject"),
+        (json!({"kind": "background"}), "subject"),
+        (json!({"kind": "sky"}), "scene"),
+        (json!({"kind": "people"}), "scene"),
+        (json!({"kind": "landscape", "class": "water"}), "scene"),
+    ] {
+        let r = s.execute("mask.add", &p).unwrap();
+        if Segmenter::AVAILABLE {
+            assert_eq!((r["approximate"].as_bool(), r["model"].as_str()), (Some(true), Some(model)), "{p}: {r}");
+            assert!(r["note"].as_str().unwrap().contains("ai.models.download"), "{r}");
+        } else {
+            assert!(r.get("approximate").is_none(), "{r}");
+        }
+        assert!(r.get("pending").is_none(), "nothing to wait for: {r}");
+    }
+    let e = s.execute("mask.add", &json!({"kind": "landscape", "class": "lava"})).unwrap_err().to_string();
+    assert!(e.contains("naturalGround"), "{e}");
+    // a stored segmentation needs no model
+    let seg = serde_json::to_value(lightcraft_develop::SegMask::from_logits(2, &[4.0, -4.0, 4.0, -4.0])).unwrap();
+    let r = s.execute("mask.add", &json!({"kind": "sky", "seg": seg})).unwrap();
+    assert!(r.get("approximate").is_none(), "{r}");
+    if Segmenter::AVAILABLE {
+        s.execute("mask.add", &json!({"kind": "subject"})).unwrap();
+        let e = s.execute("mask.recompute", &json!({})).unwrap_err().to_string();
+        assert!(e.contains(crate::segment::models::MODEL_NOT_INSTALLED), "{e}");
+    }
+}
+
+/// A model whose files are in place but unusable: an error, never a crash or a stuck worker; in
+/// the app the mask is added at once (heuristic) and the failure comes back as a message.
+#[cfg(feature = "sam")]
+#[test]
+fn a_damaged_automatic_model_is_an_error_not_a_crash() {
+    let root = tmp("auto-damaged");
+    let dir = root.join("eomt-s-coco");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::File::create(dir.join("model.safetensors")).unwrap().set_len(95_927_796).unwrap();
+    std::fs::write(dir.join("config.json"), vec![b' '; 6_426]).unwrap();
+    let mut s = Session::with_demo();
+    s.segmenter.models_root = Some(root.clone());
+    let e = s.execute("mask.add", &json!({"kind": "sky"})).unwrap_err().to_string();
+    assert!(e.contains("EoMT"), "{e}");
+    assert!(!s.segmenter.busy());
+    s.segmenter.background = true;
+    let t = Instant::now();
+    let r = s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    assert!(t.elapsed() < Duration::from_secs(1), "the app never waits");
+    let messages = settle(&mut s, Duration::from_secs(60));
+    assert!(messages.iter().any(|m| m.contains("EoMT")), "{messages:?}");
+    // the mask is there (heuristic), without a segmentation
+    let d = s.develop_of(s.active().unwrap()).unwrap();
+    assert!(d.masks.iter().any(|m| matches!(m.components[0].shape, lightcraft_develop::MaskShape::Sky { seg: None })));
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -199,7 +199,11 @@ fn make_device(backends: wgpu::Backends) -> Result<Dev, String> {
             entry(3, wgpu::BufferBindingType::Uniform),
         ],
     });
-    let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor { label: Some("gemm"), bind_group_layouts: &[Some(&layout)], immediate_size: 0 });
+    let pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("gemm"),
+        bind_group_layouts: &[Some(&layout)],
+        immediate_size: 0,
+    });
     let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
         label: Some("gemm"),
         layout: Some(&pl),
@@ -208,7 +212,7 @@ fn make_device(backends: wgpu::Backends) -> Result<Dev, String> {
         compilation_options: Default::default(),
         cache: None,
     });
-    let max_binding = u64::from(limits.max_storage_buffer_binding_size).min(limits.max_buffer_size);
+    let max_binding = limits.max_storage_buffer_binding_size.min(limits.max_buffer_size);
     log::info!("gpu (AI masks): {} ({:?})", info.name, info.backend);
     Ok(Dev { device, queue, info, max_binding, pipeline, layout })
 }
@@ -247,7 +251,8 @@ fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
         return Err("bad shape".into());
     }
     let bytes = |e: usize| e.checked_mul(4).map(|b| b as u64).ok_or("too large");
-    let (a_bytes, w_bytes, c_bytes) = (bytes(a.len())?, bytes(k.checked_mul(n).ok_or("too large")?)?, bytes(rows.checked_mul(n).ok_or("too large")?)?);
+    let (a_bytes, w_bytes, c_bytes) =
+        (bytes(a.len())?, bytes(k.checked_mul(n).ok_or("too large")?)?, bytes(rows.checked_mul(n).ok_or("too large")?)?);
     if a_bytes.max(w_bytes).max(c_bytes) > d.max_binding {
         return Err("larger than one GPU buffer".into());
     }
@@ -290,8 +295,11 @@ fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
         contents: bytemuck::cast_slice(a),
         usage: wgpu::BufferUsages::STORAGE,
     });
-    let ubuf =
-        d.device.create_buffer_init(&wgpu::util::BufferInitDescriptor { label: Some("gemm dims"), contents: bytemuck::bytes_of(&dims), usage: wgpu::BufferUsages::UNIFORM });
+    let ubuf = d.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("gemm dims"),
+        contents: bytemuck::bytes_of(&dims),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
     let cbuf = d.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("gemm c"),
         size: c_bytes,

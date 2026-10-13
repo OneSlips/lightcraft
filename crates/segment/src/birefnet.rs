@@ -17,7 +17,7 @@
 //!
 //! Modified work (MIT): ported by the LightCraft contributors in 2026 from the BiRefNet code
 //! (`models/birefnet.py`, `models/modules/{decoder_blocks,lateral_blocks,aspp,deform_conv}.py`,
-//! `config.py`; <https://github.com/ZhengPeng7/BiRefNet>, Copyright (c) 2024 ZhengPeng7, MIT
+//! `config.py`; <https://github.com/ZhengPeng7/BiRefNet>, Copyright (c) 2024 ZhengPeng, MIT
 //! licence); translated to Rust and restructured. See NOTICE.
 
 use std::path::Path;

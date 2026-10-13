@@ -247,5 +247,8 @@
   "{n} photos opened for editing; each is stacked with its original": "Відкрито для редагування фото: {n}; кожне об’єднано в стос з оригіналом",
   "{name} opened in the other editor": "{name} відкрито в іншому редакторі",
   "{n} originals opened in the other editor": "Відкрито оригіналів в іншому редакторі: {n}",
-  "· {in_source} identical copies": "· ідентичних копій: {in_source}"
+  "· {in_source} identical copies": "· ідентичних копій: {in_source}",
+  "The AI model download failed: {e}": "Не вдалося завантажити модель ШІ: {e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Ліцензія: {licence}, ліцензія з відкритим кодом, що дозволяє будь-яке використання, зокрема комерційну роботу.",
+  "A one-time download of about {mb} MB, saved in {dir}": "Одноразове завантаження близько {mb} МБ, зберігається в {dir}"
 }

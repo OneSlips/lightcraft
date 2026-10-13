@@ -9,7 +9,7 @@
 //!
 //! Modified work (MIT): ported by the LightCraft contributors in 2026 from
 //! `models/backbones/swin_v1.py` of BiRefNet (<https://github.com/ZhengPeng7/BiRefNet>,
-//! Copyright (c) 2024 ZhengPeng7, MIT licence), itself from the Swin Transformer code,
+//! Copyright (c) 2024 ZhengPeng, MIT licence), itself from the Swin Transformer code,
 //! Copyright (c) 2021 Microsoft, MIT licence (written by Ze Liu, Yutong Lin, Yixuan Wei);
 //! translated to Rust and restructured. See NOTICE.
 

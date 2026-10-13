@@ -2151,5 +2151,20 @@
   "Adding to Apple Photos": "Добавление в Apple Фото",
   "No graphics processor found: LightCraft renders on the CPU, which is much slower. Details in Help → System Info.": "Графический процессор не найден: LightCraft выполняет рендеринг на CPU, а это намного медленнее. Подробности: Справка → Сведения о системе.",
   "On NixOS, start it from `nix develop`.": "В NixOS запускайте его из `nix develop`.",
-  "Files with the same content as another file in this import: only the first is imported.": "Файлы с тем же содержимым, что и другой файл этого импорта: импортируется только первый."
+  "Files with the same content as another file in this import: only the first is imported.": "Файлы с тем же содержимым, что и другой файл этого импорта: импортируется только первый.",
+  "Download an AI Model?": "Загрузить модель ИИ?",
+  "AI masks are not available in this build.": "Маски ИИ недоступны в этой сборке.",
+  "The model is installed: these AI masks are ready.": "Модель установлена: эти маски ИИ готовы.",
+  "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.": "Эта модель ИИ не входит в LightCraft, и всё остальное работает без неё: пока она не установлена, эта маска создаётся более простым приблизительным методом.",
+  "Read the licence": "Прочитать лицензию",
+  "AI model download stopped: it resumes where it left off next time.": "Загрузка модели ИИ остановлена: в следующий раз она продолжится с того же места.",
+  "The AI model is installed: new AI masks use it.": "Модель ИИ установлена: новые маски ИИ используют её.",
+  "Select Subject: people with fine hair and edges": "Выбор объекта съёмки: люди с тонкими волосами и краями",
+  "Sky, People, Background and Landscape": "Небо, люди, фон и пейзаж",
+  "Select Object: click what to select": "Выбор объекта: щёлкните то, что нужно выделить",
+  "Depth Range masks": "Маски диапазона глубины",
+  "Select Object and Describe (optional; Meta's licence, gated)": "Выбор объекта и Описание (необязательно; лицензия Meta, доступ ограничен)",
+  "AI Model Status": "Состояние моделей ИИ",
+  "Download AI Model": "Загрузить модель ИИ",
+  "Cancel AI Model Download": "Отменить загрузку модели ИИ"
 }

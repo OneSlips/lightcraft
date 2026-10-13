@@ -112,21 +112,28 @@ pub const SUBJECT_FILES: &[FileSpec<'static>] = &[FileSpec {
     max: 884_878_856,
 }];
 
-/// EoMT-S 2× COCO panoptic, 640 px (`tue-mps/coco_panoptic_eomt_small_640_2x`).
-pub const SCENE_FILES: &[FileSpec<'static>] = &[FileSpec {
-    name: "model.safetensors",
-    size: Some(95_927_796),
-    sha256: Some("516b0b23acace639cc27739593881dda1c0010b3bec06aae138b615717fb8855"),
-    max: 95_927_796,
-}];
+/// EoMT-S 2× COCO panoptic, 640 px (`tue-mps/coco_panoptic_eomt_small_640_2x`); `config.json`
+/// is checked by the loader (the right architecture).
+pub const SCENE_FILES: &[FileSpec<'static>] = &[
+    FileSpec { name: "config.json", size: Some(6_426), sha256: Some("de222958bcd41d63e57059ffb42bfedbe6dddc6f8ac61529af8558e86667d2cc"), max: 6_426 },
+    FileSpec {
+        name: "model.safetensors",
+        size: Some(95_927_796),
+        sha256: Some("516b0b23acace639cc27739593881dda1c0010b3bec06aae138b615717fb8855"),
+        max: 95_927_796,
+    },
+];
 
 /// Depth Anything V2 Small, transformers format (`depth-anything/Depth-Anything-V2-Small-hf`).
-pub const DEPTH_FILES: &[FileSpec<'static>] = &[FileSpec {
-    name: "model.safetensors",
-    size: Some(99_173_660),
-    sha256: Some("3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70"),
-    max: 99_173_660,
-}];
+pub const DEPTH_FILES: &[FileSpec<'static>] = &[
+    FileSpec { name: "config.json", size: Some(950), sha256: Some("c56698d3643dde1f83ea2212759e6b31a22b8f827246a36dd007ee8a22b3ff75"), max: 950 },
+    FileSpec {
+        name: "model.safetensors",
+        size: Some(99_173_660),
+        sha256: Some("3152477ce0d8d6978d76b995120de97cb5b928701fd0f817769f59e249a16b70"),
+        max: 99_173_660,
+    },
+];
 
 // TODO(maintainer): put LightCraft's own mirror first in each open model's list (https, the same
 // files unchanged, with the model's LICENSE next to them), e.g. "https://<cdn-host>/models/<dir_name>/<revision>".
