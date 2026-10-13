@@ -72,6 +72,8 @@ mod sam2;
 pub mod scene;
 #[cfg(not(target_arch = "wasm32"))]
 mod swin;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tflite;
 pub mod tokenizer;
 #[cfg(not(target_arch = "wasm32"))]
 mod tracker;
