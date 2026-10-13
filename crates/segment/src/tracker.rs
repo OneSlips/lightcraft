@@ -11,7 +11,9 @@
 //! Team and Meta Platforms, Inc.; translated to Rust on candle and restructured. See NOTICE.
 
 use candle_core::{DType, Device, IndexOp, Module, Tensor};
-use candle_nn::{Conv2d, Conv2dConfig, ConvTranspose2d, ConvTranspose2dConfig, LayerNorm, VarBuilder};
+use candle_nn::{Conv2d, Conv2dConfig, ConvTranspose2d, ConvTranspose2dConfig, LayerNorm, Linear, VarBuilder};
+
+use crate::cpu::{Act, add_act, gelu_erf, linear};
 
 use crate::nn::{Attention, FeedForward, TORCH_LN_EPS, ln, ln_channels};
 use crate::vit::{GRID, IMAGE};
@@ -30,6 +32,16 @@ pub struct Features {
     pub s0: Tensor,
     /// `conv_s1`(level 1): `[1, 64, 144, 144]`.
     pub s1: Tensor,
+    /// The same, laid out for the fast decoder path (SAM 2).
+    fast: Option<FastFeatures>,
+}
+
+/// Channel-last copies of [`Features`] for the fast decoder: `image + no_mask` as tokens
+/// `[1, HW, 256]`, and `s0`, `s1` as `[1, H, W, C]`.
+struct FastFeatures {
+    keys: Tensor,
+    s0: Tensor,
+    s1: Tensor,
 }
 
 /// One click: position normalized to the image (0..1), and whether it includes or excludes.
@@ -85,6 +97,23 @@ fn attn(a: &Attention, q: &Tensor, k: &Tensor, v: &Tensor) -> Result<Tensor> {
 }
 
 impl TwoWayBlock {
+    /// The same block through the multi-threaded CPU kernels (SAM 2).
+    fn forward_fast(&self, queries: &Tensor, keys: &Tensor, qpe: &Tensor, kpe: &Tensor) -> Result<(Tensor, Tensor)> {
+        let queries = if self.skip_first_pe {
+            self.self_attn.forward_fast(queries, queries, queries)?
+        } else {
+            let q = (queries + qpe)?;
+            (queries + self.self_attn.forward_fast(&q, &q, queries)?)?
+        };
+        let queries = self.ln1.forward(&queries)?;
+        let (q, k) = ((&queries + qpe)?, add_act(keys, kpe, false)?);
+        let queries = self.ln2.forward(&(&queries + self.t2i.forward_fast(&q, &k, keys)?)?)?;
+        let queries = self.ln3.forward(&(&queries + self.mlp.forward(&queries)?)?)?;
+        let q = (&queries + qpe)?;
+        let keys = self.ln4.forward(&add_act(keys, &self.i2t.forward_fast(&k, &q, &queries)?, false)?)?;
+        Ok((queries, keys))
+    }
+
     fn forward(&self, queries: &Tensor, keys: &Tensor, qpe: &Tensor, kpe: &Tensor) -> Result<(Tensor, Tensor)> {
         let queries = if self.skip_first_pe {
             attn(&self.self_attn, queries, queries, queries)?
@@ -133,6 +162,31 @@ pub struct Tracker {
     hyper: Vec<FeedForward>,
     iou_head: FeedForward,
     obj_head: FeedForward,
+    /// The upscaling transposed convolutions (kernel 2, stride 2) as per-pixel linear maps to
+    /// `(dy, dx, out)`, for the fast path (SAM 2).
+    fast_up: Option<(Linear, Linear)>,
+}
+
+/// A kernel-2, stride-2 `ConvTranspose2d` (`weight` `[in, out, 2, 2]`) as a linear map from a
+/// pixel's `in` channels to its 2 × 2 output block, `(dy, dx, out)`.
+fn up_linear(conv: &ConvTranspose2d) -> Result<Linear> {
+    let w = conv.weight();
+    let (cin, cout, kh, kw) = w.dims4()?;
+    if (kh, kw) != (2, 2) {
+        return Err(crate::Error::Model("upscaling convolution: kernel 2 expected".into()));
+    }
+    let wl = w.permute((2, 3, 1, 0))?.contiguous()?.reshape((4 * cout, cin))?;
+    let b = match conv.bias() {
+        Some(b) => Tensor::cat(&[b, b, b, b], 0)?,
+        None => Tensor::zeros(4 * cout, DType::F32, w.device())?,
+    };
+    Ok(Linear::new(wl, Some(b)))
+}
+
+/// `[H·W, 4·C]` per-pixel 2 × 2 blocks `(dy, dx, c)` → the `[1, 2H, 2W, C]` image.
+fn shuffle2(x: &Tensor, h: usize, w: usize) -> Result<Tensor> {
+    let c = x.dim(1)? / 4;
+    Ok(x.reshape((h, w, 2, 2 * c))?.transpose(1, 2)?.contiguous()?.reshape((1, 2 * h, 2 * w, c))?)
 }
 
 fn read_vec(vb: &VarBuilder, shape: (usize, usize), name: &str) -> Result<Vec<f32>> {
@@ -142,12 +196,18 @@ fn read_vec(vb: &VarBuilder, shape: (usize, usize), name: &str) -> Result<Vec<f3
 impl Tracker {
     /// `vb` at `tracker_model` (SAM 3: 1008 input, 72 × 72 grid).
     pub fn new(vb: VarBuilder) -> Result<Self> {
-        Self::with_geometry(vb, IMAGE, GRID)
+        Self::build(vb, IMAGE, GRID, false)
     }
 
     /// `vb` at the module holding `prompt_encoder`, `mask_decoder` and `shared_image_embedding`;
-    /// `image`: side of the model input; `grid`: side of the image-embedding grid (SAM 2: 1024, 64).
+    /// `image`: side of the model input; `grid`: side of the image-embedding grid (SAM 2: 1024,
+    /// 64). Runs the decoder through the multi-threaded CPU kernels (same arithmetic, different
+    /// summation order: SAM 3 keeps its original path).
     pub fn with_geometry(vb: VarBuilder, image: usize, grid: usize) -> Result<Self> {
+        Self::build(vb, image, grid, true)
+    }
+
+    fn build(vb: VarBuilder, image: usize, grid: usize, fast: bool) -> Result<Self> {
         if image == 0 || grid == 0 || grid > 1024 {
             return Err(crate::Error::Model(format!("mask decoder geometry {image} / {grid}")));
         }
@@ -190,7 +250,11 @@ impl Tracker {
         )?;
         let up = ConvTranspose2dConfig { stride: 2, ..Default::default() };
         let one = Conv2dConfig::default();
+        let up1 = candle_nn::conv_transpose2d(HIDDEN, HIDDEN / 4, 2, up, md.pp("upscale_conv1"))?;
+        let up2 = candle_nn::conv_transpose2d(HIDDEN / 4, HIDDEN / 8, 2, up, md.pp("upscale_conv2"))?;
+        let fast_up = if fast { Some((up_linear(&up1)?, up_linear(&up2)?)) } else { None };
         Ok(Self {
+            fast_up,
             point_pe: Fourier { pe: read_vec(&pe, (2, HIDDEN / 2), "shared_embedding.positional_embedding")? },
             image_pe,
             point_embed: pe.get((4, HIDDEN), "point_embed.weight")?.to_device(&Device::Cpu)?,
@@ -202,9 +266,9 @@ impl Tracker {
             blocks,
             final_t2i: Attention::new(HIDDEN, HIDDEN / 2, 8, t.pp("final_attn_token_to_image"))?,
             ln_final: ln(HIDDEN, TORCH_LN_EPS, t.pp("layer_norm_final_attn"))?,
-            up1: candle_nn::conv_transpose2d(HIDDEN, HIDDEN / 4, 2, up, md.pp("upscale_conv1"))?,
+            up1,
             up_ln: ln(HIDDEN / 4, 1e-6, md.pp("upscale_layer_norm"))?,
-            up2: candle_nn::conv_transpose2d(HIDDEN / 4, HIDDEN / 8, 2, up, md.pp("upscale_conv2"))?,
+            up2,
             hyper: (0..MASK_TOKENS)
                 .map(|i| FeedForward::new(HIDDEN, HIDDEN, HIDDEN / 8, 3, false, md.pp(format!("output_hypernetworks_mlps.{i}"))))
                 .collect::<Result<_>>()?,
@@ -218,7 +282,15 @@ impl Tracker {
     /// The decoder's image features from the tracker neck's levels (288, 144, 72 per side).
     pub fn features(&self, levels: &[Tensor]) -> Result<Features> {
         let [l0, l1, l2, ..] = levels else { return Err(crate::Error::Model("tracker needs three feature levels".into())) };
-        Ok(Features { image: l2.clone(), s0: self.conv_s0.forward(l0)?, s1: self.conv_s1.forward(l1)? })
+        let (s0, s1) = (self.conv_s0.forward(l0)?, self.conv_s1.forward(l1)?);
+        let fast = if self.fast_up.is_some() {
+            let nhwc = |t: &Tensor| -> Result<Tensor> { Ok(t.permute((0, 2, 3, 1))?.contiguous()?) };
+            let keys = l2.broadcast_add(&self.no_mask)?.flatten_from(2)?.transpose(1, 2)?.contiguous()?;
+            Some(FastFeatures { keys, s0: nhwc(&s0)?, s1: nhwc(&s1)? })
+        } else {
+            None
+        };
+        Ok(Features { image: l2.clone(), s0, s1, fast })
     }
 
     /// Sparse prompt embeddings `[1, n + 1, 256]` (a padding point closes the list).
@@ -259,6 +331,9 @@ impl Tracker {
 
     /// Run the decoder for `clicks`: all four masks with their predicted IoU and the object score.
     pub fn decode(&self, f: &Features, clicks: &[Click]) -> Result<Decoded> {
+        if let (Some(ff), Some(up)) = (&f.fast, &self.fast_up) {
+            return self.decode_fast(ff, up, clicks);
+        }
         let sparse = self.embed_clicks(clicks)?;
         let tokens = Tensor::cat(&[self.output_tokens.unsqueeze(0)?, sparse], 1)?; // [1, T, 256]
         let image = f.image.broadcast_add(&self.no_mask)?; // dense prompt: "no mask"
@@ -285,5 +360,38 @@ impl Tracker {
         let iou = to_vec(&self.iou_head.forward(&iou_token)?)?;
         let object_score = to_vec(&self.obj_head.forward(&q.i((.., 0, ..))?)?)?.first().copied().unwrap_or(0.0);
         Ok(Decoded { masks: masks.i(0)?, iou, object_score })
+    }
+
+    /// [`Self::decode`] through the multi-threaded CPU kernels, channel-last (SAM 2).
+    fn decode_fast(&self, f: &FastFeatures, (up1, up2): &(Linear, Linear), clicks: &[Click]) -> Result<Decoded> {
+        let sparse = self.embed_clicks(clicks)?;
+        let tokens = Tensor::cat(&[self.output_tokens.unsqueeze(0)?, sparse], 1)?; // [1, T, 256]
+        let (mut q, mut k) = (tokens.clone(), f.keys.clone());
+        for blk in &self.blocks {
+            (q, k) = blk.forward_fast(&q, &k, &tokens, &self.image_pe)?;
+        }
+        let qf = (&q + &tokens)?;
+        let kf = add_act(&k, &self.image_pe, false)?;
+        let q = self.ln_final.forward(&(&q + self.final_t2i.forward_fast(&qf, &kf, &k)?)?)?;
+        let (_, h, w, _) = f.s1.dims4()?;
+        let (h, w) = (h / 2, w / 2);
+        let hw = k.dim(1)?;
+        if hw != h * w {
+            return Err(crate::Error::Model(format!("decoder: {hw} image tokens for a {h} x {w} grid")));
+        }
+        let up = shuffle2(&linear(&k.reshape((hw, HIDDEN))?, up1, Act::None, None)?, h, w)?;
+        let up = gelu_erf(&self.up_ln.forward(&add_act(&up, &f.s1, false)?)?)?;
+        let (_, uh, uw, uc) = up.dims4()?;
+        let up = shuffle2(&linear(&up.reshape((uh * uw, uc))?, up2, Act::None, None)?, uh, uw)?;
+        let up = add_act(&up, &f.s0, true)?; // [1, 4h, 4w, 32]
+        let (_, mh, mw, mc) = up.dims4()?;
+        let hyper = (0..MASK_TOKENS)
+            .map(|i| self.hyper.get(i).map_or(Err(crate::Error::Model("hypernetwork".into())), |m| m.forward(&q.i((.., 2 + i, ..))?)))
+            .collect::<Result<Vec<_>>>()?;
+        let hyper = Tensor::cat(&hyper, 0)?; // [4, 32]
+        let masks = hyper.matmul(&up.reshape((mh * mw, mc))?.t()?)?.reshape((MASK_TOKENS, mh, mw))?;
+        let iou = to_vec(&self.iou_head.forward(&q.i((.., 1, ..))?)?)?;
+        let object_score = to_vec(&self.obj_head.forward(&q.i((.., 0, ..))?)?)?.first().copied().unwrap_or(0.0);
+        Ok(Decoded { masks, iou, object_score })
     }
 }

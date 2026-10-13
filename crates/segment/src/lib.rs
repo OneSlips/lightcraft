@@ -16,12 +16,15 @@
 //! This crate is therefore licensed under the Apache License 2.0 only (not the MIT option of
 //! the rest of LightCraft). No UI dependencies (L3).
 //!
+//! [`Sam2`] runs SAM 2.1 (Hiera, `facebook/sam2.1-hiera-tiny`, Apache-2.0 weights) for point
+//! prompts: a smaller, faster alternative to SAM 3's click path, through the same mask decoder.
+//!
 //! [`fetch`] downloads the model, only when the user asks for it (from configurable mirrors,
 //! verified before use). Nothing in LightCraft requires the model: without it, AI masks report
 //! that it isn't installed and everything else works.
 //!
 //! Modified work (Apache License 2.0, §4(b)): ported by the LightCraft contributors in 2026 from
-//! the Python/PyTorch SAM 3 code of Hugging Face Transformers (`src/transformers/models/sam3` and `sam3_tracker`), Copyright The HuggingFace
+//! the Python/PyTorch SAM 3 and SAM 2 code of Hugging Face Transformers (`src/transformers/models/sam3`, `sam3_tracker` and `sam2`), Copyright The HuggingFace
 //! Team and Meta Platforms, Inc.; translated to Rust on candle and restructured. See NOTICE.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
