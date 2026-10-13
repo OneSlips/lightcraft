@@ -1,7 +1,7 @@
 //! A ColorChecker photographed by a made-up camera, for tests and demonstrations: no photograph or
 //! measurement of a real camera is involved.
 //!
-//! The camera sees XYZ under the chosen illuminant through [`TEST_CAMERA`] and then mixes its
+//! The camera sees XYZ under the chosen illuminant (see [`chart_frame`]) through [`TEST_CAMERA`] and then mixes its
 //! channels a little non-linearly (but exposure-invariantly), so a matrix alone cannot reproduce it
 //! and a correction table has work to do.
 
@@ -55,7 +55,13 @@ pub fn chart_frame(width: usize, height: usize, corners: &ChartCorners, turns: u
     let turns = turns % 4;
     let (rows, columns) = if turns.is_multiple_of(2) { (chart.layout.rows, chart.layout.columns) } else { (chart.layout.columns, chart.layout.rows) };
     let layout = Layout { columns, rows };
-    let adapt = crate::color::white_map(crate::color::Cat::Bradford, crate::color::D50, illuminant_white);
+    // The scene's colours under the light: the chart's D50 values scaled channel by channel in XYZ
+    // (a "wrong von Kries"), not the Bradford adaptation the fit assumes. Like a real camera's
+    // departure from the observer, the difference grows as the light moves away from daylight, so a
+    // profile fitted under one light reproduces another less well.
+    let d50 = crate::color::D50;
+    let adapt =
+        Mat3::from_rows([illuminant_white[0] / d50[0], 0.0, 0.0], [0.0, illuminant_white[1] / d50[1], 0.0], [0.0, 0.0, illuminant_white[2] / d50[2]]);
     let extent = corners.patch_extent(layout, 0.84);
     let pitch = corners.patch_extent(layout, 1.0);
     // the card behind the patches: near black, a little beyond the grid

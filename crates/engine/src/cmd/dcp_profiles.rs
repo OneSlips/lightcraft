@@ -187,9 +187,16 @@ fn find_chart(s: &mut Session, p: &Value) -> Result<Value> {
     let (id, path) = chart_source(s, p, C)?;
     let _task = s.activity.start("cameraProfile", "Finding the color chart", crate::activity::Cancel::No);
     let prep = crate::chart_profiling::prepare_path(&path).map_err(|e| bad(C, e))?;
-    let found = prep
-        .located
-        .map(|l| json!({"corners": crate::chart_profiling::normalized_corners(&prep.frame, &l.corners), "turns": l.turns, "score": l.score}));
+    let found = prep.located.map(|l| {
+        let light = crate::chart_profiling::estimate_light(&prep, &l);
+        json!({
+            "corners": crate::chart_profiling::normalized_corners(&prep.frame, &l.corners),
+            "turns": l.turns,
+            "score": l.score,
+            "estimatedCct": light.map(|e| e.0.round()),
+            "estimatedIlluminant": light.map(|e| e.1),
+        })
+    });
     Ok(json!({
         "photo": id.map(|i| i.0),
         "path": path,
@@ -200,38 +207,78 @@ fn find_chart(s: &mut Session, p: &Value) -> Result<Value> {
     }))
 }
 
+/// One chart photo's part of a request: `{corners?, turns?, refine?, illuminant?}`.
+fn chart_request(p: &Value, c: &str) -> Result<crate::chart_profiling::Request> {
+    Ok(crate::chart_profiling::Request {
+        corners: corners_param(p, c)?,
+        turns: p.get("turns").and_then(Value::as_u64).map(|t| (t % 4) as u8),
+        refine: p.get("refine").and_then(Value::as_bool).unwrap_or(false),
+        illuminant: str_param(p, "illuminant").unwrap_or("auto").to_string(),
+    })
+}
+
+fn file_name(path: &str) -> String {
+    Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+}
+
 fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.createFromChart";
     let (id, path) = chart_source(s, p, C)?;
-    let corners = corners_param(p, C)?;
-    let turns = p.get("turns").and_then(Value::as_u64).map(|t| (t % 4) as u8);
     let natural = match str_param(p, "rendering").unwrap_or("accurate") {
         "accurate" => false,
         "natural" => true,
         other => return Err(bad(C, format!("unknown rendering `{other}` (accurate or natural)"))),
     };
     let options = lightcraft_camprof::BuildOptions {
-        illuminant: str_param(p, "illuminant").unwrap_or("D55").to_string(),
+        illuminant: String::new(),
         natural,
         correction_table: p.get("correctionTable").and_then(Value::as_bool).unwrap_or(true),
         camera_model: str_param(p, "cameraModel").unwrap_or("").to_string(),
         name: str_param(p, "name").unwrap_or("").to_string(),
     };
-    let req = crate::chart_profiling::Request { corners, turns, refine: p.get("refine").and_then(Value::as_bool).unwrap_or(false), options };
+    let first = chart_request(p, C)?;
+    // the second photo, under another light: named explicitly (never the selection)
+    let second = match p.get("second").filter(|v| !v.is_null()) {
+        None => None,
+        Some(q) if q.is_object() => {
+            let source = if let Some(path) = str_param(q, "path") {
+                (None, path.to_string())
+            } else if let Some(n) = q.get("id").and_then(Value::as_u64) {
+                chart_source(s, &json!({"id": n}), C)?
+            } else {
+                return Err(bad(C, "`second` needs the other chart photo's `id` or `path`"));
+            };
+            Some((source, chart_request(q, C)?))
+        }
+        Some(_) => return Err(bad(C, "`second` must be an object: {id? | path?, corners?, turns?, illuminant?}")),
+    };
     let task = s.activity.start("cameraProfile", "Creating camera profile", crate::activity::Cancel::No);
-    task.detail(&Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
-    let prep = crate::chart_profiling::prepare_path(&path).map_err(|e| bad(C, e))?;
-    let built = crate::chart_profiling::build(&prep, &req).map_err(|e| bad(C, e))?;
+    task.detail(&file_name(&path));
+    let prep_a = crate::chart_profiling::prepare_path(&path).map_err(|e| bad(C, e))?;
+    let prep_b = match &second {
+        Some(((_, path_b), _)) => {
+            task.detail(&file_name(path_b));
+            Some(crate::chart_profiling::prepare_path(path_b).map_err(|e| bad(C, e))?)
+        }
+        None => None,
+    };
+    let out = crate::chart_profiling::build((&prep_a, &first), prep_b.as_ref().zip(second.as_ref()).map(|(prep, (_, req))| (prep, req)), &options)
+        .map_err(|e| bad(C, e))?;
     drop(task);
-    let apply = p.get("apply").and_then(Value::as_bool).unwrap_or(true);
-    let installed = crate::chart_profiling::install(s, &built, id.filter(|_| apply))?;
-    let mut out = crate::chart_profiling::report_json(&prep, &built);
-    if let (Some(o), Some(i)) = (out.as_object_mut(), installed.as_object()) {
+    let mut apply_to = Vec::new();
+    if p.get("apply").and_then(Value::as_bool).unwrap_or(true) {
+        apply_to.extend(id);
+        apply_to.extend(second.as_ref().and_then(|((i, _), _)| *i));
+    }
+    let installed = crate::chart_profiling::install(s, &out.dcp, &apply_to)?;
+    let preps: Vec<&crate::chart_profiling::Prepared> = std::iter::once(&prep_a).chain(prep_b.as_ref()).collect();
+    let mut report = crate::chart_profiling::report_json(&preps, &out);
+    if let (Some(o), Some(i)) = (report.as_object_mut(), installed.as_object()) {
         for (k, v) in i {
             o.insert(k.clone(), v.clone());
         }
     }
-    Ok(out)
+    Ok(report)
 }
 
 fn delete(s: &mut Session, p: &Value) -> Result<Value> {
@@ -261,7 +308,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Find Color Chart",
             [],
             None,
-            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score}}: corners are 0–1 in the raw frame as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
+            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score, estimatedCct, estimatedIlluminant}}: corners are 0–1 in the developed raw frame (default crop) as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
             always,
             find_chart
         ),
@@ -270,7 +317,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create Camera Profile from Color Chart",
             [],
             None,
-            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: D50 | D55 (default) | D65 | D75 | A, rendering?: accurate (default) | natural, correctionTable?: bool (default true), name?, cameraModel? (default: the file's), apply?: bool (default true: the photo develops with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, file, applied, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}], corners, turns, notes} (ΔE = CIEDE2000)",
+            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: auto (default: estimated from the chart's greys through the file's colour matrix, else D55) | A | D50 | D55 | D65 | D75, second?: {id? | path?, corners?, turns?, refine?, illuminant?} (a second chart photo under another light, e.g. tungsten: a dual-illuminant profile; the same light twice is refused), rendering?: accurate (default) | natural, correctionTable?: bool (default true), name?, cameraModel? (default: the file's), apply?: bool (default true: the chart photos develop with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap per light; CalibrationIlluminant1 the lower colour temperature) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, file, applied: [ids], dual, meanDeltaE, maxDeltaE, matrixMeanDeltaE, illuminant, corners, turns, patches, calibrations: [{shot, illuminant, cct, estimatedCct, estimatedIlluminant, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, corners, turns, notes, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}]}]} (ΔE = CIEDE2000)",
             always,
             create_from_chart
         ),

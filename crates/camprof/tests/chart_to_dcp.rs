@@ -93,3 +93,60 @@ fn bad_input_is_an_error_not_a_panic() {
     assert!(find_chart(&tiny).is_none());
     let _ = Vec3::ONE;
 }
+
+fn frame_under(light: &str) -> (RawFrame, ChartCorners) {
+    let (w, h) = (900usize, 600usize);
+    let corners = ChartCorners::from_rect(220.0, 150.0, 420.0, 280.0);
+    let white = lightcraft_camprof::illuminants::white_point_by_name("1931_2", light).unwrap();
+    let data = synthetic::chart_frame(w, h, &corners, 0, white, 0.55);
+    (RawFrame::from_rgb(w, h, data).unwrap(), corners)
+}
+
+#[test]
+fn two_lights_make_a_dual_illuminant_profile() {
+    use lightcraft_camprof::{Located, Shot, build_dual};
+    let (day, dc) = frame_under("D65");
+    let (tung, tc) = frame_under("A");
+    let opts = BuildOptions { camera_model: "LightCraft Test Camera".into(), ..Default::default() };
+    // given daylight first: calibration 1 is still the lower colour temperature (DNG order)
+    let dual = build_dual(
+        &Shot { frame: &day, located: Located { corners: dc, turns: 0, score: None }, illuminant: "D65" },
+        &Shot { frame: &tung, located: Located { corners: tc, turns: 0, score: None }, illuminant: "A" },
+        &opts,
+    )
+    .unwrap();
+    assert_eq!(dual.dcp.name, "A + D65");
+    assert_eq!(dual.calibrations[0].illuminant, "A");
+    assert!(dual.calibrations.iter().all(|c| c.mean_delta_e < 1.0), "{} / {}", dual.calibrations[0].mean_delta_e, dual.calibrations[1].mean_delta_e);
+    let back = lightcraft_raw::dcp::parse_dcp(&lightcraft_raw::dcp::write_dcp(&dual.dcp).unwrap()).unwrap();
+    assert_eq!(back.color.illuminant, [17, 21], "StdA, then D65");
+    let (cm1, cm2) = (back.color.color_matrix[0].unwrap(), back.color.color_matrix[1].unwrap());
+    let (fm1, fm2) = (back.color.forward_matrix[0].unwrap(), back.color.forward_matrix[1].unwrap());
+    let differ =
+        |a: &lightcraft_raw::Mat3, b: &lightcraft_raw::Mat3| a.0.iter().flatten().zip(b.0.iter().flatten()).any(|(x, y)| (x - y).abs() > 1e-3);
+    assert!(differ(&cm1, &cm2) && differ(&fm1, &fm2), "each light has its own calibration");
+    let (m1, m2) = (back.color.profile.hue_sat_map[0].as_ref().unwrap(), back.color.profile.hue_sat_map[1].as_ref().unwrap());
+    assert_eq!(
+        (m1.hue_divisions, m1.sat_divisions, m1.val_divisions, m1.srgb_value),
+        (m2.hue_divisions, m2.sat_divisions, m2.val_divisions, m2.srgb_value)
+    );
+    assert_ne!(m1.data, m2.data);
+}
+
+#[test]
+fn the_same_light_twice_is_refused() {
+    use lightcraft_camprof::{Located, Shot, build_dual};
+    let (a, ac) = frame_under("D65");
+    let (b, bc) = frame_under("D65");
+    let opts = BuildOptions { camera_model: "X".into(), ..Default::default() };
+    let shot = |f, c, l| Shot { frame: f, located: Located { corners: c, turns: 0, score: None }, illuminant: l };
+    // declared alike
+    let e = build_dual(&shot(&a, ac, "D65"), &shot(&b, bc, "D75"), &opts).unwrap_err();
+    assert!(e.to_string().contains("same light"), "{e}");
+    // declared apart, but the camera saw one light
+    let e = build_dual(&shot(&a, ac, "D65"), &shot(&b, bc, "A"), &opts).unwrap_err();
+    assert!(e.to_string().contains("same light"), "{e}");
+    assert_eq!(lightcraft_camprof::nearest_illuminant(2900.0), "A");
+    assert_eq!(lightcraft_camprof::nearest_illuminant(5600.0), "D55");
+    assert_eq!(lightcraft_camprof::nearest_illuminant(f64::NAN), "D55");
+}

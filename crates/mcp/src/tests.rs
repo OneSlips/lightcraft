@@ -509,7 +509,7 @@ fn a_camera_profile_is_made_from_a_chart_photo_by_tool() {
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
     let corners = lightcraft_engine::chart_profiling::camprof::ChartCorners::from_rect(90.0, 60.0, 180.0, 120.0);
-    let dng = lightcraft_engine::chart_profiling::demo_chart_dng(360, 240, &corners).unwrap();
+    let dng = lightcraft_engine::chart_profiling::demo_chart_dng(360, 240, &corners, "D55", false).unwrap();
     let path = base.join("chart.dng");
     std::fs::write(&path, dng).unwrap();
     let mut b = Headless::demo();

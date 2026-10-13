@@ -177,6 +177,10 @@ pub struct Built {
     pub patches: Vec<PatchReport>,
     /// Notes worth showing.
     pub notes: Vec<String>,
+    /// The light it was calibrated for ([`ILLUMINANTS`]).
+    pub illuminant: String,
+    /// The camera's signal for a neutral surface under that light (largest channel 1).
+    pub neutral: [f64; 3],
 }
 
 /// Measure the chart at `located` in `frame` and build a profile from it.
@@ -248,7 +252,106 @@ pub fn build(frame: &RawFrame, located: &Located, opts: &BuildOptions) -> Result
         neutral_ids: report.neutral_ids,
         patches,
         notes: report.notes,
+        illuminant,
+        neutral: [prof.white_balance[0], prof.white_balance[1], prof.white_balance[2]],
     })
+}
+
+/// Correlated colour temperature (K) of a calibration illuminant ([`ILLUMINANTS`]).
+pub fn illuminant_cct(name: &str) -> Option<f64> {
+    Some(match name.trim().to_ascii_uppercase().as_str() {
+        "A" | "STDA" => 2856.0,
+        "D50" => 5003.0,
+        "D55" => 5503.0,
+        "D65" => 6504.0,
+        "D75" => 7504.0,
+        _ => return None,
+    })
+}
+
+/// The calibration illuminant ([`ILLUMINANTS`]) nearest a colour temperature, in mired.
+pub fn nearest_illuminant(cct: f64) -> &'static str {
+    if !cct.is_finite() || cct <= 0.0 {
+        return "D55";
+    }
+    let off = |name: &str| (1.0e6 / illuminant_cct(name).unwrap_or(5503.0) - 1.0e6 / cct).abs();
+    ILLUMINANTS.iter().copied().min_by(|a, b| off(a).total_cmp(&off(b))).unwrap_or("D55")
+}
+
+/// Two chart photos must be lit at least this far apart (in mired, 10⁶ / K) for a dual-illuminant
+/// profile: D50 and D65 are 46 apart, D65 and D75 21, StdA and D65 196.
+pub const MIN_MIRED_APART: f64 = 25.0;
+
+/// One chart photo of a dual-illuminant profile.
+#[derive(Clone, Copy, Debug)]
+pub struct Shot<'a> {
+    pub frame: &'a RawFrame,
+    pub located: Located,
+    /// The light it was taken under ([`ILLUMINANTS`]).
+    pub illuminant: &'a str,
+}
+
+/// A dual-illuminant profile: calibration 1 (the lower colour temperature) and 2.
+#[derive(Clone, Debug)]
+pub struct BuiltDual {
+    /// The DCP, with `CalibrationIlluminant1/2`, `ColorMatrix1/2`, `ForwardMatrix1/2` and
+    /// `ProfileHueSatMapData1/2`.
+    pub dcp: DcpProfile,
+    /// Each light's own fit and report, the lower colour temperature first.
+    pub calibrations: [Built; 2],
+}
+
+/// Build a dual-illuminant profile from two chart photos under different lights (typically one
+/// daylight, one tungsten). Each is fitted on its own; the raw converter interpolates between the
+/// two by the photo's white balance (DNG 6.3, inverse colour temperature). Two photos under
+/// effectively the same light are refused rather than made into a profile with two copies of one
+/// calibration.
+pub fn build_dual(a: &Shot<'_>, b: &Shot<'_>, opts: &BuildOptions) -> Result<BuiltDual, CamprofError> {
+    let (Some(ta), Some(tb)) = (illuminant_cct(a.illuminant), illuminant_cct(b.illuminant)) else {
+        return Err(CamprofError::Options(format!("unknown illuminant (one of {})", ILLUMINANTS.join(", "))));
+    };
+    let apart = (1.0e6 / ta - 1.0e6 / tb).abs();
+    if apart < MIN_MIRED_APART {
+        return Err(CamprofError::Options(format!(
+            "the two chart photos are under effectively the same light ({} and {}, {apart:.0} mired apart; at least {MIN_MIRED_APART:.0} needed): take the second one under another light, such as tungsten (A)",
+            a.illuminant.trim(),
+            b.illuminant.trim()
+        )));
+    }
+    let one = |shot: &Shot<'_>| build(shot.frame, &shot.located, &BuildOptions { illuminant: shot.illuminant.to_string(), ..opts.clone() });
+    let (first, second) = (one(a)?, one(b)?);
+    // the camera itself must have seen two different lights, whatever they were declared as
+    let ratio = |n: &[f64; 3]| [n[0] / n[1].max(1e-9), n[2] / n[1].max(1e-9)];
+    let (ra, rb) = (ratio(&first.neutral), ratio(&second.neutral));
+    if (0..2).all(|i| (ra[i] / rb[i].max(1e-9) - 1.0).abs() < 0.03) {
+        return Err(CamprofError::Options(
+            "the greys of the two chart photos read the same to the camera: they were taken under the same light, whatever it is called".into(),
+        ));
+    }
+    let (low, high) = if ta <= tb { (first, second) } else { (second, first) };
+    let name = if opts.name.trim().is_empty() {
+        format!("{} + {}{}", low.illuminant, high.illuminant, if opts.natural { " Natural" } else { "" })
+    } else {
+        opts.name.trim().to_string()
+    };
+    let (c1, c2) = (&low.dcp.color, &high.dcp.color);
+    let identity =
+        |like: &lightcraft_raw::profile::HsvTable| lightcraft_raw::profile::HsvTable { data: vec![[0.0, 1.0, 1.0]; like.data.len()], ..like.clone() };
+    // the two maps share their grid and encoding, so the renderer can blend them; a light whose fit
+    // left no table gets an identity map of the same shape
+    let maps = match (&c1.profile.hue_sat_map[0], &c2.profile.hue_sat_map[0]) {
+        (Some(m1), Some(m2)) => [Some(m1.clone()), Some(m2.clone())],
+        (Some(m1), None) => [Some(m1.clone()), Some(identity(m1))],
+        (None, Some(m2)) => [Some(identity(m2)), Some(m2.clone())],
+        (None, None) => [None, None],
+    };
+    let mut color = c1.clone();
+    color.illuminant = [c1.illuminant[0], c2.illuminant[0]];
+    color.color_matrix = [c1.color_matrix[0], c2.color_matrix[0]];
+    color.forward_matrix = [c1.forward_matrix[0], c2.forward_matrix[0]];
+    color.profile.hue_sat_map = maps;
+    let dcp = DcpProfile { name, camera_model: low.dcp.camera_model.clone(), color };
+    Ok(BuiltDual { dcp, calibrations: [low, high] })
 }
 
 /// The camera name raw converters match a DCP's `UniqueCameraModel` against, the way Adobe names

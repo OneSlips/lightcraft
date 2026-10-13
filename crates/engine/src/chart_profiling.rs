@@ -6,8 +6,12 @@
 //! the chart, [`build`] fits the profile (both pure, `Send`), [`install`] files the result in the
 //! session. The `profile.findChart` and `profile.createFromChart` commands do all of it in one call.
 //!
-//! **Coordinates.** Chart corners are in the *frame*: the raw file's active area as the sensor
-//! recorded it (not rotated by its orientation tag), normalised to 0–1 across and down, in screen
+//! **Same data as the render.** The chart is measured on the camera RGB LightCraft's own raw decoder
+//! develops ([`frame_of`]): what the profile is later applied to, so the fit sees the signal it
+//! will render. RADcamProfiles' own raw readers are not used.
+//!
+//! **Coordinates.** Chart corners are in the *frame*: the raw file's developed picture (default
+//! crop) as the sensor recorded it (not rotated by its orientation tag), normalised to 0–1 across and down, in screen
 //! order (top left, top right, bottom right, bottom left). `turns` (0–3) says which corner patch
 //! A01 (dark skin) is in: top left, top right, bottom right, bottom left.
 
@@ -33,56 +37,42 @@ pub struct Prepared {
     pub preview: Rgba8,
     /// Where the chart was found, if it was.
     pub located: Option<Located>,
+    /// The file's own colour model, to tell which light the chart was under.
+    pub color: lightcraft_raw::ColorData,
 }
 
-/// Camera RGB of `raw` at half resolution (one pixel per 2 × 2 colour-filter unit; other mosaics
-/// are demosaiced and halved), black removed, 1.0 the white level.
+/// Camera RGB of `raw` at half resolution, taken exactly where LightCraft develops a raw file and
+/// where a camera profile is applied ([`crate::files`]): black and white levels, linearisation,
+/// `OpcodeList1/2`, the default crop, `OpcodeList3` without the lens corrections (the pipeline
+/// applies those itself), before white balance and colour matrix. Bayer mosaics take the render
+/// path's 2 × 2 binning (block means of each colour); other mosaics are demosaiced as for a full-size
+/// render and halved.
 fn frame_of(raw: &lightcraft_raw::RawImage) -> Result<RawFrame, String> {
-    let n = raw.normalized().map_err(|e| e.to_string())?;
-    let (w, h) = (n.width / 2, n.height / 2);
-    if w < 8 || h < 8 {
-        return Err("the photo is too small to profile from".into());
-    }
-    let mut data = Vec::with_capacity(w.saturating_mul(h));
-    let at = |x: usize, y: usize, c: usize| n.data.get((y * n.width + x) * n.cpp + c).copied().unwrap_or(0.0);
-    match (&n.cfa, n.cpp) {
-        (Some(cfa), 1) if cfa.width == 2 && cfa.height == 2 => {
-            for y in 0..h {
-                for x in 0..w {
-                    let mut sum = [0.0f32; 3];
-                    let mut count = [0.0f32; 3];
-                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-                        let c = usize::from(cfa.color_at(2 * x + dx, 2 * y + dy)).min(2);
-                        sum[c] += at(2 * x + dx, 2 * y + dy, 0);
-                        count[c] += 1.0;
-                    }
-                    data.push(std::array::from_fn(|c| if count[c] > 0.0 { sum[c] / count[c] } else { 0.0 }));
-                }
+    let mut raw = raw.clone();
+    raw.opcodes.list3.retain(|op| !op.is_lens_correction());
+    let rgb = match raw.develop_binned_masked(2, f32::INFINITY).map_err(|e| e.to_string())? {
+        Some((img, _)) => img,
+        None => {
+            if raw.cpp == 1 && raw.cfa.is_none() {
+                return Err("a monochrome sensor has no colour to profile".into());
             }
-        }
-        (Some(_), 1) => {
-            // X-Trans and other mosaics: demosaic, then halve
-            let rgb = lightcraft_raw::demosaic(&n, lightcraft_raw::Method::Bilinear);
-            let px = |x: usize, y: usize| rgb.data.get(y * rgb.width + x).copied().unwrap_or([0.0; 3]);
+            let full = raw.develop(lightcraft_raw::Method::Ahd).map_err(|e| e.to_string())?;
+            let (w, h) = (full.width / 2, full.height / 2);
+            let px = |x: usize, y: usize| full.data.get(y * full.width + x).copied().unwrap_or([0.0; 3]);
+            let mut data = Vec::with_capacity(w.saturating_mul(h));
             for y in 0..h {
                 for x in 0..w {
                     let q = [px(2 * x, 2 * y), px(2 * x + 1, 2 * y), px(2 * x, 2 * y + 1), px(2 * x + 1, 2 * y + 1)];
                     data.push(std::array::from_fn(|c| q.iter().map(|p| p[c]).sum::<f32>() / 4.0));
                 }
             }
+            lightcraft_raster::Rgb32f { width: w, height: h, data }
         }
-        (None, 3) => {
-            for y in 0..h {
-                for x in 0..w {
-                    data.push(std::array::from_fn(|c| {
-                        (at(2 * x, 2 * y, c) + at(2 * x + 1, 2 * y, c) + at(2 * x, 2 * y + 1, c) + at(2 * x + 1, 2 * y + 1, c)) / 4.0
-                    }));
-                }
-            }
-        }
-        _ => return Err("a monochrome sensor has no colour to profile".into()),
+    };
+    if rgb.width < 8 || rgb.height < 8 {
+        return Err("the photo is too small to profile from".into());
     }
-    RawFrame::from_rgb(w, h, data).map_err(|e| e.to_string())
+    RawFrame::from_rgb(rgb.width, rgb.height, rgb.data).map_err(|e| e.to_string())
 }
 
 /// The camera name a profile for `raw` carries: the file's own `UniqueCameraModel` when it is a
@@ -150,7 +140,7 @@ pub fn prepare(bytes: &[u8]) -> Result<Prepared, String> {
     let neutral = raw.color.as_shot_neutral.or_else(|| raw.wb_multipliers.map(|m| std::array::from_fn(|c| 1.0 / f64::from(m[c]).max(1e-6))));
     let preview = preview_of(&frame, neutral);
     let located = lightcraft_camprof::find_chart(&frame);
-    Ok(Prepared { frame: Arc::new(frame), camera_model, preview, located })
+    Ok(Prepared { frame: Arc::new(frame), camera_model, preview, located, color: raw.color })
 }
 
 /// [`prepare`] for a file (refused above 2 GB).
@@ -179,7 +169,34 @@ pub fn normalized_corners(frame: &RawFrame, c: &ChartCorners) -> [[f64; 2]; 4] {
     c.points().map(|p| [p[0] / w, p[1] / h])
 }
 
-/// What to build.
+/// The light a chart photo was taken under, as the camera saw it: the chart's mid greys (D02–D05)
+/// taken to a white point through the file's own colour model (DNG 6.3) → (colour temperature,
+/// nearest calibration illuminant). `None` when the file has no colour matrix to tell by.
+pub fn estimate_light(prep: &Prepared, located: &Located) -> Option<(f64, &'static str)> {
+    if !lightcraft_raw::color::has_matrix(&prep.color) {
+        return None;
+    }
+    let chart = lightcraft_camprof::chart();
+    let m =
+        lightcraft_camprof::reference::measure_rotated(&prep.frame, chart, &located.corners, lightcraft_camprof::SAMPLE_FRACTION, located.turns % 4);
+    let mut sum = [0.0f64; 3];
+    for (id, rgb) in m.ids.iter().zip(&m.camera_rgb) {
+        if ["D02", "D03", "D04", "D05"].contains(&id.as_str()) {
+            for c in 0..3 {
+                sum[c] += rgb[c];
+            }
+        }
+    }
+    let peak = sum.iter().copied().fold(0.0, f64::max);
+    if peak.is_nan() || peak <= 0.0 || sum.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    let xy = lightcraft_raw::color::neutral_to_xy(&prep.color, sum.map(|v| v / peak));
+    let cct = lightcraft_color::cct::xy_to_temp_tint(xy).0;
+    (cct.is_finite() && cct > 1000.0 && cct < 25000.0).then(|| (cct, lightcraft_camprof::nearest_illuminant(cct)))
+}
+
+/// What to build from one chart photo.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Request {
     /// Chart corners (normalised, see the module notes); `None`: where [`prepare`] found the chart.
@@ -188,14 +205,14 @@ pub struct Request {
     pub turns: Option<u8>,
     /// Move the corners onto the chart first.
     pub refine: bool,
-    /// Illuminant, rendering, name (the camera model is filled in from the file when empty).
-    pub options: BuildOptions,
+    /// The light ([`lightcraft_camprof::ILLUMINANTS`]); empty or `auto`: [`estimate_light`], else D55.
+    pub illuminant: String,
 }
 
-/// Fit a profile to the chart in `prep`.
-pub fn build(prep: &Prepared, req: &Request) -> Result<Built, String> {
+/// Where the chart of `prep` lies for `req`.
+pub fn locate(prep: &Prepared, req: &Request) -> Result<Located, String> {
     let frame = prep.frame.as_ref();
-    let located = match req.corners {
+    match req.corners {
         Some(c) => {
             let corners = corners_from_normalized(frame, c).ok_or("the chart corners must be numbers")?;
             if !corners.is_usable() {
@@ -206,56 +223,150 @@ pub fn build(prep: &Prepared, req: &Request) -> Result<Built, String> {
                 Some(t) => t % 4,
                 None => lightcraft_camprof::orient(frame, &corners),
             };
-            Located { corners, turns, score: None }
+            Ok(Located { corners, turns, score: None })
         }
-        None => prep.located.ok_or("no ColorChecker found in the photo: place its corners by hand")?,
-    };
-    let mut options = req.options.clone();
-    if options.camera_model.trim().is_empty() {
-        options.camera_model = prep.camera_model.clone();
+        None => prep.located.ok_or_else(|| "no ColorChecker found in the photo: place its corners by hand".into()),
     }
-    lightcraft_camprof::build(frame, &located, &options).map_err(|e| e.to_string())
 }
 
-/// The fit report as JSON (`ΔE` is CIEDE2000; corners normalised).
-pub fn report_json(prep: &Prepared, built: &Built) -> Value {
+/// One calibration of a built profile, and the photo it came from.
+#[derive(Clone, Debug)]
+pub struct Calibration {
+    pub built: Built,
+    /// 0: the first photo, 1: the second.
+    pub shot: usize,
+    /// The light as estimated from the photo, when it could be (colour temperature, illuminant).
+    pub estimated: Option<(f64, &'static str)>,
+}
+
+/// A profile from one chart photo, or a dual-illuminant one from two under different lights.
+#[derive(Clone, Debug)]
+pub struct Outcome {
+    pub dcp: lightcraft_raw::dcp::DcpProfile,
+    /// The lower colour temperature first.
+    pub calibrations: Vec<Calibration>,
+}
+
+/// The light a request asks for: its own, else the estimate, else D55.
+fn light_of(prep: &Prepared, req: &Request, located: &Located) -> (String, Option<(f64, &'static str)>) {
+    let estimated = estimate_light(prep, located);
+    let chosen = req.illuminant.trim();
+    if chosen.is_empty() || chosen.eq_ignore_ascii_case("auto") {
+        (estimated.map_or("D55", |e| e.1).to_string(), estimated)
+    } else {
+        (chosen.to_string(), estimated)
+    }
+}
+
+/// Fit a profile to the chart in `first` (and, for a dual-illuminant profile, `second`).
+/// `options.illuminant` is ignored: each photo's light comes from its [`Request`].
+pub fn build(first: (&Prepared, &Request), second: Option<(&Prepared, &Request)>, options: &BuildOptions) -> Result<Outcome, String> {
+    let mut options = options.clone();
+    if options.camera_model.trim().is_empty() {
+        options.camera_model = first.0.camera_model.clone();
+    }
+    let la = locate(first.0, first.1)?;
+    let (ia, ea) = light_of(first.0, first.1, &la);
+    let Some((prep_b, req_b)) = second else {
+        let built = lightcraft_camprof::build(&first.0.frame, &la, &BuildOptions { illuminant: ia, ..options }).map_err(|e| e.to_string())?;
+        return Ok(Outcome { dcp: built.dcp.clone(), calibrations: vec![Calibration { built, shot: 0, estimated: ea }] });
+    };
+    if prep_b.camera_model != first.0.camera_model {
+        return Err(format!("the two chart photos are from different cameras ({} and {})", first.0.camera_model, prep_b.camera_model));
+    }
+    let lb = locate(prep_b, req_b)?;
+    let (ib, eb) = light_of(prep_b, req_b, &lb);
+    let dual = lightcraft_camprof::build_dual(
+        &lightcraft_camprof::Shot { frame: &first.0.frame, located: la, illuminant: &ia },
+        &lightcraft_camprof::Shot { frame: &prep_b.frame, located: lb, illuminant: &ib },
+        &options,
+    )
+    .map_err(|e| e.to_string())?;
+    // (build_dual puts the lower colour temperature first)
+    let first_is_low = lightcraft_camprof::illuminant_cct(&ia).unwrap_or(0.0) <= lightcraft_camprof::illuminant_cct(&ib).unwrap_or(0.0);
+    let [low, high] = dual.calibrations;
+    let calibrations = if first_is_low {
+        vec![Calibration { built: low, shot: 0, estimated: ea }, Calibration { built: high, shot: 1, estimated: eb }]
+    } else {
+        vec![Calibration { built: low, shot: 1, estimated: eb }, Calibration { built: high, shot: 0, estimated: ea }]
+    };
+    Ok(Outcome { dcp: dual.dcp, calibrations })
+}
+
+/// The fit report as JSON (`ΔE` is CIEDE2000; corners normalised to each photo's frame). The
+/// top-level ΔE figures cover every calibration (the mean of their means, the largest maximum);
+/// `calibrations` has each light's own.
+pub fn report_json(preps: &[&Prepared], out: &Outcome) -> Value {
     let r3 = |v: f64| (v * 1000.0).round() / 1000.0;
+    let calibrations: Vec<Value> = out
+        .calibrations
+        .iter()
+        .map(|c| {
+            let b = &c.built;
+            let corners = preps.get(c.shot).map(|p| normalized_corners(&p.frame, &b.located.corners));
+            json!({
+                "shot": c.shot,
+                "illuminant": b.illuminant,
+                "cct": lightcraft_camprof::illuminant_cct(&b.illuminant),
+                "estimatedCct": c.estimated.map(|e| e.0.round()),
+                "estimatedIlluminant": c.estimated.map(|e| e.1),
+                "meanDeltaE": r3(b.mean_delta_e),
+                "maxDeltaE": r3(b.max_delta_e),
+                "matrixMeanDeltaE": r3(b.matrix_mean_delta_e),
+                "patchesRead": b.patches_read,
+                "patchesUsed": b.patches_used,
+                "neutralIds": b.neutral_ids,
+                "corners": corners,
+                "turns": b.located.turns,
+                "notes": b.notes,
+                "patches": b.patches.iter().map(|p| json!({
+                    "id": p.id,
+                    "name": p.name,
+                    "deltaE": r3(p.delta_e),
+                    "matrixDeltaE": r3(p.matrix_delta_e),
+                    "referenceLab": p.reference_lab.map(r3),
+                    "renderedLab": p.rendered_lab.map(r3),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let n = out.calibrations.len().max(1) as f64;
+    let mean = out.calibrations.iter().map(|c| c.built.mean_delta_e).sum::<f64>() / n;
+    let max = out.calibrations.iter().map(|c| c.built.max_delta_e).fold(0.0, f64::max);
+    let matrix = out.calibrations.iter().map(|c| c.built.matrix_mean_delta_e).sum::<f64>() / n;
+    let primary = calibrations.iter().find(|c| c["shot"] == 0).cloned().unwrap_or(Value::Null);
     json!({
-        "cameraModel": built.dcp.camera_model,
-        "name": built.dcp.name,
-        "meanDeltaE": r3(built.mean_delta_e),
-        "maxDeltaE": r3(built.max_delta_e),
-        "matrixMeanDeltaE": r3(built.matrix_mean_delta_e),
-        "patchesRead": built.patches_read,
-        "patchesUsed": built.patches_used,
-        "neutralIds": built.neutral_ids,
-        "corners": normalized_corners(&prep.frame, &built.located.corners),
-        "turns": built.located.turns,
-        "notes": built.notes,
-        "patches": built.patches.iter().map(|p| json!({
-            "id": p.id,
-            "name": p.name,
-            "deltaE": r3(p.delta_e),
-            "matrixDeltaE": r3(p.matrix_delta_e),
-            "referenceLab": p.reference_lab.map(r3),
-            "renderedLab": p.rendered_lab.map(r3),
-        })).collect::<Vec<_>>(),
+        "cameraModel": out.dcp.camera_model,
+        "name": out.dcp.name,
+        "dual": out.calibrations.len() == 2,
+        "meanDeltaE": r3(mean),
+        "maxDeltaE": r3(max),
+        "matrixMeanDeltaE": r3(matrix),
+        "patchesUsed": primary["patchesUsed"],
+        "corners": primary["corners"],
+        "turns": primary["turns"],
+        "illuminant": primary["illuminant"],
+        "patches": primary["patches"],
+        "calibrations": calibrations,
     })
 }
 
-/// File `built` among the user's camera profiles; with `apply_to`, that photo develops with it.
-/// → `{id, name, cameraModel, file, applied}`.
-pub fn install(s: &mut crate::Session, built: &Built, apply_to: Option<lightcraft_catalog::PhotoId>) -> crate::Result<Value> {
-    let entry = crate::cmd::dcp_profiles::add_profile(s, built.dcp.clone(), "profile.createFromChart")?;
-    let mut applied = Value::Null;
-    if let Some(id) = apply_to
-        && s.catalog.photo(id).is_some()
-    {
+/// File `dcp` among the user's camera profiles; the photos in `apply_to` develop with it.
+/// → `{id, name, cameraModel, file, applied: [photo ids]}`.
+pub fn install(s: &mut crate::Session, dcp: &lightcraft_raw::dcp::DcpProfile, apply_to: &[lightcraft_catalog::PhotoId]) -> crate::Result<Value> {
+    let entry = crate::cmd::dcp_profiles::add_profile(s, dcp.clone(), "profile.createFromChart")?;
+    let mut applied = Vec::new();
+    for &id in apply_to {
+        if s.catalog.photo(id).is_none() || applied.contains(&id.0) {
+            continue;
+        }
         let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
         d.profile.id = entry.id.clone();
         s.set_develop(id, d, "Profile")?;
+        applied.push(id.0);
+    }
+    if !applied.is_empty() {
         s.note_profile_used(&entry.id);
-        applied = json!(id.0);
     }
     s.save_prefs()?;
     Ok(json!({"id": entry.id, "name": entry.name, "cameraModel": entry.camera_model, "file": entry.file, "applied": applied}))
@@ -264,15 +375,17 @@ pub fn install(s: &mut crate::Session, built: &Built, apply_to: Option<lightcraf
 /// A ColorChecker photographed by a made-up camera, as a DNG (an RGGB mosaic `2 × width` by
 /// `2 × height`), for tests and demonstrations: painted procedurally
 /// ([`lightcraft_camprof::synthetic`]), no photograph involved. The chart grid lies at `corners`
-/// (in half-resolution pixels), lit by D55; the file's own colour matrix is a naive one (sRGB
-/// primaries), as an unprofiled camera's might be.
-pub fn demo_chart_dng(width: usize, height: usize, corners: &ChartCorners) -> Result<Vec<u8>, String> {
+/// (in half-resolution pixels), lit by `light` (an illuminant of
+/// [`lightcraft_camprof::ILLUMINANTS`]). The file's own colour matrix is the made-up camera's linear
+/// response when `true_matrix`, else a naive one (sRGB primaries), as an unprofiled camera's might be.
+pub fn demo_chart_dng(width: usize, height: usize, corners: &ChartCorners, light: &str, true_matrix: bool) -> Result<Vec<u8>, String> {
     use lightcraft_raw::{BlackLevel, Cfa, ColorData, DngWriteOptions, Mat3, Metadata, OpcodeLists, Orientation, RawData, RawFormat, RawImage, Rect};
     if width < 8 || height < 8 || width > 8000 || height > 8000 {
         return Err("the demo chart photo must be 8 to 8000 pixels each way".into());
     }
-    let d55 = lightcraft_camprof::illuminants::white_point_by_name("1931_2", "D55").map_err(|e| e.to_string())?;
-    let rgb = lightcraft_camprof::synthetic::chart_frame(width, height, corners, 0, d55, 0.5);
+    let tag = lightcraft_camprof::illuminants::ExifLightSource::from_name(light).ok_or_else(|| format!("unknown light `{light}`"))?;
+    let lit = lightcraft_camprof::illuminants::white_point_by_name("1931_2", light).map_err(|e| e.to_string())?;
+    let rgb = lightcraft_camprof::synthetic::chart_frame(width, height, corners, 0, lit, 0.5);
     let (w, h) = (2 * width, 2 * height);
     let (black, white) = (256.0f32, 16000.0f32);
     let mut data = vec![0u16; w * h];
@@ -285,9 +398,13 @@ pub fn demo_chart_dng(width: usize, height: usize, corners: &ChartCorners) -> Re
             }
         }
     }
-    let n = lightcraft_camprof::synthetic::camera_signal(d55);
+    let n = lightcraft_camprof::synthetic::camera_signal(lit);
     let neutral = [n[0] / n[1].max(1e-9), 1.0, n[2] / n[1].max(1e-9)];
-    let srgb_from_xyz = Mat3([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]]);
+    let matrix = if true_matrix {
+        Mat3(lightcraft_camprof::synthetic::TEST_CAMERA)
+    } else {
+        Mat3([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]])
+    };
     let raw = RawImage {
         format: RawFormat::Dng,
         width: w,
@@ -301,7 +418,12 @@ pub fn demo_chart_dng(width: usize, height: usize, corners: &ChartCorners) -> Re
         active_area: Rect::new(0, 0, w, h),
         crop: Rect::new(0, 0, w, h),
         orientation: Orientation::Normal,
-        color: ColorData { illuminant: [21, 0], color_matrix: [Some(srgb_from_xyz), None], as_shot_neutral: Some(neutral), ..Default::default() },
+        color: ColorData {
+            illuminant: [u16::from(tag.tag()), 0],
+            color_matrix: [Some(matrix), None],
+            as_shot_neutral: Some(neutral),
+            ..Default::default()
+        },
         wb_multipliers: None,
         linearized: false,
         opcodes: OpcodeLists::default(),
@@ -317,12 +439,12 @@ mod tests {
     #[test]
     fn hostile_corners_are_errors() {
         let frame = RawFrame::from_rgb(40, 30, vec![[0.2; 3]; 1200]).unwrap();
-        let prep = Prepared { frame: Arc::new(frame), camera_model: "X".into(), preview: Rgba8::new(1, 1), located: None };
+        let prep = Prepared { frame: Arc::new(frame), camera_model: "X".into(), preview: Rgba8::new(1, 1), located: None, color: Default::default() };
         for corners in [[[f64::NAN, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], [[0.5; 2]; 4], [[1e308, -1e308], [0.0; 2], [0.0; 2], [0.0; 2]]] {
             let req = Request { corners: Some(corners), turns: Some(9), ..Default::default() };
-            assert!(build(&prep, &req).is_err());
+            assert!(build((&prep, &req), None, &Default::default()).is_err());
         }
-        assert!(build(&prep, &Request::default()).unwrap_err().contains("no ColorChecker"));
+        assert!(build((&prep, &Request::default()), None, &Default::default()).unwrap_err().contains("no ColorChecker"));
         assert!(prepare(b"not a raw file").is_err());
         assert!(prepare(&[]).is_err());
     }
