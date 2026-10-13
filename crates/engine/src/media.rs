@@ -1712,7 +1712,7 @@ mod thumbnail_hash_tests {
     #[test]
     fn a_render_that_panics_fails_instead_of_never_answering() {
         let mut s = session();
-        s.media.file_loader = Some(Arc::new(|_, _| panic!("decoder bug")));
+        s.media.file_loader = Some(Arc::new(|_, _, _| panic!("decoder bug")));
         let mut job = s.thumb_job(PhotoId(1), 256).unwrap();
         job.request_id = 42;
         let (key, level, source_key) = (job.key, job.level, job.source_key);

@@ -26,9 +26,9 @@ pub struct DcpProfile {
 impl DcpProfile {
     /// `color` (a raw file's own colour facts) with this profile's colour model in place of the
     /// file's: its matrices, illuminants and look. The file's white balance (as-shot neutral or
-    /// white), analog balance and baseline exposure stay, plus its camera calibration when the
-    /// profile has the same calibration illuminants (DNG 6.3: calibration belongs to the camera,
-    /// the profile to the look).
+    /// white, and its white-balance presets), analog balance and baseline exposure stay, plus its
+    /// camera calibration when the profile has the same calibration illuminants (DNG 6.3:
+    /// calibration belongs to the camera, the profile to the look).
     pub fn applied_to(&self, color: &ColorData) -> ColorData {
         let calibration = if self.color.illuminant == color.illuminant { color.camera_calibration } else { [None, None] };
         ColorData {
@@ -42,6 +42,7 @@ impl DcpProfile {
             baseline_exposure: color.baseline_exposure + self.color.baseline_exposure,
             baseline_sharpness: color.baseline_sharpness,
             profile: crate::profile::ProfileLook { gain_table_map: color.profile.gain_table_map.clone(), ..self.color.profile.clone() },
+            kelvin_presets: color.kelvin_presets,
         }
     }
 }
