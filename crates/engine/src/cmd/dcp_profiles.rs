@@ -131,6 +131,109 @@ pub fn import_files(s: &mut Session, paths: &[String]) -> Result<(Vec<Value>, Ve
     Ok((imported, failed))
 }
 
+/// File a camera profile made in LightCraft (`profile.createFromChart`) among the imported ones: its
+/// `.dcp` goes into the library's `Profiles/` folder (the temp folder without a library on disk). A
+/// profile with the same name and camera as one there is named "… 2", "… 3": an existing profile is
+/// never rewritten under photos that use it.
+pub fn add_profile(s: &mut Session, mut profile: DcpProfile, c: &str) -> Result<DcpEntry> {
+    let base = if profile.name.trim().is_empty() { "Camera Profile".to_string() } else { profile.name.trim().to_string() };
+    let mut name = base.clone();
+    let mut n = 2;
+    while s.dcp_profiles.iter().any(|p| p.name == name && p.camera_model == profile.camera_model) {
+        name = format!("{base} {n}");
+        n += 1;
+    }
+    profile.name = name.clone();
+    let bytes = lightcraft_raw::dcp::write_dcp(&profile).map_err(|e| bad(c, e.to_string()))?;
+    let slug = crate::presets::slug(&format!("{}-{name}", profile.camera_model));
+    let mut id = format!("{DCP_PREFIX}{slug}");
+    let mut n = 2;
+    while s.dcp_profiles.iter().any(|x| x.id == id) {
+        id = format!("{DCP_PREFIX}{slug}-{n}");
+        n += 1;
+    }
+    let dir = profiles_dir(s).unwrap_or_else(|| std::env::temp_dir().join("lightcraft-camera-profiles"));
+    std::fs::create_dir_all(&dir).map_err(|e| bad(c, format!("{}: {e}", dir.display())))?;
+    let to = dir.join(format!("{}.dcp", id.trim_start_matches(DCP_PREFIX)));
+    std::fs::write(&to, &bytes).map_err(|e| bad(c, format!("{}: {e}", to.display())))?;
+    let entry = DcpEntry { id: id.clone(), name, camera_model: profile.camera_model.clone(), file: to.to_string_lossy().to_string() };
+    s.media.camera_profiles.insert(id, Arc::new(profile));
+    s.dcp_profiles.push(entry.clone());
+    Ok(entry)
+}
+
+/// The chart photograph a command works on: `path`, else the target photo's file.
+fn chart_source(s: &Session, p: &Value, c: &str) -> Result<(Option<lightcraft_catalog::PhotoId>, String)> {
+    if let Some(path) = str_param(p, "path") {
+        return Ok((None, path.to_string()));
+    }
+    let id = s.targets(p).into_iter().next().ok_or_else(|| bad(c, "no photo: select the chart photo or give `id` or `path`"))?;
+    let ph = s.catalog.photo(id).ok_or_else(|| bad(c, format!("no photo {}", id.0)))?;
+    match &ph.source {
+        lightcraft_catalog::Source::File { path } => Ok((Some(id), path.clone())),
+        _ => Err(bad(c, "the photo has no file to profile from (a demo photo?)")),
+    }
+}
+
+fn corners_param(p: &Value, c: &str) -> Result<Option<[[f64; 2]; 4]>> {
+    let Some(v) = p.get("corners").filter(|v| !v.is_null()) else { return Ok(None) };
+    let pts: Vec<[f64; 2]> = serde_json::from_value(v.clone()).map_err(|_| bad(c, "`corners` must be four [x, y] points (0–1)"))?;
+    let pts: [[f64; 2]; 4] = pts.try_into().map_err(|_| bad(c, "`corners` must be four [x, y] points (0–1)"))?;
+    Ok(Some(pts))
+}
+
+fn find_chart(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.findChart";
+    let (id, path) = chart_source(s, p, C)?;
+    let _task = s.activity.start("cameraProfile", "Finding the color chart", crate::activity::Cancel::No);
+    let prep = crate::chart_profiling::prepare_path(&path).map_err(|e| bad(C, e))?;
+    let found = prep
+        .located
+        .map(|l| json!({"corners": crate::chart_profiling::normalized_corners(&prep.frame, &l.corners), "turns": l.turns, "score": l.score}));
+    Ok(json!({
+        "photo": id.map(|i| i.0),
+        "path": path,
+        "cameraModel": prep.camera_model,
+        "frame": [prep.frame.width, prep.frame.height],
+        "found": found.is_some(),
+        "chart": found,
+    }))
+}
+
+fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.createFromChart";
+    let (id, path) = chart_source(s, p, C)?;
+    let corners = corners_param(p, C)?;
+    let turns = p.get("turns").and_then(Value::as_u64).map(|t| (t % 4) as u8);
+    let natural = match str_param(p, "rendering").unwrap_or("accurate") {
+        "accurate" => false,
+        "natural" => true,
+        other => return Err(bad(C, format!("unknown rendering `{other}` (accurate or natural)"))),
+    };
+    let options = lightcraft_camprof::BuildOptions {
+        illuminant: str_param(p, "illuminant").unwrap_or("D55").to_string(),
+        natural,
+        correction_table: p.get("correctionTable").and_then(Value::as_bool).unwrap_or(true),
+        camera_model: str_param(p, "cameraModel").unwrap_or("").to_string(),
+        name: str_param(p, "name").unwrap_or("").to_string(),
+    };
+    let req = crate::chart_profiling::Request { corners, turns, refine: p.get("refine").and_then(Value::as_bool).unwrap_or(false), options };
+    let task = s.activity.start("cameraProfile", "Creating camera profile", crate::activity::Cancel::No);
+    task.detail(&Path::new(&path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default());
+    let prep = crate::chart_profiling::prepare_path(&path).map_err(|e| bad(C, e))?;
+    let built = crate::chart_profiling::build(&prep, &req).map_err(|e| bad(C, e))?;
+    drop(task);
+    let apply = p.get("apply").and_then(Value::as_bool).unwrap_or(true);
+    let installed = crate::chart_profiling::install(s, &built, id.filter(|_| apply))?;
+    let mut out = crate::chart_profiling::report_json(&prep, &built);
+    if let (Some(o), Some(i)) = (out.as_object_mut(), installed.as_object()) {
+        for (k, v) in i {
+            o.insert(k.clone(), v.clone());
+        }
+    }
+    Ok(out)
+}
+
 fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.deleteCamera";
     let id = str_param(p, "id").ok_or_else(|| bad(C, "missing id"))?.to_string();
@@ -153,6 +256,24 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
+        cmd!(
+            query "profile.findChart",
+            "Find Color Chart",
+            [],
+            None,
+            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score}}: corners are 0–1 in the raw frame as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
+            always,
+            find_chart
+        ),
+        cmd!(
+            "profile.createFromChart",
+            "Create Camera Profile from Color Chart",
+            [],
+            None,
+            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: D50 | D55 (default) | D65 | D75 | A, rendering?: accurate (default) | natural, correctionTable?: bool (default true), name?, cameraModel? (default: the file's), apply?: bool (default true: the photo develops with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, file, applied, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}], corners, turns, notes} (ΔE = CIEDE2000)",
+            always,
+            create_from_chart
+        ),
         cmd!(
             query "profiles.camera",
             "Imported Camera Profiles",

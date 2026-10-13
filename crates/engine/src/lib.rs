@@ -20,6 +20,7 @@ pub mod apple_photos;
 pub mod availability;
 pub(crate) mod camera_preview;
 pub mod camera_profiles;
+pub mod chart_profiling;
 pub mod cmd;
 pub mod config;
 pub mod contact_sheet;
@@ -989,6 +990,8 @@ mod tests;
 mod tests_album_order;
 #[cfg(test)]
 mod tests_albums_local;
+#[cfg(test)]
+mod tests_chart_profile;
 #[cfg(test)]
 mod tests_color;
 #[cfg(test)]

@@ -3226,6 +3226,7 @@ dependencies = [
  "harfrust",
  "jxl-oxide",
  "libc",
+ "lightcraft-camprof",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",

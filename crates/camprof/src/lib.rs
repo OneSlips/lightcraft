@@ -109,6 +109,14 @@ pub fn refine(frame: &RawFrame, corners: &ChartCorners, turns: u8) -> Option<Loc
     Some(Located { corners: placement.corners, turns: turns % 4, score: None })
 }
 
+/// Which way round the chart lies inside corners placed by hand: the quarter turn whose matrix
+/// fit is best (the corners' shape only says upright or on its side).
+pub fn orient(frame: &RawFrame, corners: &ChartCorners) -> u8 {
+    let start = corners.plausible_turns(chart())[0];
+    let placement = align::Placement { corners: *corners, quarter_turns: start, variation: f64::NAN };
+    align::resolve_orientation(frame, chart(), &placement, &profile::FitOptions::default(), SAMPLE_FRACTION).placement.quarter_turns % 4
+}
+
 /// How to build a profile.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BuildOptions {
@@ -241,4 +249,40 @@ pub fn build(frame: &RawFrame, located: &Located, opts: &BuildOptions) -> Result
         patches,
         notes: report.notes,
     })
+}
+
+/// The camera name raw converters match a DCP's `UniqueCameraModel` against, the way Adobe names
+/// cameras: the model alone when it already starts with the maker (`Canon EOS R5 C`), otherwise the
+/// maker's first word in title case, then the model (`Sony ILCE-9`). A DNG's own
+/// `UniqueCameraModel`, when the caller has it, takes precedence over this.
+pub fn camera_name(make: &str, model: &str) -> String {
+    let (make, model) = (make.trim(), model.trim());
+    if make.is_empty() {
+        return model.to_string();
+    }
+    let first_word = make.split_whitespace().next().unwrap_or(make);
+    if model.to_ascii_lowercase().starts_with(&first_word.to_ascii_lowercase()) {
+        return model.to_string();
+    }
+    let mut maker = String::new();
+    for (i, c) in first_word.chars().enumerate() {
+        if i == 0 {
+            maker.extend(c.to_uppercase());
+        } else {
+            maker.extend(c.to_lowercase());
+        }
+    }
+    if model.is_empty() { maker } else { format!("{maker} {model}") }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn camera_names_follow_the_makers_spelling() {
+        assert_eq!(super::camera_name("SONY", "ILCE-9"), "Sony ILCE-9");
+        assert_eq!(super::camera_name("Canon", "Canon EOS R5 C"), "Canon EOS R5 C");
+        assert_eq!(super::camera_name("NIKON CORPORATION", "NIKON Z 8"), "NIKON Z 8");
+        assert_eq!(super::camera_name("", " X100V "), "X100V");
+        assert_eq!(super::camera_name("FUJIFILM", ""), "Fujifilm");
+    }
 }

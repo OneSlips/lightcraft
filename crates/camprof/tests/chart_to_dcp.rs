@@ -1,7 +1,7 @@
 //! A made-up camera photographs a ColorChecker (procedurally: no photograph involved); the chart is
 //! found, a profile is built and written as a DCP, and it reads back and reproduces the chart.
 
-use lightcraft_camprof::{BuildOptions, ChartCorners, RawFrame, Vec3, build, find_chart, refine, synthetic};
+use lightcraft_camprof::{BuildOptions, ChartCorners, RawFrame, Vec3, build, find_chart, orient, refine, synthetic};
 
 fn frame(turns: u8) -> (RawFrame, ChartCorners) {
     let (w, h) = (900usize, 600usize);
@@ -25,6 +25,7 @@ fn the_chart_is_found_profiled_and_the_dcp_reads_back() {
         let (frame, truth) = frame(turns);
         let found = find_chart(&frame).expect("the chart is found");
         assert_eq!(found.turns, turns);
+        assert_eq!(orient(&frame, &truth), turns, "hand-placed corners are oriented by the fit");
         assert!(close(&found.corners, &truth, 12.0), "{:?} vs {truth:?}", found.corners);
         let opts = BuildOptions { camera_model: "LightCraft Test Camera".into(), name: "Chart D55".into(), ..Default::default() };
         let built = build(&frame, &found, &opts).unwrap();
