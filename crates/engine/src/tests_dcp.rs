@@ -139,3 +139,49 @@ fn import_choose_cache_persist_and_delete() {
     assert!(s.execute("develop.profile", &json!({"id": dcp_id})).is_err(), "no longer a known profile");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Hovering a camera profile (the loupe's preview, the browser's thumbnails) develops the photo with
+/// it, and hovering a built-in profile while one is applied develops without it. Before, both used
+/// the photo's own decode: a camera profile's colour never showed in a hover.
+#[test]
+fn hover_previews_and_browser_thumbnails_decode_with_the_hovered_camera_profile() {
+    let dir = temp_dir("hover");
+    let (lib, files) = (dir.join("lib"), dir.join("files"));
+    std::fs::create_dir_all(&files).unwrap();
+    let raw = files.join("IMG_0002.dng");
+    std::fs::write(&raw, crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+    let dcp_file = files.join("Swap.dcp");
+    std::fs::write(&dcp_file, write_dcp(&swapping_profile("Swap")).unwrap()).unwrap();
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    let r = s.execute("library.import", &json!({"paths": [raw.to_string_lossy()]})).unwrap();
+    let id = PhotoId(r["imported"][0].as_u64().unwrap());
+    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+    let dcp_id =
+        s.execute("profile.import", &json!({"paths": [dcp_file.to_string_lossy()]})).unwrap()["imported"][0]["id"].as_str().unwrap().to_string();
+    let mean = |j: crate::media::RenderJob| {
+        let img = j.run().rendered.unwrap().image;
+        let n = img.data.len().max(1) as f64;
+        img.data.iter().fold([0.0f64; 3], |a, p| [a[0] + f64::from(p[0]) / n, a[1] + f64::from(p[1]) / n, a[2] + f64::from(p[2]) / n])
+    };
+    let differ = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).any(|(x, y)| (x - y).abs() > 2.0);
+    let close = |a: [f64; 3], b: [f64; 3]| a.iter().zip(b).all(|(x, y)| (x - y).abs() < 0.6);
+    let own = (*s.develop_of(id).unwrap()).clone();
+    let mut hovered = own.clone();
+    hovered.profile.id = dcp_id.clone();
+    let builtin = mean(s.render_job(id, 64, 64, false, true).unwrap());
+    let hover = mean(s.preview_job(id, 64, 64, true, &hovered).unwrap());
+    assert!(differ(hover, builtin), "the hover shows the camera profile: {hover:?} vs {builtin:?}");
+    // the browser's thumbnail too, under its own cache key
+    let (va, vb) = (s.variant_job(id, &own, 64).unwrap(), s.variant_job(id, &hovered, 64).unwrap());
+    assert_ne!(va.cache.as_ref().unwrap().1, vb.cache.as_ref().unwrap().1);
+    assert!(matches!(&vb.source, SourceRef::File { camera_profile: Some(_), .. }), "decoded with the camera profile");
+    assert!(differ(mean(va), mean(vb)));
+    // selected: the same picture as the hover; hovering the built-in profile then: without it
+    s.execute("develop.profile", &json!({"id": dcp_id})).unwrap();
+    let selected = mean(s.render_job(id, 64, 64, false, true).unwrap());
+    assert!(close(hover, selected), "{hover:?} vs {selected:?}");
+    let back = mean(s.preview_job(id, 64, 64, true, &own).unwrap());
+    assert!(close(back, builtin), "{back:?} vs {builtin:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
