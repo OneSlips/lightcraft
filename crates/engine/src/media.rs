@@ -365,6 +365,9 @@ pub struct MediaCache {
     pub denoise: DenoiseIndex,
     /// Imported camera profiles by id ([`crate::cmd::dcp_profiles`]), handed to the decoder of photos using them.
     pub camera_profiles: std::collections::HashMap<String, Arc<DcpProfile>>,
+    /// How many times each camera profile was written over in place (Replace): decodes and renders
+    /// made with an earlier version don't stand in.
+    pub camera_profile_versions: std::collections::HashMap<String, u64>,
 }
 
 /// The photos that have a cached denoised picture for the denoise model in use. Only memory: nothing here touches the
@@ -435,6 +438,7 @@ impl Default for MediaCache {
             rendered: Arc::new(PreviewCache::memory(rendered_budget(budget))),
             denoise: DenoiseIndex::default(),
             camera_profiles: HashMap::new(),
+            camera_profile_versions: HashMap::new(),
         }
     }
 }
@@ -725,7 +729,18 @@ impl MediaCache {
         if !crate::cmd::dcp_profiles::is_dcp_id(id) {
             return None;
         }
-        self.camera_profiles.get(id).map(|d| (id.clone(), d.clone()))
+        // (a profile written over in place is told apart by its version)
+        let made_with = match self.camera_profile_versions.get(id) {
+            Some(v) if *v > 0 => format!("{id}@{v}"),
+            _ => id.clone(),
+        };
+        self.camera_profiles.get(id).map(|d| (made_with, d.clone()))
+    }
+
+    /// What distinguishes renders of a photo whose camera profile was written over in place (0
+    /// for every other photo, so their keys don't change).
+    pub fn camera_profile_salt(&self, settings: &DevelopSettings) -> u64 {
+        self.camera_profile_versions.get(&settings.profile.id).map_or(0, |v| v.wrapping_mul(0xa076_1d64_78bd_642f))
     }
 
     /// How to load `origin` at most `max_edge` pixels long, ignoring decoded sources in memory (a
@@ -1200,7 +1215,7 @@ impl crate::Session {
         let content = source_key.0 as u64;
         // Temporary "before" settings must not replace the photo's cached develop hash.
         let settings_hash = if before { settings.hash64() } else { self.media.settings_hashes.get(id, &settings) };
-        let salt = self.media.denoise_salt(id, &settings);
+        let salt = self.media.denoise_salt(id, &settings) ^ self.media.camera_profile_salt(&settings);
         let key = settings_hash
             ^ ((max_w as u64) << 40)
             ^ ((max_h as u64) << 20)

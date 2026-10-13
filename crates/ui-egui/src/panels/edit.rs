@@ -161,6 +161,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
             let r = crate::widgets::dropdown(ui, "profile", crate::i18n::profile_label(&d.profile.id, name), t.font(15.0), t.text_label);
             egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
+            body_hint(app, ui, &d.profile.id);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::icon_button(
                     ui,
@@ -471,15 +472,24 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
             lut_groups.push(g.clone());
         }
     }
+    let photo = app.session.active();
+    let mut action: Option<(&'static str, Value)> = None;
     for g in &lut_groups {
         // a folder's name as it is, and its own widget id even when it matches a built-in group
         let r = ui.menu_button(g.as_str(), |ui| {
             ui.set_min_width(170.0);
+            if g == lightcraft_engine::cmd::dcp_profiles::DCP_GROUP {
+                camera_profiles_menu(app, ui, photo, cur, &mut pick, &mut action);
+                return;
+            }
             for (id, name, _) in imported.iter().filter(|p| &p.2 == g) {
                 item(ui, "group", id, name, &mut pick);
             }
         });
         register(ui.ctx(), format!("profileMenu:lutGroupMenu:{g}"), r.response.rect);
+    }
+    if let Some((command, params)) = action {
+        let _ = app.run(command, params);
     }
     ui.separator();
     if let Some((name, _)) = app.session.profile_info(cur) {
@@ -513,6 +523,109 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
     }
     if let Some(id) = pick.0 {
         let _ = app.run("develop.profile", json!({"id": id}));
+    }
+}
+
+/// The Camera Profiles submenu, body-aware: the photo's body's own and model-wide profiles; "Browse
+/// Other Camera Profiles" reveals those made for other bodies of the model, by body. Each entry's
+/// tooltip names its camera and bodies; its context menu makes it this body's default or removes it
+/// from this body.
+fn camera_profiles_menu(
+    app: &mut LightcraftApp,
+    ui: &mut egui::Ui,
+    photo: Option<lightcraft_catalog::PhotoId>,
+    cur: &str,
+    pick: &mut (Option<String>, Option<String>),
+    action: &mut Option<(&'static str, Value)>,
+) {
+    use lightcraft_engine::cmd::dcp_profiles as dp;
+    let t = Tokens::get(ui.ctx());
+    let others = app.chart_profile.other_bodies;
+    let (mine, theirs) = dp::menu_for_photo(&app.session, photo, others);
+    let serial = photo.and_then(|id| app.session.catalog.photo(id)).map(|p| p.meta.serial.trim().to_string()).filter(|s| !s.is_empty());
+    let entry = |ui: &mut egui::Ui, id: &str, name: &str, pick: &mut (Option<String>, Option<String>), action: &mut Option<(&'static str, Value)>| {
+        let r = ui.selectable_label(id == cur, name);
+        register(ui.ctx(), format!("profileMenu:group:{id}"), r.rect);
+        if let Some(e) = app.session.dcp_profiles.iter().find(|e| e.id == id) {
+            let bodies = if e.bodies.is_empty() {
+                crate::i18n::tr("every body").to_string()
+            } else {
+                e.bodies.iter().map(|b| format!("{} ({b})", dp::body_label(b))).collect::<Vec<_>>().join(", ")
+            };
+            let r = r.clone().on_hover_text(format!("{} · {bodies}", e.camera_model));
+            if let Some(sn) = &serial {
+                r.context_menu(|ui| {
+                    let label = crate::i18n::tr_format!("Use as Default for This Body ({body})", body = dp::body_label(sn));
+                    if ui.button(label).clicked() {
+                        *action = Some(("profile.setBodyDefault", json!({"profile": id, "serial": sn})));
+                        ui.close();
+                    }
+                    if e.bodies.contains(sn) && ui.button(crate::i18n::tr("Remove from This Body")).clicked() {
+                        *action = Some(("profile.releaseFromBody", json!({"profile": id, "serial": sn})));
+                        ui.close();
+                    }
+                });
+            }
+        }
+        if r.clicked() {
+            pick.0 = Some(id.to_string());
+        }
+        if r.hovered() {
+            pick.1 = Some(id.to_string());
+        }
+    };
+    for (id, name) in &mine {
+        entry(ui, id, name, pick, action);
+    }
+    if others {
+        let mut last = String::new();
+        for (id, name, body) in &theirs {
+            if *body != last {
+                ui.label(egui::RichText::new(body.as_str()).font(t.semibold(11.0)).color(t.text_dim));
+                last = body.clone();
+            }
+            entry(ui, id, name, pick, action);
+        }
+    }
+    let hidden = dp::hidden_for_photo(&app.session, photo);
+    if hidden > 0 {
+        ui.separator();
+        let label = if others {
+            crate::i18n::tr("Hide Other Camera Profiles").to_string()
+        } else {
+            crate::i18n::tr_format!("Browse Other Camera Profiles ({n})", n = hidden)
+        };
+        let r = ui.button(label);
+        register(ui.ctx(), "profileMenu:otherBodies", r.rect);
+        if r.clicked() {
+            app.chart_profile.other_bodies = !others;
+        }
+    }
+}
+
+/// Beside the profile name: "Body default" for a body's own profile picked for it, or "Adopt for
+/// This Body" for a profile made on another body.
+fn body_hint(app: &mut LightcraftApp, ui: &mut egui::Ui, profile: &str) {
+    use lightcraft_engine::cmd::dcp_profiles as dp;
+    let t = Tokens::get(ui.ctx());
+    let Some(photo) = app.session.active() else { return };
+    let Some((relation, serial, is_default)) = dp::photo_profile_status(&app.session, photo) else { return };
+    match relation {
+        "body" if is_default => {
+            ui.label(egui::RichText::new(crate::i18n::tr("body default")).size(11.0).color(t.text_dim))
+                .on_hover_text(crate::i18n::tr_format!("This camera body's own profile ({body})", body = dp::body_label(&serial)));
+        }
+        "otherBody" => {
+            let label = crate::i18n::tr_format!("Adopt for This Body ({body})", body = dp::body_label(&serial));
+            let r = text_button(ui, "adoptForBody", &label, false);
+            if r.clicked() {
+                let make_default = app.chart_profile.adopt_as_default;
+                let _ = app.run("profile.adoptForBody", json!({"profile": profile, "photo": photo.0, "makeDefault": make_default}));
+            }
+            let r = ui.checkbox(&mut app.chart_profile.adopt_as_default, crate::i18n::tr("Also make it this body's default"));
+            register(ui.ctx(), "check:adoptAsDefault", r.rect);
+        }
+        _ => {}
     }
 }
 

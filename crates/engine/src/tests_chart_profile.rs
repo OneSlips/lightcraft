@@ -111,8 +111,13 @@ fn a_chart_photo_becomes_a_camera_profile_that_reproduces_the_chart() {
     let (before, after) = (chart_error(&plain), chart_error(&profiled));
     assert!(after < before * 0.5 && after < 3.0, "mean ΔE {before:.2} with the file's matrix, {after:.2} with the profile");
 
-    // a second profile of the same name doesn't overwrite the first
-    let r2 = s.execute("profile.createFromChart", &json!({"name": "Studio D55", "rendering": "natural", "apply": false})).unwrap();
+    // a second profile of the same name: refused by default, saved beside it with keepBoth
+    let e =
+        s.execute("profile.createFromChart", &json!({"name": "Studio D55", "rendering": "reproduction", "apply": false})).unwrap_err().to_string();
+    assert!(e.contains("Studio D55") && e.contains("replace") && e.contains("keepBoth"), "{e}");
+    let r2 = s
+        .execute("profile.createFromChart", &json!({"name": "Studio D55", "rendering": "reproduction", "apply": false, "onExists": "keepBoth"}))
+        .unwrap();
     assert_eq!(r2["name"], "Studio D55 2");
     assert_ne!(r2["id"], r["id"]);
     // and both survive reopening the library
@@ -189,7 +194,7 @@ fn two_lights_make_a_dual_illuminant_profile_that_beats_either_single_one() {
     assert_eq!((cals[0]["illuminant"].as_str(), cals[0]["shot"].as_u64()), (Some("A"), Some(1)));
     assert_eq!((cals[1]["illuminant"].as_str(), cals[1]["shot"].as_u64()), (Some("D65"), Some(0)));
     assert!(cals.iter().all(|c| c["meanDeltaE"].as_f64().unwrap() < 1.0), "{dual}");
-    assert_eq!(dual["name"], "A + D65");
+    assert!(dual["name"].as_str().unwrap().starts_with("LightCraft Chart Camera · StdA + D65 · Photo · "), "{}", dual["name"]);
     let dual = profile_of(&s, dual["id"].as_str().unwrap());
     assert_eq!(dual.color.illuminant, [17, 21]);
     let single = |s: &mut Session, p: &str| {

@@ -365,6 +365,9 @@ pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
             p.import_look = None;
         }
     }
+    // a raw from a camera body with a profile of its own develops with it (only while the profile
+    // is still the default one: a preset's choice stays)
+    crate::cmd::dcp_profiles::auto_pick(s, p);
 }
 
 pub fn is_supported(path: &Path) -> bool {

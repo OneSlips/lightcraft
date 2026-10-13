@@ -129,6 +129,8 @@ fn geometry(area: Option<&Cr3ImageArea>, maker: Option<&Ifd>, width: usize, heig
 #[derive(Default)]
 struct CameraLevels {
     wb: Option<[f32; 3]>,
+    /// `ColorTempAsShot`, the word after the as-shot levels.
+    kelvin: Option<f64>,
     black: Option<[f32; 4]>,
     white: Option<f32>,
 }
@@ -160,10 +162,12 @@ fn camera_levels(maker: Option<&Ifd>, bits: u8) -> CameraLevels {
         let blue = b / green;
         ((0.1..8.0).contains(&red) && (0.1..8.0).contains(&blue)).then_some([red, 1.0, blue])
     });
+    // (Canon's tables put ColorTempAsShot right after WB_RGGBLevelsAsShot)
+    let kelvin = wb.and(values.get(offsets.0 + 4)).map(|&k| k as f64).filter(|k| (1500.0..=15000.0).contains(k));
     let black = quadruple(offsets.1).filter(|v| v.iter().any(|&b| b > 0.0) && v.iter().all(|&b| b >= 0.0 && b < full * 0.5));
     let max_black = black.map(|v| v.into_iter().fold(0.0f32, f32::max)).unwrap_or(0.0);
     let white = offsets.2.and_then(|at| values.get(at)).map(|&v| v as f32).filter(|&v| v > max_black && v >= full * 0.5 && v <= full);
-    CameraLevels { wb, black, white }
+    CameraLevels { wb, kelvin, black, white }
 }
 
 fn black_at_active(levels: [f32; 4], pattern: u8, active: Rect) -> BlackLevel {
@@ -250,7 +254,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         active_area: active,
         crop,
         orientation: metadata.orientation.unwrap_or_default(),
-        color: ColorData::default(),
+        color: ColorData { as_shot_kelvin: levels.kelvin, ..ColorData::default() },
         wb_multipliers: levels.wb,
         linearized: false,
         opcodes: OpcodeLists::default(),
@@ -268,7 +272,7 @@ mod tests {
     fn maker(version: u16, wb_at: usize, black_at: usize, white_at: usize) -> Ifd {
         let mut words = vec![0u16; white_at + 1];
         words[0] = version;
-        words[wb_at..wb_at + 4].copy_from_slice(&[2048, 1024, 1024, 1536]);
+        words[wb_at..wb_at + 5].copy_from_slice(&[2048, 1024, 1024, 1536, 5200]);
         words[black_at..black_at + 4].copy_from_slice(&[100, 101, 102, 103]);
         words[white_at] = 15000;
         let b = IfdBuilder::new().with(COLOR_DATA, Value::Short(words));
@@ -525,6 +529,7 @@ mod tests {
             let m = maker(version, wb_at, black_at, white_at);
             let levels = camera_levels(Some(&m), 14);
             assert_eq!(levels.wb, Some([2.0, 1.0, 1.5]));
+            assert_eq!(levels.kelvin, Some(5200.0), "ColorTempAsShot follows the as-shot levels");
             assert_eq!(levels.black, Some([100.0, 101.0, 102.0, 103.0]));
             assert_eq!(levels.white, Some(15000.0));
         }

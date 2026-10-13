@@ -34,6 +34,16 @@ pub struct DcpEntry {
     pub camera_model: String,
     /// The `.dcp` file (the library's copy when there is a library on disk).
     pub file: String,
+    /// The camera bodies (serial numbers) the profile is for: the one it was measured on, and those
+    /// it was adopted for. Empty: every body of the model. Not in the file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bodies: Vec<String>,
+    /// The bodies whose default this profile was made explicitly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub body_defaults: Vec<String>,
+    /// (Old entries: the one body; moved into `bodies` when the library opens.)
+    #[serde(default, skip_serializing)]
+    pub serial: Option<String>,
 }
 
 /// Is `id` an imported camera profile id?
@@ -48,6 +58,9 @@ fn profiles_dir(s: &Session) -> Option<PathBuf> {
 /// Parse every imported camera profile again and hand them to the decoder (missing or damaged
 /// files are skipped: photos using them develop with the file's own colour).
 pub fn register_all(s: &mut Session) {
+    for e in s.dcp_profiles.iter_mut() {
+        migrate(e);
+    }
     let loaded: Vec<(String, Arc<DcpProfile>)> = s
         .dcp_profiles
         .iter()
@@ -125,25 +138,149 @@ pub fn import_files(s: &mut Session, paths: &[String]) -> Result<(Vec<Value>, Ve
             None => f.to_string_lossy().to_string(),
         };
         s.media.camera_profiles.insert(id.clone(), Arc::new(profile.clone()));
-        s.dcp_profiles.push(DcpEntry { id: id.clone(), name: name.clone(), camera_model: profile.camera_model.clone(), file });
+        s.dcp_profiles.push(DcpEntry {
+            id: id.clone(),
+            name: name.clone(),
+            camera_model: profile.camera_model.clone(),
+            file,
+            bodies: Vec::new(),
+            body_defaults: Vec::new(),
+            serial: None,
+        });
         imported.push(json!({"id": id, "name": name, "cameraModel": profile.camera_model}));
     }
     Ok((imported, failed))
 }
 
-/// File a camera profile made in LightCraft (`profile.createFromChart`) among the imported ones: its
-/// `.dcp` goes into the library's `Profiles/` folder (the temp folder without a library on disk). A
-/// profile with the same name and camera as one there is named "… 2", "… 3": an existing profile is
-/// never rewritten under photos that use it.
-pub fn add_profile(s: &mut Session, mut profile: DcpProfile, c: &str) -> Result<DcpEntry> {
-    let base = if profile.name.trim().is_empty() { "Camera Profile".to_string() } else { profile.name.trim().to_string() };
-    let mut name = base.clone();
-    let mut n = 2;
-    while s.dcp_profiles.iter().any(|p| p.name == name && p.camera_model == profile.camera_model) {
-        name = format!("{base} {n}");
-        n += 1;
+/// What to do when a profile with the same name for the same camera is already there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnExists {
+    /// Save nothing; say which profile is there (the UI then asks).
+    Ask,
+    /// Write over it in place: same id, so the photos using it follow the new version (undoable).
+    Replace,
+    /// Save beside it as "… 2", "… 3".
+    KeepBoth,
+    /// An error naming the existing profile and these choices.
+    Fail,
+}
+
+impl OnExists {
+    pub fn parse(v: Option<&str>) -> Option<OnExists> {
+        Some(match v.unwrap_or("fail") {
+            "ask" => OnExists::Ask,
+            "replace" => OnExists::Replace,
+            "keepBoth" => OnExists::KeepBoth,
+            "fail" => OnExists::Fail,
+            _ => return None,
+        })
     }
+}
+
+/// The profile named `name` for `camera_model`, if there is one.
+pub fn existing<'a>(s: &'a Session, name: &str, camera_model: &str) -> Option<&'a DcpEntry> {
+    s.dcp_profiles.iter().find(|p| p.name == name.trim() && p.camera_model == camera_model)
+}
+
+/// How many photos develop with profile `id`.
+pub fn used_by(s: &Session, id: &str) -> usize {
+    s.catalog.photos().filter(|p| p.develop.profile.id == id).count()
+}
+
+/// The first free "name 2", "name 3"… for `camera_model`.
+pub fn free_name(s: &Session, name: &str, camera_model: &str) -> String {
+    let base = name.trim();
+    (2..).map(|n| format!("{base} {n}")).find(|n| existing(s, n, camera_model).is_none()).unwrap_or_else(|| base.to_string())
+}
+
+/// What [`add_profile`] did.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Added {
+    /// A new profile.
+    New(DcpEntry),
+    /// An existing one written over in place (same id).
+    Replaced(DcpEntry),
+    /// Nothing saved: a profile of that name is there ([`OnExists::Ask`]); how many photos use it.
+    Exists(DcpEntry, usize),
+}
+
+/// A camera profile's file and entry as they were before a Replace: what its undo puts back.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProfileSwap {
+    pub entry: DcpEntry,
+    pub bytes: Vec<u8>,
+}
+
+/// Put `swap` in place (its file, its entry, the decoder's copy; the photos using it are decoded
+/// again) → the swap that undoes it.
+pub(crate) fn apply_swap(s: &mut Session, swap: &ProfileSwap) -> Result<ProfileSwap> {
+    const C: &str = "profile.undoReplace";
+    let profile = lightcraft_raw::dcp::parse_dcp(&swap.bytes).map_err(|e| bad(C, e.to_string()))?;
+    let i = s.dcp_profiles.iter().position(|p| p.id == swap.entry.id).ok_or_else(|| bad(C, format!("no camera profile `{}`", swap.entry.id)))?;
+    let now = s.dcp_profiles.get(i).cloned().ok_or_else(|| bad(C, "no such profile"))?;
+    let now_bytes = std::fs::read(&now.file).map_err(|e| bad(C, format!("{}: {e}", now.file)))?;
+    std::fs::write(&swap.entry.file, &swap.bytes).map_err(|e| bad(C, format!("{}: {e}", swap.entry.file)))?;
+    if let Some(slot) = s.dcp_profiles.get_mut(i) {
+        *slot = swap.entry.clone();
+    }
+    profile_changed(s, &swap.entry.id, profile);
+    s.save_prefs()?;
+    Ok(ProfileSwap { entry: now, bytes: now_bytes })
+}
+
+/// A camera profile's content changed under its id: the decoder gets the new one, and the photos
+/// using it are decoded and rendered again.
+fn profile_changed(s: &mut Session, id: &str, profile: DcpProfile) {
+    s.media.camera_profiles.insert(id.to_string(), Arc::new(profile));
+    *s.media.camera_profile_versions.entry(id.to_string()).or_insert(0) += 1;
+    let users: Vec<lightcraft_catalog::PhotoId> = s.catalog.photos().filter(|p| p.develop.profile.id == id).map(|p| p.id).collect();
+    for u in users {
+        s.media.forget(u);
+    }
+}
+
+/// File a camera profile made in LightCraft (`profile.createFromChart`) among the imported ones: its
+/// `.dcp` (named after the profile, file-safe: [`lightcraft_camprof::file_stem`]) goes into the
+/// library's `Profiles/` folder (the temp folder without a library on disk). `serial` is the camera
+/// body's serial number, kept with the entry (not in the file). A profile of the same name for the
+/// same camera is handled as `on_exists` says.
+pub fn add_profile(s: &mut Session, mut profile: DcpProfile, serial: Option<String>, on_exists: OnExists, c: &str) -> Result<Added> {
+    let name = if profile.name.trim().is_empty() { "Camera Profile".to_string() } else { profile.name.trim().to_string() };
     profile.name = name.clone();
+    if let Some(there) = existing(s, &name, &profile.camera_model).cloned() {
+        match on_exists {
+            OnExists::Ask => return Ok(Added::Exists(there.clone(), used_by(s, &there.id))),
+            OnExists::Fail => {
+                return Err(bad(
+                    c,
+                    format!(
+                        "a camera profile “{name}” for {} is already there ({}, used by {} photos): pass onExists: \"replace\" to write over it (the photos follow; undoable) or \"keepBoth\" to save this one as “{}”, or give another name",
+                        profile.camera_model,
+                        there.id,
+                        used_by(s, &there.id),
+                        free_name(s, &name, &profile.camera_model)
+                    ),
+                ));
+            }
+            OnExists::KeepBoth => profile.name = free_name(s, &name, &profile.camera_model),
+            OnExists::Replace => {
+                let bytes = lightcraft_raw::dcp::write_dcp(&profile).map_err(|e| bad(c, e.to_string()))?;
+                let old = std::fs::read(&there.file).map_err(|e| bad(c, format!("{}: {e}", there.file)))?;
+                std::fs::write(&there.file, &bytes).map_err(|e| bad(c, format!("{}: {e}", there.file)))?;
+                let mut entry = there.clone();
+                if let Some(sn) = serial.filter(|sn| !entry.bodies.is_empty() && !entry.bodies.contains(sn)) {
+                    entry.bodies.push(sn);
+                }
+                if let Some(slot) = s.dcp_profiles.iter_mut().find(|p| p.id == there.id) {
+                    *slot = entry.clone();
+                }
+                profile_changed(s, &there.id, profile);
+                s.commit_profile_swap(&format!("Replace Camera Profile “{name}”"), ProfileSwap { entry: there, bytes: old })?;
+                return Ok(Added::Replaced(entry));
+            }
+        }
+    }
+    let name = profile.name.clone();
     let bytes = lightcraft_raw::dcp::write_dcp(&profile).map_err(|e| bad(c, e.to_string()))?;
     let slug = crate::presets::slug(&format!("{}-{name}", profile.camera_model));
     let mut id = format!("{DCP_PREFIX}{slug}");
@@ -154,12 +291,28 @@ pub fn add_profile(s: &mut Session, mut profile: DcpProfile, c: &str) -> Result<
     }
     let dir = profiles_dir(s).unwrap_or_else(|| std::env::temp_dir().join("lightcraft-camera-profiles"));
     std::fs::create_dir_all(&dir).map_err(|e| bad(c, format!("{}: {e}", dir.display())))?;
-    let to = dir.join(format!("{}.dcp", id.trim_start_matches(DCP_PREFIX)));
+    // the file is named after the profile (renaming the profile later doesn't rename it)
+    let stem = lightcraft_camprof::file_stem(&name);
+    let taken = |p: &std::path::Path| p.exists() || s.dcp_profiles.iter().any(|x| std::path::Path::new(&x.file) == p);
+    let mut to = dir.join(format!("{stem}.dcp"));
+    let mut n = 2;
+    while taken(&to) && n < 10_000 {
+        to = dir.join(format!("{stem}_{n}.dcp"));
+        n += 1;
+    }
     std::fs::write(&to, &bytes).map_err(|e| bad(c, format!("{}: {e}", to.display())))?;
-    let entry = DcpEntry { id: id.clone(), name, camera_model: profile.camera_model.clone(), file: to.to_string_lossy().to_string() };
+    let entry = DcpEntry {
+        id: id.clone(),
+        name,
+        camera_model: profile.camera_model.clone(),
+        file: to.to_string_lossy().to_string(),
+        bodies: serial.into_iter().map(|s| norm_serial(&s)).filter(|s| !s.is_empty()).collect(),
+        body_defaults: Vec::new(),
+        serial: None,
+    };
     s.media.camera_profiles.insert(id, Arc::new(profile));
     s.dcp_profiles.push(entry.clone());
-    Ok(entry)
+    Ok(Added::New(entry))
 }
 
 /// The chart photograph a command works on: `path`, else the target photo's file.
@@ -193,8 +346,9 @@ fn find_chart(s: &mut Session, p: &Value) -> Result<Value> {
             "corners": crate::chart_profiling::normalized_corners(&prep.frame, &l.corners),
             "turns": l.turns,
             "score": l.score,
-            "estimatedCct": light.map(|e| e.0.round()),
-            "estimatedIlluminant": light.map(|e| e.1),
+            "estimatedCct": light.map(|e| e.cct.round()),
+            "estimatedIlluminant": light.map(|e| e.illuminant),
+            "estimatedFrom": light.map(|e| if e.from_chart { "chart" } else { "camera" }),
         })
     });
     Ok(json!({
@@ -224,10 +378,11 @@ fn file_name(path: &str) -> String {
 fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "profile.createFromChart";
     let (id, path) = chart_source(s, p, C)?;
-    let natural = match str_param(p, "rendering").unwrap_or("accurate") {
-        "accurate" => false,
-        "natural" => true,
-        other => return Err(bad(C, format!("unknown rendering `{other}` (accurate or natural)"))),
+    // (natural / hueSaturation and accurate / hueSaturationLightness: earlier names)
+    let natural = match str_param(p, "rendering").unwrap_or("photographic") {
+        "photographic" | "natural" | "hueSaturation" => true,
+        "reproduction" | "accurate" | "hueSaturationLightness" => false,
+        other => return Err(bad(C, format!("unknown rendering `{other}` (photographic or reproduction)"))),
     };
     let options = lightcraft_camprof::BuildOptions {
         illuminant: String::new(),
@@ -237,6 +392,9 @@ fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
         name: str_param(p, "name").unwrap_or("").to_string(),
     };
     let first = chart_request(p, C)?;
+    if OnExists::parse(str_param(p, "onExists")).is_none() {
+        return Err(bad(C, "`onExists` is ask, replace, keepBoth or fail"));
+    }
     // the second photo, under another light: named explicitly (never the selection)
     let second = match p.get("second").filter(|v| !v.is_null()) {
         None => None,
@@ -270,7 +428,9 @@ fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
         apply_to.extend(id);
         apply_to.extend(second.as_ref().and_then(|((i, _), _)| *i));
     }
-    let installed = crate::chart_profiling::install(s, &out.dcp, &apply_to)?;
+    let on_exists = OnExists::parse(str_param(p, "onExists")).ok_or_else(|| bad(C, "`onExists` is ask, replace, keepBoth or fail"))?;
+    let serial = prep_a.serial.clone();
+    let installed = crate::chart_profiling::install(s, &out.dcp, serial, on_exists, &apply_to)?;
     let preps: Vec<&crate::chart_profiling::Prepared> = std::iter::once(&prep_a).chain(prep_b.as_ref()).collect();
     let mut report = crate::chart_profiling::report_json(&preps, &out);
     if let (Some(o), Some(i)) = (report.as_object_mut(), installed.as_object()) {
@@ -308,7 +468,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Find Color Chart",
             [],
             None,
-            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score, estimatedCct, estimatedIlluminant}}: corners are 0–1 in the developed raw frame (default crop) as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
+            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score, estimatedCct, estimatedIlluminant, estimatedFrom: chart | camera}}: corners are 0–1 in the developed raw frame (default crop) as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
             always,
             find_chart
         ),
@@ -317,7 +477,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create Camera Profile from Color Chart",
             [],
             None,
-            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: auto (default: estimated from the chart's greys through the file's colour matrix, else D55) | A | D50 | D55 | D65 | D75, second?: {id? | path?, corners?, turns?, refine?, illuminant?} (a second chart photo under another light, e.g. tungsten: a dual-illuminant profile; the same light twice is refused), rendering?: accurate (default) | natural, correctionTable?: bool (default true), name?, cameraModel? (default: the file's), apply?: bool (default true: the chart photos develop with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap per light; CalibrationIlluminant1 the lower colour temperature) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, file, applied: [ids], dual, meanDeltaE, maxDeltaE, matrixMeanDeltaE, illuminant, corners, turns, patches, calibrations: [{shot, illuminant, cct, estimatedCct, estimatedIlluminant, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, corners, turns, notes, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}]}]} (ΔE = CIEDE2000)",
+            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: auto (default: from the chart's greys through the file's colour matrix, else the colour temperature the camera recorded; an error when neither exists) | A | D50 | D55 | D65 | D75, second?: {id? | path?, corners?, turns?, refine?, illuminant?} (a second chart photo under another light, e.g. tungsten: a dual-illuminant profile; the same light twice is refused), rendering?: photographic (default: colours match the chart, each keeps the lightness the camera recorded; for people and everyday photos; aliases natural, hueSaturation) | reproduction (everything matches the chart exactly, lightness included; for artwork, products and copy work; aliases accurate, hueSaturationLightness), correctionTable?: bool (default true), name? (default: '<camera> <body serial's last 2> · <light(s), StdA + D65> · <Photo or Repro> · <capture date>'), onExists?: fail (default: an error naming the profile there) | replace (write over it, same id: the photos using it follow; undoable) | keepBoth (save as '… 2') | ask (save nothing, answer {exists: {id, name, usedBy}, keepBothName}), cameraModel? (default: the file's), apply?: bool (default true: the chart photos develop with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap per light; CalibrationIlluminant1 the lower colour temperature) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, serial, file, applied: [ids], replaced, dual, meanDeltaE, maxDeltaE, matrixMeanDeltaE, illuminant, corners, turns, patches, calibrations: [{shot, illuminant, cct, estimatedCct, estimatedIlluminant, estimatedFrom, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, corners, turns, notes, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}]}]} (ΔE = CIEDE2000)",
             always,
             create_from_chart
         ),
@@ -340,4 +500,325 @@ pub fn specs() -> Vec<CommandSpec> {
             delete
         ),
     ]
+}
+
+// ------------------------------------------------------------------------------------------------
+// Camera bodies: a profile made on (or adopted for) a body's serial number is that body's default
+// ------------------------------------------------------------------------------------------------
+
+/// A serial number as it is compared: trimmed.
+fn norm_serial(s: &str) -> String {
+    s.trim().to_string()
+}
+
+/// `…71`: how the UI names a body (the serial's last two characters).
+pub fn body_label(serial: &str) -> String {
+    format!("…{}", crate::chart_profiling::body_suffix(Some(serial)).unwrap_or_default())
+}
+
+/// Whether profile `e` (made for a camera model named as raw converters name it) is for a photo
+/// whose camera is `camera` (`Make Model` as the file has it).
+pub fn same_camera(e: &DcpEntry, camera: &str) -> bool {
+    let model = e.camera_model.split_once(' ').map_or(e.camera_model.as_str(), |(_, m)| m).trim().to_lowercase();
+    let camera = camera.to_lowercase();
+    !model.is_empty() && (camera.contains(&model) || e.camera_model.to_lowercase() == camera.trim())
+}
+
+/// Old entries kept one `serial`; now a profile has a list of bodies.
+pub fn migrate(e: &mut DcpEntry) {
+    if let Some(s) = e.serial.take().map(|s| norm_serial(&s)).filter(|s| !s.is_empty())
+        && !e.bodies.contains(&s)
+    {
+        e.bodies.push(s);
+    }
+}
+
+/// The profile body `serial` of `camera` develops with by default: among the profiles listing the
+/// body, the one marked its default, else a dual-illuminant one, else the newest.
+pub fn body_default_for(s: &Session, camera: &str, serial: &str) -> Option<String> {
+    let serial = norm_serial(serial);
+    if serial.is_empty() {
+        return None;
+    }
+    let mine: Vec<&DcpEntry> = s.dcp_profiles.iter().filter(|e| e.bodies.contains(&serial) && same_camera(e, camera)).collect();
+    if let Some(e) = mine.iter().rev().find(|e| e.body_defaults.contains(&serial)) {
+        return Some(e.id.clone());
+    }
+    let dual = |e: &&&DcpEntry| s.media.camera_profiles.get(&e.id).is_some_and(|p| p.color.color_matrix[1].is_some());
+    mine.iter().rev().find(dual).or(mine.last()).map(|e| e.id.clone())
+}
+
+/// A photo's body serial: the catalog's, else read from its file (photos imported before serials
+/// were kept).
+pub fn photo_serial(s: &Session, id: lightcraft_catalog::PhotoId) -> Option<String> {
+    let p = s.catalog.photo(id)?;
+    if !p.meta.serial.trim().is_empty() {
+        return Some(norm_serial(&p.meta.serial));
+    }
+    let lightcraft_catalog::Source::File { path } = &p.source else { return None };
+    let bytes = std::fs::read(path).ok()?;
+    lightcraft_meta::extract(&bytes).serial_number.map(|s| norm_serial(&s)).filter(|s| !s.is_empty())
+}
+
+/// At import (and for `profile.applyBodyDefaults`): the photo's body default, when it still has the
+/// default profile. Nothing else is ever replaced.
+pub fn auto_pick(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
+    if p.meta.serial.trim().is_empty() || p.develop.profile.id != lightcraft_develop::Profile::default().id || !p.develops_raw() {
+        return false;
+    }
+    let Some(id) = body_default_for(s, &p.meta.camera, &p.meta.serial) else { return false };
+    let mut d = (*p.develop).clone();
+    d.profile.id = id;
+    p.develop = Arc::new(d);
+    true
+}
+
+/// How profile `e` relates to a photo of body `serial`: its own (`body`), model-wide (`model`), or
+/// made for other bodies (`otherBody`).
+pub fn relation(e: &DcpEntry, serial: Option<&str>) -> &'static str {
+    match serial.map(norm_serial).filter(|s| !s.is_empty()) {
+        _ if e.bodies.is_empty() => "model",
+        Some(s) if e.bodies.contains(&s) => "body",
+        Some(_) => "otherBody",
+        // a photo without a serial sees every profile of its model
+        None => "model",
+    }
+}
+
+/// Change entry `id` as one undoable step (the file is kept as it is).
+fn edit_entry(s: &mut Session, c: &str, id: &str, label: &str, f: impl FnOnce(&mut DcpEntry) -> Result<()>) -> Result<DcpEntry> {
+    let i = s.dcp_profiles.iter().position(|e| e.id == id).ok_or_else(|| bad(c, format!("no camera profile `{id}`")))?;
+    let before = s.dcp_profiles.get(i).cloned().ok_or_else(|| bad(c, "no such profile"))?;
+    let bytes = std::fs::read(&before.file).map_err(|e| bad(c, format!("{}: {e}", before.file)))?;
+    let mut after = before.clone();
+    f(&mut after)?;
+    if let Some(slot) = s.dcp_profiles.get_mut(i) {
+        *slot = after.clone();
+    }
+    s.save_prefs()?;
+    s.commit_profile_swap(label, ProfileSwap { entry: before, bytes })?;
+    Ok(after)
+}
+
+/// `{serial}` or `{photo}` (its body).
+fn serial_param(s: &Session, p: &Value, c: &str) -> Result<String> {
+    if let Some(v) = str_param(p, "serial").map(norm_serial).filter(|v| !v.is_empty()) {
+        return Ok(v);
+    }
+    let id = p
+        .get("photo")
+        .and_then(Value::as_u64)
+        .map(lightcraft_catalog::PhotoId)
+        .or_else(|| s.active())
+        .ok_or_else(|| bad(c, "give `serial` or `photo`"))?;
+    photo_serial(s, id).ok_or_else(|| bad(c, "the photo's file doesn't say which camera body took it (no serial number)"))
+}
+
+fn adopt(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.adoptForBody";
+    let id = str_param(p, "profile").ok_or_else(|| bad(C, "missing `profile`"))?.to_string();
+    let serial = serial_param(s, p, C)?;
+    let make_default = p.get("makeDefault").and_then(Value::as_bool).unwrap_or(false);
+    let label = format!("Adopt Camera Profile for Body {}", body_label(&serial));
+    let e = edit_entry(s, C, &id, &label, |e| {
+        if !e.bodies.contains(&serial) && !e.bodies.is_empty() {
+            e.bodies.push(serial.clone());
+        }
+        if make_default && !e.body_defaults.contains(&serial) {
+            e.body_defaults.push(serial.clone());
+        }
+        Ok(())
+    })?;
+    if make_default {
+        // one default per body
+        for other in s.dcp_profiles.iter_mut().filter(|o| o.id != id) {
+            other.body_defaults.retain(|b| b != &serial);
+        }
+        s.save_prefs()?;
+    }
+    Ok(json!({"profile": e.id, "bodies": e.bodies, "bodyDefaults": e.body_defaults}))
+}
+
+fn release(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.releaseFromBody";
+    let id = str_param(p, "profile").ok_or_else(|| bad(C, "missing `profile`"))?.to_string();
+    let serial = serial_param(s, p, C)?;
+    let label = format!("Remove Camera Profile from Body {}", body_label(&serial));
+    let e = edit_entry(s, C, &id, &label, |e| {
+        if !e.bodies.contains(&serial) {
+            return Err(bad(C, format!("the profile isn't for body {}", body_label(&serial))));
+        }
+        if e.bodies.len() == 1 {
+            return Err(bad(C, format!("{} is the only body this profile is for: delete the profile instead", body_label(&serial))));
+        }
+        e.bodies.retain(|b| b != &serial);
+        e.body_defaults.retain(|b| b != &serial);
+        Ok(())
+    })?;
+    Ok(json!({"profile": e.id, "bodies": e.bodies}))
+}
+
+fn set_body_default(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.setBodyDefault";
+    let id = str_param(p, "profile").ok_or_else(|| bad(C, "missing `profile`"))?.to_string();
+    let serial = serial_param(s, p, C)?;
+    let label = format!("Default Camera Profile for Body {}", body_label(&serial));
+    let others: Vec<(usize, DcpEntry)> =
+        s.dcp_profiles.iter().cloned().enumerate().filter(|(_, o)| o.id != id && o.body_defaults.contains(&serial)).collect();
+    let e = edit_entry(s, C, &id, &label, |e| {
+        if !e.bodies.is_empty() && !e.bodies.contains(&serial) {
+            e.bodies.push(serial.clone());
+        }
+        if !e.body_defaults.contains(&serial) {
+            e.body_defaults.push(serial.clone());
+        }
+        Ok(())
+    })?;
+    for (i, mut o) in others {
+        o.body_defaults.retain(|b| b != &serial);
+        if let Some(slot) = s.dcp_profiles.get_mut(i) {
+            *slot = o;
+        }
+    }
+    s.save_prefs()?;
+    Ok(json!({"profile": e.id, "bodies": e.bodies, "bodyDefaults": e.body_defaults}))
+}
+
+/// `profile.applyBodyDefaults`: photos still on the default profile take their body's profile.
+fn apply_body_defaults(s: &mut Session, p: &Value) -> Result<Value> {
+    let mut ids = s.targets(p);
+    if ids.is_empty() {
+        ids = s.visible_cloned();
+    }
+    let before = s.commits();
+    let (mut changed, mut skipped) = (Vec::new(), 0usize);
+    for id in ids {
+        let Some(mut photo) = s.catalog.photo(id).map(|p| (**p).clone()) else { continue };
+        if photo.meta.serial.trim().is_empty()
+            && let Some(serial) = photo_serial(s, id)
+        {
+            photo.meta.serial = serial;
+        }
+        if auto_pick(s, &mut photo) {
+            s.set_develop(id, (*photo.develop).clone(), "Profile")?;
+            changed.push(id.0);
+        } else {
+            skipped += 1;
+        }
+    }
+    let n = usize::try_from(s.commits().wrapping_sub(before)).unwrap_or(0);
+    s.merge_undo(n, "Apply Camera Body Profiles");
+    Ok(json!({"changed": changed, "skipped": skipped}))
+}
+
+/// Camera profiles for a photo (`profiles.forPhoto {id?}`): each with how it relates to the photo's
+/// body ([`relation`]), the photo's own and model-wide first.
+fn for_photo(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = p.get("id").and_then(Value::as_u64).map(lightcraft_catalog::PhotoId).or_else(|| s.active());
+    let serial = id.and_then(|i| photo_serial(s, i));
+    let camera = id.and_then(|i| s.catalog.photo(i)).map(|p| p.meta.camera.clone()).unwrap_or_default();
+    let default = serial.as_deref().and_then(|sn| body_default_for(s, &camera, sn));
+    let list: Vec<Value> = s
+        .dcp_profiles
+        .iter()
+        .filter(|e| camera.is_empty() || same_camera(e, &camera))
+        .map(|e| {
+            json!({"id": e.id, "name": e.name, "bodies": e.bodies, "relation": relation(e, serial.as_deref()),
+                "bodyDefault": default.as_deref() == Some(e.id.as_str())})
+        })
+        .collect();
+    Ok(json!({"serial": serial, "profiles": list}))
+}
+
+pub fn body_specs() -> Vec<CommandSpec> {
+    vec![
+        cmd!(
+            query "profiles.forPhoto",
+            "Camera Profiles for Photo",
+            [],
+            None,
+            "{id?} → {serial, profiles: [{id, name, bodies, relation: body | model | otherBody, bodyDefault}]}: the photo's camera's profiles and how each relates to the photo's body",
+            always,
+            for_photo
+        ),
+        cmd!(
+            "profile.applyBodyDefaults",
+            "Apply Camera Body Profiles",
+            ["Photo"],
+            None,
+            "{ids?} (default: the selection, else the photos in view) — photos still on the default profile take their camera body's own profile (made on or adopted for its serial number); one undo step → {changed: [ids], skipped}",
+            always,
+            apply_body_defaults
+        ),
+        cmd!(
+            "profile.adoptForBody",
+            "Adopt Camera Profile for Body",
+            [],
+            None,
+            "{profile: dcp:…, serial? | photo? (default: the active photo's body), makeDefault?: bool} — the profile becomes one of the body's own (no file is copied); undoable",
+            always,
+            adopt
+        ),
+        cmd!(
+            "profile.releaseFromBody",
+            "Remove Camera Profile from Body",
+            [],
+            None,
+            "{profile: dcp:…, serial? | photo?} — the profile is no longer the body's (refused for its last body); undoable",
+            always,
+            release
+        ),
+        cmd!(
+            "profile.setBodyDefault",
+            "Use Camera Profile as Body Default",
+            [],
+            None,
+            "{profile: dcp:…, serial? | photo?} — the profile is the body's default (over a dual-illuminant or newer one); undoable",
+            always,
+            set_body_default
+        ),
+    ]
+}
+
+/// A photo's camera profile seen from its body: `(relation, body serial, is the body's default)`
+/// when the photo develops with a camera profile made in or adopted by LightCraft and its file has
+/// a serial (from the catalog only: cheap enough for every frame).
+pub fn photo_profile_status(s: &Session, photo: lightcraft_catalog::PhotoId) -> Option<(&'static str, String, bool)> {
+    let p = s.catalog.photo(photo)?;
+    let serial = norm_serial(&p.meta.serial);
+    if serial.is_empty() {
+        return None;
+    }
+    let e = s.dcp_profiles.iter().find(|e| e.id == p.develop.profile.id)?;
+    let is_default = body_default_for(s, &p.meta.camera, &serial).as_deref() == Some(e.id.as_str());
+    Some((relation(e, Some(&serial)), serial, is_default))
+}
+
+/// The camera profiles a photo's profile menu lists (`(id, name, body label)`): its body's own and
+/// model-wide ones; with `others`, also those made for other bodies (with their bodies' labels).
+pub fn menu_for_photo(
+    s: &Session,
+    photo: Option<lightcraft_catalog::PhotoId>,
+    others: bool,
+) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
+    let serial = photo.and_then(|id| s.catalog.photo(id)).map(|p| norm_serial(&p.meta.serial)).filter(|v| !v.is_empty());
+    let (mut mine, mut theirs) = (Vec::new(), Vec::new());
+    for e in &s.dcp_profiles {
+        match relation(e, serial.as_deref()) {
+            "otherBody" => {
+                if others {
+                    let label = e.bodies.iter().map(|b| body_label(b)).collect::<Vec<_>>().join(", ");
+                    theirs.push((e.id.clone(), e.name.clone(), label));
+                }
+            }
+            _ => mine.push((e.id.clone(), e.name.clone())),
+        }
+    }
+    (mine, theirs)
+}
+
+/// How many camera profiles a photo's menu hides (made for other bodies).
+pub fn hidden_for_photo(s: &Session, photo: Option<lightcraft_catalog::PhotoId>) -> usize {
+    let serial = photo.and_then(|id| s.catalog.photo(id)).map(|p| norm_serial(&p.meta.serial)).filter(|v| !v.is_empty());
+    s.dcp_profiles.iter().filter(|e| relation(e, serial.as_deref()) == "otherBody").count()
 }

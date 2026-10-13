@@ -116,6 +116,10 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     if !model.is_empty() {
         ifd.set(t::MODEL, Value::Ascii(model.clone()));
     }
+    // the camera body (DNG `CameraSerialNumber`), so profiles made for a body still know it
+    if let Some(serial) = raw.metadata.serial_number.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        ifd.set(t::CAMERA_SERIAL_NUMBER, Value::Ascii(serial.to_string()));
+    }
     let unique = format!("{make} {model}").trim().to_string();
     ifd.set(t::UNIQUE_CAMERA_MODEL, Value::Ascii(if unique.is_empty() { "LightCraft".into() } else { unique }));
     ifd.set(t::ORIENTATION, Value::Short(vec![raw.orientation.to_exif()]));

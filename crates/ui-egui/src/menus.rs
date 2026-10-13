@@ -206,8 +206,15 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.cull", "Assisted Culling…", None, "Photo"),
     // the active raw photo of a ColorChecker (a second selected one: the second chart, other light)
     ("dialog.cameraProfile", "Create Camera Profile from Color Chart…", None, "Photo"),
-    // in the camera profile dialog: {path?} the second chart photo (asks when omitted)
+    // in the camera profile dialog: {id? | path?} the second chart photo (a library photo, or a file
+    // used for the profile only); without either, the picker of library photos opens
     ("cameraProfile.second", "Add Second Color Chart…", None, ""),
+    // {allCameras?, close?}: the picker of library photos for the second chart
+    ("cameraProfile.pickSecond", "Choose Second Color Chart", None, ""),
+    // {mode: fit | actual | in | out, slot?}: the chart view's zoom
+    ("cameraProfile.zoom", "Zoom Color Chart View", None, ""),
+    // {choice: replace | keepBoth | cancel, name?}: answer "a profile of that name is there"
+    ("cameraProfile.resolve", "Resolve Camera Profile Name", None, ""),
     ("cameraProfile.removeSecond", "Remove Second Color Chart", None, ""),
     // {slot?: 0 | 1}: look for the chart again / move the corners onto it / turn patch A01 a corner further
     ("cameraProfile.find", "Find Color Chart Again", None, ""),
@@ -1241,6 +1248,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "dialog.cameraProfile" => crate::chart_profile::open(app),
         "cameraProfile.second" => crate::chart_profile::choose_second(app, p),
         "cameraProfile.removeSecond" => crate::chart_profile::remove_second(app),
+        "cameraProfile.pickSecond" => crate::chart_profile::pick_second(app, p),
+        "cameraProfile.zoom" => crate::chart_profile::zoom(app, p),
+        "cameraProfile.resolve" => crate::chart_profile::resolve_clash(app, p),
         "cameraProfile.find" | "cameraProfile.align" | "cameraProfile.turn" => crate::chart_profile::adjust(app, id, p),
         "dialog.faceModel" => {
             let path = match p.get("path").and_then(Value::as_str) {

@@ -168,6 +168,9 @@ pub fn parse_shutter_seconds(s: &str) -> Option<f64> {
 #[serde(default)]
 pub struct Meta {
     pub camera: String,
+    /// The camera body's serial number (EXIF `BodySerialNumber`), when the file has it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub serial: String,
     pub lens: String,
     pub focal_mm: Option<f32>,
     pub aperture: Option<f32>,

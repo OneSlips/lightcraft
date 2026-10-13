@@ -122,8 +122,8 @@ pub fn orient(frame: &RawFrame, corners: &ChartCorners) -> u8 {
 pub struct BuildOptions {
     /// The light the chart was photographed under ([`ILLUMINANTS`]).
     pub illuminant: String,
-    /// Keep the camera's own lightness for each patch and take only hue and saturation from the
-    /// chart ("Natural"), instead of reproducing the chart exactly ("Accurate").
+    /// "Photographic" (the default): colours match the chart, each keeping the lightness the camera
+    /// recorded. Off: "Reproduction", everything matches the chart exactly, lightness included.
     pub natural: bool,
     /// Fit a correction table (a `HueSatMap`) on top of the matrix.
     pub correction_table: bool,
@@ -135,7 +135,7 @@ pub struct BuildOptions {
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { illuminant: "D55".into(), natural: false, correction_table: true, camera_model: String::new(), name: String::new() }
+        Self { illuminant: "D55".into(), natural: true, correction_table: true, camera_model: String::new(), name: String::new() }
     }
 }
 
@@ -213,7 +213,7 @@ pub fn build(frame: &RawFrame, located: &Located, opts: &BuildOptions) -> Result
     };
     let (prof, report) = profile::fit(&patch_set, &fit_options, &mut |_| {}).map_err(|e| CamprofError::Fit(e.to_string()))?;
     let name = if opts.name.trim().is_empty() {
-        format!("{illuminant}{}", if opts.natural { " Natural" } else { "" })
+        default_name(opts.camera_model.trim(), &illuminant, opts.natural, "")
     } else {
         opts.name.trim().to_string()
     };
@@ -255,6 +255,54 @@ pub fn build(frame: &RawFrame, located: &Located, opts: &BuildOptions) -> Result
         illuminant,
         neutral: [prof.white_balance[0], prof.white_balance[1], prof.white_balance[2]],
     })
+}
+
+/// How an illuminant is written in a profile's name (`StdA` for A, as DNG tools name it).
+pub fn light_code(illuminant: &str) -> &str {
+    if illuminant.trim().eq_ignore_ascii_case("A") { "StdA" } else { illuminant.trim() }
+}
+
+/// A profile's name when none is given: `<camera> · <light(s)> · <Photo | Repro> · <date>`, e.g.
+/// `Canon EOS R5 C 71 · D55 · Photo · 2026-10-13` or `Sony ILCE-9 · StdA + D65 · Repro · 2026-10-13`
+/// (Photo: Photographic, Repro: Reproduction; see [`BuildOptions::natural`]). `lights` is one
+/// illuminant or `low + high`; an empty `date` is left out.
+pub fn default_name(camera_model: &str, lights: &str, photographic: bool, date: &str) -> String {
+    let lights = lights.split('+').map(light_code).collect::<Vec<_>>().join(" + ");
+    let mut parts = vec![camera_model.trim().to_string(), lights, if photographic { "Photo".into() } else { "Repro".into() }];
+    if !date.trim().is_empty() {
+        parts.push(date.trim().to_string());
+    }
+    parts.retain(|p| !p.is_empty());
+    parts.join(" · ")
+}
+
+/// A file name stem for a profile named `name`: ASCII letters, digits and `-`, everything else
+/// (spaces, dots, `·`, `+`, characters some system forbids) one `_`; at most 100 characters; never
+/// empty or a name Windows reserves.
+pub fn file_stem(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() || c == '-' {
+            out.push(c);
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    let mut out: String = out.trim_matches(|c| c == '_' || c == '-').chars().take(100).collect();
+    while out.ends_with('_') || out.ends_with('-') {
+        out.pop();
+    }
+    if out.is_empty() {
+        out = "Camera_Profile".into();
+    }
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
+        "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    if RESERVED.contains(&out.to_ascii_uppercase().as_str()) {
+        out.insert(0, '_');
+    }
+    out
 }
 
 /// Correlated colour temperature (K) of a calibration illuminant ([`ILLUMINANTS`]).
@@ -330,7 +378,7 @@ pub fn build_dual(a: &Shot<'_>, b: &Shot<'_>, opts: &BuildOptions) -> Result<Bui
     }
     let (low, high) = if ta <= tb { (first, second) } else { (second, first) };
     let name = if opts.name.trim().is_empty() {
-        format!("{} + {}{}", low.illuminant, high.illuminant, if opts.natural { " Natural" } else { "" })
+        default_name(opts.camera_model.trim(), &format!("{} + {}", low.illuminant, high.illuminant), opts.natural, "")
     } else {
         opts.name.trim().to_string()
     };
@@ -387,5 +435,24 @@ mod tests {
         assert_eq!(super::camera_name("NIKON CORPORATION", "NIKON Z 8"), "NIKON Z 8");
         assert_eq!(super::camera_name("", " X100V "), "X100V");
         assert_eq!(super::camera_name("FUJIFILM", ""), "Fujifilm");
+    }
+
+    #[test]
+    fn default_names_and_file_names() {
+        use super::{default_name, file_stem};
+        let single = default_name("Canon EOS R5 C 71", "D55", true, "2026-10-13");
+        assert_eq!(single, "Canon EOS R5 C 71 · D55 · Photo · 2026-10-13");
+        assert_eq!(file_stem(&single), "Canon_EOS_R5_C_71_D55_Photo_2026-10-13");
+        let dual = default_name("Sony ILCE-9", "A + D65", false, "2026-10-13");
+        assert_eq!(dual, "Sony ILCE-9 · StdA + D65 · Repro · 2026-10-13");
+        assert_eq!(file_stem(&dual), "Sony_ILCE-9_StdA_D65_Repro_2026-10-13");
+        assert_eq!(default_name("X", "D65", true, ""), "X · D65 · Photo");
+        // awkward camera names
+        assert_eq!(file_stem("NIKON Z 8/9: \"pro\" <cam>*?|"), "NIKON_Z_8_9_pro_cam");
+        assert_eq!(file_stem("Leica M11 Monochrom · D55 · HSL"), "Leica_M11_Monochrom_D55_HSL");
+        assert_eq!(file_stem("Пентакс К-1 · D55"), "1_D55");
+        assert_eq!(file_stem("··· ..."), "Camera_Profile");
+        assert_eq!(file_stem("con"), "_con");
+        assert_eq!(file_stem(&"x".repeat(500)).len(), 100);
     }
 }

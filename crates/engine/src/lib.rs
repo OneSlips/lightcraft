@@ -118,6 +118,8 @@ pub struct UndoEntry {
     pub(crate) retry_inverse: Vec<Op>,
     /// Sidecars still separated from their photo after a failed move or rollback.
     pub(crate) retry_sidecars: Vec<rename::SidecarMove>,
+    /// A camera profile to put back as it was (Replace of a profile made from a chart).
+    pub(crate) profile: Option<cmd::dcp_profiles::ProfileSwap>,
 }
 
 /// The one photo an undo step changes, when it changes exactly one through its edit, rating, flag,
@@ -486,7 +488,14 @@ impl Session {
         let fwd = op.clone();
         let inv = self.apply_catalog(op)?;
         self.pending_log.push(fwd);
-        self.undo.push(UndoEntry { label: label.to_string(), op: inv, folder: None, retry_inverse: Vec::new(), retry_sidecars: Vec::new() });
+        self.undo.push(UndoEntry {
+            label: label.to_string(),
+            op: inv,
+            folder: None,
+            retry_inverse: Vec::new(),
+            retry_sidecars: Vec::new(),
+            profile: None,
+        });
         self.commits = self.commits.wrapping_add(1);
         if self.undo.len() > 1000 {
             let mut dropped = self.undo.remove(0);
@@ -510,6 +519,16 @@ impl Session {
             }
         }
         Ok(inv)
+    }
+
+    /// An undo step for a camera profile written over in place: undo puts `swap` (the file and entry
+    /// as they were) back, redo the new one.
+    pub(crate) fn commit_profile_swap(&mut self, label: &str, swap: cmd::dcp_profiles::ProfileSwap) -> Result<()> {
+        self.commit(label, Op::Batch { ops: Vec::new() })?;
+        if let Some(e) = self.undo.last_mut() {
+            e.profile = Some(swap);
+        }
+        Ok(())
     }
 
     /// [`Session::commit`] for an op that goes with a folder already renamed on disk; the undo
@@ -581,7 +600,7 @@ impl Session {
         }
         let Some(entries) = self.undo.get(self.undo.len() - n..) else { return };
         // Folder moves and partially applied file steps stay on their own.
-        if entries.iter().any(|e| e.folder.is_some() || !e.retry_inverse.is_empty() || !e.retry_sidecars.is_empty()) {
+        if entries.iter().any(|e| e.folder.is_some() || e.profile.is_some() || !e.retry_inverse.is_empty() || !e.retry_sidecars.is_empty()) {
             return;
         }
         let tail = self.undo.split_off(self.undo.len() - n);
@@ -592,6 +611,7 @@ impl Session {
             folder: None,
             retry_inverse: Vec::new(),
             retry_sidecars: Vec::new(),
+            profile: None,
         });
     }
 
@@ -607,6 +627,13 @@ impl Session {
 
     pub(crate) fn undo_step_with(&mut self, fs: &dyn rename::MoveFs) -> Result<String> {
         let mut e = self.undo.pop().ok_or_else(|| EngineError::Other("nothing to undo".into()))?;
+        let profile = match e.profile.as_ref().map(|swap| cmd::dcp_profiles::apply_swap(self, swap)).transpose() {
+            Ok(p) => p,
+            Err(err) => {
+                self.undo.push(e);
+                return Err(err);
+            }
+        };
         let redo = match self.apply_with_files(&mut e, fs) {
             Ok(r) => r,
             Err(err) => {
@@ -622,6 +649,7 @@ impl Session {
             folder: e.folder.as_ref().map(FolderMove::reversed),
             retry_inverse: Vec::new(),
             retry_sidecars: Vec::new(),
+            profile,
         });
         Ok(e.label)
     }
@@ -632,6 +660,13 @@ impl Session {
 
     pub(crate) fn redo_step_with(&mut self, fs: &dyn rename::MoveFs) -> Result<String> {
         let mut e = self.redo.pop().ok_or_else(|| EngineError::Other("nothing to redo".into()))?;
+        let profile = match e.profile.as_ref().map(|swap| cmd::dcp_profiles::apply_swap(self, swap)).transpose() {
+            Ok(p) => p,
+            Err(err) => {
+                self.redo.push(e);
+                return Err(err);
+            }
+        };
         let undo = match self.apply_with_files(&mut e, fs) {
             Ok(r) => r,
             Err(err) => {
@@ -647,6 +682,7 @@ impl Session {
             folder: e.folder.as_ref().map(FolderMove::reversed),
             retry_inverse: Vec::new(),
             retry_sidecars: Vec::new(),
+            profile,
         });
         Ok(e.label)
     }
@@ -990,6 +1026,8 @@ mod tests;
 mod tests_album_order;
 #[cfg(test)]
 mod tests_albums_local;
+#[cfg(test)]
+mod tests_body_profiles;
 #[cfg(test)]
 mod tests_chart_profile;
 #[cfg(test)]

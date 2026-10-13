@@ -109,6 +109,7 @@ pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
     let get = |tag: u16| raw.f64s(tag).or_else(|| ifd0.f64s(tag));
     let geti = |tag: u16| raw.u16(tag).or_else(|| ifd0.u16(tag));
     ColorData {
+        as_shot_kelvin: None,
         illuminant: [geti(t::CALIBRATION_ILLUMINANT_1).unwrap_or(0), geti(t::CALIBRATION_ILLUMINANT_2).unwrap_or(0)],
         color_matrix: [mat3(get(t::COLOR_MATRIX_1)), mat3(get(t::COLOR_MATRIX_2))],
         forward_matrix: [mat3(get(t::FORWARD_MATRIX_1)), mat3(get(t::FORWARD_MATRIX_2))],
