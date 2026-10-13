@@ -75,10 +75,25 @@ renders them. Editing the photo's look later does not recompute a mask (Update d
 
 ### Speed
 
-Measured on a Ryzen 9 5950X (16 cores) with an RTX 5070, Windows 11, release build, per photo
-(the model input is rendered at 1024 px on the long edge):
+Measured on a Ryzen 9 5950X (16 cores), Windows 11, release build, on the CPU, per photo (the
+model input is rendered at 1024 px on the long edge):
 
-SPEED_TABLE
+| Model | Load (cold) | Per photo (warm) | Notes |
+|---|---|---|---|
+| MediaPipe Selfie Multiclass | 8–18 ms | ~45 ms network, ~130 ms with resampling | TFLite interpreter (matches LiteRT to 2e-5 relative) |
+| MediaPipe Face Landmarker | 7 ms | ~4 ms per BlazeFace window, ~13 ms per FaceMesh face; ~330 ms for a photo (about ten windows) | faces in profile are not landmarked |
+| EoMT-S | ~75 ms | ~0.9–1 s | Sky, Landscape and People share one pass per photo |
+| SAM 2.1 Tiny | ~0.15 s | encode ~1.2 s, then ~45 ms per click | |
+| BiRefNet-portrait | ~1.5 s | ~9–12 s | Subject and Background share one pass; the slow one |
+
+The first mask of each kind on a photo pays the "per photo" time; further masks on the same photo
+reuse the result. GPU: `LIGHTCRAFT_AI_GPU=1` sends BiRefNet's large matrix products to the GPU
+(wgpu, DX12 / Vulkan / Metal). On an RTX 5070 it saved ~20 % of a warm pass but its first pass costs
+~20 s more (kernel compilation, uploading 885 MB of weights), so it is off by default. Measured
+alternatives (scratch evaluation, not shipped): burn on wgpu ran EoMT in 76 ms and SAM 2.1's encoder
+in 200 ms on the same GPU, but compiles each model into the app, pulls in C code through its
+dependencies and failed to import BiRefNet and SAM 2.1's decoder; tract (pure-Rust ONNX) can't read
+MediaPipe's files, needs an assembler at build time and was 2–7× slower here.
 
 ## The open models: download and licences
 
@@ -113,13 +128,15 @@ Agents and scripts: `ai.models.status`, `ai.models.download {"id": "subject"|"sc
 
 | Model | Code | Weights | Gated | Training data (task) | Sources checked |
 |---|---|---|---|---|---|
-| BiRefNet-portrait | MIT | MIT | no | P3M-10k (released under the MIT license) + TR-humans (Apache-2.0, synthetic) | <https://huggingface.co/ZhengPeng7/BiRefNet-portrait>, <https://github.com/ZhengPeng7/BiRefNet>, P3M-10k dataset agreement |
-| EoMT-S COCO panoptic | MIT | MIT; DINOv2 backbone Apache-2.0 | no | COCO panoptic (annotations CC BY 4.0) | <https://huggingface.co/tue-mps/coco_panoptic_eomt_small_640_2x>, <https://github.com/tue-mps/eomt> |
+| BiRefNet-portrait (pending) | MIT | MIT | no | P3M-10k (released under the MIT license) + TR-humans (Apache-2.0, synthetic); the starting checkpoint isn't stated | <https://huggingface.co/ZhengPeng7/BiRefNet-portrait>, <https://github.com/ZhengPeng7/BiRefNet>, P3M-10k dataset agreement |
+| EoMT-S COCO panoptic (pending) | MIT | MIT; DINOv2 backbone Apache-2.0 | no | COCO panoptic (annotations CC BY 4.0; images under Flickr's terms) | <https://huggingface.co/tue-mps/coco_panoptic_eomt_small_640_2x>, <https://github.com/tue-mps/eomt> |
 | SAM 2.1 Hiera-Tiny | Apache-2.0 | Apache-2.0 | no | SA-1B (Meta's) + SA-V (CC BY 4.0) | <https://github.com/facebookresearch/sam2>, <https://huggingface.co/facebook/sam2.1-hiera-tiny> |
-| Depth Anything V2 Small | Apache-2.0 | Apache-2.0 (Base / Large are CC-BY-NC: not used) | no | synthetic depth + unlabeled real images | <https://github.com/DepthAnything/Depth-Anything-V2>, <https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf> |
+| Depth Anything V2 Small (not offered) | Apache-2.0 | Apache-2.0 (Base / Large are CC-BY-NC) | no | teacher on Virtual KITTI 2 (non-commercial) among others; student on SA-1B pseudo-labels | <https://github.com/DepthAnything/Depth-Anything-V2>, <https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf> |
+| MediaPipe Selfie Multiclass | Apache-2.0 | Apache-2.0 (model card) | no | Google's own (card) | <https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf> |
+| MediaPipe Face Landmarker (BlazeFace, FaceMesh-V2) | Apache-2.0 | Apache-2.0 (model cards) | no | "consented images of people" captured by Google (cards) | <https://storage.googleapis.com/mediapipe-assets/MediaPipe%20BlazeFace%20Model%20Card%20(Short%20Range).pdf>, <https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf> |
 | SAM 3 | SAM License | SAM License | yes | — | see [Licence of SAM 3](#licence-of-sam-3) |
 
-Rejected, and why: the general BiRefNet / BiRefNet_lite / IS-Net checkpoints (trained on DIS5K,
+Rejected, and why: YuNet (its training set WIDER FACE is CC BY-NC-ND), the general BiRefNet / BiRefNet_lite / IS-Net checkpoints (trained on DIS5K,
 whose terms forbid commercial use), BiRefNet matting / HR (PPM-100, CC BY-NC-SA), RMBG 1.4 / 2.0
 (non-commercial, gated), ViTMatte (Adobe's Composition-1k), SegFormer (NVIDIA non-commercial
 licence), ADE20K-trained Mask2Former / OneFormer (ADE20K images are for non-commercial research),
@@ -127,10 +144,10 @@ Depth Anything V2 Base / Large (CC-BY-NC), every face-parsing network found (Cel
 Helen, iBugMask, LIP, FaceSynthetics, Sapiens: non-commercial). Backbones pre-trained on ImageNet
 are industry practice and not counted against a model.
 
-Not yet covered: **Describe** without SAM 3 (Florence-2-base, MIT, is the candidate) and **People
-parts** (eyes, lips, teeth, skin, hair, clothes): no openly licensed face-parsing model exists; the
-plan is Google's MediaPipe Selfie Multiclass (hair, face / body skin, clothes) and Face Landmarker
-(eyes, brows, lips, mouth as landmark polygons), both Apache-2.0.
+Not yet covered: **Describe** without SAM 3 (Florence-2-base, MIT, and OWLv2 / Grounding DINO are
+candidates, all with research-only data in their training sets: a maintainer decision) and
+**Depth Range**. No openly licensed face-parsing network exists (all are trained on
+non-commercial datasets), so face parts come from MediaPipe's landmarks.
 
 ## SAM 3 (optional)
 
@@ -281,6 +298,13 @@ Therefore:
 | `mask.addComponent` | `{op: add\|subtract\|intersect, kind: "object"\|"prompt", …}` | the same as a component |
 | `mask.objectPoint` | `{x, y, exclude?: bool, id?}` | one click on the selected mask's Object selection (≤ 64 clicks) |
 | `mask.refineDetail` | `{id?, component?}` | the zoomed-in detail pass → `{started}` |
+| `mask.add` | `{kind: "subject"\|"background"\|"sky", seg?}` | an automatic mask; `{pending}` in the app, `{approximate, model, note}` without its model |
+| `mask.add` | `{kind: "people", person?: 0..n, parts?: ["Hair", "Lips", …]}` | a People mask (none or "Entire Person": the whole person) |
+| `mask.add` | `{kind: "landscape", class: sky\|water\|vegetation\|mountains\|architecture\|naturalGround\|artificialGround}` | a Landscape mask |
+| `mask.recompute` | `{id?, component?}` | compute a mask's automatic selections again with their models (Update) → `{updated, pending}` |
+| `ai.models.status` | `{}` | every model: `{id, title, purpose, installed, dir, sizeBytes, license, licenseUrl, pageUrl, open, licencePending, mirrors, download}` |
+| `ai.models.download` | `{id, acknowledged: true}` | download one in the background (an activity row) → `{started, installed, downloading}` |
+| `ai.models.cancel` | `{id}` | stop it (it resumes next time) → `{cancelled}` |
 | `segment.prepare` | `{}` | load the model and analyze the active photo → `{busy}` |
 | `segment.model.status` | `{}` | `{available, installed, remote, dir, loaded, busy, analyzing, sizeBytes, license, licenseUrl, mirrors, download}` |
 | `segment.model.download` | `{acknowledged: true}` | start the download in the background → `{started}` |
