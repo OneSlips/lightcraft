@@ -158,7 +158,9 @@ fn developed(bytes: &[u8]) -> Result<Rgba8, String> {
     let (img, info) = crate::files::load_bytes(bytes, PREVIEW_EDGE)?;
     let mut settings = lightcraft_develop::DevelopSettings::for_raw(info.as_shot_temp, info.as_shot_tint);
     settings.optics.lens_profile = false;
-    let out = lightcraft_pipeline::render(&img, &info, &settings, &lightcraft_pipeline::RenderRequest::fit(PREVIEW_EDGE, PREVIEW_EDGE));
+    // (never larger than the photo itself)
+    let req = lightcraft_pipeline::RenderRequest::fit(PREVIEW_EDGE.min(img.width.max(1)), PREVIEW_EDGE.min(img.height.max(1)));
+    let out = lightcraft_pipeline::render(&img, &info, &settings, &req);
     Ok(out.image)
 }
 

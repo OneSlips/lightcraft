@@ -1,5 +1,29 @@
 # What's new in LightCraft
 
+## 2026-10-14
+
+### Camera profiles: per body, and looks on top
+- LightCraft's profiles (Color, Neutral, Vivid, the creative ones…) are now looks that sit on the photo's camera
+  profile instead of replacing it: pick Neutral on your own chart-made profile and you get Neutral on your camera's
+  measured colour. The profile row reads "Neutral · on Canon EOS R5 C 71 · D55 · Photo". Camera Profiles ▸
+  LightCraft Camera Color goes back to the built-in colour.
+- A profile made from a chart remembers the camera body it was shot with. Raws from that body imported later
+  develop with it on their own (never over a profile you picked); Photo ▸ Apply Camera Body Profiles does it for
+  photos already in the library. The Camera Profiles menu shows your body's profiles; Browse Other Camera Profiles
+  shows the ones made on your other bodies, and Adopt for This Body makes one of them this body's too.
+- Hovering a camera profile in the profile menu or browser now previews its colours.
+
+### Create Camera Profile from Color Chart, reworked
+- The chart photo shows developed and the right way up; zoom with the wheel, move with a right-drag or Space-drag,
+  double-click to fit, and a magnifier shows the corner you are placing.
+- The light is read from the photo (or what the camera recorded) and shown as "Auto (5400 K → D55)"; when the
+  camera doesn't record it, choose it.
+- Photographic (colours match the chart, lightness as the camera recorded it) and Reproduction (everything
+  matches the chart exactly) replace Accurate and Natural.
+- Profiles are named "Canon EOS R5 C 71 · D55 · Photo · 2026-10-13" (camera, body, light, mode, date) until you type
+  another name. Creating one again asks whether to replace it (photos using it follow) or keep both.
+- The second chart is picked from the library, photos with a chart first.
+
 ## 2026-10-13
 
 ### Camera profiles from a color chart

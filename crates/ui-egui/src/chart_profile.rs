@@ -841,6 +841,9 @@ pub fn pick_second(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> 
 /// The picker, in place of the chart view.
 fn picker(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDialog) {
     let t = crate::theme::Tokens::get(ui.ctx());
+    // (as wide as the chart view it stands in for: the dialog keeps its size)
+    ui.set_min_width(VIEW_SIZE.x);
+    ui.set_max_width(VIEW_SIZE.x);
     let Some(state) = app.chart_profile.picker.as_mut() else { return };
     let (mut all, mut search) = (state.all_cameras, std::mem::take(&mut state.search));
     ui.horizontal(|ui| {
@@ -883,53 +886,60 @@ fn picker(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDia
         ui.label(egui::RichText::new(crate::i18n::tr("Looking for color charts…")).color(t.text_dim));
     }
     let mut chosen = None;
-    egui::ScrollArea::vertical().id_salt("chartProfilePicker").max_height(VIEW_SIZE.y - 60.0).auto_shrink([false, false]).show(ui, |ui| {
-        ui.set_width(VIEW_SIZE.x);
-        if list.is_empty() {
-            ui.label(egui::RichText::new(crate::i18n::tr("No other raw photos from this camera in the library.")).color(t.text_dim));
-        }
-        egui::Grid::new("chartProfilePickerGrid").spacing(egui::vec2(8.0, 8.0)).show(ui, |ui| {
-            for (i, c) in list.iter().enumerate() {
-                let (rect, resp) = ui.allocate_exact_size(egui::vec2(150.0, 150.0), egui::Sense::click());
-                crate::widgets::register(ui.ctx(), format!("chartProfilePick:{}", c.id.0), rect);
-                crate::panels::grid::request_thumb(app, c.id, 256, 20);
-                let thumb = egui::Rect::from_min_size(rect.min, egui::vec2(150.0, 96.0));
-                ui.painter().rect_filled(thumb, 3.0, t.canvas);
-                if let Some(tex) = app.renderer.thumb(c.id) {
-                    let [w, h] = tex.size;
-                    let s = (thumb.width() / w.max(1) as f32).min(thumb.height() / h.max(1) as f32);
-                    let r = egui::Rect::from_center_size(thumb.center(), egui::vec2(w as f32 * s, h as f32 * s));
-                    ui.painter().image(tex.tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-                }
-                if resp.hovered() {
-                    ui.painter().rect_stroke(thumb, 3.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
-                }
-                let what = match c.scan {
-                    Some(Some(s)) => match s.light {
-                        Some(l) => crate::i18n::tr_format!("Chart · {cct:.0} K ({light})", cct = l.cct, light = l.illuminant),
-                        None => crate::i18n::tr("Chart · light unknown").to_string(),
-                    },
-                    Some(None) => crate::i18n::tr("No chart found").to_string(),
-                    None => String::new(),
-                };
-                let date = c.captured.as_deref().map(|d| d.get(..10).unwrap_or(d)).unwrap_or("");
-                let mut y = thumb.max.y + 4.0;
-                for (line, colour) in [(c.file_name.as_str(), t.text), (date, t.text_dim), (what.as_str(), t.text_dim)] {
-                    ui.painter().text(egui::pos2(rect.min.x, y), egui::Align2::LEFT_TOP, line, t.font(11.0), colour);
-                    y += 15.0;
-                }
-                if all && !c.camera.is_empty() {
-                    resp.clone().on_hover_text(c.camera.as_str());
-                }
-                if resp.clicked() {
-                    chosen = Some(c.clone());
-                }
-                if (i + 1) % 4 == 0 {
-                    ui.end_row();
-                }
+    egui::ScrollArea::vertical().id_salt("chartProfilePicker").max_height(VIEW_SIZE.y - 60.0).max_width(VIEW_SIZE.x).auto_shrink([true, false]).show(
+        ui,
+        |ui| {
+            if list.is_empty() {
+                ui.label(egui::RichText::new(crate::i18n::tr("No other raw photos from this camera in the library.")).color(t.text_dim));
             }
-        });
-    });
+            egui::Grid::new("chartProfilePickerGrid").spacing(egui::vec2(8.0, 8.0)).show(ui, |ui| {
+                for (i, c) in list.iter().enumerate() {
+                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(150.0, 150.0), egui::Sense::click());
+                    crate::widgets::register(ui.ctx(), format!("chartProfilePick:{}", c.id.0), rect);
+                    crate::panels::grid::request_thumb(app, c.id, 256, 20);
+                    let thumb = egui::Rect::from_min_size(rect.min, egui::vec2(150.0, 96.0));
+                    ui.painter().rect_filled(thumb, 3.0, t.canvas);
+                    if let Some(tex) = app.renderer.thumb(c.id) {
+                        let [w, h] = tex.size;
+                        let s = (thumb.width() / w.max(1) as f32).min(thumb.height() / h.max(1) as f32);
+                        let r = egui::Rect::from_center_size(thumb.center(), egui::vec2(w as f32 * s, h as f32 * s));
+                        ui.painter().image(
+                            tex.tex.id(),
+                            r,
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            egui::Color32::WHITE,
+                        );
+                    }
+                    if resp.hovered() {
+                        ui.painter().rect_stroke(thumb, 3.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+                    }
+                    let what = match c.scan {
+                        Some(Some(s)) => match s.light {
+                            Some(l) => crate::i18n::tr_format!("Chart · {cct:.0} K ({light})", cct = l.cct, light = l.illuminant),
+                            None => crate::i18n::tr("Chart · light unknown").to_string(),
+                        },
+                        Some(None) => crate::i18n::tr("No chart found").to_string(),
+                        None => String::new(),
+                    };
+                    let date = c.captured.as_deref().map(|d| d.get(..10).unwrap_or(d)).unwrap_or("");
+                    let mut y = thumb.max.y + 4.0;
+                    for (line, colour) in [(c.file_name.as_str(), t.text), (date, t.text_dim), (what.as_str(), t.text_dim)] {
+                        ui.painter().text(egui::pos2(rect.min.x, y), egui::Align2::LEFT_TOP, line, t.font(11.0), colour);
+                        y += 15.0;
+                    }
+                    if all && !c.camera.is_empty() {
+                        resp.clone().on_hover_text(c.camera.as_str());
+                    }
+                    if resp.clicked() {
+                        chosen = Some(c.clone());
+                    }
+                    if (i + 1) % 4 == 0 {
+                        ui.end_row();
+                    }
+                }
+            });
+        },
+    );
     if let Some(c) = chosen {
         opts.corners[1] = None;
         opts.slot = 1;

@@ -168,7 +168,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             let r = crate::widgets::dropdown(ui, "profile", &shown, t.font(15.0), t.text_label);
             egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
-            body_hint(app, ui, &d.profile.id);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::icon_button(
                     ui,
@@ -185,6 +184,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 }
             });
         });
+        // the camera body's own profile, or adopting another body's, on its own line
+        ui.horizontal_wrapped(|ui| body_hint(app, ui, d.calibration_id().unwrap_or("")));
     });
     if d.profile.id != "lc.color" {
         control(app, ui, &d, "profile.amount", true);

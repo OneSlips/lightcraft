@@ -56,7 +56,11 @@ fn two_chart_photos_make_a_dual_illuminant_profile_in_the_dialog() {
     assert_eq!(h.app.session.dcp_profiles.len(), 1);
     let pid = report["id"].as_str().unwrap();
     for id in &ids {
-        assert_eq!(h.app.session.catalog.photo(lightcraft_catalog::PhotoId(*id)).unwrap().develop.calibration_id(), Some(pid), "both chart photos use it");
+        assert_eq!(
+            h.app.session.catalog.photo(lightcraft_catalog::PhotoId(*id)).unwrap().develop.calibration_id(),
+            Some(pid),
+            "both chart photos use it"
+        );
     }
     h.settle(T);
     assert!(matches!(h.app.ui.dialog, Some(Dialog::ChartProfile { .. })), "the dialog stays to show the report");

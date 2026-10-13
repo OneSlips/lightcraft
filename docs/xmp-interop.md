@@ -145,7 +145,7 @@ application's renderer and is ignored: the photo keeps LightCraft's own process,
 
 Values pass through our control specs, so anything outside our slider ranges gets clamped.
 
-`crs:CameraProfile` is kept as the selected name in the photo's import warning and the active profile is left as it is: the name carries no rendering data and never selects an Adobe profile. Import reports such a profile as not applied (colours may differ from Lightroom), except Lightroom's default profiles (`Adobe Standard`, `Adobe Color`), which every sidecar names and which LightCraft's own starting look stands in for.
+`crs:CameraProfile` that names one of the user's own camera profiles (for the photo's camera, by `ProfileName`) sets that profile as the photo's camera calibration, its look left as it is. Any other name is kept as the selected name in the photo's import warning and the active profile is left as it is: the name carries no rendering data and never selects an Adobe profile. LightCraft's own sidecars keep the camera calibration (`camera_profile`) and the look (`profile`) separately in `lc:settings`; LightCraft never writes `crs:` develop fields, so it doesn't write `crs:CameraProfile` either (a lone `crs:` field would read as a Lightroom edit). Import reports such a profile as not applied (colours may differ from Lightroom), except Lightroom's default profiles (`Adobe Standard`, `Adobe Color`), which every sidecar names and which LightCraft's own starting look stands in for.
 
 **Not mapped:** camera profiles and looks (`CameraProfile`, `Look`; we have our own profile set), red eye, lens blur,
 process-version 2010 field names, and AI features. Local adjustments and spot removal are read as described below.
