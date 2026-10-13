@@ -1120,6 +1120,7 @@ impl QuickJob {
             loaded: None,
             quick: None,
             display: None,
+            frame: None,
         })
     }
 

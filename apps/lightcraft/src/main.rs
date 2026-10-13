@@ -1297,6 +1297,7 @@ mod tests {
             let mut app = App(
                 app,
                 PrefsWriter::default(),
+                None,
                 #[cfg(target_os = "macos")]
                 None,
             );
