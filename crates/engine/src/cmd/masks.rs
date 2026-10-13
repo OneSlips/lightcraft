@@ -156,7 +156,7 @@ fn resolve_ai(s: &mut Session, shape: &mut MaskShape, c: &str) -> Result<Later> 
 /// What to say when an automatic selection finds nothing.
 fn not_found(kind: &AutoKind) -> String {
     match kind {
-        AutoKind::People { person } if *person > 0 => format!("person {person} wasn't found in this photo"),
+        AutoKind::People { person, .. } if *person > 0 => format!("person {person} wasn't found in this photo"),
         AutoKind::People { .. } => "no people were found in this photo".into(),
         _ => "nothing of that kind was found in this photo".into(),
     }

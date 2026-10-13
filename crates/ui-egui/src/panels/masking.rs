@@ -149,7 +149,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                             let _ = app.run("mask.add", json!({"kind": kind}));
                         }
                         "landscape" => app.ui.landscape_pick = !app.ui.landscape_pick,
-                        k @ ("subject" | "sky" | "background" | "people") => add_auto(app, ui.ctx(), json!({"kind": k}), None),
+                        "people" => app.ui.people_pick = if app.ui.people_pick.is_some() { None } else { Some((0, Vec::new())) },
+                        k @ ("subject" | "sky" | "background") => add_auto(app, ui.ctx(), json!({"kind": k}), None),
                         k => {
                             let _ = app.run("mask.add", json!({"kind": k}));
                         }
@@ -161,6 +162,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         });
         describe_field(app, ui, true);
+        people_picker(app, ui);
         landscape_picker(app, ui);
         ai_notes(app, ui);
         let seg = &app.session.segmenter;
@@ -749,6 +751,56 @@ pub(crate) fn add_auto(app: &mut LightcraftApp, ctx: &egui::Context, params: ser
         }
         Err(e) => app.ai_error(ctx, e, None),
     }
+}
+
+/// The People parts Lightroom offers, in its order (the names are stored with the mask).
+const PEOPLE_PARTS: [&str; 10] =
+    ["Entire Person", "Face Skin", "Body Skin", "Hair", "Clothes", "Eyebrows", "Eye Sclera", "Iris and Pupil", "Lips", "Teeth"];
+
+/// The People picker, under the tiles once the People tile was clicked: everyone or one person
+/// (counted from the left), the parts, and Create Mask.
+fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    let Some((mut person, mut parts)) = app.ui.people_pick.clone() else { return };
+    ui.add_space(6.0);
+    ui.horizontal_wrapped(|ui| {
+        let r = ui.selectable_label(person == 0, crate::i18n::tr("Everyone"));
+        register(ui.ctx(), "maskPeople:person:0", r.rect);
+        if r.clicked() {
+            person = 0;
+        }
+        for n in 1..=4u32 {
+            let r = ui.selectable_label(person == n, crate::i18n::tr_format!("Person {n}", n = n));
+            register(ui.ctx(), format!("maskPeople:person:{n}"), r.rect);
+            if r.clicked() {
+                person = n;
+            }
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
+        for part in PEOPLE_PARTS {
+            let whole = part == "Entire Person";
+            let mut on = if whole { parts.is_empty() } else { parts.iter().any(|p| p == part) };
+            let r = ui.checkbox(&mut on, crate::i18n::tr(part));
+            register(ui.ctx(), format!("maskPeople:part:{part}"), r.rect);
+            if r.changed() {
+                if whole {
+                    parts.clear();
+                } else if on {
+                    parts.push(part.to_string());
+                } else {
+                    parts.retain(|p| p != part);
+                }
+            }
+        }
+    });
+    let create = ui.button(crate::i18n::tr("Create Mask"));
+    register(ui.ctx(), "maskPeople:create", create.rect);
+    if create.clicked() {
+        app.ui.people_pick = None;
+        add_auto(app, ui.ctx(), json!({"kind": "people", "person": person, "parts": parts}), None);
+        return;
+    }
+    app.ui.people_pick = Some((person, parts));
 }
 
 /// The Landscape classes, under the tiles once the Landscape tile was clicked.

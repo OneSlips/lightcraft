@@ -865,6 +865,10 @@ pub struct UiState {
     /// The Landscape classes are shown under the mask tiles (the Landscape tile was clicked).
     #[serde(skip)]
     pub landscape_pick: bool,
+    /// The People picker under the mask tiles (the People tile was clicked): who (0 everyone, n the
+    /// n-th person from the left) and which parts (Lightroom's names; none: the entire person).
+    #[serde(skip)]
+    pub people_pick: Option<(u32, Vec<String>)>,
     /// When to start the zoomed-in detail pass of an AI mask (app time) and which mask: set by
     /// each click or description, so the pass runs once the clicking stops.
     #[serde(skip)]
@@ -1451,6 +1455,7 @@ impl Default for UiState {
             ai_downloading: Vec::new(),
             ai_hint: None,
             landscape_pick: false,
+            people_pick: None,
             renaming_component: None,
             quit: false,
             dragging_photos: None,

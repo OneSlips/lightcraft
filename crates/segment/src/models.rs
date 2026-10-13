@@ -106,12 +106,15 @@ impl ModelInfo {
 }
 
 /// SAM 2.1 Hiera-Tiny, transformers format (`facebook/sam2.1-hiera-tiny`).
-pub const SAM2_FILES: &[FileSpec<'static>] = &[FileSpec {
-    name: "model.safetensors",
-    size: Some(155_908_064),
-    sha256: Some("48c14467e5cf9e51870511feb72c89688e82dd74523142c0538b663e193ac2a7"),
-    max: 155_908_064,
-}];
+pub const SAM2_FILES: &[FileSpec<'static>] = &[
+    FileSpec { name: "config.json", size: Some(5_695), sha256: Some("860aff9751b139d83a4ad7df1e5535416fded533e0ead02625edbefcb9953cce"), max: 5_695 },
+    FileSpec {
+        name: "model.safetensors",
+        size: Some(155_908_064),
+        sha256: Some("48c14467e5cf9e51870511feb72c89688e82dd74523142c0538b663e193ac2a7"),
+        max: 155_908_064,
+    },
+];
 
 /// BiRefNet-portrait (`ZhengPeng7/BiRefNet-portrait`, Swin-L, fp32).
 pub const SUBJECT_FILES: &[FileSpec<'static>] = &[FileSpec {

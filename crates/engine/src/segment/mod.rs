@@ -58,15 +58,49 @@ pub enum AutoKind {
     /// Everything but the subject (stored as the subject's segmentation inverted).
     Background,
     Sky,
-    /// Everyone (`person` 0), or the `person`-th person found, counted from the left.
+    /// Everyone (`person` 0), or the `person`-th person found, counted from the left (by their
+    /// face); `parts` as Lightroom names them (none: the entire person).
     People {
         person: u32,
+        parts: Vec<String>,
     },
     /// A landscape class: `sky`, `water`, `vegetation`, `mountains`, `architecture`,
     /// `naturalGround`, `artificialGround`.
     Landscape {
         class: String,
     },
+}
+
+/// The People parts a model can select (Lightroom's names, lower case): the whole person, and what
+/// MediaPipe's Selfie Multiclass (skin, hair, clothes) and Face Landmarker (the rest) find.
+pub const PEOPLE_PARTS: &[&str] = &[
+    "person",
+    "entire person",
+    "entireperson",
+    "face skin",
+    "faceskin",
+    "body skin",
+    "bodyskin",
+    "skin",
+    "hair",
+    "clothes",
+    "clothing",
+    "eyebrows",
+    "brows",
+    "eye sclera",
+    "sclera",
+    "eyes",
+    "iris and pupil",
+    "iris",
+    "lips",
+    "teeth",
+];
+
+/// The People parts that are face features (from landmarks).
+const FACE_PARTS: &[&str] = &["eyebrows", "brows", "eye sclera", "sclera", "eyes", "iris and pupil", "iris", "lips", "teeth"];
+
+fn whole_person(parts: &[String]) -> bool {
+    parts.iter().all(|p| matches!(p.to_ascii_lowercase().as_str(), "person" | "entire person" | "entireperson"))
 }
 
 /// The landscape classes [`AutoKind::Landscape`] knows.
@@ -81,9 +115,9 @@ impl AutoKind {
             MaskShape::Background { .. } => Some(AutoKind::Background),
             MaskShape::Sky { .. } => Some(AutoKind::Sky),
             MaskShape::People { person, parts, .. }
-                if parts.iter().all(|p| matches!(p.to_ascii_lowercase().as_str(), "person" | "entire person" | "entireperson")) =>
+                if parts.len() <= 16 && parts.iter().all(|p| PEOPLE_PARTS.contains(&p.to_ascii_lowercase().as_str())) =>
             {
-                Some(AutoKind::People { person: *person })
+                Some(AutoKind::People { person: *person, parts: parts.clone() })
             }
             MaskShape::Landscape { class, .. } if LANDSCAPE_CLASSES.contains(&class.as_str()) => Some(AutoKind::Landscape { class: class.clone() }),
             _ => None,
@@ -123,10 +157,12 @@ impl AutoKind {
         }
     }
 
-    /// The open model that computes it (its key in `ai.models.status`).
+    /// The open model that computes it best (its key in `ai.models.status`).
     pub fn preferred_model(&self) -> &'static str {
         match self {
             AutoKind::Subject | AutoKind::Background => "subject",
+            AutoKind::People { parts, .. } if parts.iter().any(|p| FACE_PARTS.contains(&p.to_ascii_lowercase().as_str())) => "face",
+            AutoKind::People { .. } => "people",
             _ => "scene",
         }
     }
@@ -143,13 +179,17 @@ impl AutoKind {
     }
 }
 
-/// Which model computes an automatic selection.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Which models compute an automatic selection, and where they are.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AutoModel {
-    /// BiRefNet-portrait.
-    Subject,
-    /// EoMT-S COCO panoptic.
-    Scene,
+    /// BiRefNet-portrait (Subject, Background).
+    Subject(PathBuf),
+    /// EoMT-S COCO panoptic (Sky, Landscape; People and Subject without the MediaPipe models).
+    Scene(PathBuf),
+    /// MediaPipe: Selfie Multiclass for the person, skin, hair and clothes; Face Landmarker for face
+    /// parts and for telling people apart. A subject without BiRefNet: the people, else EoMT's most
+    /// confident thing (`scene`).
+    People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf> },
 }
 
 /// One click of an Object selection (normalized image coordinates).
@@ -411,16 +451,46 @@ impl Segmenter {
         self.require_model("sam2").map(|d| (d, true))
     }
 
-    /// The model for an automatic selection: BiRefNet for Subject and Background, else EoMT (which
-    /// also finds people for a subject); an error naming the model to get when none is installed.
-    pub fn auto_model(&self, kind: &AutoKind) -> Result<(AutoModel, PathBuf), String> {
-        let preferred = kind.preferred_model();
-        match self.require_model(preferred) {
-            Ok(dir) => Ok((if preferred == "subject" { AutoModel::Subject } else { AutoModel::Scene }, dir)),
-            Err(e) => match preferred {
-                "subject" => self.require_model("scene").map(|d| (AutoModel::Scene, d)).map_err(|_| e),
-                _ => Err(e),
-            },
+    /// The models for an automatic selection; an error naming the model to get when they aren't
+    /// installed.
+    /// - Subject / Background: BiRefNet, else MediaPipe's people (EoMT for a non-person subject),
+    ///   else EoMT.
+    /// - Sky / Landscape: EoMT.
+    /// - People: MediaPipe (Selfie Multiclass for the body, Face Landmarker for face parts and to
+    ///   tell people apart); the entire person also from EoMT when MediaPipe isn't there.
+    pub fn auto_model(&self, kind: &AutoKind) -> Result<AutoModel, String> {
+        let ok = |key: &str| self.require_model(key).ok();
+        match kind {
+            AutoKind::Subject | AutoKind::Background => {
+                let e = match self.require_model("subject") {
+                    Ok(dir) => return Ok(AutoModel::Subject(dir)),
+                    Err(e) => e,
+                };
+                if let Some(people) = ok("people") {
+                    return Ok(AutoModel::People { people: Some(people), face: None, scene: ok("scene") });
+                }
+                ok("scene").map(AutoModel::Scene).ok_or(e)
+            }
+            AutoKind::Sky | AutoKind::Landscape { .. } => self.require_model("scene").map(AutoModel::Scene),
+            AutoKind::People { person, parts } => {
+                let face_parts = parts.iter().any(|p| FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
+                let body = parts.is_empty() || parts.iter().any(|p| !FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
+                let need_face = face_parts || *person > 0;
+                let people = if body { Some(self.require_model("people")) } else { None };
+                let face = if need_face { Some(self.require_model("face")) } else { None };
+                match (people, face) {
+                    (Some(Err(e)), _) | (_, Some(Err(e))) => {
+                        // the entire person (everyone, or one of them) EoMT can do on its own
+                        if whole_person(parts)
+                            && let Some(scene) = ok("scene")
+                        {
+                            return Ok(AutoModel::Scene(scene));
+                        }
+                        Err(e)
+                    }
+                    (people, face) => Ok(AutoModel::People { people: people.and_then(Result::ok), face: face.and_then(Result::ok), scene: None }),
+                }
+            }
         }
     }
 
@@ -558,7 +628,7 @@ impl Session {
     ) -> Result<worker::Job, String> {
         let (dir, sam2) = match &kind {
             worker::Kind::Text(_) | worker::Kind::Detail { prompt: Prompt::Text(_), .. } => (self.segmenter.model_dir()?, false),
-            worker::Kind::Auto { what, .. } => (self.segmenter.auto_model(what)?.1, false),
+            worker::Kind::Auto { .. } => (PathBuf::new(), false),
             _ => self.segmenter.object_model()?,
         };
         // SAM 3 sees 1008 px, the open models 1024
@@ -585,7 +655,17 @@ impl Session {
                 job
             }
         };
-        Ok(worker::Job { dir, sam2, key: if region.is_some() { 0 } else { key }, render: Some(render), missing, kind, tag, reply })
+        Ok(worker::Job {
+            dir,
+            sam2,
+            key: if region.is_some() { 0 } else { key },
+            render: Some(render),
+            missing,
+            kind,
+            tag,
+            reply,
+            activity: Some(self.activity.clone()),
+        })
     }
 
     /// Send a request and wait for its result (CLI, MCP, tests; or when not in background mode).
@@ -757,7 +837,7 @@ impl Session {
     /// Compute automatic selection `kind` on photo `id`, waiting for the model (CLI, MCP, tests).
     /// `Ok(None)`: nothing of the kind was found (e.g. no such person).
     pub fn segment_auto(&mut self, id: PhotoId, kind: &AutoKind) -> Result<Option<SegMask>, String> {
-        let (model, _) = self.segmenter.auto_model(kind)?;
+        let model = self.segmenter.auto_model(kind)?;
         #[cfg(feature = "sam")]
         {
             self.segment_wait(id, worker::Kind::Auto { what: kind.clone(), model }, None)
@@ -773,7 +853,7 @@ impl Session {
     /// [`Session::segment_poll`] stores it in the component (one undo step) if it is still that
     /// kind without a segmentation.
     pub(crate) fn segment_auto_later(&mut self, id: PhotoId, mask: u32, comp: usize, kind: AutoKind) -> Result<(), String> {
-        let (model, _) = self.segmenter.auto_model(&kind)?;
+        let model = self.segmenter.auto_model(&kind)?;
         #[cfg(feature = "sam")]
         {
             let tag = Tag::Auto { photo: id, mask, comp, kind: kind.clone() };
@@ -882,7 +962,10 @@ impl Session {
                     Ok(Some(seg)) => seg,
                     Ok(None) => {
                         return polled.messages.push(match &kind {
-                            AutoKind::People { person } if *person > 0 => format!("Person {person} wasn't found in this photo."),
+                            AutoKind::People { person, .. } if *person > 0 => format!("Person {person} wasn't found in this photo."),
+                            AutoKind::People { parts, .. } if !parts.is_empty() && !whole_person(parts) => {
+                                "None of those parts were found in this photo (face parts need a face that isn't in profile).".to_string()
+                            }
                             AutoKind::People { .. } => "No people were found in this photo.".to_string(),
                             _ => "Nothing of that kind was found in this photo.".to_string(),
                         });
