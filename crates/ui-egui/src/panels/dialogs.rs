@@ -252,6 +252,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::Export { .. } => "Export",
         Dialog::ContactSheet { .. } => "Contact Sheet PDF",
         Dialog::Merge { opts } => opts.title(),
+        Dialog::ChartProfile { .. } => "Create Camera Profile from Color Chart",
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
         Dialog::LightroomCatalog { .. } => "Lightroom Classic Catalog",
@@ -288,6 +289,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         .default_width(match dlg {
             Dialog::Import { .. } => crate::import::DIALOG_SIZE[0],
             Dialog::SmartRules { .. } => 680.0,
+            Dialog::ChartProfile { .. } => 900.0,
             Dialog::AllMetadata { .. } => 620.0,
             Dialog::FaceModel { .. } => 460.0,
             Dialog::LightroomCatalog { .. } => 440.0,
@@ -986,6 +988,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     });
                 }
                 Dialog::Merge { opts } => crate::merge::body(app, ui, opts),
+                Dialog::ChartProfile { opts } => crate::chart_profile::body(app, ui, opts),
                 Dialog::Import { opts } => crate::import::body(app, ui, opts),
                 Dialog::Settings { tab } => crate::panels::settings::body(app, ui, tab),
                 Dialog::SamModel { error, .. } => sam_model_body(app, ui, error.as_deref()),
@@ -1210,6 +1213,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 let cancel = match &dlg {
                     Dialog::SamModel { .. } if sam_running || sam_installed || sam_nowhere => "Close",
                     Dialog::SamModel { .. } => "Not Now",
+                    Dialog::ChartProfile { .. } => "Close",
                     _ => "Cancel",
                 };
                 if !informational {
@@ -1229,6 +1233,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                     Dialog::ContactSheet { .. } => "Choose PDF…",
                     Dialog::Merge { .. } => "Merge",
+                    Dialog::ChartProfile { .. } => "Create Profile",
                     Dialog::DenoiseModel { info, .. } if info["download"].is_string() => "Accept & Download",
                     Dialog::DenoiseModel { .. } => "Install",
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
@@ -1257,7 +1262,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         Dialog::DenoiseModel { accepted: false, .. } | Dialog::FaceModel { accepted: false, .. } | Dialog::SynchronizeFolder { counts: None, .. }
                     )
                         // smart-album rules that can't mean anything wait to be fixed
-                        && !matches!(&dlg, Dialog::SmartRules { id, rules, .. } if !rules.check_for(&app.session.catalog, id.map(lightcraft_catalog::AlbumId)).is_empty());
+                        && !matches!(&dlg, Dialog::SmartRules { id, rules, .. } if !rules.check_for(&app.session.catalog, id.map(lightcraft_catalog::AlbumId)).is_empty())
+                        // a camera profile waits for its chart photos and their corners
+                        && !matches!(&dlg, Dialog::ChartProfile { opts } if !crate::chart_profile::can_build(app, opts));
                 let r = (!ok.is_empty()).then(|| ui.add_enabled(can_confirm, egui::Button::new(crate::i18n::tr(ok))));
                 if let Some(r) = &r {
                     crate::widgets::register(ui.ctx(), "button:dialogOk", r.rect);
@@ -1414,7 +1421,9 @@ pub fn fmt_gap(v: f64) -> String {
 /// Whether a dialog stays open after its action succeeded (the SAM 3 dialog while the model
 /// downloads).
 pub fn keeps_open(app: &LightcraftApp, dlg: &Dialog) -> bool {
-    matches!(dlg, Dialog::SamModel { .. }) && !app.session.segmenter.installed()
+    (matches!(dlg, Dialog::SamModel { .. }) && !app.session.segmenter.installed())
+        // the profile is built in the background and its report shown here
+        || matches!(dlg, Dialog::ChartProfile { .. })
 }
 
 /// No SAM 3 model, no download running and nowhere to download it from: installing it by hand is
@@ -1699,6 +1708,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             app.run("app.export", p)
         }
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
+        Dialog::ChartProfile { opts } => crate::chart_profile::start_build(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
         // the catalog found: no file dialog; none: File ▸ Import Lightroom Catalog… asks for it

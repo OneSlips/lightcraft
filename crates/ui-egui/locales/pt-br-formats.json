@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "Perfil de câmera “{name}” criado",
+  "Reading {name}…": "Lendo {name}…",
+  "light measured {cct:.0} K, nearest {light}": "luz medida {cct:.0} K, mais próxima {light}",
+  "“{name}” added to Camera Profiles": "“{name}” adicionado a Perfis de câmera",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}: ΔE médio {mean:.2}, maior {max:.2} ({n} amostras)",
   " ({} in Recently Deleted)": " ({} em Excluídos recentemente)",
   " · {skipped} skipped (file exists)": " · {skipped} ignorada(s) (arquivo existente)",
   " · {} duplicate{} skipped": " · {} duplicada{:.0} ignorada",

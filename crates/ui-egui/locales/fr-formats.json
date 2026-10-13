@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "Profil d'appareil « {name} » créé",
+  "Reading {name}…": "Lecture de {name}…",
+  "light measured {cct:.0} K, nearest {light}": "lumière mesurée {cct:.0} K, la plus proche {light}",
+  "“{name}” added to Camera Profiles": "« {name} » ajouté aux profils d'appareil",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light} : ΔE moyen {mean:.2}, le plus grand {max:.2} ({n} plages)",
   " ({unsure} with several look-alike files: use Locate)": " ({unsure} avec plusieurs fichiers similaires : utilisez Localiser)",
   " ({} in Recently Deleted)": " ({} dans « Supprimés récemment »)",
   " · {:.0}% clipped": " · {:.0}% écrêté",

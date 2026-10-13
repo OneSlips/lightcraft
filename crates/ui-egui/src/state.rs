@@ -948,6 +948,10 @@ pub enum Dialog {
     Merge {
         opts: crate::merge::MergeDialog,
     },
+    /// Create Camera Profile from Color Chart; the photos and the report live in the app.
+    ChartProfile {
+        opts: crate::chart_profile::ChartProfileDialog,
+    },
     /// Settings (preferences): `tab` = general | import | performance | interface.
     Settings {
         tab: String,

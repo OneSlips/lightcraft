@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "カメラプロファイル「{name}」を作成しました",
+  "Reading {name}…": "{name} を読み込み中…",
+  "light measured {cct:.0} K, nearest {light}": "測定光源 {cct:.0} K、最も近いのは {light}",
+  "“{name}” added to Camera Profiles": "「{name}」をカメラプロファイルに追加しました",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}：平均 ΔE {mean:.2}、最大 {max:.2}（{n} パッチ）",
   " · {skipped} skipped (file exists)": "・{skipped}件は同名ファイルのためスキップ",
   " · {} duplicate{} skipped": "・重複{}枚をスキップ{:.0}",
   " · {} failed: {}": "・{}件失敗：{}",

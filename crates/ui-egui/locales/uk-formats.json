@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "Профіль камери «{name}» створено",
+  "Reading {name}…": "Читання {name}…",
+  "light measured {cct:.0} K, nearest {light}": "виміряне світло {cct:.0} K, найближче {light}",
+  "“{name}” added to Camera Profiles": "«{name}» додано до профілів камери",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}: середній ΔE {mean:.2}, найбільший {max:.2} ({n} полів)",
   " ({unsure} with several look-alike files: use Locate)": " ({unsure} із кількома схожими файлами: використайте «Знайти»)",
   " ({} in Recently Deleted)": " ({} у нещодавно видалених)",
   " · {:.0}% clipped": " · {:.0}% відсічено",

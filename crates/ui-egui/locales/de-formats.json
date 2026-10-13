@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "Kameraprofil „{name}“ erstellt",
+  "Reading {name}…": "{name} wird gelesen …",
+  "light measured {cct:.0} K, nearest {light}": "gemessenes Licht {cct:.0} K, am nächsten {light}",
+  "“{name}” added to Camera Profiles": "„{name}“ zu den Kameraprofilen hinzugefügt",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}: mittleres ΔE {mean:.2}, größtes {max:.2} ({n} Felder)",
   " ({unsure} with several look-alike files: use Locate)": " ({unsure} mit mehreren ähnlichen Dateien: „Fehlende Datei suchen“ verwenden)",
   " ({} in Recently Deleted)": " ({} in „Zuletzt gelöscht“)",
   " · {:.0}% clipped": " · {:.0}% beschnitten",

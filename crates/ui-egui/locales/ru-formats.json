@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "Профиль камеры «{name}» создан",
+  "Reading {name}…": "Чтение {name}…",
+  "light measured {cct:.0} K, nearest {light}": "измеренный свет {cct:.0} K, ближайший {light}",
+  "“{name}” added to Camera Profiles": "«{name}» добавлен в профили камеры",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}: средний ΔE {mean:.2}, наибольший {max:.2} ({n} полей)",
   " ({unsure} with several look-alike files: use Locate)": " (из них с несколькими похожими файлами: {unsure} — используйте «Найти фото»)",
   " ({} in Recently Deleted)": " ({} в «Недавно удалённых»)",
   " · {:.0}% clipped": " · обрезано: {:.0}%",

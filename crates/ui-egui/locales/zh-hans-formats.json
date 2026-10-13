@@ -1,4 +1,9 @@
 {
+  "Camera profile “{name}” created": "已创建相机配置文件“{name}”",
+  "Reading {name}…": "正在读取 {name}…",
+  "light measured {cct:.0} K, nearest {light}": "测得光源 {cct:.0} K，最接近 {light}",
+  "“{name}” added to Camera Profiles": "已将“{name}”添加到相机配置文件",
+  "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)": "{light}：平均 ΔE {mean:.2}，最大 {max:.2}（{n} 个色块）",
   " · {skipped} skipped (file exists)": " · 已跳过 {skipped} 个（文件已存在）",
   " · {} duplicate{} skipped": " · 已跳过 {0} 个重复项{1:.0}",
   " · {} failed: {}": " · {0} 个失败：{1}",

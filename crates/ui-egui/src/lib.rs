@@ -8,6 +8,7 @@
 
 pub mod album_picker;
 pub mod brush_live;
+pub mod chart_profile;
 pub mod control;
 pub mod credits;
 pub mod date_picker;
@@ -47,6 +48,8 @@ mod tests_album_picker;
 mod tests_appearance;
 #[cfg(test)]
 mod tests_before_after;
+#[cfg(test)]
+mod tests_chart_profile;
 #[cfg(test)]
 mod tests_compare;
 #[cfg(test)]
@@ -357,6 +360,8 @@ pub struct LightcraftApp {
     pub(crate) compare_hold_until: f64,
     /// Photo Merge dialog previews and background merges.
     pub merge: merge::MergeState,
+    /// Create Camera Profile from Color Chart: its photos and last report.
+    pub chart_profile: chart_profile::ChartProfileState,
     /// An import in progress (the import review dialog's batches).
     pub import: Option<import::ImportTask>,
     /// A folder scan in progress (feeds the import review).
@@ -457,6 +462,7 @@ impl LightcraftApp {
             compare_tiles: Default::default(),
             compare_hold_until: f64::NEG_INFINITY,
             merge: merge::MergeState::default(),
+            chart_profile: Default::default(),
             import: None,
             scan: None,
             sync: None,
