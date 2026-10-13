@@ -2357,5 +2357,8 @@
   "Select Object and Describe (optional; Meta's licence, gated)": "Seleccionar objeto y Describir (opcional; licencia de Meta, con acceso restringido)",
   "AI Model Status": "Estado de los modelos de IA",
   "Download AI Model": "Descargar modelo de IA",
-  "Cancel AI Model Download": "Cancelar la descarga del modelo de IA"
+  "Cancel AI Model Download": "Cancelar la descarga del modelo de IA",
+  "Test build: whether this model's training data allows LightCraft to offer it is pending a maintainer decision.": "Versión de prueba: si los datos de entrenamiento de este modelo permiten que LightCraft lo ofrezca está pendiente de una decisión de los mantenedores.",
+  "People: hair, face skin, body skin and clothes": "Personas: cabello, piel del rostro, piel del cuerpo y ropa",
+  "People: eyes, irises, eyebrows, lips and teeth": "Personas: ojos, iris, cejas, labios y dientes"
 }

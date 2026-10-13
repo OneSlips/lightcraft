@@ -310,12 +310,15 @@ impl lightcraft_segment::accel::Gemm for GpuGemm {
     }
 }
 
-/// Give the models the GPU for their large matrix products, unless `LIGHTCRAFT_AI_GPU=0`.
+/// Give the models the GPU for their large matrix products when `LIGHTCRAFT_AI_GPU=1`. Off by
+/// default: measured on an RTX 5070 (DX12) it saves ~20 % of a warm BiRefNet pass but its first
+/// pass costs ~20 s more (kernel compilation, uploading 885 MB of weights), and the rest of the
+/// pass (window attention, deformable sampling) stays on the CPU.
 fn install_gpu() {
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        let off = std::env::var("LIGHTCRAFT_AI_GPU").is_ok_and(|v| matches!(v.trim(), "0" | "off" | "false" | "no"));
-        if !off {
+        let on = std::env::var("LIGHTCRAFT_AI_GPU").is_ok_and(|v| matches!(v.trim(), "1" | "on" | "true" | "yes"));
+        if on {
             lightcraft_segment::accel::set_gemm(Some(Arc::new(GpuGemm)));
         }
     });

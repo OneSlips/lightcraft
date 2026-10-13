@@ -57,6 +57,7 @@ pub mod grid;
 #[cfg(not(target_arch = "wasm32"))]
 mod hiera;
 pub mod mask;
+pub mod mediapipe;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod models;
 #[cfg(not(target_arch = "wasm32"))]

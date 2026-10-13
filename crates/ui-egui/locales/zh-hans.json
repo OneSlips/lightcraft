@@ -2201,5 +2201,8 @@
   "Select Object and Describe (optional; Meta's licence, gated)": "选择对象和描述（可选；Meta 的许可证，访问受限）",
   "AI Model Status": "AI 模型状态",
   "Download AI Model": "下载 AI 模型",
-  "Cancel AI Model Download": "取消下载 AI 模型"
+  "Cancel AI Model Download": "取消下载 AI 模型",
+  "Test build: whether this model's training data allows LightCraft to offer it is pending a maintainer decision.": "测试版：此模型的训练数据是否允许 LightCraft 提供它，尚待维护者决定。",
+  "People: hair, face skin, body skin and clothes": "人物：头发、面部皮肤、身体皮肤和衣服",
+  "People: eyes, irises, eyebrows, lips and teeth": "人物：眼睛、虹膜、眉毛、嘴唇和牙齿"
 }
