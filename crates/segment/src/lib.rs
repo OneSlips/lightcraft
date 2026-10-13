@@ -29,9 +29,13 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod clip;
 #[cfg(not(target_arch = "wasm32"))]
+mod cpu;
+#[cfg(not(target_arch = "wasm32"))]
 mod detector;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fetch;
+#[cfg(not(target_arch = "wasm32"))]
+mod hiera;
 pub mod mask;
 #[cfg(not(target_arch = "wasm32"))]
 mod neck;
@@ -39,6 +43,8 @@ mod neck;
 mod nn;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod remote;
+#[cfg(not(target_arch = "wasm32"))]
+mod sam2;
 pub mod tokenizer;
 #[cfg(not(target_arch = "wasm32"))]
 mod tracker;
@@ -57,7 +63,9 @@ use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use tracker::Click;
+pub use sam2::{SAM2_INPUT, SAM2_MASK_SIDE, Sam2, Sam2Encoded, is_sam2_dir};
+#[cfg(not(target_arch = "wasm32"))]
+pub use tracker::{Click, Decoded};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -65,6 +73,10 @@ pub enum Error {
     Model(String),
     #[error("SAM 3 model files not found in {0} (expected model.safetensors, vocab.json, merges.txt)")]
     Missing(PathBuf),
+    #[error("SAM 2 model: {0}")]
+    Sam2(String),
+    #[error("SAM 2 model files not found in {0} (expected model.safetensors and config.json)")]
+    Sam2Missing(PathBuf),
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Candle(#[from] candle_core::Error),
