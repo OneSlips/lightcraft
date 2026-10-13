@@ -33,7 +33,6 @@ impl DcpProfile {
         let calibration = if self.color.illuminant == color.illuminant { color.camera_calibration } else { [None, None] };
         ColorData {
             illuminant: self.color.illuminant,
-            as_shot_kelvin: color.as_shot_kelvin,
             color_matrix: self.color.color_matrix,
             forward_matrix: self.color.forward_matrix,
             camera_calibration: calibration,

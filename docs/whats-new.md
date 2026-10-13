@@ -5,7 +5,7 @@
 ### Camera profiles: per body, and looks on top
 - LightCraft's profiles (Color, Neutral, Vivid, the creative ones…) are now looks that sit on the photo's camera
   profile instead of replacing it: pick Neutral on your own chart-made profile and you get Neutral on your camera's
-  measured colour. The profile row reads "Neutral · on Canon EOS R5 C 71 · D55 · Photo". Camera Profiles ▸
+  measured colour. The profile row reads "Neutral · on Canon EOS R5 C 71 · Daylight · Photo". Camera Profiles ▸
   LightCraft Camera Color goes back to the built-in colour.
 - A profile made from a chart remembers the camera body it was shot with. Raws from that body imported later
   develop with it on their own (never over a profile you picked); Photo ▸ Apply Camera Body Profiles does it for
@@ -16,11 +16,12 @@
 ### Create Camera Profile from Color Chart, reworked
 - The chart photo shows developed and the right way up; zoom with the wheel, move with a right-drag or Space-drag,
   double-click to fit, and a magnifier shows the corner you are placing.
-- The light is read from the photo (or what the camera recorded) and shown as "Auto (5400 K → D55)"; when the
-  camera doesn't record it, choose it.
+- Say which light the chart was photographed under: Daylight / Flash or Tungsten (the second chart starts on the
+  other). The chart's greys show what they measure, for information; the camera's own white balance is never taken
+  for the light.
 - Photographic (colours match the chart, lightness as the camera recorded it) and Reproduction (everything
   matches the chart exactly) replace Accurate and Natural.
-- Profiles are named "Canon EOS R5 C 71 · D55 · Photo · 2026-10-13" (camera, body, light, mode, date) until you type
+- Profiles are named "Canon EOS R5 C 71 · Daylight · Photo · 2026-10-13" (camera, body, light, mode, date; a camera that records no serial number is told apart by the first two characters of its file names, as in "Sony ILCE-9 SA") until you type
   another name. Creating one again asks whether to replace it (photos using it follow) or keep both.
 - The second chart is picked from the library, photos with a chart first.
 

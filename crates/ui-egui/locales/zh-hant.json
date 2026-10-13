@@ -1,4 +1,5 @@
 {
+  "Daylight / Flash": "日光 / 閃光燈",
   "LightCraft Camera Color": "LightCraft 相機顏色",
   "Set Camera Calibration": "設定相機校準",
   "Wheel: zoom · right-drag or Space-drag: move · double-click: fit": "滾輪：縮放 · 右鍵或空白鍵拖曳：移動 · 按兩下：符合",
@@ -8,7 +9,6 @@
   "Colors match the chart; each keeps the lightness the camera recorded. For people and everyday photos.": "顏色與色卡一致，各自保留相機記錄的明度。適合人像和日常相片。",
   "Everything matches the chart exactly, including how light or dark each color is. For artwork, products and color-critical copy work.": "一切與色卡完全一致，包括每種顏色的明暗。適合藝術品、產品和色彩要求高的翻拍。",
   "Change…": "變更…",
-  "This camera doesn't record its light: choose it.": "此相機不記錄光源：請選擇。",
   "Second chart: a photo of the same chart under another light": "第二張色卡：同一色卡在另一種光源下的相片",
   "Show all cameras": "顯示所有相機",
   "Browse for File…": "瀏覽檔案…",
@@ -55,9 +55,6 @@
   "A camera profile is being built": "正在建立相機描述檔",
   "The chart photo isn't read yet": "色卡相片尚未讀取完成",
   "The second chart photo isn't read yet": "第二張色卡相片尚未讀取完成",
-  "Tungsten (A)": "鎢絲燈 (A)",
-  "Daylight (D55)": "日光 (D55)",
-  "Shade (D75)": "陰影 (D75)",
   "No ColorChecker found: use Find Chart, or place the corners": "找不到 ColorChecker：請使用「尋找色卡」，或手動放置角點",
   "First Chart": "第一張色卡",
   "Second Chart": "第二張色卡",

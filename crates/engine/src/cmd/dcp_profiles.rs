@@ -376,7 +376,6 @@ fn find_chart(s: &mut Session, p: &Value) -> Result<Value> {
             "score": l.score,
             "estimatedCct": light.map(|e| e.cct.round()),
             "estimatedIlluminant": light.map(|e| e.illuminant),
-            "estimatedFrom": light.map(|e| if e.from_chart { "chart" } else { "camera" }),
         })
     });
     Ok(json!({
@@ -395,7 +394,7 @@ fn chart_request(p: &Value, c: &str) -> Result<crate::chart_profiling::Request> 
         corners: corners_param(p, c)?,
         turns: p.get("turns").and_then(Value::as_u64).map(|t| (t % 4) as u8),
         refine: p.get("refine").and_then(Value::as_bool).unwrap_or(false),
-        illuminant: str_param(p, "illuminant").unwrap_or("auto").to_string(),
+        illuminant: str_param(p, "illuminant").unwrap_or("").to_string(),
     })
 }
 
@@ -457,7 +456,7 @@ fn create_from_chart(s: &mut Session, p: &Value) -> Result<Value> {
         apply_to.extend(second.as_ref().and_then(|((i, _), _)| *i));
     }
     let on_exists = OnExists::parse(str_param(p, "onExists")).ok_or_else(|| bad(C, "`onExists` is ask, replace, keepBoth or fail"))?;
-    let serial = prep_a.serial.clone();
+    let serial = prep_a.body.clone();
     let installed = crate::chart_profiling::install(s, &out.dcp, serial, on_exists, &apply_to)?;
     let preps: Vec<&crate::chart_profiling::Prepared> = std::iter::once(&prep_a).chain(prep_b.as_ref()).collect();
     let mut report = crate::chart_profiling::report_json(&preps, &out);
@@ -496,7 +495,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Find Color Chart",
             [],
             None,
-            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score, estimatedCct, estimatedIlluminant, estimatedFrom: chart | camera}}: corners are 0–1 in the developed raw frame (default crop) as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
+            "{id? | path?: a raw photo of a ColorChecker 24} → {photo, path, cameraModel, frame: [w, h], found, chart: {corners: [[x, y] ×4], turns, score, estimatedCct, estimatedIlluminant}}: estimatedCct is what the chart's greys measure through the file's colour matrix, for information: corners are 0–1 in the developed raw frame (default crop) as the sensor recorded it (not rotated), top left, top right, bottom right, bottom left; turns 0–3 = patch A01 at the top left, top right, bottom right, bottom left",
             always,
             find_chart
         ),
@@ -505,7 +504,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create Camera Profile from Color Chart",
             [],
             None,
-            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: auto (default: from the chart's greys through the file's colour matrix, else the colour temperature the camera recorded; an error when neither exists) | A | D50 | D55 | D65 | D75, second?: {id? | path?, corners?, turns?, refine?, illuminant?} (a second chart photo under another light, e.g. tungsten: a dual-illuminant profile; the same light twice is refused), rendering?: photographic (default: colours match the chart, each keeps the lightness the camera recorded; for people and everyday photos; aliases natural, hueSaturation) | reproduction (everything matches the chart exactly, lightness included; for artwork, products and copy work; aliases accurate, hueSaturationLightness), correctionTable?: bool (default true), name? (default: '<camera> <body serial's last 2> · <light(s), StdA + D65> · <Photo or Repro> · <capture date>'), onExists?: fail (default: an error naming the profile there) | replace (write over it, same id: the photos using it follow; undoable) | keepBoth (save as '… 2') | ask (save nothing, answer {exists: {id, name, usedBy}, keepBothName}), cameraModel? (default: the file's), apply?: bool (default true: the chart photos develop with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap per light; CalibrationIlluminant1 the lower colour temperature) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, serial, file, applied: [ids], replaced, dual, meanDeltaE, maxDeltaE, matrixMeanDeltaE, illuminant, corners, turns, patches, calibrations: [{shot, illuminant, cct, estimatedCct, estimatedIlluminant, estimatedFrom, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, corners, turns, notes, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}]}]} (ΔE = CIEDE2000)",
+            "{id? | path?, corners?: [[x, y] ×4] (0–1, as profile.findChart; found automatically when omitted), turns?: 0–3 (decided by fitting when omitted), refine?: bool, illuminant?: D55 (default; also daylight, flash) | A (also tungsten, StdA) | D50 | D65 | D75 (auto: no longer supported, read as D55 with a warning), second?: {id? | path?, corners?, turns?, refine?, illuminant?} (a second chart photo under another light, e.g. tungsten: a dual-illuminant profile; the same light twice is refused), rendering?: photographic (default: colours match the chart, each keeps the lightness the camera recorded; for people and everyday photos; aliases natural, hueSaturation) | reproduction (everything matches the chart exactly, lightness included; for artwork, products and copy work; aliases accurate, hueSaturationLightness), correctionTable?: bool (default true), name? (default: '<camera> <body serial's last 2> · <light(s), StdA + D65> · <Photo or Repro> · <capture date>'), onExists?: fail (default: an error naming the profile there) | replace (write over it, same id: the photos using it follow; undoable) | keepBoth (save as '… 2') | ask (save nothing, answer {exists: {id, name, usedBy}, keepBothName}), cameraModel? (default: the file's), apply?: bool (default true: the chart photos develop with the new profile)} — fits a DNG camera profile (ColorMatrix, ForwardMatrix, HueSatMap per light; CalibrationIlluminant1 the lower colour temperature) to a ColorChecker 24 and adds it to the camera profiles (dcp: id) → {id, name, cameraModel, serial, file, applied: [ids], replaced, dual, meanDeltaE, maxDeltaE, matrixMeanDeltaE, illuminant, corners, turns, patches, calibrations: [{shot, illuminant, cct, estimatedCct, estimatedIlluminant, meanDeltaE, maxDeltaE, matrixMeanDeltaE, patchesUsed, corners, turns, notes, patches: [{id, name, deltaE, matrixDeltaE, referenceLab, renderedLab}]}]} (ΔE = CIEDE2000)",
             always,
             create_from_chart
         ),
@@ -539,9 +538,21 @@ fn norm_serial(s: &str) -> String {
     s.trim().to_string()
 }
 
-/// `…71`: how the UI names a body (the serial's last two characters).
-pub fn body_label(serial: &str) -> String {
-    format!("…{}", crate::chart_profiling::body_suffix(Some(serial)).unwrap_or_default())
+/// How the UI names a body: `…71` (a serial number's last two characters), or `SA` for a body known
+/// by its file names (`file:SA`, see [`crate::chart_profiling::body_key`]).
+pub fn body_label(body: &str) -> String {
+    let suffix = crate::chart_profiling::body_suffix(Some(body)).unwrap_or_default();
+    if is_file_body(body) { suffix } else { format!("…{suffix}") }
+}
+
+/// A body known by its file names, not a serial number.
+pub fn is_file_body(body: &str) -> bool {
+    body.trim().starts_with("file:")
+}
+
+/// A photo's body as the catalog knows it (its serial, else its file name's key): cheap.
+pub fn catalog_body(p: &lightcraft_catalog::Photo) -> Option<String> {
+    crate::chart_profiling::body_key(Some(&p.meta.serial), Some(&p.file_name))
 }
 
 /// Whether profile `e` (made for a camera model named as raw converters name it) is for a photo
@@ -576,26 +587,30 @@ pub fn body_default_for(s: &Session, camera: &str, serial: &str) -> Option<Strin
     mine.iter().rev().find(dual).or(mine.last()).map(|e| e.id.clone())
 }
 
-/// A photo's body serial: the catalog's, else read from its file (photos imported before serials
-/// were kept).
+/// A photo's body: its serial number (the catalog's, else read from its file, for photos imported
+/// before serials were kept), else its file name's key ([`crate::chart_profiling::body_key`]).
 pub fn photo_serial(s: &Session, id: lightcraft_catalog::PhotoId) -> Option<String> {
     let p = s.catalog.photo(id)?;
     if !p.meta.serial.trim().is_empty() {
         return Some(norm_serial(&p.meta.serial));
     }
-    let lightcraft_catalog::Source::File { path } = &p.source else { return None };
-    let bytes = std::fs::read(path).ok()?;
-    lightcraft_meta::extract(&bytes).serial_number.map(|s| norm_serial(&s)).filter(|s| !s.is_empty())
+    let from_file = match &p.source {
+        lightcraft_catalog::Source::File { path } => std::fs::read(path).ok().and_then(|b| lightcraft_meta::extract(&b).serial_number),
+        _ => None,
+    };
+    crate::chart_profiling::body_key(from_file.as_deref(), Some(&p.file_name))
 }
 
 /// At import (and for `profile.applyBodyDefaults`): the photo's body default, when it still has the
 /// default profile. Nothing else is ever replaced.
 pub fn auto_pick(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
     // (only a calibration never chosen: LightCraft's own colour chosen explicitly stays)
-    if p.meta.serial.trim().is_empty() || !p.develop.camera_profile.is_empty() || p.develop.look_is_camera_profile() || !p.develops_raw() {
+    if !p.develop.camera_profile.is_empty() || p.develop.look_is_camera_profile() || !p.develops_raw() {
         return false;
     }
-    let Some(id) = body_default_for(s, &p.meta.camera, &p.meta.serial) else { return false };
+    // (its serial number when the file has one, else its file name's key: a real serial wins)
+    let Some(body) = catalog_body(p) else { return false };
+    let Some(id) = body_default_for(s, &p.meta.camera, &body) else { return false };
     let mut d = (*p.develop).clone();
     choose(s, &mut d, &id);
     p.develop = Arc::new(d);
@@ -640,7 +655,8 @@ fn serial_param(s: &Session, p: &Value, c: &str) -> Result<String> {
         .map(lightcraft_catalog::PhotoId)
         .or_else(|| s.active())
         .ok_or_else(|| bad(c, "give `serial` or `photo`"))?;
-    photo_serial(s, id).ok_or_else(|| bad(c, "the photo's file doesn't say which camera body took it (no serial number)"))
+    photo_serial(s, id)
+        .ok_or_else(|| bad(c, "the photo's file doesn't say which camera body took it (no serial number, and its file name gives no body)"))
 }
 
 fn adopt(s: &mut Session, p: &Value) -> Result<Value> {
@@ -724,7 +740,7 @@ fn apply_body_defaults(s: &mut Session, p: &Value) -> Result<Value> {
     for id in ids {
         let Some(mut photo) = s.catalog.photo(id).map(|p| (**p).clone()) else { continue };
         if photo.meta.serial.trim().is_empty()
-            && let Some(serial) = photo_serial(s, id)
+            && let Some(serial) = photo_serial(s, id).filter(|b| !is_file_body(b))
         {
             photo.meta.serial = serial;
         }
@@ -814,10 +830,7 @@ pub fn body_specs() -> Vec<CommandSpec> {
 /// a serial (from the catalog only: cheap enough for every frame).
 pub fn photo_profile_status(s: &Session, photo: lightcraft_catalog::PhotoId) -> Option<(&'static str, String, bool)> {
     let p = s.catalog.photo(photo)?;
-    let serial = norm_serial(&p.meta.serial);
-    if serial.is_empty() {
-        return None;
-    }
+    let serial = catalog_body(p)?;
     let e = s.dcp_profiles.iter().find(|e| Some(e.id.as_str()) == p.develop.calibration_id())?;
     let is_default = body_default_for(s, &p.meta.camera, &serial).as_deref() == Some(e.id.as_str());
     Some((relation(e, Some(&serial)), serial, is_default))
@@ -830,7 +843,7 @@ pub fn menu_for_photo(
     photo: Option<lightcraft_catalog::PhotoId>,
     others: bool,
 ) -> (Vec<(String, String)>, Vec<(String, String, String)>) {
-    let serial = photo.and_then(|id| s.catalog.photo(id)).map(|p| norm_serial(&p.meta.serial)).filter(|v| !v.is_empty());
+    let serial = photo.and_then(|id| s.catalog.photo(id)).and_then(|p| catalog_body(p));
     let (mut mine, mut theirs) = (Vec::new(), Vec::new());
     for e in &s.dcp_profiles {
         match relation(e, serial.as_deref()) {
@@ -848,7 +861,7 @@ pub fn menu_for_photo(
 
 /// How many camera profiles a photo's menu hides (made for other bodies).
 pub fn hidden_for_photo(s: &Session, photo: Option<lightcraft_catalog::PhotoId>) -> usize {
-    let serial = photo.and_then(|id| s.catalog.photo(id)).map(|p| norm_serial(&p.meta.serial)).filter(|v| !v.is_empty());
+    let serial = photo.and_then(|id| s.catalog.photo(id)).and_then(|p| catalog_body(p));
     s.dcp_profiles.iter().filter(|e| relation(e, serial.as_deref()) == "otherBody").count()
 }
 

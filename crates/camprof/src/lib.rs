@@ -257,13 +257,18 @@ pub fn build(frame: &RawFrame, located: &Located, opts: &BuildOptions) -> Result
     })
 }
 
-/// How an illuminant is written in a profile's name (`StdA` for A, as DNG tools name it).
+/// How an illuminant reads in a profile's name and to people: D55 is "Daylight" (daylight and
+/// flash), A (StdA) is "Tungsten"; any other keeps its standard name.
 pub fn light_code(illuminant: &str) -> &str {
-    if illuminant.trim().eq_ignore_ascii_case("A") { "StdA" } else { illuminant.trim() }
+    match illuminant.trim().to_ascii_uppercase().as_str() {
+        "A" | "STDA" => "Tungsten",
+        "D55" => "Daylight",
+        _ => illuminant.trim(),
+    }
 }
 
 /// A profile's name when none is given: `<camera> · <light(s)> · <Photo | Repro> · <date>`, e.g.
-/// `Canon EOS R5 C 71 · D55 · Photo · 2026-10-13` or `Sony ILCE-9 · StdA + D65 · Repro · 2026-10-13`
+/// `Canon EOS R5 C 71 · Daylight · Photo · 2026-10-13` or `Sony ILCE-9 SA · Tungsten + Daylight · Repro · 2026-10-13`
 /// (Photo: Photographic, Repro: Reproduction; see [`BuildOptions::natural`]). `lights` is one
 /// illuminant or `low + high`; an empty `date` is left out.
 pub fn default_name(camera_model: &str, lights: &str, photographic: bool, date: &str) -> String {
@@ -361,9 +366,9 @@ pub fn build_dual(a: &Shot<'_>, b: &Shot<'_>, opts: &BuildOptions) -> Result<Bui
     let apart = (1.0e6 / ta - 1.0e6 / tb).abs();
     if apart < MIN_MIRED_APART {
         return Err(CamprofError::Options(format!(
-            "the two chart photos are under effectively the same light ({} and {}, {apart:.0} mired apart; at least {MIN_MIRED_APART:.0} needed): take the second one under another light, such as tungsten (A)",
-            a.illuminant.trim(),
-            b.illuminant.trim()
+            "the two chart photos are under effectively the same light ({} and {}, {apart:.0} mired apart; at least {MIN_MIRED_APART:.0} needed): set the second to another light, such as Tungsten (A)",
+            light_code(a.illuminant),
+            light_code(b.illuminant)
         )));
     }
     let one = |shot: &Shot<'_>| build(shot.frame, &shot.located, &BuildOptions { illuminant: shot.illuminant.to_string(), ..opts.clone() });
@@ -441,11 +446,12 @@ mod tests {
     fn default_names_and_file_names() {
         use super::{default_name, file_stem};
         let single = default_name("Canon EOS R5 C 71", "D55", true, "2026-10-13");
-        assert_eq!(single, "Canon EOS R5 C 71 · D55 · Photo · 2026-10-13");
-        assert_eq!(file_stem(&single), "Canon_EOS_R5_C_71_D55_Photo_2026-10-13");
-        let dual = default_name("Sony ILCE-9", "A + D65", false, "2026-10-13");
-        assert_eq!(dual, "Sony ILCE-9 · StdA + D65 · Repro · 2026-10-13");
-        assert_eq!(file_stem(&dual), "Sony_ILCE-9_StdA_D65_Repro_2026-10-13");
+        assert_eq!(single, "Canon EOS R5 C 71 · Daylight · Photo · 2026-10-13");
+        assert_eq!(file_stem(&single), "Canon_EOS_R5_C_71_Daylight_Photo_2026-10-13");
+        let dual = default_name("Sony ILCE-9 SA", "A + D55", false, "2026-10-13");
+        assert_eq!(dual, "Sony ILCE-9 SA · Tungsten + Daylight · Repro · 2026-10-13");
+        assert_eq!(file_stem(&dual), "Sony_ILCE-9_SA_Tungsten_Daylight_Repro_2026-10-13");
+        assert_eq!(default_name("X", "A + D65", true, ""), "X · Tungsten + D65 · Photo");
         assert_eq!(default_name("X", "D65", true, ""), "X · D65 · Photo");
         // awkward camera names
         assert_eq!(file_stem("NIKON Z 8/9: \"pro\" <cam>*?|"), "NIKON_Z_8_9_pro_cam");

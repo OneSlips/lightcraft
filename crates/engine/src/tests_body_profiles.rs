@@ -69,7 +69,7 @@ fn names_carry_the_body_and_files_are_named_after_them() {
     assert_eq!(r["bodies"], json!([]));
     let short = chart(&dir, "S.dng", "A", Some(" 7 "));
     let r = s.execute("profile.createFromChart", &json!({"path": short, "illuminant": "A", "apply": false})).unwrap();
-    assert!(r["name"].as_str().unwrap().starts_with("LightCraft Chart Camera 7 · StdA · Photo"), "{}", r["name"]);
+    assert!(r["name"].as_str().unwrap().starts_with("LightCraft Chart Camera 7 · Tungsten · Photo"), "{}", r["name"]);
     assert_eq!(crate::chart_profiling::body_suffix(Some("  ")), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -243,4 +243,50 @@ fn old_single_serial_entries_migrate() {
     let mut e: crate::cmd::dcp_profiles::DcpEntry = serde_json::from_value(json!({"id": "dcp:y", "name": "Y", "file": "y.dcp"})).unwrap();
     crate::cmd::dcp_profiles::migrate(&mut e);
     assert!(e.bodies.is_empty(), "model-wide");
+}
+
+#[test]
+fn a_body_without_a_serial_is_known_by_its_file_names() {
+    use crate::chart_profiling::body_key;
+    assert_eq!(body_key(Some(" 0123 "), Some("_SA94454.ARW")).as_deref(), Some("0123"), "a real serial wins");
+    assert_eq!(body_key(None, Some("_SA94454.ARW")).as_deref(), Some("file:SA"));
+    assert_eq!(body_key(Some(""), Some("__71_4940.CR3")).as_deref(), Some("file:71"));
+    assert_eq!(body_key(None, Some("_S.ARW")), None, "fewer than two characters");
+    assert_eq!(body_key(None, Some("_-x123.ARW")), None, "not letters or digits");
+    assert_eq!(body_key(None, None), None);
+    assert_eq!(crate::cmd::dcp_profiles::body_label("file:SA"), "SA");
+    assert_eq!(crate::cmd::dcp_profiles::body_label("012371"), "…71");
+
+    // named after it, stored as file:SA, and picked for photos of the same camera with that key
+    let (mut s, dir) = library("filebody");
+    let made = chart(&dir, "_SA94454.dng", "D55", None);
+    let r = s.execute("profile.createFromChart", &json!({"path": made, "apply": false})).unwrap();
+    assert!(r["name"].as_str().unwrap().starts_with("LightCraft Chart Camera SA · Daylight · Photo · "), "{}", r["name"]);
+    assert_eq!(r["bodies"], json!(["file:SA"]));
+    let pid = r["id"].as_str().unwrap().to_string();
+    let same = import(&mut s, &chart(&dir, "_SA90001.dng", "D65", None));
+    let other = import(&mut s, &chart(&dir, "_SB90002.dng", "D50", None));
+    // a real serial wins over the file name: this one is another body
+    let serial = import(&mut s, &chart(&dir, "_SA90003.dng", "A", Some("REAL01")));
+    assert_eq!(profile_of(&s, same), pid);
+    assert_eq!(profile_of(&s, other), "lc.color");
+    assert_eq!(profile_of(&s, serial), "lc.color");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn lights_by_their_words_and_auto_no_longer() {
+    let (mut s, dir) = library("lights");
+    let p = chart(&dir, "L.dng", "D55", None);
+    let r = s.execute("profile.createFromChart", &json!({"path": p, "apply": false, "name": "a"})).unwrap();
+    assert_eq!(r["illuminant"], "D55", "Daylight / Flash by default");
+    assert_eq!(r["warnings"], json!([]));
+    let r = s.execute("profile.createFromChart", &json!({"path": p, "apply": false, "name": "b", "illuminant": "auto"})).unwrap();
+    assert_eq!(r["illuminant"], "D55");
+    assert!(r["warnings"][0].as_str().unwrap().contains("no longer supported"), "{r}");
+    for (word, std) in [("daylight", "D55"), ("Flash", "D55"), ("tungsten", "A")] {
+        let r = s.execute("profile.createFromChart", &json!({"path": p, "apply": false, "name": word, "illuminant": word})).unwrap();
+        assert_eq!(r["illuminant"], std, "{word}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }

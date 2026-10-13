@@ -1,4 +1,5 @@
 {
+  "Daylight / Flash": "Tageslicht / Blitz",
   "LightCraft Camera Color": "LightCraft-Kamerafarbe",
   "Set Camera Calibration": "Kamerakalibrierung festlegen",
   "Wheel: zoom · right-drag or Space-drag: move · double-click: fit": "Rad: zoomen · Rechts- oder Leertaste-Ziehen: verschieben · Doppelklick: einpassen",
@@ -8,7 +9,6 @@
   "Colors match the chart; each keeps the lightness the camera recorded. For people and everyday photos.": "Die Farben entsprechen der Karte; jede behält die Helligkeit, die die Kamera aufgezeichnet hat. Für Menschen und Alltagsfotos.",
   "Everything matches the chart exactly, including how light or dark each color is. For artwork, products and color-critical copy work.": "Alles entspricht genau der Karte, auch wie hell oder dunkel jede Farbe ist. Für Kunstwerke, Produkte und farbkritische Reproduktionen.",
   "Change…": "Ändern …",
-  "This camera doesn't record its light: choose it.": "Diese Kamera zeichnet ihr Licht nicht auf: Wählen Sie es aus.",
   "Second chart: a photo of the same chart under another light": "Zweite Karte: ein Foto derselben Karte unter anderem Licht",
   "Show all cameras": "Alle Kameras zeigen",
   "Browse for File…": "Datei auswählen …",
@@ -55,9 +55,6 @@
   "A camera profile is being built": "Ein Kameraprofil wird gerade erstellt",
   "The chart photo isn't read yet": "Das Farbkartenfoto ist noch nicht gelesen",
   "The second chart photo isn't read yet": "Das zweite Farbkartenfoto ist noch nicht gelesen",
-  "Tungsten (A)": "Kunstlicht (A)",
-  "Daylight (D55)": "Tageslicht (D55)",
-  "Shade (D75)": "Schatten (D75)",
   "No ColorChecker found: use Find Chart, or place the corners": "Kein ColorChecker gefunden: „Karte suchen“ verwenden oder die Ecken setzen",
   "First Chart": "Erste Karte",
   "Second Chart": "Zweite Karte",

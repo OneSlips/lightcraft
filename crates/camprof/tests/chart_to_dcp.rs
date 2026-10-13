@@ -62,7 +62,7 @@ fn corners_placed_by_hand_are_moved_onto_the_chart() {
     let opts = BuildOptions { camera_model: "LightCraft Test Camera".into(), ..Default::default() };
     let built = build(&frame, &refined, &opts).unwrap();
     assert!(built.mean_delta_e < 1.0, "mean ΔE {}", built.mean_delta_e);
-    assert_eq!(built.dcp.name, "LightCraft Test Camera · D55 · Photo", "the default name is the camera, the light and the mode");
+    assert_eq!(built.dcp.name, "LightCraft Test Camera · Daylight · Photo", "the default name is the camera, the light and the mode");
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn two_lights_make_a_dual_illuminant_profile() {
         &opts,
     )
     .unwrap();
-    assert_eq!(dual.dcp.name, "LightCraft Test Camera · StdA + D65 · Photo");
+    assert_eq!(dual.dcp.name, "LightCraft Test Camera · Tungsten + D65 · Photo");
     assert_eq!(dual.calibrations[0].illuminant, "A");
     assert!(dual.calibrations.iter().all(|c| c.mean_delta_e < 1.0), "{} / {}", dual.calibrations[0].mean_delta_e, dual.calibrations[1].mean_delta_e);
     let back = lightcraft_raw::dcp::parse_dcp(&lightcraft_raw::dcp::write_dcp(&dual.dcp).unwrap()).unwrap();

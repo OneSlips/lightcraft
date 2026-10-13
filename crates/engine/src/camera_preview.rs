@@ -146,7 +146,6 @@ fn dng_colour(tags: &ColorData, t: &CameraTransform, look: Option<&CameraLook>) 
     let camera_to_xyz = bradford(D50, t.white_xy).mul(&forward).mul(&Mat3::diag(1.0 / neutral[0], 1.0 / neutral[1], 1.0 / neutral[2]));
     Some(ColorData {
         illuminant: [21, 0],
-        as_shot_kelvin: tags.as_shot_kelvin,
         color_matrix: [Some(camera_to_xyz.inverse()?), None],
         forward_matrix: [Some(forward), None],
         camera_calibration: [None, None],

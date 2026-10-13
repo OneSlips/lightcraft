@@ -43,7 +43,6 @@ pub fn color_data(color: &FrameColor) -> ColorData {
             let to_xyz_d65 = bradford(D50, D65).mul(to_xyz_d50);
             let cm = to_xyz_d65.inverse().unwrap_or(Mat3::IDENTITY);
             ColorData {
-                as_shot_kelvin: None,
                 illuminant: [21, 0],
                 color_matrix: [Some(cm), None],
                 forward_matrix: [Some(*to_xyz_d50), None],

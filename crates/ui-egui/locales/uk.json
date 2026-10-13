@@ -1,4 +1,5 @@
 {
+  "Daylight / Flash": "Денне світло / спалах",
   "LightCraft Camera Color": "Колір камери LightCraft",
   "Set Camera Calibration": "Задати калібрування камери",
   "Wheel: zoom · right-drag or Space-drag: move · double-click: fit": "Коліщатко: масштаб · права кнопка або Пробіл + перетягування: зсув · подвійне клацання: цілком",
@@ -8,7 +9,6 @@
   "Colors match the chart; each keeps the lightness the camera recorded. For people and everyday photos.": "Кольори відповідають мішені, кожен зберігає світлоту, записану камерою. Для людей і повсякденних знімків.",
   "Everything matches the chart exactly, including how light or dark each color is. For artwork, products and color-critical copy work.": "Усе точно відповідає мішені, зокрема світлота кожного кольору. Для творів мистецтва, предметної зйомки й точної репродукції.",
   "Change…": "Змінити…",
-  "This camera doesn't record its light: choose it.": "Ця камера не записує освітлення: виберіть його.",
   "Second chart: a photo of the same chart under another light": "Друга мішень: знімок тієї ж мішені за іншого освітлення",
   "Show all cameras": "Показати всі камери",
   "Browse for File…": "Вибрати файл…",
@@ -55,9 +55,6 @@
   "A camera profile is being built": "Профіль камери вже створюється",
   "The chart photo isn't read yet": "Знімок мішені ще не прочитано",
   "The second chart photo isn't read yet": "Другий знімок мішені ще не прочитано",
-  "Tungsten (A)": "Лампа розжарювання (A)",
-  "Daylight (D55)": "Денне світло (D55)",
-  "Shade (D75)": "Тінь (D75)",
   "No ColorChecker found: use Find Chart, or place the corners": "ColorChecker не знайдено: натисніть «Знайти мішень» або розставте кути",
   "First Chart": "Перша мішень",
   "Second Chart": "Друга мішень",

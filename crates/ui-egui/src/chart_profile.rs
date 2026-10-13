@@ -29,7 +29,7 @@ pub struct ChartProfileDialog {
     pub name: String,
     /// The name was typed: it is no longer kept up to date with the camera and light.
     pub name_edited: bool,
-    /// Each photo's light: `auto` or one of [`camprof::ILLUMINANTS`].
+    /// Each photo's light: `D55` (Daylight / Flash) or `A` (Tungsten).
     pub lights: [String; 2],
     pub natural: bool,
     /// Each photo's chart corners (normalised to its frame) and quarter turns, once known.
@@ -46,7 +46,7 @@ impl Default for ChartProfileDialog {
         ChartProfileDialog {
             name: String::new(),
             name_edited: false,
-            lights: ["auto".into(), "auto".into()],
+            lights: ["D55".into(), "A".into()],
             natural: true,
             corners: [None, None],
             turns: [0, 0],
@@ -123,6 +123,12 @@ fn load(app: &mut LightcraftApp, slot: usize, photo: Option<PhotoId>, path: Stri
                     {
                         opts.corners[slot] = Some(corners);
                         opts.turns[slot] = turns;
+                    }
+                    // the second chart is under the other light: tungsten beside daylight, else daylight
+                    if slot == 1
+                        && let Some(Dialog::ChartProfile { opts }) = &mut app.ui.dialog
+                    {
+                        opts.lights[1] = if opts.lights[0] == "D55" { "A".into() } else { "D55".into() };
                     }
                 }
                 Err(e) => shot.error = Some(e),
@@ -261,6 +267,9 @@ pub fn start_build(app: &mut LightcraftApp, opts: &ChartProfileDialog) -> Result
     if is_built(app, opts) {
         return Ok(json!({"built": true}));
     }
+    if let Some(e) = same_light(app, opts) {
+        return Err(e);
+    }
     let camera = app.chart_profile.shots[0].as_ref().and_then(|s| s.prepared.as_ref()).map(|p| p.camera_model.clone()).unwrap_or_default();
     if let Some(e) = lightcraft_engine::cmd::dcp_profiles::existing(&app.session, &opts.name, &camera) {
         let clash = Clash {
@@ -320,7 +329,7 @@ fn build_now(
         name: opts.name.clone(),
     };
     let apply: Vec<PhotoId> = (0..2).filter_map(|i| shot(i).and_then(|s| s.photo)).collect();
-    let serial = first.serial.clone();
+    let serial = first.body.clone();
     let fp = fingerprint(app, opts);
     app.chart_profile.error = None;
     crate::tasks::spawn(
@@ -361,6 +370,7 @@ fn build_now(
 pub fn can_build(app: &LightcraftApp, opts: &ChartProfileDialog) -> bool {
     let ready = |i: usize| app.chart_profile.shots.get(i).and_then(|s| s.as_ref()).is_some_and(|s| s.prepared.is_some()) && opts.corners[i].is_some();
     !app.tasks.is_running(BUILDING)
+        && same_light(app, opts).is_none()
         && app.chart_profile.clash.is_none()
         && !is_built(app, opts)
         && !opts.name.trim().is_empty()
@@ -415,52 +425,41 @@ fn swatch(lab: &Value) -> egui::Color32 {
     egui::Color32::from_rgb(e(rgb[0]), e(rgb[1]), e(rgb[2]))
 }
 
-const LIGHTS: &[(&str, &str)] = &[("A", "Tungsten (A)"), ("D50", "D50"), ("D55", "Daylight (D55)"), ("D65", "D65"), ("D75", "Shade (D75)")];
+/// The two lights the dialog offers (CLI and MCP take every standard illuminant): DNG's D55 for
+/// daylight and flash, Standard light A for tungsten; both have a definite colour temperature, which
+/// a dual-illuminant profile needs.
+const LIGHTS: &[(&str, &str)] = &[("D55", "Daylight / Flash"), ("A", "Tungsten")];
 
-fn light_label(v: &str) -> String {
+/// A light as the dialog names it: Daylight / Flash, Tungsten, else its standard name.
+pub fn light_label(v: &str) -> String {
     crate::i18n::tr(LIGHTS.iter().find(|(k, _)| *k == v).map_or(v, |(_, l)| l)).to_string()
 }
 
-/// What `slot`'s photo says about its light, with its corners as they are now.
+/// A profile's illuminant in a report: Daylight, Tungsten, else its standard name.
+fn light_word(v: &str) -> String {
+    crate::i18n::tr(&cp::light_word(v)).to_string()
+}
+
+/// What `slot`'s chart's greys measure (information only), with its corners as they are now.
 pub fn estimate(app: &LightcraftApp, opts: &ChartProfileDialog, slot: usize) -> Option<cp::LightEstimate> {
     let prep = app.chart_profile.shots.get(slot)?.as_ref()?.prepared.clone()?;
-    let corners = opts.corners.get(slot).copied().flatten().and_then(|c| cp::corners_from_normalized(&prep.frame, c));
-    match corners {
-        Some(c) => cp::estimate_light(&prep, &camprof::Located { corners: c, turns: opts.turns.get(slot).copied().unwrap_or(0), score: None }),
-        // (no chart yet: only what the camera recorded)
-        None => prep.recorded_kelvin.map(|cct| cp::LightEstimate { cct, illuminant: camprof::nearest_illuminant(cct), from_chart: false }),
-    }
+    let c = opts.corners.get(slot).copied().flatten().and_then(|c| cp::corners_from_normalized(&prep.frame, c))?;
+    cp::estimate_light(&prep, &camprof::Located { corners: c, turns: opts.turns.get(slot).copied().unwrap_or(0), score: None })
 }
 
-/// The light `slot` will be profiled for: its choice, or the estimate for `auto`.
-fn resolved_light(app: &LightcraftApp, opts: &ChartProfileDialog, slot: usize) -> Option<String> {
-    let chosen = opts.lights.get(slot)?;
-    if chosen == "auto" { estimate(app, opts, slot).map(|e| e.illuminant.to_string()) } else { Some(chosen.clone()) }
+/// The light `slot` will be profiled for.
+fn resolved_light(_: &LightcraftApp, opts: &ChartProfileDialog, slot: usize) -> Option<String> {
+    opts.lights.get(slot).cloned()
 }
 
-fn auto_label(e: &cp::LightEstimate) -> String {
-    crate::i18n::tr_format!("Auto ({cct:.0} K → {light})", cct = e.cct, light = e.illuminant)
-}
-
-/// The light menu: Auto only when the photo tells its light (labelled with what it found).
-fn light_combo(ui: &mut egui::Ui, id: &str, value: &mut String, estimate: Option<cp::LightEstimate>) -> bool {
+/// The light menu: Daylight / Flash or Tungsten.
+fn light_combo(ui: &mut egui::Ui, id: &str, value: &mut String) -> bool {
     let mut changed = false;
-    if value == "auto" && estimate.is_none() {
-        *value = "D55".into();
+    if !LIGHTS.iter().any(|(k, _)| k == value) {
+        *value = cp::DEFAULT_LIGHT.into();
         changed = true;
     }
-    let shown = match (value.as_str(), &estimate) {
-        ("auto", Some(e)) => auto_label(e),
-        (v, _) => light_label(v),
-    };
-    let r = egui::ComboBox::from_id_salt(id).selected_text(shown).width(220.0).show_ui(ui, |ui| {
-        if let Some(e) = &estimate
-            && ui.selectable_label(value == "auto", auto_label(e)).clicked()
-            && value != "auto"
-        {
-            *value = "auto".into();
-            changed = true;
-        }
+    let r = egui::ComboBox::from_id_salt(id).selected_text(light_label(value)).width(220.0).show_ui(ui, |ui| {
         for (k, _) in LIGHTS {
             if ui.selectable_label(value == k, light_label(k)).clicked() && value != k {
                 *value = k.to_string();
@@ -877,7 +876,8 @@ fn picker(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDia
     let rescan = state.all_cameras != all;
     state.all_cameras = all;
     state.search = search.clone();
-    let first_light = resolved_light(app, opts, 0);
+    // (photos whose greys measure another light than the first chart's first)
+    let first_light = estimate(app, opts, 0).map(|e| e.illuminant.to_string());
     let list = candidates(app, all, &search, first_light.as_deref());
     if rescan {
         scan_candidates(app, &list);
@@ -915,7 +915,7 @@ fn picker(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDia
                     }
                     let what = match c.scan {
                         Some(Some(s)) => match s.light {
-                            Some(l) => crate::i18n::tr_format!("Chart · {cct:.0} K ({light})", cct = l.cct, light = l.illuminant),
+                            Some(l) => crate::i18n::tr_format!("Chart · greys about {cct:.0} K", cct = (l.cct / 100.0).round() * 100.0),
                             None => crate::i18n::tr("Chart · light unknown").to_string(),
                         },
                         Some(None) => crate::i18n::tr("No chart found").to_string(),
@@ -975,15 +975,31 @@ fn suggested_name(app: &LightcraftApp, opts: &ChartProfileDialog) -> Option<Stri
 /// One photo's light: the menu, and a note when the camera doesn't say.
 fn light_row(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDialog, slot: usize) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let e = estimate(app, opts, slot);
-    if app.chart_profile.shots[slot].as_ref().is_some_and(|s| s.prepared.is_some())
-        && light_combo(ui, &format!("chartProfileLight{slot}"), &mut opts.lights[slot], e)
-    {
+    if !app.chart_profile.shots[slot].as_ref().is_some_and(|s| s.prepared.is_some()) {
+        return;
+    }
+    if light_combo(ui, &format!("chartProfileLight{slot}"), &mut opts.lights[slot]) {
         app.chart_profile.report = None;
     }
-    if e.is_none() && app.chart_profile.shots[slot].as_ref().is_some_and(|s| s.prepared.is_some()) {
-        ui.label(egui::RichText::new(crate::i18n::tr("This camera doesn't record its light: choose it.")).color(t.text_dim));
+    // what the greys measure, for information (never chosen from: a camera's colour isn't a light meter)
+    if let Some(e) = estimate(app, opts, slot) {
+        ui.label(
+            egui::RichText::new(crate::i18n::tr_format!("The chart's greys measure about {cct:.0} K", cct = (e.cct / 100.0).round() * 100.0))
+                .color(t.text_dim),
+        );
     }
+}
+
+/// Both charts set to the same light: the build would be refused.
+pub fn same_light(app: &LightcraftApp, opts: &ChartProfileDialog) -> Option<String> {
+    (app.chart_profile.shots[1].is_some() && opts.lights[0] == opts.lights[1]).then(|| {
+        let other = LIGHTS.iter().find(|(k, _)| *k != opts.lights[0]).map_or("", |(k, _)| k);
+        crate::i18n::tr_format!(
+            "Both charts are set to {light}; set the second to {other}.",
+            light = light_label(&opts.lights[0]),
+            other = light_label(other)
+        )
+    })
 }
 
 /// The dialog body.
@@ -1098,6 +1114,9 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileD
                 Some(name) => {
                     ui.label(egui::RichText::new(name).color(t.text));
                     light_row(app, ui, opts, 1);
+                    if let Some(e) = same_light(app, opts) {
+                        ui.label(egui::RichText::new(e).color(t.caution));
+                    }
                     ui.horizontal(|ui| {
                         let r = ui.button(crate::i18n::tr("Change…"));
                         crate::widgets::register(ui.ctx(), "button:chartProfileChangeSecond", r.rect);
@@ -1140,7 +1159,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileD
                 if cals.len() > 1 {
                     ui.horizontal(|ui| {
                         for (i, c) in cals.iter().enumerate() {
-                            let label = c["illuminant"].as_str().unwrap_or("").to_string();
+                            let label = light_word(c["illuminant"].as_str().unwrap_or(""));
                             if crate::widgets::text_button(ui, &format!("labelSet-chartProfileReport-{i}"), &label, opts.report_tab == i).clicked() {
                                 opts.report_tab = i;
                             }
@@ -1152,7 +1171,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileD
                     ui.label(
                         egui::RichText::new(crate::i18n::tr_format!(
                             "{light}: mean ΔE {mean:.2}, largest {max:.2} ({n} patches)",
-                            light = cal["illuminant"].as_str().unwrap_or(""),
+                            light = light_word(cal["illuminant"].as_str().unwrap_or("")),
                             mean = cal["meanDeltaE"].as_f64().unwrap_or(0.0),
                             max = cal["maxDeltaE"].as_f64().unwrap_or(0.0),
                             n = cal["patchesUsed"].as_u64().unwrap_or(0)

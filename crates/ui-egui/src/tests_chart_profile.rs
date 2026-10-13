@@ -43,6 +43,15 @@ fn two_chart_photos_make_a_dual_illuminant_profile_in_the_dialog() {
     h.settle(T);
     let Some(Dialog::ChartProfile { opts }) = h.app.ui.dialog.clone() else { panic!("the dialog stays open") };
     assert!(opts.corners.iter().all(Option::is_some), "both charts found: {opts:?}");
+    assert_eq!(opts.lights, ["D55".to_string(), "A".to_string()], "Daylight / Flash, then Tungsten for the second");
+    // the same light twice: said in the dialog's words, and Create Profile waits
+    let mut same = opts.clone();
+    same.lights[1] = "D55".into();
+    assert_eq!(
+        crate::chart_profile::same_light(&h.app, &same).as_deref(),
+        Some("Both charts are set to Daylight / Flash; set the second to Tungsten.")
+    );
+    assert!(!crate::chart_profile::can_build(&h.app, &same));
     assert!(has(&h, "chartProfile.picture") && has(&h, "chartProfile.corner0"), "the photo and its corners are drawn");
     assert!(h.app.session.activity.list().is_empty(), "the rows are gone");
 
@@ -52,7 +61,7 @@ fn two_chart_photos_make_a_dual_illuminant_profile_in_the_dialog() {
     let report = h.app.chart_profile.report.clone().unwrap();
     assert_eq!(report["dual"], true, "{report}");
     let cals = report["calibrations"].as_array().unwrap();
-    assert_eq!((cals[0]["illuminant"].as_str(), cals[1]["illuminant"].as_str()), (Some("A"), Some("D65")));
+    assert_eq!((cals[0]["illuminant"].as_str(), cals[1]["illuminant"].as_str()), (Some("A"), Some("D55")), "Tungsten and Daylight / Flash");
     assert_eq!(h.app.session.dcp_profiles.len(), 1);
     let pid = report["id"].as_str().unwrap();
     for id in &ids {

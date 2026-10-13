@@ -1,7 +1,9 @@
 {
+  "The chart's greys measure about {cct:.0} K": "チャートのグレーの測定値は約 {cct:.0} K",
+  "Both charts are set to {light}; set the second to {other}.": "両方のチャートが{light}になっています。2枚目を{other}にしてください。",
+  "Chart · greys about {cct:.0} K": "チャート · グレー約 {cct:.0} K",
+  "body {body} (from file name)": "ボディ {body}（ファイル名から）",
   "{look} · on {calibration}": "{look} · {calibration} 上",
-  "Auto ({cct:.0} K → {light})": "自動（{cct:.0} K → {light}）",
-  "Chart · {cct:.0} K ({light})": "チャート · {cct:.0} K（{light}）",
   "Camera profile “{name}” replaced": "カメラプロファイル「{name}」を置き換えました",
   "A profile “{name}” is already there.": "プロファイル「{name}」はすでにあります。",
   "Used by {n} photos; they will update.": "{n} 枚の写真が使用中です。更新されます。",

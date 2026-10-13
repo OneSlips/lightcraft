@@ -188,20 +188,21 @@ fn two_lights_make_a_dual_illuminant_profile_that_beats_either_single_one() {
         assert_eq!(f["chart"]["estimatedIlluminant"], light, "{f}");
     }
     // daylight given first: calibration 1 is still tungsten
-    let dual = s.execute("profile.createFromChart", &json!({"path": pd, "second": {"path": pa}})).unwrap();
+    let dual =
+        s.execute("profile.createFromChart", &json!({"path": pd, "illuminant": "D65", "second": {"path": pa, "illuminant": "tungsten"}})).unwrap();
     assert_eq!(dual["dual"], true, "{dual}");
     let cals = dual["calibrations"].as_array().unwrap();
     assert_eq!((cals[0]["illuminant"].as_str(), cals[0]["shot"].as_u64()), (Some("A"), Some(1)));
     assert_eq!((cals[1]["illuminant"].as_str(), cals[1]["shot"].as_u64()), (Some("D65"), Some(0)));
     assert!(cals.iter().all(|c| c["meanDeltaE"].as_f64().unwrap() < 1.0), "{dual}");
-    assert!(dual["name"].as_str().unwrap().starts_with("LightCraft Chart Camera · StdA + D65 · Photo · "), "{}", dual["name"]);
+    assert!(dual["name"].as_str().unwrap().starts_with("LightCraft Chart Camera CH · Tungsten + D65 · Photo · "), "{}", dual["name"]);
     let dual = profile_of(&s, dual["id"].as_str().unwrap());
     assert_eq!(dual.color.illuminant, [17, 21]);
-    let single = |s: &mut Session, p: &str| {
-        let r = s.execute("profile.createFromChart", &json!({"path": p})).unwrap();
+    let single = |s: &mut Session, p: &str, light: &str| {
+        let r = s.execute("profile.createFromChart", &json!({"path": p, "illuminant": light})).unwrap();
         profile_of(s, r["id"].as_str().unwrap())
     };
-    let (only_a, only_d) = (single(&mut s, &pa), single(&mut s, &pd));
+    let (only_a, only_d) = (single(&mut s, &pa, "A"), single(&mut s, &pd, "D65"));
     assert_eq!((only_a.color.illuminant[0], only_d.color.illuminant[0]), (17, 21));
 
     // each light developed with each profile

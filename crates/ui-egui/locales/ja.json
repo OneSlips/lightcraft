@@ -1,4 +1,5 @@
 {
+  "Daylight / Flash": "昼光 / フラッシュ",
   "LightCraft Camera Color": "LightCraft のカメラカラー",
   "Set Camera Calibration": "カメラキャリブレーションを設定",
   "Wheel: zoom · right-drag or Space-drag: move · double-click: fit": "ホイール：ズーム · 右ドラッグまたはスペース＋ドラッグ：移動 · ダブルクリック：全体表示",
@@ -8,7 +9,6 @@
   "Colors match the chart; each keeps the lightness the camera recorded. For people and everyday photos.": "色はチャートに合わせ、明るさはカメラが記録したままにします。人物や日常の写真向けです。",
   "Everything matches the chart exactly, including how light or dark each color is. For artwork, products and color-critical copy work.": "各色の明暗も含め、すべてをチャートに正確に合わせます。美術品、製品、色が重要な複写向けです。",
   "Change…": "変更…",
-  "This camera doesn't record its light: choose it.": "このカメラは光源を記録しません。選択してください。",
   "Second chart: a photo of the same chart under another light": "2枚目のチャート：別の光源で撮った同じチャートの写真",
   "Show all cameras": "すべてのカメラを表示",
   "Browse for File…": "ファイルを選択…",
@@ -55,9 +55,6 @@
   "A camera profile is being built": "カメラプロファイルを作成中です",
   "The chart photo isn't read yet": "チャート写真をまだ読み込み中です",
   "The second chart photo isn't read yet": "2枚目のチャート写真をまだ読み込み中です",
-  "Tungsten (A)": "タングステン (A)",
-  "Daylight (D55)": "昼光 (D55)",
-  "Shade (D75)": "日陰 (D75)",
   "No ColorChecker found: use Find Chart, or place the corners": "ColorChecker が見つかりません。「チャートを検出」を使うか四隅を配置してください",
   "First Chart": "1枚目のチャート",
   "Second Chart": "2枚目のチャート",

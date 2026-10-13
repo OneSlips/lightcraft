@@ -28,17 +28,18 @@ use serde_json::{Value, json};
 /// The longest edge of the developed picture [`prepare`] makes for looking at.
 pub const PREVIEW_EDGE: usize = 3000;
 
-/// What a chart photo says about the light it was taken under.
+/// The light a chart photo's greys measure through the file's colour matrix: information only (the
+/// light a profile is made for is always chosen; a camera's white balance doesn't say it).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct LightEstimate {
     /// Colour temperature, K.
     pub cct: f64,
     /// The nearest calibration illuminant ([`lightcraft_camprof::ILLUMINANTS`]).
     pub illuminant: &'static str,
-    /// Measured on the chart's greys through the file's colour matrix (`true`), or the colour
-    /// temperature the camera recorded for its white balance (`false`).
-    pub from_chart: bool,
 }
+
+/// The light a chart photo is profiled for when none is chosen.
+pub const DEFAULT_LIGHT: &str = "D55";
 
 /// A decoded chart photograph.
 #[derive(Clone, Debug)]
@@ -53,11 +54,9 @@ pub struct Prepared {
     pub display: Rgba8,
     /// The file's orientation: `display` is the frame turned by it.
     pub orientation: lightcraft_geom::Orientation,
-    /// The colour temperature the camera recorded for its as-shot white balance, when it records
-    /// one (Canon `ColorTempAsShot`, Sony white-balance presets).
-    pub recorded_kelvin: Option<f64>,
-    /// The camera body's serial number (EXIF `BodySerialNumber`), when the file has it.
-    pub serial: Option<String>,
+    /// The camera body: its serial number (EXIF `BodySerialNumber`), else `file:XX` from the first
+    /// two characters of the file name ([`body_key`]), else `None`.
+    pub body: Option<String>,
     /// The capture date, `YYYY-MM-DD`, when the file has it.
     pub captured: Option<String>,
     /// Where the chart was found, if it was.
@@ -166,6 +165,11 @@ fn developed(bytes: &[u8]) -> Result<Rgba8, String> {
 
 /// Decode a raw chart photograph and look for the chart.
 pub fn prepare(bytes: &[u8]) -> Result<Prepared, String> {
+    prepare_named(bytes, None)
+}
+
+/// [`prepare`] for a file named `file_name` (its body key when the file has no serial number).
+pub fn prepare_named(bytes: &[u8], file_name: Option<&str>) -> Result<Prepared, String> {
     if lightcraft_raw::probe(bytes).is_none() {
         return Err("not a raw file: a camera profile is made from a raw photo of the chart".into());
     }
@@ -181,22 +185,16 @@ pub fn prepare(bytes: &[u8]) -> Result<Prepared, String> {
             preview_of(&frame, neutral, orientation)
         }
     };
-    let recorded_kelvin = recorded_kelvin(&raw);
     let located = lightcraft_camprof::find_chart(&frame);
     let meta = if raw.metadata.serial_number.is_some() && raw.metadata.capture_time.is_some() { None } else { Some(lightcraft_meta::extract(bytes)) };
-    let serial = raw
-        .metadata
-        .serial_number
-        .clone()
-        .or_else(|| meta.as_ref().and_then(|m| m.serial_number.clone()))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let serial = raw.metadata.serial_number.clone().or_else(|| meta.as_ref().and_then(|m| m.serial_number.clone()));
+    let body = body_key(serial.as_deref(), file_name);
     let captured = raw
         .metadata
         .capture_time
         .or_else(|| meta.as_ref().and_then(|m| m.capture_time))
         .map(|t| format!("{:04}-{:02}-{:02}", t.year, t.month, t.day));
-    Ok(Prepared { serial, captured, frame: Arc::new(frame), camera_model, display, orientation, recorded_kelvin, located, color: raw.color })
+    Ok(Prepared { body, captured, frame: Arc::new(frame), camera_model, display, orientation, located, color: raw.color })
 }
 
 impl Prepared {
@@ -238,8 +236,7 @@ pub fn scan_path(path: &str) -> Option<ChartScan> {
         camera_model: String::new(),
         display: Rgba8::new(1, 1),
         orientation: raw.orientation,
-        recorded_kelvin: recorded_kelvin(&raw),
-        serial: None,
+        body: None,
         captured: None,
         located: Some(located),
         color: raw.color,
@@ -247,11 +244,16 @@ pub fn scan_path(path: &str) -> Option<ChartScan> {
     Some(ChartScan { score: located.score.unwrap_or(0.0), light: estimate_light(&prep, &located) })
 }
 
-fn recorded_kelvin(raw: &lightcraft_raw::RawImage) -> Option<f64> {
-    raw.color
-        .as_shot_kelvin
-        .or_else(|| raw.color.kelvin_presets.as_ref()?.temp_tint(raw.wb_multipliers?).map(|(t, _)| t))
-        .filter(|k| k.is_finite() && (1500.0..=15000.0).contains(k))
+/// The key a camera body is known by: its serial number when the file has one; else `file:XX`, the
+/// first two characters of the file name after any leading `_` (`_SA94454.ARW` → `file:SA`, as
+/// photographers often name files per body); else `None` (those two aren't both letters or digits).
+pub fn body_key(serial: Option<&str>, file_name: Option<&str>) -> Option<String> {
+    if let Some(s) = serial.map(str::trim).filter(|s| !s.is_empty()) {
+        return Some(s.to_string());
+    }
+    let name = std::path::Path::new(file_name?).file_stem()?.to_str()?.trim().trim_start_matches('_');
+    let two: String = name.chars().take(2).collect();
+    (two.chars().count() == 2 && two.chars().all(|c| c.is_ascii_alphanumeric())).then(|| format!("file:{two}"))
 }
 
 /// [`prepare`] for a file (refused above 2 GB).
@@ -261,7 +263,8 @@ pub fn prepare_path(path: &str) -> Result<Prepared, String> {
         return Err(format!("{path}: larger than 2 GB"));
     }
     let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-    prepare(&bytes)
+    let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str());
+    prepare_named(&bytes, name)
 }
 
 /// Corners in frame pixels from normalised ones (`None` when one isn't a finite number).
@@ -280,13 +283,10 @@ pub fn normalized_corners(frame: &RawFrame, c: &ChartCorners) -> [[f64; 2]; 4] {
     c.points().map(|p| [p[0] / w, p[1] / h])
 }
 
-/// The light a chart photo was taken under: the chart's mid greys (D02–D05) taken to a white point
-/// through the file's own colour model (DNG 6.3) when the file has one, else the colour temperature
-/// the camera recorded for its white balance. `None` when neither is known: the light must be chosen.
+/// What the chart's mid greys (D02–D05) measure, taken to a white point through the file's own
+/// colour model (DNG 6.3): information only. `None` without a colour matrix.
 pub fn estimate_light(prep: &Prepared, located: &Located) -> Option<LightEstimate> {
-    measured_light(prep, located)
-        .map(|cct| LightEstimate { cct, illuminant: lightcraft_camprof::nearest_illuminant(cct), from_chart: true })
-        .or_else(|| prep.recorded_kelvin.map(|cct| LightEstimate { cct, illuminant: lightcraft_camprof::nearest_illuminant(cct), from_chart: false }))
+    measured_light(prep, located).map(|cct| LightEstimate { cct, illuminant: lightcraft_camprof::nearest_illuminant(cct) })
 }
 
 fn measured_light(prep: &Prepared, located: &Located) -> Option<f64> {
@@ -361,26 +361,50 @@ pub struct Calibration {
 #[derive(Clone, Debug)]
 pub struct Outcome {
     pub dcp: lightcraft_raw::dcp::DcpProfile,
+    /// Things worth telling the caller (e.g. an option no longer supported).
+    pub warnings: Vec<String>,
     /// The lower colour temperature first.
     pub calibrations: Vec<Calibration>,
 }
 
-/// The light a request asks for: its own, else the estimate.
-fn light_of(prep: &Prepared, req: &Request, located: &Located) -> Result<(String, Option<LightEstimate>), String> {
+/// The light a request asks for ([`DEFAULT_LIGHT`] when none; `auto`, no longer offered, reads as it
+/// with a warning in `warnings`).
+fn light_of(prep: &Prepared, req: &Request, located: &Located, warnings: &mut Vec<String>) -> (String, Option<LightEstimate>) {
     let estimated = estimate_light(prep, located);
     let chosen = req.illuminant.trim();
-    if chosen.is_empty() || chosen.eq_ignore_ascii_case("auto") {
-        let e = estimated.ok_or("this camera doesn't record the light it was used under, and the file has no colour matrix to tell it from the chart: choose the light (A, D50, D55, D65 or D75)")?;
-        Ok((e.illuminant.to_string(), estimated))
-    } else {
-        Ok((chosen.to_string(), estimated))
+    if chosen.eq_ignore_ascii_case("auto") {
+        warnings.push(format!(
+            "illuminant `auto` is no longer supported (a camera's white balance doesn't say the light): {DEFAULT_LIGHT} was used; choose the light the chart was photographed under"
+        ));
+        return (DEFAULT_LIGHT.to_string(), estimated);
+    }
+    (if chosen.is_empty() { DEFAULT_LIGHT.to_string() } else { canonical_light(chosen) }, estimated)
+}
+
+/// A light as the commands take it: `daylight` / `flash` are D55, `tungsten` is StdA (A); the
+/// standard names pass through.
+pub fn canonical_light(light: &str) -> String {
+    match light.trim().to_ascii_lowercase().as_str() {
+        "daylight" | "flash" | "daylight / flash" => "D55".into(),
+        "tungsten" | "stda" => "A".into(),
+        _ => light.trim().to_string(),
     }
 }
 
-/// The last two characters of a body serial number, as the name of a profile tells bodies apart
-/// (`Canon EOS R5 C 71`); `None` without a serial.
-pub fn body_suffix(serial: Option<&str>) -> Option<String> {
-    let s: Vec<char> = serial?.trim().chars().filter(|c| !c.is_whitespace()).collect();
+/// How a profile's illuminant reads to people: "Daylight" (D55) and "Tungsten" (StdA, A), else its
+/// standard name.
+pub fn light_word(illuminant: &str) -> String {
+    lightcraft_camprof::light_code(illuminant).to_string()
+}
+
+/// How the name of a profile tells bodies apart (`Canon EOS R5 C 71`): the last two characters of a
+/// serial number, or a file-name key's two (`file:SA` → `SA`); `None` without a body.
+pub fn body_suffix(body: Option<&str>) -> Option<String> {
+    let body = body?.trim();
+    if let Some(key) = body.strip_prefix("file:") {
+        return (!key.is_empty()).then(|| key.to_string());
+    }
+    let s: Vec<char> = body.chars().filter(|c| !c.is_whitespace()).collect();
     if s.is_empty() {
         return None;
     }
@@ -389,7 +413,7 @@ pub fn body_suffix(serial: Option<&str>) -> Option<String> {
 
 /// The camera as a profile name says it: the model, then the body's serial suffix.
 pub fn camera_label(prep: &Prepared) -> String {
-    match body_suffix(prep.serial.as_deref()) {
+    match body_suffix(prep.body.as_deref()) {
         Some(b) => format!("{} {b}", prep.camera_model),
         None => prep.camera_model.clone(),
     }
@@ -407,8 +431,8 @@ pub fn default_name(first: &Prepared, lights: &[&str], hue_saturation_only: bool
 
 /// Two chart photos from different bodies of the camera: their serial suffixes.
 pub fn bodies_differ(a: &Prepared, b: &Prepared) -> Option<(String, String)> {
-    match (body_suffix(a.serial.as_deref()), body_suffix(b.serial.as_deref())) {
-        (Some(x), Some(y)) if a.serial != b.serial => Some((x, y)),
+    match (body_suffix(a.body.as_deref()), body_suffix(b.body.as_deref())) {
+        (Some(x), Some(y)) if a.body != b.body => Some((x, y)),
         _ => None,
     }
 }
@@ -421,20 +445,21 @@ pub fn build(first: (&Prepared, &Request), second: Option<(&Prepared, &Request)>
         options.camera_model = first.0.camera_model.clone();
     }
     let la = locate(first.0, first.1)?;
-    let (ia, ea) = light_of(first.0, first.1, &la)?;
+    let mut warnings = Vec::new();
+    let (ia, ea) = light_of(first.0, first.1, &la, &mut warnings);
     let named = !options.name.trim().is_empty();
     if !named && second.is_none() {
         options.name = default_name(first.0, &[&ia], options.natural);
     }
     let Some((prep_b, req_b)) = second else {
         let built = lightcraft_camprof::build(&first.0.frame, &la, &BuildOptions { illuminant: ia, ..options }).map_err(|e| e.to_string())?;
-        return Ok(Outcome { dcp: built.dcp.clone(), calibrations: vec![Calibration { built, shot: 0, estimated: ea }] });
+        return Ok(Outcome { dcp: built.dcp.clone(), warnings, calibrations: vec![Calibration { built, shot: 0, estimated: ea }] });
     };
     if prep_b.camera_model != first.0.camera_model {
         return Err(format!("the two chart photos are from different cameras ({} and {})", first.0.camera_model, prep_b.camera_model));
     }
     let lb = locate(prep_b, req_b)?;
-    let (ib, eb) = light_of(prep_b, req_b, &lb)?;
+    let (ib, eb) = light_of(prep_b, req_b, &lb, &mut warnings);
     if !named {
         options.name = default_name(first.0, &[&ia, &ib], options.natural);
     }
@@ -452,7 +477,7 @@ pub fn build(first: (&Prepared, &Request), second: Option<(&Prepared, &Request)>
     } else {
         vec![Calibration { built: low, shot: 1, estimated: eb }, Calibration { built: high, shot: 0, estimated: ea }]
     };
-    Ok(Outcome { dcp: dual.dcp, calibrations })
+    Ok(Outcome { dcp: dual.dcp, warnings, calibrations })
 }
 
 /// The fit report as JSON (`ΔE` is CIEDE2000; corners normalised to each photo's frame). The
@@ -472,7 +497,6 @@ pub fn report_json(preps: &[&Prepared], out: &Outcome) -> Value {
                 "cct": lightcraft_camprof::illuminant_cct(&b.illuminant),
                 "estimatedCct": c.estimated.map(|e| e.cct.round()),
                 "estimatedIlluminant": c.estimated.map(|e| e.illuminant),
-                "estimatedFrom": c.estimated.map(|e| if e.from_chart { "chart" } else { "camera" }),
                 "meanDeltaE": r3(b.mean_delta_e),
                 "maxDeltaE": r3(b.max_delta_e),
                 "matrixMeanDeltaE": r3(b.matrix_mean_delta_e),
@@ -502,6 +526,7 @@ pub fn report_json(preps: &[&Prepared], out: &Outcome) -> Value {
         "cameraModel": out.dcp.camera_model,
         "name": out.dcp.name,
         "dual": out.calibrations.len() == 2,
+        "warnings": out.warnings,
         "meanDeltaE": r3(mean),
         "maxDeltaE": r3(max),
         "matrixMeanDeltaE": r3(matrix),
@@ -645,8 +670,7 @@ mod tests {
             camera_model: "X".into(),
             display: Rgba8::new(1, 1),
             orientation: Default::default(),
-            recorded_kelvin: None,
-            serial: None,
+            body: None,
             captured: None,
             located: None,
             color: Default::default(),

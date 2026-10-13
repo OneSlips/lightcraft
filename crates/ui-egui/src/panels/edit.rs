@@ -567,7 +567,17 @@ fn camera_profiles_menu(
             let bodies = if e.bodies.is_empty() {
                 crate::i18n::tr("every body").to_string()
             } else {
-                e.bodies.iter().map(|b| format!("{} ({b})", dp::body_label(b))).collect::<Vec<_>>().join(", ")
+                e.bodies
+                    .iter()
+                    .map(|b| {
+                        if dp::is_file_body(b) {
+                            crate::i18n::tr_format!("body {body} (from file name)", body = dp::body_label(b))
+                        } else {
+                            format!("{} ({b})", dp::body_label(b))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
             };
             let r = r.clone().on_hover_text(format!("{} · {bodies}", e.camera_model));
             if let Some(sn) = &serial {

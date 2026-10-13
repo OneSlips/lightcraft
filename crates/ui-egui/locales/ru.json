@@ -1,4 +1,5 @@
 {
+  "Daylight / Flash": "Дневной свет / вспышка",
   "LightCraft Camera Color": "Цвет камеры LightCraft",
   "Set Camera Calibration": "Задать калибровку камеры",
   "Wheel: zoom · right-drag or Space-drag: move · double-click: fit": "Колесо: масштаб · правая кнопка или Пробел + перетаскивание: сдвиг · двойной щелчок: целиком",
@@ -8,7 +9,6 @@
   "Colors match the chart; each keeps the lightness the camera recorded. For people and everyday photos.": "Цвета соответствуют мишени, каждый сохраняет светлоту, записанную камерой. Для людей и повседневных снимков.",
   "Everything matches the chart exactly, including how light or dark each color is. For artwork, products and color-critical copy work.": "Всё точно соответствует мишени, включая светлоту каждого цвета. Для произведений искусства, предметной съёмки и точной репродукции.",
   "Change…": "Изменить…",
-  "This camera doesn't record its light: choose it.": "Эта камера не записывает освещение: выберите его.",
   "Second chart: a photo of the same chart under another light": "Вторая мишень: снимок той же мишени при другом освещении",
   "Show all cameras": "Показать все камеры",
   "Browse for File…": "Выбрать файл…",
@@ -55,9 +55,6 @@
   "A camera profile is being built": "Профиль камеры уже создаётся",
   "The chart photo isn't read yet": "Снимок мишени ещё не прочитан",
   "The second chart photo isn't read yet": "Второй снимок мишени ещё не прочитан",
-  "Tungsten (A)": "Лампа накаливания (A)",
-  "Daylight (D55)": "Дневной свет (D55)",
-  "Shade (D75)": "Тень (D75)",
   "No ColorChecker found: use Find Chart, or place the corners": "ColorChecker не найден: нажмите «Найти мишень» или расставьте углы",
   "First Chart": "Первая мишень",
   "Second Chart": "Вторая мишень",

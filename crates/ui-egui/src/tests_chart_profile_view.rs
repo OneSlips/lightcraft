@@ -95,7 +95,7 @@ fn the_name_follows_light_and_mode_until_typed_and_a_clash_is_asked() {
     let (mut h, ids) = session_with(&[write(&dir, "C.dng", "D55", Some("ABC71"), true)]);
     open_on(&mut h, ids[0]);
     let name = opts(&h).name;
-    assert!(name.starts_with("LightCraft Chart Camera 71 · D55 · Photo · "), "{name}");
+    assert!(name.starts_with("LightCraft Chart Camera 71 · Daylight · Photo · "), "{name}");
     assert_eq!(h.request("ui.clickWidget", json!({"id": "radio:chartProfileRendering-reproduction"}), T)["ok"], true);
     h.settle(T);
     assert!(opts(&h).name.contains("· Repro ·"), "{}", opts(&h).name);

@@ -593,11 +593,6 @@ impl BlackLevel {
 pub struct ColorData {
     /// `CalibrationIlluminant1/2` (Exif LightSource codes; 0 = unknown).
     pub illuminant: [u16; 2],
-    /// The colour temperature (K) the camera recorded for its as-shot white balance in its maker
-    /// notes (Canon `ColorData`), when it records one. Not a DNG tag: only camera profiling reads it,
-    /// to tell which light a chart was photographed under.
-    #[serde(default)]
-    pub as_shot_kelvin: Option<f64>,
     /// `ColorMatrix1/2`: XYZ → reference camera.
     pub color_matrix: [Option<Mat3>; 2],
     /// `ForwardMatrix1/2`: white-balanced camera → XYZ D50.
