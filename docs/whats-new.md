@@ -16,6 +16,10 @@
   reads the serial from the file); one of the body's profiles that isn't its default offers "Make default for this
   body".
 - Hovering a camera profile in the profile menu or browser now previews its colours.
+- The Import dialog has a Camera profile section. Automatic lists each camera body on the card ("Canon EOS R5 C 71
+  → its profile (412 photos)"); Choose… gives a body another profile for this import, and "Adopt for this body"
+  keeps it. One profile for all photos does what it says. A Look puts one of LightCraft's looks on top. Photos with
+  Lightroom settings in their XMP sidecar keep them, and the finished import says which profile went where.
 
 ### Create Camera Profile from Color Chart, reworked
 - The chart photo shows developed and the right way up; zoom with the wheel, move with a right-drag or Space-drag,

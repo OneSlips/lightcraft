@@ -1,4 +1,8 @@
 {
+  "{who} → {profile} ({n} photos)": "{who} → {profile}（{n} 张照片）",
+  " · {n} kept from sidecar": " · {n} 张保留附属文件设置",
+  "Camera profiles: {list}": "相机配置文件：{list}",
+  " · adopted for {bodies}": " · 已用于 {bodies}",
   "on {calibration}": "基于 {calibration}",
   "Photos from body {body} develop with this profile by default": "机身 {body} 的照片默认使用此配置文件冲印",
   "The chart's greys measure about {cct:.0} K": "色卡灰块测得约 {cct:.0} K",

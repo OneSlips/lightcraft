@@ -845,6 +845,15 @@ fn for_photo(s: &mut Session, p: &Value) -> Result<Value> {
 pub fn body_specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
+            query "import.profilePlan",
+            "Camera Profiles for Import",
+            [],
+            None,
+            "{paths: [file or folder], cameraProfile?: as library.import} → {rows: [{camera, body (serial, else file:XX), bodyLabel, profile (null: LightCraft's colour), profileName, how: auto | chosen | all, own, photos, fromSidecar}], photos, keptFromSidecar, duplicates}: the camera profile each body's raws would get at import (new raws only)",
+            always,
+            crate::import_profiles::plan_command
+        ),
+        cmd!(
             query "profiles.forPhoto",
             "Camera Profiles for Photo",
             [],

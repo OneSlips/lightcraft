@@ -1,4 +1,8 @@
 {
+  "{who} → {profile} ({n} photos)": "{who} → {profile} ({n} fotos)",
+  " · {n} kept from sidecar": " · {n} mantidas do arquivo XMP",
+  "Camera profiles: {list}": "Perfis da câmera: {list}",
+  " · adopted for {bodies}": " · adotado para {bodies}",
   "on {calibration}": "sobre {calibration}",
   "Photos from body {body} develop with this profile by default": "As fotos do corpo {body} são reveladas com este perfil por padrão",
   "The chart's greys measure about {cct:.0} K": "Os cinzas do cartão medem cerca de {cct:.0} K",

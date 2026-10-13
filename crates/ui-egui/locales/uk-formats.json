@@ -1,4 +1,8 @@
 {
+  "{who} → {profile} ({n} photos)": "{who} → {profile} (знімків: {n})",
+  " · {n} kept from sidecar": " · {n} збережено з XMP-файлу",
+  "Camera profiles: {list}": "Профілі камери: {list}",
+  " · adopted for {bodies}": " · прийнято для {bodies}",
   "on {calibration}": "на {calibration}",
   "Photos from body {body} develop with this profile by default": "Знімки з корпусу {body} типово обробляються з цим профілем",
   "The chart's greys measure about {cct:.0} K": "Сірі поля мішені показують близько {cct:.0} K",

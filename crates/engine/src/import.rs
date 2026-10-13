@@ -109,6 +109,10 @@ pub struct ImportOptions {
     pub metadata_preset: Option<String>,
     /// Copy: raws are copied as DNG (Copy as DNG).
     pub convert_dng: bool,
+    /// The camera profile each raw gets ([`crate::import_profiles`]).
+    pub camera_profile: crate::import_profiles::ProfileChoice,
+    /// One of LightCraft's looks put on every imported photo (on its camera profile).
+    pub look: Option<String>,
 }
 
 /// How copies are filed in the destination. The date is the capture time, else the time of the
@@ -176,6 +180,15 @@ pub struct ImportCandidate {
     /// A raw variant that can't be decoded yet (why): it imports as preview only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_only: Option<String>,
+    /// The camera (`Make Model`), for the review's camera-profile summary.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub camera: String,
+    /// The camera body: its serial, else its file name's key ([`crate::import_profiles::body_of`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    /// A raw whose XMP sets develop settings or a camera profile: it keeps them at import.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub sidecar_develop: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -213,6 +226,9 @@ pub struct ImportReport {
     /// Per-photo diagnostics from foreign XMP develop settings that could not be fully carried over.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<ImportWarning>,
+    /// The camera profiles the imported raws got, and how many kept their sidecar's.
+    #[serde(rename = "cameraProfiles", skip_serializing_if = "crate::import_profiles::ProfileCounts::is_empty")]
+    pub camera_profiles: crate::import_profiles::ProfileCounts,
 }
 
 /// A structured diagnostic from foreign XMP develop settings.
@@ -555,6 +571,7 @@ pub struct ScanInput {
     by_path: HashMap<PathBuf, (PhotoId, ImportCandidate)>,
     by_hash: HashMap<String, PhotoId>,
     cache: HashMap<String, ProbeInfo>,
+    naming: crate::sidecar::SidecarNaming,
 }
 
 /// Progress and cancellation of a running [`scan_with`].
@@ -598,7 +615,14 @@ impl ScanInput {
                 by_hash.insert(h.clone(), p.id);
             }
         }
-        let input = ScanInput { probe: s.media.file_probe.clone(), skip, by_path, by_hash, cache: std::mem::take(&mut s.import_probes) };
+        let input = ScanInput {
+            probe: s.media.file_probe.clone(),
+            skip,
+            by_path,
+            by_hash,
+            cache: std::mem::take(&mut s.import_probes),
+            naming: s.xmp.naming,
+        };
         (input, paths.to_vec())
     }
 }
@@ -655,6 +679,9 @@ pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress
                 // as the import will date it (a sidecar's date, when there is one, still wins there)
                 c.captured = c.captured.or_else(|| info.file_modified.clone());
                 c.preview_only = info.preview_only.clone();
+                c.camera = info.meta.camera.trim().to_string();
+                c.body = crate::import_profiles::body_of(&info.meta.serial, &f);
+                c.sidecar_develop = crate::import_profiles::sidecar_decides(&f, &info, input.naming);
                 if let Some(h) = &info.content_hash {
                     match seen_hash.get(h) {
                         Some(existing) => {
@@ -1338,10 +1365,22 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 p.embedded_lens = info.embedded_lens;
                 p.preview_only = info.preview_only.clone();
                 apply_import_defaults(s, &mut p);
+                let auto_calibration = p.develop.camera_profile.clone();
                 if let Some(sc) = &sidecar {
                     crate::sidecar::merge_into(&mut p, sc, &now);
                     // Lightroom's camera profile, when it is one of the user's: no warning then
                     let mapped = sc.camera_profile.as_deref().is_some_and(|name| crate::cmd::dcp_profiles::from_xmp_name(s, &mut p, name));
+                    // Lightroom's settings without one of the user's camera profiles: they were made
+                    // on Lightroom's colour, not on the body's own profile picked automatically
+                    if !mapped
+                        && !auto_calibration.is_empty()
+                        && p.develop.camera_profile == auto_calibration
+                        && matches!(sc.develop, Some(crate::sidecar::DevelopPatch::Partial(_)))
+                    {
+                        let mut d = (*p.develop).clone();
+                        d.camera_profile.clear();
+                        p.develop = std::sync::Arc::new(d);
+                    }
                     report.sidecars += 1;
                     report.warnings.extend(sc.warnings.iter().filter(|w| !(mapped && w.code == ImportWarningCode::CameraProfile)).cloned().map(
                         |mut warning| {
@@ -1349,6 +1388,22 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                             warning
                         },
                     ));
+                }
+                // the camera profile chosen for its body (a sidecar's settings win)
+                let body = crate::import_profiles::body_of(&p.meta.serial, &path);
+                let decided = sidecar.as_ref().is_some_and(crate::import_profiles::sidecar_sets);
+                let applied = crate::import_profiles::apply(s, &mut p, &opts.camera_profile, body.as_deref(), decided);
+                report.camera_profiles.add(s, &applied, body.as_deref());
+                if let Some(look) = &opts.look {
+                    let mut d = (*p.develop).clone();
+                    crate::cmd::dcp_profiles::choose(s, &mut d, look);
+                    let d = std::sync::Arc::new(d);
+                    if d != p.develop {
+                        let name = s.profile_info(look).map_or(look.as_str(), |(n, _)| n);
+                        p.history.push(lightcraft_catalog::HistoryStep { label: format!("Profile: {name}"), settings: d.clone() });
+                        p.develop = d;
+                        p.edited = Some(now.clone());
+                    }
                 }
                 if let Some(mp) = opts.metadata_preset.as_ref().and_then(|n| s.metadata_presets.iter().find(|m| m.name.eq_ignore_ascii_case(n))) {
                     crate::cmd::metadata::apply_to(&mut p.meta, &mp.fields);

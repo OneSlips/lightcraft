@@ -1,4 +1,8 @@
 {
+  "{who} → {profile} ({n} photos)": "{who} → {profile}（{n} 枚）",
+  " · {n} kept from sidecar": " · {n} 枚はサイドカーの設定を維持",
+  "Camera profiles: {list}": "カメラプロファイル：{list}",
+  " · adopted for {bodies}": " · {bodies} に採用",
   "on {calibration}": "{calibration} 上",
   "Photos from body {body} develop with this profile by default": "ボディ {body} の写真はこのプロファイルで現像されます（既定）",
   "The chart's greys measure about {cct:.0} K": "チャートのグレーの測定値は約 {cct:.0} K",

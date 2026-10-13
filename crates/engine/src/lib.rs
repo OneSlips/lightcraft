@@ -41,6 +41,7 @@ pub mod fonts;
 pub mod guard;
 pub mod import;
 mod import_move;
+pub mod import_profiles;
 pub mod lens_profiles;
 pub mod library;
 mod lightroom_archive;
@@ -1067,6 +1068,8 @@ mod tests_history_cursor;
 mod tests_import;
 #[cfg(test)]
 mod tests_import_move;
+#[cfg(test)]
+mod tests_import_profiles;
 #[cfg(test)]
 mod tests_keyword_list;
 #[cfg(test)]

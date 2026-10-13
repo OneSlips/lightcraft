@@ -3,7 +3,9 @@
 //! a grid of thumbnails with checkboxes (duplicates marked and unchecked; Shift-click sets a
 //! range), the destination (add in place / copy or move into the library's `Originals/` or a
 //! chosen folder, filed by day, by month, into one folder or by a custom folder template,
-//! optionally renamed), an album (existing or new), a preset and keywords to apply. Importing
+//! optionally renamed), an album (existing or new), the camera profile each body's raws get (with
+//! a summary per body: [`lightcraft_engine::import_profiles`]), a look, a preset and keywords to
+//! apply. Importing
 //! runs on a worker thread (files are probed, copied or moved there) and its batches join the
 //! catalog between frames, with a row and ✕ in the activity stack (issue #345); the whole import is
 //! one undo step.
@@ -12,6 +14,7 @@ use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, Vec2, pos2, vec2};
 use lightcraft_engine::import::{
     ImportCandidate, ImportUprightMode, ImportWarning, ImportWarningCode, ScanInput, ScanOutput, ScanProgress, scan_with,
 };
+use lightcraft_engine::import_profiles::{self, ProfileChoice};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::atomic::Ordering;
@@ -91,6 +94,16 @@ pub struct ImportDialog {
     /// The candidate clicked last: where a Shift-click range starts ([`ImportDialog::click`]).
     #[serde(skip)]
     pub last_clicked: Option<usize>,
+    /// Camera profiles: "" automatic (each body's own), `all` ([`ImportDialog::profile_all`]).
+    pub profile_mode: String,
+    /// `all`: the profile for every raw (`builtin`: LightCraft's colour).
+    pub profile_all: String,
+    /// Automatic, except these bodies (body key → profile id or `builtin`): this import only.
+    pub profile_per_body: std::collections::BTreeMap<String, String>,
+    /// Bodies that keep the profile chosen for them here (`profile.adoptForBody` after the import).
+    pub adopt: Vec<String>,
+    /// One of LightCraft's looks put on every photo ("" = none).
+    pub look: String,
 }
 
 /// A candidate's file type, as the review groups them: its format, or its extension when the
@@ -251,6 +264,8 @@ pub struct ImportTask {
     pub kept: usize,
     /// Structured diagnostics from foreign XMP develop settings.
     pub warnings: Vec<ImportWarning>,
+    /// The camera profiles the raws got (all batches).
+    pub profiles: import_profiles::ProfileCounts,
     undo0: usize,
     first: Option<u64>,
     /// Reading a folder for the Local view: the photos stay out of the library, and nothing is
@@ -625,6 +640,16 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
     if !d.metadata_preset.is_empty() {
         params["metadataPreset"] = json!(d.metadata_preset);
     }
+    if let Some(cp) = d.camera_profile_param() {
+        params["cameraProfile"] = cp;
+    }
+    let adopt = d.adopt_param();
+    if !adopt.is_empty() {
+        params["adopt"] = json!(adopt);
+    }
+    if !d.look.is_empty() {
+        params["look"] = json!(d.look);
+    }
     if d.copy {
         if !d.destination.trim().is_empty() {
             params["destination"] = json!(d.destination.trim());
@@ -738,6 +763,9 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
             task.moved += len("moved");
             task.kept += len("kept");
             task.warnings.extend(v["warnings"].as_array().into_iter().flatten().filter_map(|warning| serde_json::from_value(warning.clone()).ok()));
+            if let Ok(counts) = serde_json::from_value::<import_profiles::ProfileCounts>(v["cameraProfiles"].clone()) {
+                task.profiles.merge(&counts);
+            }
             for k in v["kept"].as_array().into_iter().flatten() {
                 log::warn!("import: kept {}: {}", k["path"].as_str().unwrap_or(""), k["reason"].as_str().unwrap_or(""));
             }
@@ -819,6 +847,11 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
         crate::i18n::tr_format!("Add {} Photo{}", task.imported, if task.imported == 1 { "" } else { "s" })
     };
     app.session.merge_undo(steps, &label);
+    // bodies that keep the profile chosen for them (each its own undo step, after the import's)
+    let adopted = if task.cancelled { Ok(Vec::new()) } else { import_profiles::adopt_after_import(&mut app.session, &task.params) };
+    if let Err(e) = &adopted {
+        log::warn!("import: adopt: {e}");
+    }
     if task.auto {
         if !task.warnings.is_empty() {
             app.toast_for(ctx, xmp_warnings_text(&task.warnings), 8.0);
@@ -875,6 +908,10 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
     }
     if task.failed > 0 {
         msg.push_str(&crate::i18n::tr_format!(" · {} not readable", task.failed));
+    }
+    if let Some(summary) = profiles_summary(&task.profiles, adopted.as_deref().unwrap_or_default()) {
+        msg.push('\n');
+        msg.push_str(&summary);
     }
     if task.warnings.is_empty() {
         app.toast(ctx, msg);
@@ -1223,6 +1260,8 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             register(ui.ctx(), "field:importAlbumName", r.rect);
         }
     });
+    camera_profile_section(app, ui, d);
+    look_field(app, ui, d);
     field(ui, "Preset", |ui| {
         let cur = app
             .session
@@ -1531,6 +1570,226 @@ fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R
         add(ui)
     })
     .inner
+}
+
+/// The completion toast's camera-profile line: "Camera profiles: Canon … (412), LightCraft colour
+/// (18) · 3 kept from sidecar · adopted for 71". `None` when no raw was imported.
+fn profiles_summary(counts: &import_profiles::ProfileCounts, adopted: &[Value]) -> Option<String> {
+    if counts.is_empty() {
+        return None;
+    }
+    let mut parts: Vec<(usize, String)> = counts
+        .profiles
+        .iter()
+        .map(|(id, c)| {
+            let name = if id == import_profiles::BUILTIN { crate::i18n::tr("LightCraft colour").to_string() } else { c.name.clone() };
+            (c.photos, format!("{name} ({})", c.photos))
+        })
+        .collect();
+    parts.sort_by_key(|a| std::cmp::Reverse(a.0));
+    let list = parts.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ");
+    let mut msg = if list.is_empty() { String::new() } else { crate::i18n::tr_format!("Camera profiles: {list}", list = list) };
+    if counts.kept_from_sidecar > 0 {
+        msg.push_str(&crate::i18n::tr_format!(" · {n} kept from sidecar", n = counts.kept_from_sidecar));
+    }
+    let bodies: Vec<String> = adopted.iter().filter_map(|a| a["body"].as_str()).map(lightcraft_engine::cmd::dcp_profiles::body_label).collect();
+    if !bodies.is_empty() {
+        msg.push_str(&crate::i18n::tr_format!(" · adopted for {bodies}", bodies = bodies.join(", ")));
+    }
+    Some(msg.trim_start_matches(" · ").to_string())
+}
+
+// ------------------------------------------------------------------ camera profiles (LR-PROF-IMPORT-APPLY)
+
+impl ImportDialog {
+    /// The `cameraProfile` param this review asks for (`None`: automatic).
+    pub fn camera_profile_param(&self) -> Option<Value> {
+        if self.profile_mode == "all" && !self.profile_all.is_empty() {
+            return Some(json!({"all": self.profile_all}));
+        }
+        (!self.profile_per_body.is_empty()).then(|| json!({"perBody": self.profile_per_body}))
+    }
+
+    /// The import's [`ProfileChoice`] (checked against the session's profiles by the import itself).
+    fn profile_choice(&self) -> ProfileChoice {
+        if self.profile_mode == "all" && !self.profile_all.is_empty() {
+            ProfileChoice::All(self.profile_all.clone())
+        } else if self.profile_per_body.is_empty() {
+            ProfileChoice::Auto
+        } else {
+            ProfileChoice::PerBody(self.profile_per_body.clone())
+        }
+    }
+
+    /// The bodies to adopt their chosen profile for (only those given a camera profile here).
+    pub fn adopt_param(&self) -> Vec<String> {
+        if self.profile_mode == "all" {
+            return Vec::new();
+        }
+        self.adopt.iter().filter(|b| self.profile_per_body.get(*b).is_some_and(|id| id != import_profiles::BUILTIN)).cloned().collect()
+    }
+
+    /// The candidates the import will add (checked and importable).
+    pub(crate) fn to_import(&self) -> Vec<&ImportCandidate> {
+        (0..self.candidates.len())
+            .filter(|&i| self.checked.get(i).copied().unwrap_or(false) && self.importable(i))
+            .filter_map(|i| self.candidates.get(i))
+            .collect()
+    }
+}
+
+/// A camera profile choice's name in the review.
+fn choice_name(app: &LightcraftApp, id: &str) -> String {
+    if id == import_profiles::BUILTIN {
+        crate::i18n::tr("LightCraft colour").to_string()
+    } else {
+        import_profiles::profile_name(&app.session, Some(id))
+    }
+}
+
+/// The review's Camera profile section: Automatic (each body's own profile, with a row per body
+/// and its own Choose…) or one profile for every photo; then the look applied on top.
+fn camera_profile_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
+    field(ui, "Camera profile", |ui| {
+        let all = d.profile_mode == "all";
+        let cur = if all { "One profile for all photos" } else { "Automatic (each body's own profile)" };
+        let r = egui::ComboBox::from_id_salt("import-camera-profile").selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
+            if ui.selectable_label(!all, crate::i18n::tr("Automatic (each body's own profile)")).clicked() {
+                d.profile_mode.clear();
+            }
+            if ui.selectable_label(all, crate::i18n::tr("One profile for all photos")).clicked() {
+                d.profile_mode = "all".into();
+                if d.profile_all.is_empty() {
+                    d.profile_all = import_profiles::BUILTIN.into();
+                }
+            }
+        });
+        register(ui.ctx(), "combo:importCameraProfile", r.response.rect);
+        if d.profile_mode == "all" {
+            let r = egui::ComboBox::from_id_salt("import-camera-profile-all").selected_text(choice_name(app, &d.profile_all)).height(300.0).show_ui(
+                ui,
+                |ui| {
+                    if ui.selectable_label(d.profile_all == import_profiles::BUILTIN, crate::i18n::tr("LightCraft colour")).clicked() {
+                        d.profile_all = import_profiles::BUILTIN.into();
+                    }
+                    for e in &app.session.dcp_profiles {
+                        if ui.selectable_label(d.profile_all == e.id, &e.name).clicked() {
+                            d.profile_all = e.id.clone();
+                        }
+                    }
+                },
+            );
+            register(ui.ctx(), "combo:importCameraProfileAll", r.response.rect);
+        }
+    });
+    let rows = {
+        let cands = d.to_import();
+        import_profiles::plan(&app.session, &cands, &d.profile_choice())
+    };
+    if rows.is_empty() {
+        return;
+    }
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 82, right: 0, top: 0, bottom: 4 }).show(ui, |ui| {
+        for (i, row) in rows.iter().enumerate() {
+            ui.horizontal_wrapped(|ui| profile_plan_row(app, ui, d, i, row));
+        }
+    });
+}
+
+/// One body's row: "Canon EOS R5 C 71 → its profile (412 photos)", Choose… and Adopt.
+fn profile_plan_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog, i: usize, row: &import_profiles::PlanRow) {
+    let t = Tokens::get(ui.ctx());
+    let who = if row.body_label.is_empty() { row.camera.clone() } else { format!("{} {}", row.camera, row.body_label) };
+    let who = if who.trim().is_empty() { crate::i18n::tr("Unknown camera").to_string() } else { who };
+    let target = match (&row.profile, row.how) {
+        (Some(_), _) => row.profile_name.clone(),
+        (None, "auto") => crate::i18n::tr("No profile of its own: LightCraft colour").to_string(),
+        (None, _) => crate::i18n::tr("LightCraft colour").to_string(),
+    };
+    let mut text = crate::i18n::tr_format!("{who} → {profile} ({n} photos)", who = who, profile = target, n = row.photos);
+    if row.from_sidecar > 0 {
+        text.push_str(&crate::i18n::tr_format!(" · {n} kept from sidecar", n = row.from_sidecar));
+    }
+    let r = ui.label(egui::RichText::new(text).color(if row.profile.is_some() { t.text } else { t.text_dim }));
+    register(ui.ctx(), format!("label:importProfileRow-{i}"), r.rect);
+    if d.profile_mode == "all" {
+        return;
+    }
+    let Some(body) = row.body.clone() else { return };
+    let r = ui.button(crate::i18n::tr("Choose…"));
+    register(ui.ctx(), format!("button:importProfileChoose-{i}"), r.rect);
+    egui::Popup::menu(&r).show(|ui| {
+        let (mine, model, others) = import_profiles::choices(&app.session, &row.camera, Some(&body));
+        let chosen = d.profile_per_body.get(&body).cloned();
+        if ui.selectable_label(chosen.is_none(), crate::i18n::tr("Automatic")).clicked() {
+            d.profile_per_body.remove(&body);
+            d.adopt.retain(|b| b != &body);
+        }
+        if ui.selectable_label(chosen.as_deref() == Some(import_profiles::BUILTIN), crate::i18n::tr("LightCraft colour")).clicked() {
+            d.profile_per_body.insert(body.clone(), import_profiles::BUILTIN.into());
+            d.adopt.retain(|b| b != &body);
+        }
+        let mut pick = |ui: &mut egui::Ui, id: &str, label: &str| {
+            if ui.selectable_label(chosen.as_deref() == Some(id), label).clicked() {
+                d.profile_per_body.insert(body.clone(), id.to_string());
+            }
+        };
+        if !mine.is_empty() {
+            ui.separator();
+            ui.label(egui::RichText::new(crate::i18n::tr("This body")).small().color(t.text_dim));
+            for (id, name) in &mine {
+                pick(ui, id, name);
+            }
+        }
+        if !model.is_empty() {
+            ui.separator();
+            for (id, name) in &model {
+                pick(ui, id, name);
+            }
+        }
+        if !others.is_empty() {
+            ui.separator();
+            ui.label(egui::RichText::new(crate::i18n::tr("Other bodies")).small().color(t.text_dim));
+            for (id, name, bodies) in &others {
+                pick(ui, id, &format!("{name} ({bodies})"));
+            }
+        }
+    });
+    // a profile chosen here that isn't the body's own: make it permanent
+    if row.profile.is_some() && row.how == "chosen" && !row.own {
+        let mut on = d.adopt.contains(&body);
+        let r = ui.checkbox(&mut on, crate::i18n::tr("Adopt for this body"));
+        register(ui.ctx(), format!("check:importAdopt-{i}"), r.rect);
+        if r.changed() {
+            d.adopt.retain(|b| b != &body);
+            if on {
+                d.adopt.push(body.clone());
+            }
+        }
+    }
+}
+
+/// The look applied on top at import: one of LightCraft's looks (the profile row's), or none.
+fn look_field(app: &LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
+    field(ui, "Look", |ui| {
+        let cur = if d.look.is_empty() {
+            crate::i18n::tr("None").to_string()
+        } else {
+            let name = app.session.profile_info(&d.look).map(|(n, _)| n).unwrap_or(&d.look);
+            crate::i18n::profile_label(&d.look, name).to_string()
+        };
+        let r = egui::ComboBox::from_id_salt("import-look").selected_text(cur).height(300.0).show_ui(ui, |ui| {
+            if ui.selectable_label(d.look.is_empty(), crate::i18n::tr("None")).clicked() {
+                d.look.clear();
+            }
+            for p in lightcraft_engine::presets::PROFILES.iter().filter(|p| p.id != lightcraft_develop::BUILTIN_CAMERA_COLOR) {
+                if ui.selectable_label(d.look == p.id, crate::i18n::profile_label(p.id, p.name)).clicked() {
+                    d.look = p.id.to_string();
+                }
+            }
+        });
+        register(ui.ctx(), "combo:importLook", r.response.rect);
+    });
 }
 
 #[cfg(test)]

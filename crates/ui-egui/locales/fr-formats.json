@@ -1,4 +1,8 @@
 {
+  "{who} → {profile} ({n} photos)": "{who} → {profile} ({n} photos)",
+  " · {n} kept from sidecar": " · {n} conservées depuis le fichier annexe",
+  "Camera profiles: {list}": "Profils d'appareil : {list}",
+  " · adopted for {bodies}": " · adopté pour {bodies}",
   "on {calibration}": "sur {calibration}",
   "Photos from body {body} develop with this profile by default": "Les photos du boîtier {body} sont développées avec ce profil par défaut",
   "The chart's greys measure about {cct:.0} K": "Les gris de la charte mesurent environ {cct:.0} K",
