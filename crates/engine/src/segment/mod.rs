@@ -17,6 +17,7 @@
 
 #[cfg(feature = "sam")]
 mod download;
+pub mod models;
 #[cfg(feature = "sam")]
 mod worker;
 
@@ -120,6 +121,9 @@ pub struct Segmenter {
     pub dir: Option<PathBuf>,
     /// The user's list of download mirrors (one base URL per line), if any.
     pub mirrors_file: Option<PathBuf>,
+    /// The models folder: each open AI mask model (SAM 2.1, EoMT, BiRefNet, Depth Anything) lives
+    /// in its own subfolder ([`lightcraft_segment::models`]); `None`: no open models.
+    pub models_root: Option<PathBuf>,
     /// Run requests in the background and apply them in [`Session::segment_poll`] (the
     /// desktop app); otherwise commands wait for their result (CLI, MCP, tests).
     pub background: bool,
@@ -129,6 +133,9 @@ pub struct Segmenter {
     worker: worker::Worker,
     #[cfg(feature = "sam")]
     download: download::Downloader,
+    /// Downloads of the open models, by model key.
+    #[cfg(feature = "sam")]
+    model_downloads: std::collections::HashMap<&'static str, download::Downloader>,
     #[cfg(feature = "sam")]
     results: (std::sync::mpsc::Sender<worker::Outcome>, std::sync::mpsc::Receiver<worker::Outcome>),
 }
@@ -140,6 +147,7 @@ impl Default for Segmenter {
         Segmenter {
             dir: None,
             mirrors_file: None,
+            models_root: None,
             background: false,
             pending: None,
             messages: Vec::new(),
@@ -147,6 +155,8 @@ impl Default for Segmenter {
             worker: worker::Worker::default(),
             #[cfg(feature = "sam")]
             download: download::Downloader::default(),
+            #[cfg(feature = "sam")]
+            model_downloads: std::collections::HashMap::new(),
             #[cfg(feature = "sam")]
             results: std::sync::mpsc::channel(),
         }

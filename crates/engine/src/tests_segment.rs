@@ -278,3 +278,56 @@ fn a_running_model_download_shows_in_activity_and_cancels() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(&mirrors);
 }
+
+/// The open AI models (`ai.models.*`): listed with size and licence, downloads need consent and a
+/// known id, and a model whose files are in place counts as installed (nothing is downloaded).
+#[test]
+fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
+    let mut s = Session::with_demo();
+    let root = tmp("open-models");
+    s.segmenter.models_root = Some(root.clone());
+    let st = s.execute("ai.models.status", &json!({})).unwrap();
+    assert_eq!(st["available"], Segmenter::AVAILABLE);
+    let models = st["models"].as_array().unwrap();
+    if !Segmenter::AVAILABLE {
+        assert!(models.is_empty());
+        assert!(s.execute("ai.models.download", &json!({"id": "scene", "acknowledged": true})).is_err());
+        return;
+    }
+    let ids: Vec<&str> = models.iter().filter_map(|m| m["id"].as_str()).collect();
+    for id in ["subject", "scene", "sam2", "depth", "sam3"] {
+        assert!(ids.contains(&id), "{id} in {ids:?}");
+    }
+    for m in models {
+        assert_eq!(m["installed"], false, "{m}");
+        assert!(m["sizeBytes"].as_u64().unwrap() > 0 || m["id"] == "sam3", "{m}");
+        if m["id"] != "sam3" {
+            assert_eq!(m["open"], true, "{m}");
+            assert!(m["mirrors"].as_u64().unwrap() >= 1, "open models download without configuration: {m}");
+            assert!(["MIT", "Apache-2.0"].contains(&m["license"].as_str().unwrap()), "{m}");
+        }
+    }
+    // consent, and a known id
+    let e = s.execute("ai.models.download", &json!({"id": "scene"})).unwrap_err().to_string();
+    assert!(e.contains("acknowledged") && e.contains("MB") && e.contains("MIT"), "{e}");
+    let e = s.execute("ai.models.download", &json!({"acknowledged": true})).unwrap_err().to_string();
+    assert!(e.contains("scene"), "names the models: {e}");
+    let e = s.execute("ai.models.download", &json!({"id": "nope", "acknowledged": true})).unwrap_err().to_string();
+    assert!(e.contains("unknown"), "{e}");
+    assert_eq!(s.execute("ai.models.cancel", &json!({"id": "scene"})).unwrap()["cancelled"], false);
+    // missing: an error that says how to get it
+    let e = s.segmenter.require_model("scene").unwrap_err();
+    assert!(e.contains(crate::segment::models::MODEL_NOT_INSTALLED) && e.contains("ai.models.download"), "{e}");
+    // in place (a file of the pinned size): installed, and a download starts nothing
+    let dir = root.join("eomt-s-coco");
+    std::fs::create_dir_all(&dir).unwrap();
+    let f = std::fs::File::create(dir.join("model.safetensors")).unwrap();
+    f.set_len(95_927_796).unwrap();
+    drop(f);
+    assert_eq!(s.segmenter.require_model("scene").unwrap(), dir);
+    let r = s.execute("ai.models.download", &json!({"id": "scene", "acknowledged": true})).unwrap();
+    assert_eq!((r["started"].as_bool(), r["installed"].as_bool()), (Some(false), Some(true)), "{r}");
+    let st = s.execute("ai.models.status", &json!({})).unwrap();
+    assert!(st["models"].as_array().unwrap().iter().any(|m| m["id"] == "scene" && m["installed"] == true), "{st}");
+    let _ = std::fs::remove_dir_all(&root);
+}
