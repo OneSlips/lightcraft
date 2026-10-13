@@ -16,6 +16,11 @@
 //! This crate is therefore licensed under the Apache License 2.0 only (not the MIT option of
 //! the rest of LightCraft). No UI dependencies (L3).
 //!
+//! Two smaller models complement it: [`scene`] (EoMT-S, COCO panoptic segmentation: sky,
+//! people, vegetation, … and person instances, in one pass) and [`depth`] (Depth Anything V2
+//! Small, relative depth), both DINOv2-style ViTs sharing their layers; [`grid`] holds the
+//! image and grid resampling they need.
+//!
 //! [`fetch`] downloads the model, only when the user asks for it (from configurable mirrors,
 //! verified before use). Nothing in LightCraft requires the model: without it, AI masks report
 //! that it isn't installed and everything else works.
@@ -29,9 +34,14 @@
 #[cfg(not(target_arch = "wasm32"))]
 mod clip;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod depth;
+#[cfg(not(target_arch = "wasm32"))]
 mod detector;
 #[cfg(not(target_arch = "wasm32"))]
+mod dino;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod fetch;
+pub mod grid;
 pub mod mask;
 #[cfg(not(target_arch = "wasm32"))]
 mod neck;
@@ -39,6 +49,8 @@ mod neck;
 mod nn;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod remote;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod scene;
 pub mod tokenizer;
 #[cfg(not(target_arch = "wasm32"))]
 mod tracker;
@@ -65,6 +77,9 @@ pub enum Error {
     Model(String),
     #[error("SAM 3 model files not found in {0} (expected model.safetensors, vocab.json, merges.txt)")]
     Missing(PathBuf),
+    /// A self-explanatory message (the scene and depth models, image helpers).
+    #[error("{0}")]
+    Message(String),
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
     Candle(#[from] candle_core::Error),
