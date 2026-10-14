@@ -2,6 +2,15 @@
 
 ## 2026-10-14
 
+### Smooth Skin and Find Blemishes
+- **Smooth Skin** (Edit panel, beyond Lightroom): evens out skin tone and texture while keeping the pores. Amount,
+  Texture, Even Tone and Redness; the face's skin, the body's, or both; everyone or one person. It starts subtle,
+  never touches eyes, brows, lips or beards, and a preview looks like the export.
+- **Find Blemishes** (Remove panel) now uses the same open models: it looks only on the skin they find, cuts out
+  the eyes, brows, nostrils and lips by the face's landmarks, and can include the shoulders, arms and back.
+- **Detect Faces** and the face scan use the open MediaPipe face model too. YuNet is no longer offered: its training
+  data doesn't allow commercial use. If you installed it, Settings ▸ Faces lists it so you can remove it.
+
 ### AI masks with openly licensed models
 - **Subject**, **Background**, **Sky**, **People** and **Landscape** masks now use AI models instead of
   guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
