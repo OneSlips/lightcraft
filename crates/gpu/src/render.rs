@@ -46,6 +46,33 @@ struct Planes {
     texture: Option<(u32, Arc<Buf>)>,
     dark: Option<(u32, Arc<Buf>, f32)>,
     chroma: Option<(u32, Arc<Buf>)>,
+    /// The masks' alpha planes (and the chromaticity after them): see [`MaskBufs`].
+    masks: Option<MaskBufs>,
+}
+
+/// The masks' alpha buffer of one image, kept for the next render: keyed by
+/// [`lightcraft_pipeline::masks::alpha_key`], the chromaticity plane appended to it, and the
+/// mattes it was evaluated with (by identity). A slider drag that does not touch the masks reuses
+/// it: AI masks are evaluated on the CPU, and re-evaluating them every tick (a readback of the
+/// image, the matte resampled, an upload) was most of a drag's render time.
+#[derive(Clone)]
+struct MaskBufs {
+    key: u64,
+    chroma: Option<u32>,
+    mattes: Option<Arc<lightcraft_pipeline::masks::Mattes>>,
+    alpha: Arc<Buf>,
+}
+
+impl MaskBufs {
+    fn fits(&self, key: u64, chroma: Option<u32>, mattes: Option<&Arc<lightcraft_pipeline::masks::Mattes>>) -> bool {
+        self.key == key
+            && self.chroma == chroma
+            && match (&self.mattes, mattes) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
 }
 
 impl GpuStages {
@@ -106,6 +133,8 @@ impl GpuStages {
             p.clarity.iter().for_each(|(_, b)| add(b));
             p.texture.iter().for_each(|(_, b)| add(b));
             p.dark.iter().for_each(|(_, b, _)| add(b));
+            p.chroma.iter().for_each(|(_, b)| add(b));
+            p.masks.iter().for_each(|m| add(&m.alpha));
         }
         if let Some((_, b)) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
             add(b);
@@ -659,13 +688,13 @@ pub fn render(
         prep.air = a;
     }
     lap("planes", &mut t, &mut cx);
+
+    // 4. masks (kept with the planes)
+    let (masks, terms) = masks(&mut cx, &lin, &prep, &plan, &mut host, &mut planes);
+    lap("masks", &mut t, &mut cx);
     if let Some(c) = stages {
         c.put(Entry { src: src.clone(), geo: plan.geo, sampled, lin: Some((plan.lin_key, lin.clone())), planes });
     }
-
-    // 4. masks
-    let (masks, terms) = masks(&mut cx, &lin, &prep, &plan, &mut host);
-    lap("masks", &mut t, &mut cx);
 
     // 5. per-pixel stage
     let mut fp = FinishParams::new(s, &plan.frame, info, w, h, plan.px_per_long, prep.air, req.space);
@@ -702,7 +731,7 @@ pub fn render(
                 prep.clarity.as_deref(),
                 prep.texture.as_deref(),
                 prep.dark.as_deref(),
-                masks.as_ref(),
+                masks.as_deref(),
                 Some(&aux),
                 Some(&out),
             ],
@@ -951,13 +980,34 @@ fn guided_cross_max(cx: &mut Cx<'_>, guide: &Buf, p: &Buf, w: usize, h: usize, s
 /// Evaluate the masks (`lightcraft_pipeline::masks::evaluate`): their alpha planes (concatenated,
 /// followed by the blurred chromaticity when local Moiré / Noise need it) and their adjustment
 /// terms. Shapes without a kernel (Sky, Subject, …) run on the CPU.
-fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Host) -> (Option<Buf>, Vec<[f32; MASK_TERMS]>) {
-    use lightcraft_develop::{MaskOp, MaskShape};
+fn masks(
+    cx: &mut Cx<'_>,
+    lin: &Buf,
+    prep: &Prep,
+    plan: &Plan<'_>,
+    host: &mut Host,
+    planes: &mut Planes,
+) -> (Option<Arc<Buf>>, Vec<[f32; MASK_TERMS]>) {
     let s = &*plan.settings;
     let list: Vec<_> = s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).collect();
     if list.is_empty() {
         return (None, Vec::new());
     }
+    let terms = list.iter().map(|m| mask_terms(&m.adjust)).collect();
+    let key = lightcraft_pipeline::masks::alpha_key(&s.masks, s.light.exposure as f32, plan.w, plan.h);
+    let chroma = planes.chroma.as_ref().filter(|_| prep.chroma.is_some()).map(|(k, _)| *k);
+    if let Some(m) = planes.masks.as_ref().filter(|m| m.fits(key, chroma, plan.mattes.as_ref())) {
+        return (Some(m.alpha.clone()), terms);
+    }
+    let alpha = Arc::new(mask_alpha(cx, lin, prep, plan, host, &list));
+    planes.masks = Some(MaskBufs { key, chroma, mattes: plan.mattes.clone(), alpha: alpha.clone() });
+    (Some(alpha), terms)
+}
+
+/// The alpha planes of the visible masks `list` (concatenated, then the blurred chromaticity).
+fn mask_alpha(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Host, list: &[&lightcraft_develop::Mask]) -> Buf {
+    use lightcraft_develop::{MaskOp, MaskShape};
+    let s = &*plan.settings;
     let (w, h) = (plan.w, plan.h);
     let n = w * h;
     let frame = &plan.frame;
@@ -1082,8 +1132,7 @@ fn masks(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &mut Ho
             groups1(n),
         );
     }
-    let terms = list.iter().map(|m| mask_terms(&m.adjust)).collect();
-    (Some(alpha), terms)
+    alpha
 }
 
 #[cfg(test)]

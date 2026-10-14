@@ -107,3 +107,53 @@ fn local_defringe_desaturates_purple_edges_only() {
     let flat = |img: &Rgba8| sat(at(img, 70));
     assert!((flat(&on) - flat(&plain)).abs() <= 2.0, "flat purple kept: {} vs {}", flat(&on), flat(&plain));
 }
+
+// Given a view's stage cache and masks of every kind of input (a gradient, a range mask that
+// selects on the exposure, the subject heuristic), a slider drag that reuses the cached mask
+// planes renders what a fresh render does: exposure moves the range mask, the mask's own
+// sliders and its amount apply, and a moved gradient is re-evaluated
+#[test]
+fn cached_mask_planes_render_what_a_fresh_render_does() {
+    use std::sync::Arc;
+    let src = Arc::new(Rgb32f::from_fn(W, H, |x, y| {
+        let v = 0.05 + 0.6 * x as f32 / W as f32 + 0.05 * noise(x, y, 7);
+        [v, v * 0.9, v * (0.5 + y as f32 / H as f32)]
+    }));
+    let comp = |shape| MaskComponent { name: None, op: MaskOp::Add, invert: false, shape };
+    let mut s = left_mask(LocalAdjustments { exposure: 0.8, ..Default::default() });
+    s.masks.push(Mask {
+        id: 2,
+        components: vec![comp(MaskShape::LuminanceRange { lo: 0.3, hi: 0.6, lo_feather: 0.1, hi_feather: 0.1 })],
+        adjust: LocalAdjustments { saturation: -60.0, ..Default::default() },
+        ..Default::default()
+    });
+    s.masks.push(Mask {
+        id: 3,
+        components: vec![comp(MaskShape::Subject)],
+        adjust: LocalAdjustments { contrast: 40.0, ..Default::default() },
+        ..Default::default()
+    });
+    let cache = crate::StageCache::default();
+    let req = RenderRequest::fit(W, H);
+    let info = SourceInfo::default();
+    let same = |s: &DevelopSettings, what: &str| {
+        let cached = crate::render_cached(&src, &info, s, &req, &cache).image;
+        let fresh = render(&src, &info, s, &req).image;
+        assert!(cached.data == fresh.data, "{what}: the cached render differs");
+    };
+    same(&s, "first");
+    for ev in [-1.0, 0.5, 1.5] {
+        s.light.exposure = ev;
+        same(&s, "exposure");
+    }
+    s.masks[0].adjust.exposure = -0.5;
+    s.masks[2].adjust.amount = 40.0;
+    same(&s, "mask sliders and amount");
+    if let Some(MaskShape::Linear { start, end }) = s.masks.first_mut().and_then(|m| m.components.first_mut()).map(|c| &mut c.shape) {
+        *start = Point::new(0.7, 0.5);
+        *end = Point::new(0.71, 0.5);
+    }
+    same(&s, "moved gradient");
+    s.masks[1].visible = false;
+    same(&s, "hidden mask");
+}
