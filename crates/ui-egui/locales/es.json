@@ -2036,5 +2036,17 @@
   "Artificial Ground": "Suelo artificial",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "Esta máscara es aproximada: su modelo de IA no está instalado, así que la creó un método más simple.",
   "Get the AI Model…": "Obtener el modelo de IA…",
-  "The AI model for this mask is installed.": "El modelo de IA de esta máscara está instalado."
+  "The AI model for this mask is installed.": "El modelo de IA de esta máscara está instalado.",
+  "Shot Info": "Datos de la toma",
+  "Eye Focus Strip": "Tira de enfoque de ojos",
+  "Finding eyes…": "Buscando ojos…",
+  "No faces": "No hay caras",
+  "No eye to judge (faces turned away)": "Ningún ojo que evaluar (caras de perfil o de espaldas)",
+  "Eye focus needs the face AI model": "El enfoque de ojos necesita el modelo de IA de caras",
+  "Sharp": "Nítido",
+  "Soft": "Suave",
+  "Blurry": "Desenfocado",
+  "Click to see this eye at 100 %": "Haz clic para ver este ojo al 100 %",
+  "Closed": "Cerrado",
+  "Half closed": "Medio cerrado"
 }

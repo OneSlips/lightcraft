@@ -13,6 +13,7 @@ pub mod credits;
 pub mod date_picker;
 pub mod docking;
 pub mod export_task;
+pub mod eye_strip;
 pub mod headless;
 pub mod i18n;
 pub mod icons;
@@ -341,6 +342,10 @@ pub struct LightcraftApp {
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
     /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
     pub loupe_timing: loupe_timing::LoupeTiming,
+    /// The eye focus strip's results and its eye finder (`view.eyeFocus`).
+    pub(crate) eye_strip: eye_strip::EyeStrip,
+    /// The eye finder's key for the photo the strip last showed (for `ui.inspect`).
+    pub(crate) eye_key: Option<u64>,
     /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
     /// catalog revision and the edge, so it is worked out again only when one of them changes.
     pub(crate) look_ahead: panels::detail::LookAhead,
@@ -455,6 +460,8 @@ impl LightcraftApp {
             brush_live: None,
             loupe_shown: None,
             loupe_timing: Default::default(),
+            eye_strip: Default::default(),
+            eye_key: None,
             look_ahead: Default::default(),
             region_view: None,
             region_before_view: None,

@@ -2002,5 +2002,17 @@
   "Artificial Ground": "人工の地面",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "このマスクは近似です。AI モデルがインストールされていないため、より簡易な方法で作成されました。",
   "Get the AI Model…": "AI モデルを入手…",
-  "The AI model for this mask is installed.": "このマスクの AI モデルはインストール済みです。"
+  "The AI model for this mask is installed.": "このマスクの AI モデルはインストール済みです。",
+  "Shot Info": "撮影情報",
+  "Eye Focus Strip": "目のピント帯",
+  "Finding eyes…": "目を探しています…",
+  "No faces": "顔がありません",
+  "No eye to judge (faces turned away)": "判定できる目がありません（顔が横や後ろを向いています）",
+  "Eye focus needs the face AI model": "目のピントには顔の AI モデルが必要です",
+  "Sharp": "シャープ",
+  "Soft": "甘い",
+  "Blurry": "ボケ",
+  "Click to see this eye at 100 %": "クリックするとこの目を 100 % で表示します",
+  "Closed": "é–‰ã˜ã¦ã„ã‚‹",
+  "Half closed": "åŠç›®"
 }

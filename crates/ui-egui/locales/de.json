@@ -2159,5 +2159,17 @@
   "Artificial Ground": "Künstlicher Boden",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "Diese Maske ist ungefähr: Ihr KI-Modell ist nicht installiert, daher hat sie eine einfachere Methode erstellt.",
   "Get the AI Model…": "KI-Modell holen …",
-  "The AI model for this mask is installed.": "Das KI-Modell für diese Maske ist installiert."
+  "The AI model for this mask is installed.": "Das KI-Modell für diese Maske ist installiert.",
+  "Shot Info": "Aufnahmedaten",
+  "Eye Focus Strip": "Augenfokus-Leiste",
+  "Finding eyes…": "Augen werden gesucht…",
+  "No faces": "Keine Gesichter",
+  "No eye to judge (faces turned away)": "Kein Auge zu beurteilen (Gesichter abgewandt)",
+  "Eye focus needs the face AI model": "Der Augenfokus braucht das KI-Gesichtsmodell",
+  "Sharp": "Scharf",
+  "Soft": "Weich",
+  "Blurry": "Unscharf",
+  "Click to see this eye at 100 %": "Klicken, um dieses Auge in 100 % zu sehen",
+  "Closed": "Geschlossen",
+  "Half closed": "Halb geschlossen"
 }

@@ -364,7 +364,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let full = ui.max_rect();
     let fullscreen = app.ui.fullscreen;
     let show_film = app.ui.filmstrip && !fullscreen;
-    let film_h = if show_film { t.film_h } else { 0.0 };
+    let film_h = if show_film { crate::state::FILM_HEIGHT.clamp(app.ui.film_height) } else { 0.0 };
     let canvas = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - film_h));
     app.canvas_rect = Some(canvas);
     if show_film {
@@ -729,6 +729,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         app.loupe_shown = Some((id, "embedded"));
         camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
     }
+    // each person's sharper eye at 100 %, found for this photo and the next ones (never waited for)
+    if app.ui.eye_focus {
+        let ids = app.session.visible_cloned();
+        let upcoming = ids.iter().position(|p| *p == id).map(|i| app.look_ahead.targets(&ids, i)).unwrap_or_default();
+        crate::eye_strip::show(app, ui, canvas, id, &upcoming);
+    }
     // the line of a wipe over both
     if app.ui.before_after == BeforeAfter::Split {
         p.line_segment([pos2(line.x, img_rect.top()), pos2(line.x, img_rect.bottom())], Stroke::new(1.5, Color32::WHITE));
@@ -742,6 +748,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     register(ui.ctx(), "canvas:image", img_rect);
     let map = CanvasMap::new(&frame, img_rect);
     info_overlay(app, &p, canvas, &photo);
+    if app.ui.shot_info {
+        shot_info_strip(ui, canvas, img_rect, &shot_info(&photo.meta, native));
+    }
     if !fullscreen {
         filter_pill(app, ui, canvas);
     }
@@ -1141,6 +1150,101 @@ fn preview_only_pill(ui: &mut egui::Ui, canvas: Rect, reason: &str) {
     p.galley(pos2(r.left() + 29.0, r.center().y - g.size().y / 2.0), g, Color32::WHITE);
     register(ui.ctx(), "notice:previewOnly:loupe", r);
     ui.interact(r, egui::Id::new("preview-only-pill"), Sense::hover()).on_hover_text(crate::widgets::preview_only_explanation(reason));
+}
+
+/// The shot info strip's parts, most important first (the strip drops them from the end when it
+/// is narrow): aperture, shutter, ISO, focal length shot, the lens (its model, else its focal
+/// range), the picture's size in pixels as shown (after the crop, oriented). Only what the photo's
+/// metadata already holds: nothing is read from the file.
+pub(crate) fn shot_info(m: &lightcraft_catalog::Meta, size: [usize; 2]) -> Vec<String> {
+    let mut v = Vec::new();
+    if let Some(a) = m.aperture.filter(|a| a.is_finite() && *a > 0.0) {
+        v.push(if a >= 10.0 { format!("f/{a:.0}") } else { format!("f/{a:.1}") });
+    }
+    if !m.shutter.trim().is_empty() {
+        v.push(format!("{} s", m.shutter.trim()));
+    }
+    if let Some(i) = m.iso {
+        v.push(format!("ISO {i}"));
+    }
+    if let Some(f) = m.focal_mm.filter(|f| f.is_finite() && *f > 0.0) {
+        v.push(format!("{f:.0} mm"));
+    }
+    let lens = m.lens.trim();
+    if !lens.is_empty() {
+        v.push(lens.to_string());
+    } else if let Some((a, b)) = m.lens_range.filter(|(a, b)| a.is_finite() && b.is_finite() && *a > 0.0) {
+        // (the focal length shot comes first; this is the lens's range, in brackets)
+        v.push(if (b - a).abs() < 0.5 { format!("({a:.0} mm)") } else { format!("({a:.0}–{b:.0} mm)") });
+    }
+    if size[0] > 1 && size[1] > 1 {
+        v.push(format!("{} × {}", size[0], size[1]));
+    }
+    v
+}
+
+/// The shot info strip: one line under the photo (inside its bottom edge when there is no room
+/// below it, as in full screen), its parts dropped from the end when it doesn't fit (widget
+/// `loupe:shotInfo`).
+fn shot_info_strip(ui: &egui::Ui, canvas: Rect, img: Rect, parts: &[String]) {
+    if parts.is_empty() || !img.is_positive() {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(canvas);
+    let font = t.font(11.5);
+    let h = 18.0;
+    let below = img.bottom() + 3.0 + h <= canvas.bottom();
+    let top = if below { img.bottom() + 3.0 } else { img.bottom() - h - 6.0 };
+    let max_w = (img.width().min(canvas.width()) - 16.0).max(40.0);
+    let colour = if below { t.text_dim } else { Color32::from_gray(230) };
+    let width = |s: &str| p.layout_no_wrap(s.to_string(), font.clone(), colour).size().x;
+    let mut shown: Vec<String> = parts.to_vec();
+    // least important last: the size, then the lens give way first; the last part left is cut
+    // short with an ellipsis rather than dropped
+    while shown.len() > 1 && strip_width(&shown.iter().map(|s| width(s)).collect::<Vec<_>>()) > max_w {
+        shown.pop();
+    }
+    if shown.len() == 1
+        && let Some(only) = shown.first_mut()
+    {
+        let mut chars: Vec<char> = only.chars().collect();
+        while width(only) > max_w && chars.len() > 1 {
+            chars.pop();
+            *only = chars.iter().collect::<String>().trim_end().to_string() + "…";
+        }
+    }
+    if shown.is_empty() {
+        return;
+    }
+    let galleys: Vec<_> = shown.into_iter().map(|s| p.layout_no_wrap(s, font.clone(), colour)).collect();
+    let total = strip_width(&galleys.iter().map(|g| g.size().x).collect::<Vec<_>>());
+    let r = Rect::from_center_size(pos2(img.center().x, top + h / 2.0), vec2(total + 2.0 * STRIP_PAD, h));
+    if !below {
+        p.rect_filled(r, 9.0, Color32::from_black_alpha(140));
+    }
+    let mut x = r.left() + STRIP_PAD;
+    let n = galleys.len();
+    for (i, g) in galleys.into_iter().enumerate() {
+        let w = g.size().x;
+        p.galley(pos2(x, r.center().y - g.size().y / 2.0), g, colour);
+        x += w;
+        if i + 1 < n {
+            // a faint dot between the items, in the middle of a wide gap
+            p.circle_filled(pos2(x + STRIP_GAP / 2.0, r.center().y), 1.3, colour.gamma_multiply(0.55));
+            x += STRIP_GAP;
+        }
+    }
+    register(ui.ctx(), "loupe:shotInfo", r);
+}
+
+/// Space between two items of the shot info strip (a dot sits in its middle), and around them.
+const STRIP_GAP: f32 = 22.0;
+const STRIP_PAD: f32 = 10.0;
+
+/// Width of the shot info strip's items (their widths) with the gaps between them.
+pub(crate) fn strip_width(widths: &[f32]) -> f32 {
+    widths.iter().sum::<f32>() + STRIP_GAP * widths.len().saturating_sub(1) as f32
 }
 
 /// `2026-09-30T12:00:00` → `2026-09-30 12:00`.
@@ -2397,14 +2501,51 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
+/// Width of a filmstrip cell for a strip `height` points high (the shape of its original
+/// 120 × 142 cells).
+pub(crate) fn film_cell_width(height: f32) -> f32 {
+    let h = if height.is_finite() { height } else { crate::state::FILM_HEIGHT.default };
+    (h * 120.0 / 142.0).round().max(60.0)
+}
+
+/// The thumbnail size (px) a filmstrip cell `cell_w` points wide asks for: what it shows at the
+/// screen's density, from the thumbnail sizes the cache keeps (at most 512).
+pub(crate) fn film_thumb_px(cell_w: f32, ppp: f32) -> usize {
+    let px = cell_w * if ppp.is_finite() { ppp.clamp(1.0, 3.0) } else { 1.0 } * 2.0;
+    (px.round() as usize).clamp(128, 512)
+}
+
+/// The filmstrip's top edge: dragged up or down, it resizes the strip (and its thumbnails) within
+/// [`crate::state::FILM_HEIGHT`]; the height is kept with the UI settings (widget `film:resize`).
+fn film_resize(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
+    let edge = Rect::from_min_size(r.min - vec2(0.0, 2.0), vec2(r.width(), 7.0));
+    let resp = ui.interact(edge, egui::Id::new("film-resize"), Sense::drag());
+    register(ui.ctx(), "film:resize", edge);
+    if resp.hovered() || resp.dragged() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+    }
+    if resp.dragged() {
+        let dy = resp.drag_delta().y;
+        if dy.is_finite() && dy != 0.0 {
+            app.ui.film_height = crate::state::FILM_HEIGHT.clamp(app.ui.film_height - dy);
+        }
+    }
+    if resp.double_clicked() {
+        app.ui.film_height = crate::state::FILM_HEIGHT.default;
+    }
+}
+
 pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let t = Tokens::get(ui.ctx());
     ui.painter().rect_filled(r, 0.0, t.canvas);
     ui.painter().rect_filled(Rect::from_min_size(r.min, vec2(r.width(), 4.0)), 0.0, Color32::from_gray(0x20));
+    film_resize(app, ui, r);
     let ids = app.session.visible_cloned();
     let active = app.session.selection.active;
-    let cell_w = 120.0;
+    // the cells keep the shape they had at the strip's original height (120 wide at 142 high)
+    let cell_w = film_cell_width(r.height());
     let ppp = ui.ctx().pixels_per_point();
+    let thumb_px = film_thumb_px(cell_w, ppp);
     if ids.is_empty() {
         let why = if app.session.filter != Default::default() { "No photos match the filters (View → Clear Filters)" } else { "No photos" };
         ui.painter().text(r.center(), Align2::CENTER_CENTER, why, t.font(12.5), t.text_dim);
@@ -2450,7 +2591,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                 p.text(pos2(cr.right() - 8.0, cr.top() + 10.0), Align2::RIGHT_CENTER, &ph.format, t.semibold(8.5), t.text_dim);
             }
             let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0));
-            super::grid::request_thumb(app, *id, (256.0 * ppp.min(2.0) / 2.0) as usize * 2, 8);
+            super::grid::request_thumb(app, *id, thumb_px, 8);
             if let Some(tex) = app.renderer.thumb(*id) {
                 let [tw, th] = tex.size;
                 let s = (img_area.width() / tw as f32).min(img_area.height() / th as f32);
@@ -2798,5 +2939,56 @@ mod wheel_zoom_tests {
         assert_eq!(wheel_notches(&[wheel(egui::MouseWheelUnit::Point, 40.0, m)]), 0.0);
         assert_eq!(wheel_notches(&[wheel(egui::MouseWheelUnit::Line, 1.0, egui::Modifiers::CTRL)]), 0.0);
         assert_eq!(wheel_notches(&[wheel(egui::MouseWheelUnit::Line, f32::NAN, m)]), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod shot_info_tests {
+    use super::*;
+
+    /// The strip shows aperture, shutter, ISO, focal length, lens and size, from the metadata the
+    /// probe already read; a lens without a model name is named by its focal range.
+    #[test]
+    fn shot_info_reads_the_metadata_in_order() {
+        let mut m = lightcraft_catalog::Meta {
+            aperture: Some(2.8),
+            shutter: "1/250".into(),
+            iso: Some(1600),
+            focal_mm: Some(50.4),
+            lens: "RF24-70mm F2.8 L IS USM".into(),
+            lens_range: Some((24.0, 70.0)),
+            ..Default::default()
+        };
+        assert_eq!(shot_info(&m, [8192, 5464]), ["f/2.8", "1/250 s", "ISO 1600", "50 mm", "RF24-70mm F2.8 L IS USM", "8192 × 5464"]);
+        m.lens.clear();
+        assert_eq!(shot_info(&m, [8192, 5464])[4], "(24–70 mm)");
+        m.lens_range = Some((85.0, 85.0));
+        m.aperture = Some(11.0);
+        assert_eq!(shot_info(&m, [100, 50])[..1], ["f/11"]);
+        assert_eq!(shot_info(&m, [100, 50])[4], "(85 mm)");
+        // nothing known: nothing shown; hostile numbers are left out
+        let none = lightcraft_catalog::Meta { aperture: Some(f32::NAN), focal_mm: Some(-1.0), ..Default::default() };
+        assert!(shot_info(&none, [1, 1]).is_empty());
+    }
+
+    /// The strip's items are spaced by a wide gap; one item has none.
+    #[test]
+    fn shot_info_items_are_spaced() {
+        assert_eq!(strip_width(&[]), 0.0);
+        assert_eq!(strip_width(&[40.0]), 40.0);
+        assert_eq!(strip_width(&[40.0, 30.0, 20.0]), 90.0 + 2.0 * STRIP_GAP);
+    }
+
+    /// A resized filmstrip keeps its cells' shape and asks for thumbnails its cells can show.
+    #[test]
+    fn filmstrip_cells_follow_its_height() {
+        assert_eq!(film_cell_width(142.0), 120.0);
+        assert!(film_cell_width(360.0) > 300.0 && film_cell_width(96.0) < 90.0);
+        assert_eq!(film_cell_width(f32::NAN), 120.0);
+        assert_eq!(film_thumb_px(120.0, 1.0), 240);
+        assert_eq!(film_thumb_px(300.0, 2.0), 512);
+        assert_eq!(film_thumb_px(60.0, f32::NAN), 128);
+        let s = crate::state::FILM_HEIGHT;
+        assert_eq!((s.clamp(10.0), s.clamp(1e6), s.clamp(f32::NAN)), (s.min, s.max, s.default));
     }
 }

@@ -1998,5 +1998,17 @@
   "Artificial Ground": "Sol artificiel",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "Ce masque est approximatif : son modèle d’IA n’est pas installé, une méthode plus simple l’a donc créé.",
   "Get the AI Model…": "Obtenir le modèle d’IA…",
-  "The AI model for this mask is installed.": "Le modèle d’IA de ce masque est installé."
+  "The AI model for this mask is installed.": "Le modèle d’IA de ce masque est installé.",
+  "Shot Info": "Infos de prise de vue",
+  "Eye Focus Strip": "Bandeau de mise au point des yeux",
+  "Finding eyes…": "Recherche des yeux…",
+  "No faces": "Aucun visage",
+  "No eye to judge (faces turned away)": "Aucun œil à juger (visages détournés)",
+  "Eye focus needs the face AI model": "La mise au point des yeux nécessite le modèle d'IA des visages",
+  "Sharp": "Net",
+  "Soft": "Doux",
+  "Blurry": "Flou",
+  "Click to see this eye at 100 %": "Cliquez pour voir cet œil à 100 %",
+  "Closed": "FermÃ©",
+  "Half closed": "Mi-clos"
 }

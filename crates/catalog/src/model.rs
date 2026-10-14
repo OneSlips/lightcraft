@@ -173,6 +173,11 @@ pub struct Meta {
     pub aperture: Option<f32>,
     pub shutter: String,
     pub iso: Option<u32>,
+    /// The lens's focal range (mm, shortest and longest), from the file's LensSpecification: what
+    /// the loupe's shot info names a lens by when the file has no lens model. Left out of the
+    /// catalog JSON when unknown, so older catalogs read unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lens_range: Option<(f32, f32)>,
     /// Place (sublocation, e.g. a landmark).
     pub location: String,
     pub city: String,

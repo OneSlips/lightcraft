@@ -2192,5 +2192,17 @@
   "Artificial Ground": "Штучна поверхня",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "Ця маска наближена: її модель ШІ не встановлено, тож її створив простіший метод.",
   "Get the AI Model…": "Отримати модель ШІ…",
-  "The AI model for this mask is installed.": "Модель ШІ для цієї маски встановлено."
+  "The AI model for this mask is installed.": "Модель ШІ для цієї маски встановлено.",
+  "Shot Info": "Дані зйомки",
+  "Eye Focus Strip": "Смуга фокусу на очах",
+  "Finding eyes…": "Пошук очей…",
+  "No faces": "Облич немає",
+  "No eye to judge (faces turned away)": "Немає очей для оцінки (обличчя відвернуті)",
+  "Eye focus needs the face AI model": "Для фокусу на очах потрібна ШІ-модель облич",
+  "Sharp": "Різко",
+  "Soft": "М'яко",
+  "Blurry": "Розмито",
+  "Click to see this eye at 100 %": "Клацніть, щоб побачити це око в масштабі 100 %",
+  "Closed": "Ð—Ð°Ð¿Ð»ÑŽÑ‰ÐµÐ½Ðµ",
+  "Half closed": "ÐÐ°Ð¿Ñ–Ð²Ð·Ð°Ð¿Ð»ÑŽÑ‰ÐµÐ½Ðµ"
 }

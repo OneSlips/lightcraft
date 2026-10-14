@@ -2000,5 +2000,17 @@
   "Artificial Ground": "人造地面",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "此遮色片是近似的：其 AI 模型未安裝，因此由較簡單的方法產生。",
   "Get the AI Model…": "取得 AI 模型…",
-  "The AI model for this mask is installed.": "此遮色片的 AI 模型已安裝。"
+  "The AI model for this mask is installed.": "此遮色片的 AI 模型已安裝。",
+  "Shot Info": "拍攝資訊",
+  "Eye Focus Strip": "眼部對焦列",
+  "Finding eyes…": "正在尋找眼睛…",
+  "No faces": "沒有人臉",
+  "No eye to judge (faces turned away)": "沒有可判斷的眼睛（臉轉開了）",
+  "Eye focus needs the face AI model": "眼部對焦需要人臉 AI 模型",
+  "Sharp": "清晰",
+  "Soft": "略軟",
+  "Blurry": "模糊",
+  "Click to see this eye at 100 %": "點按以 100% 檢視這隻眼睛",
+  "Closed": "é–‰çœ¼",
+  "Half closed": "åŠé–‰"
 }

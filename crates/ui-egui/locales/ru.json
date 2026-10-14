@@ -2192,5 +2192,17 @@
   "Artificial Ground": "Искусственная поверхность",
   "This mask is approximate: its AI model isn't installed, so a simpler method made it.": "Эта маска приблизительная: её модель ИИ не установлена, поэтому её создал более простой метод.",
   "Get the AI Model…": "Получить модель ИИ…",
-  "The AI model for this mask is installed.": "Модель ИИ для этой маски установлена."
+  "The AI model for this mask is installed.": "Модель ИИ для этой маски установлена.",
+  "Shot Info": "Данные съёмки",
+  "Eye Focus Strip": "Полоса фокуса по глазам",
+  "Finding eyes…": "Поиск глаз…",
+  "No faces": "Лиц нет",
+  "No eye to judge (faces turned away)": "Нет глаз для оценки (лица отвёрнуты)",
+  "Eye focus needs the face AI model": "Для фокуса по глазам нужна ИИ-модель лиц",
+  "Sharp": "Резко",
+  "Soft": "Мягко",
+  "Blurry": "Размыто",
+  "Click to see this eye at 100 %": "Щёлкните, чтобы увидеть этот глаз в масштабе 100 %",
+  "Closed": "Ð—Ð°ÐºÑ€Ñ‹Ñ‚",
+  "Half closed": "ÐŸÐ¾Ð»ÑƒÐ·Ð°ÐºÑ€Ñ‹Ñ‚"
 }

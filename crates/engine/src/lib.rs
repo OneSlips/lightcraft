@@ -30,6 +30,7 @@ pub mod denoise;
 pub mod devices;
 pub mod display;
 pub mod export;
+pub mod eyes;
 pub mod face_download;
 #[cfg(not(target_arch = "wasm32"))]
 mod faces_index;
