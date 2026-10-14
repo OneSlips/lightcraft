@@ -1951,6 +1951,8 @@ mod cache_tests {
 
 #[cfg(test)]
 mod tests_model_setup;
+#[cfg(test)]
+mod tests_retouch;
 
 #[cfg(test)]
 mod tests_docking_acceptance;
