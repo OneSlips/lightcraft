@@ -3233,6 +3233,7 @@ dependencies = [
  "lightcraft-geom",
  "lightcraft-gpu",
  "lightcraft-heif",
+ "lightcraft-inpaint",
  "lightcraft-lensdb",
  "lightcraft-merge",
  "lightcraft-meta",
