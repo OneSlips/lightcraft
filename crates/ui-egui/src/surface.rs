@@ -102,6 +102,8 @@ pub struct SurfaceHost {
     /// Why it couldn't start, and when to try again (egui time, s).
     pub listen_error: Option<String>,
     listen_retry_at: f64,
+    /// The surface plugin's install state (Settings ▸ Controls).
+    pub plugin: crate::surface_plugin::PluginState,
 }
 
 impl Default for SurfaceHost {
@@ -124,6 +126,7 @@ impl Default for SurfaceHost {
             listening: None,
             listen_error: None,
             listen_retry_at: 0.0,
+            plugin: Default::default(),
         }
     }
 }
@@ -455,6 +458,7 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
     let now = ctx.input(|i| i.time);
     app.surface.now = now;
     app.surface.pixels_per_point = ctx.pixels_per_point();
+    crate::surface_plugin::poll(app);
     if !app.surface.loaded {
         app.surface.loaded = true;
         load(app);
@@ -855,6 +859,9 @@ pub fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Va
     if !app.surface.loaded {
         app.surface.loaded = true;
         load(app);
+    }
+    if let Some(r) = crate::surface_plugin::command(app, id) {
+        return Some(r);
     }
     let now_ms = app.surface.now * 1000.0;
     let r = match id {

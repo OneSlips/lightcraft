@@ -88,6 +88,8 @@ pollster = "1"
 
 # ui
 egui = "0.36"
+# control-surface icons in Settings > Controls and the readout (pure Rust; no text, no raster images)
+resvg = { version = "0.45", default-features = false }
 egui_extras = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false }
 egui_kittest = "0.36"

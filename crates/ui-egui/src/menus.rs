@@ -238,6 +238,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("surface.settings", "Control Surface Settings", None, ""),
     ("surface.import", "Import Control Surface Setup", None, ""),
     ("surface.export", "Export Control Surface Layout", None, ""),
+    ("surface.plugin", "Surface Plugin Status", None, ""),
+    ("surface.installPlugin", "Install the Surface Plugin", None, ""),
+    ("surface.uninstallPlugin", "Remove the Surface Plugin", None, ""),
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {

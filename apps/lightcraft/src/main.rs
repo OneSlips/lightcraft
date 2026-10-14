@@ -31,6 +31,7 @@ mod dialog_filter;
 mod editors;
 mod hdr_display;
 mod logging;
+mod logi_plugin;
 #[cfg(target_os = "macos")]
 mod native_menu;
 #[cfg(target_os = "macos")]
@@ -623,6 +624,7 @@ fn services(cc: &eframe::CreationContext<'_>, log_file: Option<&std::path::Path>
                 .map(|p| p.to_string_lossy().to_string())
         })),
         surface_listener: None,
+        surface_plugin: logi_plugin::installer(),
     }
 }
 

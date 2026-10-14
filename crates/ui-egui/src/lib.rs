@@ -33,6 +33,8 @@ pub mod sidebar;
 pub mod softpaint;
 pub mod state;
 pub mod surface;
+pub mod surface_icons;
+pub mod surface_plugin;
 pub mod sync;
 pub mod tasks;
 pub mod text_field;
@@ -249,6 +251,9 @@ pub struct Services {
     /// Start (`Some(port)`) or stop (`None`) the loopback listener control surfaces connect to
     /// (desktop only); it serves `surface.*` methods only.
     pub surface_listener: Option<SurfaceListenerFn>,
+    /// Installs a surface's plugin into its maker's app (the LightCraft plugin for Logi
+    /// Options+; desktop only): Settings ▸ Controls, `surface.installPlugin`.
+    pub surface_plugin: Option<std::sync::Arc<dyn surface_plugin::PluginInstaller>>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

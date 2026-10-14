@@ -35,7 +35,7 @@ pub mod runtime;
 pub mod settings;
 pub mod tactilebridge;
 pub mod targets;
-mod zip;
+pub mod zip;
 
 pub use binding::{Binding, Modifier};
 pub use context::Context;

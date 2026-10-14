@@ -242,6 +242,7 @@ fn services(originals: Originals, backend: Option<Backend>, files: Files, frozen
         pick_surface_file: None,
         save_surface_file: None,
         surface_listener: None,
+        surface_plugin: None,
     }
 }
 
