@@ -332,3 +332,51 @@ fn surfaces_are_off_until_turned_on_and_hostile_input_is_refused() {
     assert!(r["result"]["exposure"].as_str().unwrap().contains("<svg"));
     assert!(r["result"].get("nope").is_none());
 }
+
+#[test]
+fn a_plugin_lists_the_actions_runs_them_and_watches_their_values() {
+    let mut h = demo();
+    open_photo(&mut h);
+    // the catalogue needs no pairing (names and icons only)
+    let (s, events) = sink();
+    let r = request_on(&mut h, 21, &s, "surface.catalog", json!({}));
+    assert_eq!(r["ok"], true, "{r}");
+    let entries = r["result"]["entries"].as_array().unwrap();
+    let exp = entries.iter().find(|e| e["key"] == "v.light.exposure").expect("exposure is listed");
+    assert_eq!((exp["label"].as_str(), exp["value"].as_bool(), exp["icon"].as_str()), (Some("Exposure"), Some(true), Some("exposure")));
+    assert!(entries.iter().any(|e| e["key"] == "c.edit.undo" && e["value"] == false));
+    assert!(r["result"]["groups"].as_array().unwrap().len() > 5);
+    // turning an action from the plugin's own list moves that value, one undo step per turn
+    let before = exposure(&h);
+    let r = request_on(&mut h, 0, &s, "surface.input", json!({"events": [{"action": "v.light.exposure", "ticks": 4}]}));
+    assert_eq!(r["ok"], true, "{r}");
+    for _ in 0..3 {
+        h.step();
+    }
+    assert!(exposure(&h) > before);
+    finish_gesture(&mut h);
+    // pressing it resets it
+    request_on(
+        &mut h,
+        0,
+        &s,
+        "surface.input",
+        json!({"events": [{"action": "v.light.exposure", "press": true}, {"action": "v.light.exposure", "press": false}]}),
+    );
+    h.settle(T);
+    assert!(exposure(&h).abs() < 1e-9, "{}", exposure(&h));
+    // unknown actions are refused, not guessed
+    let r = request_on(&mut h, 0, &s, "surface.input", json!({"events": [{"action": "v.nope", "ticks": 1}]}));
+    assert_eq!(r["ok"], false, "{r}");
+    // watched values come with the layout
+    let r = request_on(&mut h, 0, &s, "surface.watch", json!({"targets": ["light.contrast"]}));
+    assert_eq!(r["ok"], false, "subscribe first: {r}");
+    assert_eq!(request_on(&mut h, 0, &s, "surface.subscribe", json!({}))["ok"], true);
+    let r = request_on(&mut h, 0, &s, "surface.watch", json!({"targets": ["light.contrast", "nope"]}));
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    let pushed: Vec<Value> = events.try_iter().collect();
+    let last = pushed.iter().rev().find(|e| e["event"] == "surface.layout").expect("a layout with values");
+    assert_eq!(last["layout"]["values"]["light.contrast"]["value"], "0", "{last}");
+    assert!(last["layout"]["values"].get("nope").is_none());
+}

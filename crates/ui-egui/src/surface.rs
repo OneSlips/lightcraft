@@ -48,7 +48,12 @@ struct Subscriber {
     device: &'static ls::DeviceDef,
     sink: EventSink,
     last: Option<Value>,
+    /// Values the surface shows outside its layout (actions from its own app, `surface.watch`).
+    watch: Vec<String>,
 }
+
+/// The most values one surface may watch.
+pub const MAX_WATCH: usize = 128;
 
 /// The editor's selection (Settings ▸ Controls).
 #[derive(Clone, Debug, Default)]
@@ -558,10 +563,15 @@ fn push(app: &mut LightcraftApp, _now_ms: f64) {
     {
         return;
     }
-    let devices: Vec<&'static ls::DeviceDef> = app.surface.subscribers.iter().map(|s| s.device).collect();
+    let wanted: Vec<(&'static ls::DeviceDef, Vec<String>)> = app.surface.subscribers.iter().map(|s| (s.device, s.watch.clone())).collect();
     let mut layouts: Vec<(usize, Value)> = Vec::new();
-    for (i, d) in devices.iter().enumerate() {
-        let v = serde_json::to_value(layout(app, d)).unwrap_or(Value::Null);
+    for (i, (d, watch)) in wanted.iter().enumerate() {
+        let mut v = serde_json::to_value(layout(app, d)).unwrap_or(Value::Null);
+        if !watch.is_empty()
+            && let Value::Object(m) = &mut v
+        {
+            m.insert("values".into(), watched_values(app, watch));
+        }
         layouts.push((i, v));
     }
     let mut dead = Vec::new();
@@ -582,6 +592,44 @@ fn push(app: &mut LightcraftApp, _now_ms: f64) {
     }
 }
 
+/// `{target: {"value": "+0.35", "position": 0.53}}` for watched values that have one now.
+fn watched_values(app: &LightcraftApp, watch: &[String]) -> Value {
+    let show = app.surface.settings().look.show_values;
+    let mut m = serde_json::Map::new();
+    for t in watch {
+        let Some(spec) = ls::targets::target_spec(t) else { continue };
+        let Some(v) = value(app, t) else { continue };
+        let text = if show { json!(spec.format(v)) } else { Value::Null };
+        m.insert(t.clone(), json!({"value": text, "position": spec.position(v)}));
+    }
+    Value::Object(m)
+}
+
+/// `surface.catalog`: every action, with labels and categories in the app's language.
+pub fn catalog(app: &LightcraftApp) -> Value {
+    let host = AppHost(app);
+    let all = ls::catalog::entries();
+    let mut groups: Vec<&'static str> = Vec::new();
+    for e in &all {
+        if !groups.contains(&e.group) {
+            groups.push(e.group);
+        }
+    }
+    let entries: Vec<Value> = all
+        .into_iter()
+        .map(|e| {
+            json!({
+                "key": e.key,
+                "group": host.tr(e.group),
+                "label": host.label(&e.binding),
+                "icon": e.icon,
+                "value": e.value,
+            })
+        })
+        .collect();
+    json!({"groups": groups.iter().map(|g| host.tr(g)).collect::<Vec<_>>(), "entries": entries})
+}
+
 // ------------------------------------------------------------------------------------- protocol
 
 fn ok(v: Value) -> Outcome {
@@ -594,25 +642,53 @@ fn err(e: impl std::fmt::Display) -> Outcome {
 /// The most events one `surface.input` may carry.
 pub const MAX_EVENTS: usize = 256;
 
-fn parse_events(p: &Value) -> Result<Vec<ls::Input>, String> {
+/// One `surface.input` event: a control of the device, or an action from the surface's own app.
+enum Ev {
+    Input(ls::Input),
+    Act(Binding, Option<i32>),
+}
+
+fn run_event(app: &mut LightcraftApp, e: Ev, now_ms: f64) -> usize {
+    let effects = match e {
+        Ev::Input(i) => app.surface.runtime.input(i, now_ms),
+        Ev::Act(b, ticks) => app.surface.runtime.act(&b, ticks, now_ms),
+    };
+    let n = effects.len();
+    run_effects(app, effects);
+    n
+}
+
+fn parse_events(p: &Value) -> Result<Vec<Ev>, String> {
     let list = p.get("events").and_then(Value::as_array).ok_or("surface.input: give `events: [...]`")?;
     if list.len() > MAX_EVENTS {
         return Err(format!("surface.input: at most {MAX_EVENTS} events at once"));
     }
     let mut out = Vec::new();
     for e in list {
+        if let Some(key) = e.get("action").and_then(Value::as_str) {
+            let entry = ls::catalog::find(key).ok_or_else(|| format!("surface.input: no action `{}`", ls::protocol::clean(key)))?;
+            if let Some(t) = e.get("ticks") {
+                let t = t.as_f64().filter(|t| t.is_finite()).ok_or("surface.input: `ticks` must be a number")?;
+                out.push(Ev::Act(entry.binding, Some(t.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32)));
+            } else if let Some(down) = e.get("press").and_then(Value::as_bool) {
+                out.push(if down { Ev::Act(entry.binding, None) } else { Ev::Input(ls::Input::Release { control: "action".into() }) });
+            } else {
+                return Err("surface.input: an event needs `ticks` or `press`".into());
+            }
+            continue;
+        }
         let control = e
             .get("control")
             .and_then(Value::as_str)
             .map(ls::protocol::clean)
             .filter(|c| !c.is_empty())
-            .ok_or("surface.input: each event needs a `control`")?;
+            .ok_or("surface.input: each event needs a `control` or an `action`")?;
         if let Some(t) = e.get("ticks") {
             let t = t.as_f64().filter(|t| t.is_finite()).ok_or("surface.input: `ticks` must be a number")?;
-            out.push(ls::Input::Turn { control, ticks: t.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32 });
+            out.push(Ev::Input(ls::Input::Turn { control, ticks: t.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32 }));
         } else if let Some(down) = e.get("press").and_then(Value::as_bool) {
             let page = e.get("page").and_then(Value::as_u64).and_then(|n| usize::try_from(n).ok()).filter(|n| (1..=64).contains(n));
-            out.push(if down { ls::Input::Press { control, page } } else { ls::Input::Release { control } });
+            out.push(Ev::Input(if down { ls::Input::Press { control, page } } else { ls::Input::Release { control } }));
         } else {
             return Err("surface.input: an event needs `ticks` or `press`".into());
         }
@@ -687,6 +763,7 @@ pub fn handle(app: &mut LightcraftApp, req: &ControlRequest) -> Option<Outcome> 
     Some(match m {
         "surface.hello" => hello(app, req),
         "surface.pair" => pair(app, req),
+        "surface.catalog" => ok(catalog(app)),
         "surface.icons" => {
             let names: Vec<String> = match p.get("names").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).take(512).map(str::to_string).collect(),
@@ -714,8 +791,31 @@ pub fn handle(app: &mut LightcraftApp, req: &ControlRequest) -> Option<Outcome> 
                     let Some(sink) = req.sink.clone() else { return Some(err("surface.subscribe: this connection can't receive events")) };
                     app.surface.subscribers.retain(|s| s.conn != req.conn);
                     let l = serde_json::to_value(layout(app, device)).unwrap_or_default();
-                    app.surface.subscribers.push(Subscriber { conn: req.conn, client, device, sink, last: Some(l.clone()) });
+                    app.surface.subscribers.push(Subscriber { conn: req.conn, client, device, sink, last: Some(l.clone()), watch: Vec::new() });
                     ok(json!({"layout": l}))
+                }
+                "surface.watch" => {
+                    let targets: Vec<String> = p
+                        .get("targets")
+                        .and_then(Value::as_array)
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(Value::as_str)
+                                .filter(|t| ls::targets::target_spec(t).is_some())
+                                .take(MAX_WATCH)
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    match app.surface.subscribers.iter_mut().find(|s| s.conn == req.conn) {
+                        Some(s) => {
+                            s.watch = targets;
+                            // the next frame pushes the values
+                            s.last = None;
+                            ok(Value::Null)
+                        }
+                        None => err("surface.watch: subscribe first"),
+                    }
                 }
                 "surface.unsubscribe" => {
                     app.surface.subscribers.retain(|s| s.conn != req.conn);
@@ -733,9 +833,7 @@ pub fn handle(app: &mut LightcraftApp, req: &ControlRequest) -> Option<Outcome> 
                         let now_ms = app.surface.now * 1000.0;
                         let mut n = 0;
                         for e in events {
-                            let effects = app.surface.runtime.input(e, now_ms);
-                            n += effects.len();
-                            run_effects(app, effects);
+                            n += run_event(app, e, now_ms);
                         }
                         if let Some(ctx) = app.tasks.repaint.clone() {
                             ctx.request_repaint();
@@ -824,8 +922,7 @@ pub fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Va
             // the same input a surface sends, from a command (agents, tests, the editor's preview)
             Ok(events) => {
                 for e in events {
-                    let effects = app.surface.runtime.input(e, now_ms);
-                    run_effects(app, effects);
+                    run_event(app, e, now_ms);
                 }
                 Ok(Value::Null)
             }

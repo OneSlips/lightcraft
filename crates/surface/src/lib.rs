@@ -16,11 +16,13 @@
 //! - [`runtime`]: the live engine — coalescing, one undo step per dial gesture, dial focus, pages.
 //! - [`settings`]: everything the user tunes, stored as `control-surfaces.json`.
 //! - [`tactilebridge`]: imports a TactileBridge `settings.json` and its Logi profiles (`.lp5`).
+//! - [`catalog`]: every action in categories (the editor's picker; plugins list them in their app).
 //! - [`protocol`]: pairing tokens and the message shapes of the surface protocol.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod binding;
+pub mod catalog;
 pub mod context;
 pub mod defaults;
 pub mod devices;

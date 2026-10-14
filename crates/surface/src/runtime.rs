@@ -420,6 +420,23 @@ impl Runtime {
         }
     }
 
+    /// An action a surface's own app put on a control (a plugin's action list: see
+    /// [`crate::catalog`]): turning a value moves it, pressing a value resets it, pressing anything
+    /// else does what a key bound to it does.
+    pub fn act(&mut self, b: &Binding, ticks: Option<i32>, now_ms: f64) -> Vec<Effect> {
+        if !self.settings.enabled {
+            return Vec::new();
+        }
+        match (b, ticks) {
+            (Binding::Value { target }, Some(t)) if t != 0 => self.turn_value(target, t, now_ms),
+            (Binding::Value { target }, None) => self.reset(target, now_ms),
+            (_, None) => self.perform("action", b, now_ms),
+            // other actions act once per turn event, clockwise only
+            (_, Some(t)) if t > 0 => self.perform("action", b, now_ms),
+            _ => Vec::new(),
+        }
+    }
+
     fn turn(&mut self, control: &str, ticks: i32, now_ms: f64) -> Vec<Effect> {
         if ticks == 0 {
             return Vec::new();
@@ -662,6 +679,26 @@ mod tests {
         assert_eq!(end, [Effect::End { target: "light.exposure".into(), apply_to_selected: false }]);
         assert!(r.flush(5000.0).is_empty());
         assert!(r.turning().is_none());
+    }
+
+    #[test]
+    fn actions_from_a_plugin_turn_reset_and_run() {
+        let mut r = Runtime::new(settings());
+        let b = Binding::value("light.whites");
+        assert_eq!(r.act(&b, Some(2), 0.0), [Effect::Begin { target: "light.whites".into() }]);
+        assert!(adjusts(&r.flush(20.0)) > 0.0);
+        let e = r.act(&b, None, 30.0);
+        assert!(e.contains(&Effect::Reset { target: "light.whites".into() }), "{e:?}");
+        let e = r.act(&Binding::command("edit.undo"), None, 40.0);
+        assert!(e.contains(&Effect::Command { command: "edit.undo".into(), params: Value::Null }), "{e:?}");
+        assert!(r.act(&Binding::command("edit.undo"), Some(-1), 50.0).is_empty(), "counter-clockwise does nothing");
+        // a held modifier from an action lets go with the action's release
+        r.act(&Binding::Modifier { modifier: Modifier::Fine }, None, 60.0);
+        assert_eq!(r.held(), [Modifier::Fine]);
+        r.input(release("action"), 70.0);
+        assert!(r.held().is_empty());
+        r.settings_mut().enabled = false;
+        assert!(r.act(&b, Some(1), 80.0).is_empty());
     }
 
     #[test]
