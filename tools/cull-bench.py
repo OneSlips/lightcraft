@@ -1,7 +1,13 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Drive a running LightCraft over its control channel and time the cull-before-import flow.
 
-usage: cull_drive.py PORT FOLDER [--steps N] [--hold-ms 33] [--label NAME] [--skip-browse]
+usage: tools/cull-bench.py PORT FOLDER [--steps N] [--hold-ms 33] [--label NAME] [--size WxH] [--skip-browse]
+
+Start the app with its own library and settings first, e.g.
+  LIGHTCRAFT_CONFIG_DIR=/tmp/lc-cfg lightcraft --control 18520 --library /tmp/lc-lib --no-demo
+It browses FOLDER into the Local view (with XMP auto-write off, the default, nothing is written
+next to the photos), opens the first photo, steps, holds the arrow key, zooms to 100 % and rates,
+and writes LABEL.json. The headless counterpart is `lightcraft-cli bench-cull FOLDER`.
 
 Browse times are wall clock from this client (polling; each control call costs ~85 ms on this
 machine, so they are good to ~0.1 s). Loupe times come from the app itself (`perf.loupeSteps`,
