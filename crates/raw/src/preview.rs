@@ -166,7 +166,12 @@ pub fn embedded_preview_fit(bytes: &[u8], min_edge: u32) -> Option<Vec<u8>> {
         let long = u32::from(w.max(h));
         (same_shape && long >= min_edge).then_some((long, (w, h)))
     };
-    let pick = found.iter().filter_map(|s| fits(s).map(|f| (f.0, *s))).min_by_key(|(long, s)| (*long, std::cmp::Reverse(s.len()))).map(|(_, s)| s).unwrap_or(big);
+    let pick = found
+        .iter()
+        .filter_map(|s| fits(s).map(|f| (f.0, *s)))
+        .min_by_key(|(long, s)| (*long, std::cmp::Reverse(s.len())))
+        .map(|(_, s)| s)
+        .unwrap_or(big);
     Some(if is_jxl(pick) { pick.to_vec() } else { trim_eoi(pick).to_vec() })
 }
 

@@ -1434,9 +1434,9 @@ impl crate::Session {
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
         let embedded = self.embedded_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
-        let embedded_cache = embedded.as_ref().map(|(_, _, edge)| {
-            (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish())
-        });
+        let embedded_cache = embedded
+            .as_ref()
+            .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
         Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, small: apply_crop.then(|| Box::new(small)) })
     }
 
@@ -1448,7 +1448,15 @@ impl crate::Session {
         let p = self.catalog.photo(id)?.clone();
         let (path, l) = self.embedded_of(&p)?;
         let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(max_edge as u64).finish().0 as u64;
-        Some(QuickJob { request_id: 0, photo: id, key, cached: Vec::new(), embedded: Some((path, l, max_edge.max(1))), embedded_cache: None, small: None })
+        Some(QuickJob {
+            request_id: 0,
+            photo: id,
+            key,
+            cached: Vec::new(),
+            embedded: Some((path, l, max_edge.max(1))),
+            embedded_cache: None,
+            small: None,
+        })
     }
 
     /// A first grid thumbnail for an unedited raw: the cached render for `job` (the real
