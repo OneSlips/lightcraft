@@ -1,6 +1,6 @@
 # Gaps: where LightCraft falls short of Lightroom
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-11 · **Change:** minor (gap 10: Leica Q3 verified, 236 models; CR3 entry names the EOS R7 C-RAW fix and the refused CRX variants; CI and Windows / Linux entries note the 0.6.0 riscv64 build; camera colour: tone curve from black-and-white camera JPEGs; Compare and Reference get sharp zoom windows; gap 4 shrinks; gap 14: the HDR switch is read from crs XMP; gaps 2 and 10: EOS R5 Mark II CR3 verified) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-14 · **Change:** minor (gap 26: culling speed — what landed and what is left; gap 10: Leica Q3 verified, 236 models; CR3 entry names the EOS R7 C-RAW fix and the refused CRX variants; CI and Windows / Linux entries note the 0.6.0 riscv64 build; camera colour: tone curve from black-and-white camera JPEGs; Compare and Reference get sharp zoom windows; gap 4 shrinks; gap 14: the HDR switch is read from crs XMP; gaps 2 and 10: EOS R5 Mark II CR3 verified) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 Every known shortfall, one entry each, ranked by user impact (how many Lightroom users hit it, and
 how hard it blocks them), then by effort. **Agents pick work from the top** (the first entry nobody is
@@ -43,7 +43,7 @@ Hours are Opus 5.5 agent wall-clock hours (see [target-app-parity.md](target-app
 | 23 | **Accessibility** audit with screen readers; canvas tools keyboard-reachable | LR-BEHAV-ACCESS 🟡 | blind and low-vision users | 10–20 | [ui-parity](ui-parity.md) |
 | 24 | **Brush live preview and masking feel** (#517, #518); Feather / Edge mask refinement (15.5) | issues | masking feels slower than Lightroom | 8–12 | [ui-parity](ui-parity.md) |
 | 25 | **File writes**: lossy DNG; AVIF import; Render to DNG as a catalog command (the export format landed) (PSD export landed with Edit in PhotoCraft, #953) | file-format-parity.md | interchange edge cases | 19–34 | [file-format-parity](file-format-parity.md) |
-| 26 | **Performance at scale**: 85k-photo library opens in 1.7–4.7 s; 100k grid test pending; colour NR at half resolution | ROADMAP log, gpu-pipeline.md | large-catalog users | 15–30 | [target-app-parity](target-app-parity.md#by-dimension) |
+| 26 | **Performance at scale**: 85k-photo library opens in 1.7–4.7 s; 100k grid test pending; colour NR at half resolution; culling a wedding: first photos of a 2,933-raw folder in 0.9 s and camera JPEGs ready ahead of each step, but a full-size 45 MP camera JPEG still takes ~150 ms to decode (held-arrow stepping at a 2,560 px loupe can outrun it), the 100 % view of the raw itself still takes ~5 s to render (the camera JPEG is shown at 100 % meanwhile, ~0.9 s), rating fsyncs the journal on the UI thread (up to ~100 ms), and browsing or importing still reads and hashes every raw whole (~10 ms a file on SSD, ~1 s a 25 MB file from a NAS: a wedding on a share takes most of an hour to list) | ROADMAP log, gpu-pipeline.md | large-catalog users | 15–30 | [target-app-parity](target-app-parity.md#by-dimension) |
 | 27 | **Windows / Linux runtime coverage**: Windows installer UI unverified on Windows (#79); GPU path proven on Apple and on one AMD GPU on Linux (Radeon 8060S, Vulkan); NVIDIA, Intel and DX12 unverified; the Linux riscv64 tarball (new in 0.6.0, #844) is cross-compiled and never run beyond a QEMU smoke test | ROADMAP, issues, `release.yml` | non-Mac users find bugs first | 13–27 | [hardware-parity](hardware-parity.md) |
 | 28 | **Small Classic shortcuts and keys**: rating `[` `]`, flag cycling, filter-bar keys, F1 help, panel keys (Tab, F5–F8) | [ui-parity](ui-parity.md#shortcuts) | Classic muscle memory | 4–8 | [ui-parity](ui-parity.md) |
 
@@ -75,6 +75,7 @@ Beta-blocking gaps (B) total **~230–430 h**; with the stability and platform w
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Gap 26: culling speed measured and improved (PERF-CULL: progressive Local browse, camera previews made ahead, smallest covering embedded JPEG); what is left listed; gap not closed |
 | 2026-10-11 | minor | Gap 10 shrinks: Leica Q3 verified by a recorded check of 38 private DNGs (236 models verified; Leica 14); gap not closed |
 | 2026-10-12 | minor | Camera-look deep shadows follow the JPEG toe (#1307); camera calibration remains partial |
 | 2026-10-12 | minor | Gap 23 (accessibility): the AccessKit tree audit and its fixes landed; what is left is canvas placement by keyboard and a real screen-reader session; 10–20 h → 4–8 h; gap not closed |

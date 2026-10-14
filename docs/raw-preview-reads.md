@@ -64,7 +64,12 @@ those:
   file keeps the preview: a preview colour space of **Adobe RGB** (the whole-file path applies it
   through `decode_raw_preview`; a JPEG-only decode has the JPEG's own space, else sRGB — a container
   that says sRGB does not decline, since that is what the decode assumes anyway), and the file's own
-  EXIF orientation when the preview JPEG carries none of its own;
+  EXIF orientation when the preview JPEG carries none of its own. **Since PERF-CULL-6 the preview
+  loader takes an Adobe RGB window anyway** and decodes it in that space (`PreviewRead::adobe_rgb`,
+  pixel-identical to the whole-file path in its test): a Sony body set to Adobe RGB otherwise read
+  the whole 25 MB raw for every 0.3 MB thumbnail (ILCE-9 wedding: 57 → 27 ms a thumbnail on a local
+  SSD; 0.6 MB instead of 25 MB from the NAS, 0.12 s against 1.0 s a file). `preview_window` itself
+  still declines such files for its other callers;
 - a format the planner cannot describe — NEF, ORF and PEF probe from samples, CRW/MRW/X3F are found
   by scanning — a plan that does not fit the buffer or wants more than 60 % of the file (the bound the
   import path's own partial read uses), or a window that does not decode all answer `None`, and the
@@ -87,6 +92,29 @@ sparse_corpus -- --nocapture` prints these numbers. `LIGHTCRAFT_PROFILE=1` says 
 A Canon CR3's preview is a JPEG track instead (issue #832 measured 3 MB of one R5 Mark II file,
 ~15 %), and Canon is the largest bucket in [gaps.md](gaps.md)'s ranking (33 % of photographers), so
 before this change every unedited CR3 thumbnail paid for the whole file.
+
+## The smallest preview that covers the view
+
+Most raws keep more than one JPEG: an EOS R5 C CR3 has an 8192 × 5464 JPEG track, a 1620 × 1080
+`PRVW` box and a 160 × 120 `THMB`; Sony ARWs keep a 1616 px preview beside the full-size one.
+Decoding the 8192 px one costs about 100 ms of entropy decoding however small it is asked for
+(DCT scaling only saves the inverse transform), against a few milliseconds for the 1620 px one.
+So the preview loader passes the size it wants (`files::preview_window_fit`), and
+`lightcraft_raw::embedded_preview_fit` picks the smallest preview whose long edge covers it and
+whose shape is the largest one's (within 2 %, so a letterboxed preview never stands in), else the
+largest one exactly as `embedded_preview` does. A grid thumbnail and a loupe up to 1620 px read
+the `PRVW`; a bigger loupe still reads the full-size JPEG.
+
+A plain 8-bit sRGB JPEG (no ICC profile, no Adobe RGB hint) is then decoded straight to 8-bit
+(`lightcraft_codecs::decode_jpeg_srgb8_fit`: DCT-scaled, box-averaged in linear light) without
+the float image the general decode builds; anything else keeps the general path.
+
+`lightcraft-cli bench-cull FOLDER` times these steps (and the rest of a culling pass) on a real
+folder; `tools/cull-bench.py` times them in the running app.
+
+Measured on 20 EOS R5 C CR3s of a wedding (local NVMe SSD, machine shared with other work): the
+loader at 1280 px went from 168–322 ms to **31 ms** a photo; at 2560 px the decode of the 8192 px
+JPEG went from 182 to 151 ms (minimum of 15 runs; most of what remains is entropy decoding).
 
 ## The grid thumbnail is the embedded JPEG too
 
