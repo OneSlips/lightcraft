@@ -218,7 +218,7 @@ impl DecodedSource {
     /// `header` (the session knows them, the decoder doesn't).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
         match &self.info {
-            Some(i) => SourceInfo { generated: header.generated, ..i.clone() },
+            Some(i) => SourceInfo { generated: header.generated, avoid: header.avoid, ..i.clone() },
             None => SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header },
         }
     }

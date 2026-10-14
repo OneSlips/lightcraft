@@ -95,6 +95,9 @@ pub struct SourceInfo {
     pub local_tone: Option<Arc<local_tone::LocalTone>>,
     /// The photo's generative fill patches ([`genpatch`]), read from the library by the engine.
     pub generated: Option<genpatch::GenStore>,
+    /// Areas content-aware fill never copies from (faces): `[x0, y0, x1, y1]` normalized to the
+    /// EXIF-oriented source.
+    pub avoid: Option<Arc<Vec<[f64; 4]>>>,
 }
 
 impl Default for SourceInfo {
@@ -111,6 +114,7 @@ impl Default for SourceInfo {
             mattes: None,
             local_tone: None,
             generated: None,
+            avoid: None,
         }
     }
 }
@@ -444,7 +448,7 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
     ));
     // a generated patch whose file appears (or goes) changes the image
     let shown: Vec<bool> = genpatch::shown(&s.spots, info.generated.as_ref()).iter().map(Option::is_some).collect();
-    let pre_nr_key = hash_of((pre_nr_key, shown));
+    let pre_nr_key = hash_of((pre_nr_key, shown, format!("{:?}", info.avoid)));
     let lin_key = hash_of((pre_nr_key, [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits)));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, pre_nr_key, eyes, fixed_air, keep, mattes: info.mattes.clone() }
 }
@@ -472,7 +476,8 @@ pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     local::white_balance(img, info, s);
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
     let skip: Vec<bool> = patches.iter().map(Option::is_some).collect();
-    spots::apply_skipping(img, &s.spots, &p.frame, p.px_per_long, &skip);
+    let avoid = genpatch::avoid_boxes(info.avoid.as_deref().map_or(&[][..], Vec::as_slice), &p.frame, img.width, img.height);
+    spots::apply_skipping(img, &s.spots, &p.frame, p.px_per_long, &skip, &avoid);
     redeye::apply(img, &p.eyes);
 }
 

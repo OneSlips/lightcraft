@@ -496,6 +496,7 @@ fn load_bytes_now(
                 mattes,
                 local_tone,
                 generated: None,
+                avoid: None,
             },
         ));
     }
