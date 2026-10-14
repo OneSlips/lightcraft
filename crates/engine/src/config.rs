@@ -68,7 +68,7 @@ fn sam3_dir(var: Option<std::ffi::OsString>, config: Option<PathBuf>) -> Option<
     var.filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| config.map(|d| d.join("models").join("sam3")))
 }
 
-/// Where the open AI mask models are kept (each in its own subfolder): `$LIGHTCRAFT_AI_MODELS_DIR` if
+/// Where the openly licensed AI mask models are kept (each in its own subfolder): `$LIGHTCRAFT_AI_MODELS_DIR` if
 /// set, else `<config>/models`.
 pub fn default_ai_models_dir() -> Option<PathBuf> {
     std::env::var_os("LIGHTCRAFT_AI_MODELS_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| config_dir().map(|d| d.join("models")))
