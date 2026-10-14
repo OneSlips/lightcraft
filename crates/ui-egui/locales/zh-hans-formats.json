@@ -251,5 +251,21 @@
   "The AI model download failed: {e}": "AI 模型下载失败：{e}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "许可证：{licence}，一种允许任何用途（包括商业工作）的开源许可证。",
   "A one-time download of about {mb} MB, saved in {dir}": "一次性下载约 {mb} MB，保存在 {dir}",
-  "Person {n}": "人物 {n}"
+  "Person {n}": "人物 {n}",
+  "About ${usd} · {requests} request(s), billed to your {name} account": "约 ${usd} · {requests} 次请求，由你的 {name} 账户计费",
+  "Generating… {} of {}": "正在生成… {} / {}",
+  "Variation {} of {}": "变体 {} / {}",
+  "Generated at {}% of the photo's resolution: softer than the rest.": "以照片分辨率的 {}% 生成：比其他部分更柔和。",
+  "Add your {} API key in Settings ▸ Generative Fill first.": "请先在 设置 → 生成式填充 中添加你的 {} API 密钥。",
+  "LightCraft will upload a crop of this photo to {name}, using your API key. This is the first time you use {name}.": "LightCraft 将使用你的 API 密钥把这张照片的裁切图像上传到 {name}。这是你第一次使用 {name}。",
+  "Uploaded: only this {} × {} px crop (red: the area to fill) and its mask. Not the whole photo, not its metadata.": "上传的只有这块 {} × {} 像素的裁切图像（红色：要填充的区域）及其蒙版。不包括整张照片，也不包括其元数据。",
+  "Uploaded: {} crops along the area (red: the area to fill) and their masks. Not the whole photo, not its metadata.": "上传的是沿该区域的 {} 块裁切图像（红色：要填充的区域）及其蒙版。不包括整张照片，也不包括其元数据。",
+  "What {name} does with it:": "{name} 如何处理它：",
+  "Read {name}'s policy": "阅读 {name} 的政策",
+  "Cost: about ${usd} for {} request(s), billed by {name} to your account.": "费用：{} 次请求约 ${usd}，由 {name} 向你的账户计费。",
+  "Key saved ({})": "密钥已保存（{}）",
+  "Key from the environment variable {}": "来自环境变量 {} 的密钥",
+  "{name} API key": "{name} API 密钥",
+  "Generated {} variations": "已生成 {} 个变体",
+  "Generative Fill failed: {e}": "生成式填充失败：{e}"
 }

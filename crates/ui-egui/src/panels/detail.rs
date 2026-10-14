@@ -2178,6 +2178,7 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             "heal" => "heal",
             "clone" => "clone",
             "fill" => "fill",
+            "generate" => "generate",
             _ => "remove",
         };
         let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();

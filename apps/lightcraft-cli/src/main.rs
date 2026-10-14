@@ -8,6 +8,7 @@
 //! lightcraft-cli merge hdr|panorama|hdr-panorama [OPTIONS] FILES…
 //! lightcraft-cli synth-merge hdr|panorama -o DIR
 //! lightcraft-cli denoise-serve [--model ID] [--models DIR] [--listen ADDR] [--token-env VAR] [--run-on auto|gpu|cpu]
+//! lightcraft-cli genfill-mock [--port N] [--key KEY] [--fill patchmatch|mean]
 //! lightcraft-cli commands [--json]
 //! lightcraft-cli controls [--json]
 //! lightcraft-cli calibrate [--max N] [--out DIR] FOLDERS/FILES…
@@ -88,6 +89,11 @@ USAGE:
         --preview OUT.png   only render a ≤ 1024 px preview (nothing written next to the files)
   lightcraft-cli synth-merge hdr|panorama -o DIR
       Write synthetic merge inputs (procedural scene; bracketed DNGs or overlapping PNG views).
+  lightcraft-cli genfill-mock [--port N] [--key KEY] [--fill patchmatch|mean]
+      A local stand-in for the generative fill providers (OpenAI, Stability AI, Black Forest Labs,
+      fal.ai request shapes) on 127.0.0.1, for testing without an account: start LightCraft with
+      LIGHTCRAFT_GENFILL_MOCK=http://127.0.0.1:PORT and any key. It fills holes with LightCraft's own
+      content-aware fill (or a flat mean); nothing leaves this computer. Default port 18510.
   lightcraft-cli denoise-serve [OPTIONS]
       Run AI Denoise tiles for LightCraft on other computers (LIGHTCRAFT_DENOISE_URL=<this host>:7990 and
       LIGHTCRAFT_DENOISE_TOKEN there; see docs/denoise.md). Serves the installed model selected in Settings,
@@ -164,6 +170,7 @@ fn main() -> ExitCode {
         Some("synth-merge") => synth_merge(&args[1..]),
         Some("controls") => controls(&args[1..]),
         Some("denoise-serve") => denoise_serve(&args[1..]),
+        Some("genfill-mock") => genfill_mock(&args[1..]),
         Some("calibrate") => calibrate(&args[1..]),
         Some("--version" | "-V" | "version") => {
             println!("lightcraft-cli {}", env!("CARGO_PKG_VERSION"));
@@ -414,7 +421,7 @@ fn merge(args: &[String]) -> Result<(), String> {
         }
         i += 1;
     }
-    let mut s = Session::new().with_fs().with_default_denoise_models().with_system_clock();
+    let mut s = Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock();
     let paths = expand_paths(&files);
     let r = s.execute("library.import", &json!({"paths": paths})).map_err(|e| e.to_string())?;
     let mut ids: Vec<u64> = r["imported"].as_array().map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
@@ -675,7 +682,7 @@ fn render(args: &[String]) -> Result<(), String> {
     }
     let input = input.ok_or("render: missing input file")?;
     let output = output.ok_or("render: missing -o OUTPUT")?;
-    let mut s = Session::new().with_fs().with_default_denoise_models().with_system_clock();
+    let mut s = Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock();
     let abs = expand_paths(std::slice::from_ref(&input));
     let r = s.execute("library.import", &json!({"paths": abs})).map_err(|e| e.to_string())?;
     let id = r["imported"][0].as_u64().ok_or_else(|| format!("{input}: not a readable photo"))?;
@@ -763,12 +770,14 @@ fn snapshot(args: &[String]) -> Result<(), String> {
     let t0 = Instant::now();
     let mut session = match &library {
         Some(dir) => {
-            let mut s = Session::new().with_fs().with_default_denoise_models().with_system_clock().with_default_face_models();
+            let mut s = Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock().with_default_face_models();
             s.open_library(dir, false).map_err(|e| library_error(dir, e))?;
             s
         }
-        None if files.is_empty() => Session::with_demo().with_fs().with_default_denoise_models().with_system_clock().with_default_face_models(),
-        None => Session::new().with_fs().with_default_denoise_models().with_system_clock().with_default_face_models(),
+        None if files.is_empty() => {
+            Session::with_demo().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock().with_default_face_models()
+        }
+        None => Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock().with_default_face_models(),
     };
     // Apply compute policy before imports or the first scripted query can discover an adapter.
     session.execute("app.gpu", &json!({"enabled": false})).map_err(|e| e.to_string())?;
@@ -927,6 +936,44 @@ fn controls(args: &[String]) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// `genfill-mock`: the generative fill providers' request shapes on 127.0.0.1, answered with
+/// LightCraft's own content-aware fill (`lightcraft_genfill::cloud::mock`).
+fn genfill_mock(args: &[String]) -> Result<(), String> {
+    let (mut port, mut key, mut fill) = (18510u16, None::<String>, "patchmatch".to_string());
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--port" => port = it.next().and_then(|v| v.parse().ok()).ok_or("genfill-mock: --port N")?,
+            "--key" => key = Some(it.next().ok_or("genfill-mock: --key KEY")?.clone()),
+            "--fill" => fill = it.next().ok_or("genfill-mock: --fill patchmatch|mean")?.clone(),
+            other => return Err(format!("genfill-mock: unknown option `{other}`")),
+        }
+    }
+    let filler: lightcraft_genfill::cloud::mock::Filler = match fill.as_str() {
+        "mean" => lightcraft_genfill::cloud::mock::mean_filler(),
+        "patchmatch" => std::sync::Arc::new(|w, h, rgb: &[u8], mask: &[u8], var| {
+            let img: Vec<f32> = rgb.iter().map(|v| f32::from(*v) / 255.0).collect();
+            let hole: Vec<bool> = mask.iter().map(|m| *m >= 128).collect();
+            let p = lightcraft_inpaint::CompleteParams { seed: u64::from(var) + 1, ..Default::default() };
+            let out =
+                lightcraft_inpaint::complete(w, h, 3, &img, &hole, &p).unwrap_or_else(|| lightcraft_inpaint::membrane_fill(w, h, 3, &img, &hole));
+            out.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8).collect()
+        }),
+        other => return Err(format!("genfill-mock: --fill patchmatch|mean, not `{other}`")),
+    };
+    let server = lightcraft_genfill::cloud::mock::MockServer::start(port, key.as_deref(), filler)
+        .map_err(|e| format!("genfill-mock: 127.0.0.1:{port}: {e}"))?;
+    eprintln!(
+        "lightcraft-cli genfill-mock: listening on {} ({fill} fill{}); set LIGHTCRAFT_GENFILL_MOCK={} for LightCraft",
+        server.base,
+        if key.is_some() { ", key required" } else { "" },
+        server.base
+    );
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(3600));
+    }
 }
 
 /// `denoise-serve`: the remote half of AI Denoise (`lightcraft_denoise::remote`).
