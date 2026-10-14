@@ -18,7 +18,7 @@ two; the panel says when it is looking, and when there is no skin (or no such pe
 | **Even Tone** (0–100) | Evens out blotches of tone and colour. The light and shape of the face (its shading, a warm and a cool side) are kept. |
 | **Redness** (0–100) | Takes patches that are redder than the skin around them (a pimple's halo, a flushed patch) back towards it. |
 | **Skin**: Face / Body / Both | Which skin: the face's, the body's (shoulders, arms, back, hands), or both. |
-| **Person**: Everyone / 1–4 | Everyone, or one person, counted from the left by their face (as the People mask counts). |
+| **Person**: All / 1–4 | Everyone, or one person, counted from the left by their face (as the People mask counts). |
 
 The section's eye switches it off for a before/after; **Turn Off** sets it back to zero.
 

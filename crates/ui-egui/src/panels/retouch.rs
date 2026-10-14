@@ -105,7 +105,7 @@ pub fn smooth_skin(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
         report(app, ui.ctx(), r);
     }
     super::edit::sub_title(ui, "Person");
-    let people = [("Everyone", "0"), ("1", "1"), ("2", "2"), ("3", "3"), ("4", "4")];
+    let people = [("All", "0"), ("1", "1"), ("2", "2"), ("3", "3"), ("4", "4")];
     let mut chosen = None;
     padded(ui, |ui| chosen = segmented(ui, "skinPerson", &people, Some(k.person.min(SkinSmoothing::MAX_PERSON) as usize), 5));
     if let Some(i) = chosen {
