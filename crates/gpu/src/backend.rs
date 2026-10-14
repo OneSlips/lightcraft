@@ -352,8 +352,9 @@ mod tests {
     }
     use super::*;
 
-    /// The tests that set the process-wide marker take turns.
-    static GLOBAL: Mutex<()> = Mutex::new(());
+    // The tests that set the process-wide marker take turns, with each other and with the tests
+    // that create a device: all of them hold `crate::DEVICE_TEST_LOCK`.
+    use crate::DEVICE_TEST_LOCK as GLOBAL;
 
     #[test]
     fn parses_backend_names() {

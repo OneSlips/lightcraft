@@ -31,6 +31,11 @@ use lightcraft_raster::Rgb32f;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backend;
+
+/// Tests that set the process-wide GPU init marker, and tests that create a device (which writes and
+/// removes that marker), take turns: interleaved, one saw the other's marker come and go.
+#[cfg(test)]
+pub(crate) static DEVICE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[cfg(not(target_arch = "wasm32"))]
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]

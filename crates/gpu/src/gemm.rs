@@ -392,6 +392,7 @@ mod tests {
     /// read once per key. Skipped without a usable GPU.
     #[test]
     fn matmul_matches_the_cpu() {
+        let _turn = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         if adapter().is_err() {
             eprintln!("skipped: no GPU ({:?})", adapter().err());
             return;
