@@ -99,6 +99,44 @@ fn local_attrs(a: &LocalAdjustments) -> String {
     s
 }
 
+/// A mask's local Curve and Point Color as Lightroom writes them in a correction: the
+/// `LocalCurveRefineSaturation` attribute, and the `MainCurve` / `RedCurve` / `GreenCurve` / `BlueCurve`
+/// (`"x,y"` on 0..255), `LocalPointColors` and `LocalColorVariance` elements.
+fn local_curve_and_points(m: &Mask, notes: &mut Vec<String>) -> (String, String) {
+    let c = &m.curve;
+    if c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0 {
+        notes.push(format!("{}: Lightroom's masks have no parametric curve; it is left out", m.name));
+    }
+    let attr = format!("\n       crs:LocalCurveRefineSaturation=\"{}\"", f(c.refine_saturation.clamp(0.0, 100.0)));
+    let seq = |tag: &str, items: &[String]| {
+        let lis: String = items.iter().map(|i| format!("\n        <rdf:li>{}</rdf:li>", esc(i))).collect();
+        format!("\n      <crs:{tag}>\n       <rdf:Seq>{lis}\n       </rdf:Seq>\n      </crs:{tag}>")
+    };
+    let mut el = String::new();
+    for (tag, pts) in [("MainCurve", &c.master), ("RedCurve", &c.red), ("GreenCurve", &c.green), ("BlueCurve", &c.blue)] {
+        if lightcraft_develop::ToneCurve::point_curve_is_identity(pts) {
+            continue;
+        }
+        let items: Vec<String> =
+            pts.iter().map(|q| format!("{},{}", (q.x.clamp(0.0, 1.0) * 255.0).round(), (q.y.clamp(0.0, 1.0) * 255.0).round())).collect();
+        el.push_str(&seq(tag, &items));
+    }
+    if !m.point_colors.is_empty() {
+        let (lines, vars): (Vec<String>, Vec<String>) = m
+            .point_colors
+            .iter()
+            .take(lightcraft_develop::MAX_POINT_COLORS)
+            .map(|p| {
+                let (lr, var) = crate::crs_point_color::from_ours(p);
+                (crate::crs_point_color::format(&lr), f(var))
+            })
+            .unzip();
+        el.push_str(&seq("LocalPointColors", &lines));
+        el.push_str(&seq("LocalColorVariance", &vars));
+    }
+    (attr, el)
+}
+
 /// One mask component as a `CorrectionMasks` item; `Err` names what Lightroom can't hold.
 fn component(m: &Mask, k: usize, aspect: f64, notes: &mut Vec<String>) -> Option<String> {
     let c = m.components.get(k)?;
@@ -218,8 +256,9 @@ pub fn to_xmp(p: &Preset) -> (String, Vec<String>) {
         if items.is_empty() {
             continue;
         }
+        let (curve_attr, local_elements) = local_curve_and_points(m, &mut notes);
         corrections.push_str(&format!(
-            "\n     <rdf:li>\n      <rdf:Description\n       crs:What=\"Correction\"\n       crs:CorrectionAmount=\"{}\"\n       crs:CorrectionActive=\"{}\"\n       crs:CorrectionName=\"{}\"\n       crs:CorrectionSyncID=\"{}\"{}>\n      <crs:CorrectionMasks>\n       <rdf:Seq>\n        {}\n       </rdf:Seq>\n      </crs:CorrectionMasks>\n      </rdf:Description>\n     </rdf:li>",
+            "\n     <rdf:li>\n      <rdf:Description\n       crs:What=\"Correction\"\n       crs:CorrectionAmount=\"{}\"\n       crs:CorrectionActive=\"{}\"\n       crs:CorrectionName=\"{}\"\n       crs:CorrectionSyncID=\"{}\"{}{curve_attr}>{local_elements}\n      <crs:CorrectionMasks>\n       <rdf:Seq>\n        {}\n       </rdf:Seq>\n      </crs:CorrectionMasks>\n      </rdf:Description>\n     </rdf:li>",
             f((m.adjust.amount / 100.0).clamp(0.0, 2.0)),
             if m.visible { "true" } else { "false" },
             esc(&m.name),

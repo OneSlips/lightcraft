@@ -88,6 +88,9 @@ const NON_ADJUSTMENT: &[&str] = &[
     "crs:RequiresRGBTables",
     "crs:SortName",
     "crs:Description",
+    "crs:CompatibleVersion",
+    "crs:ShowInPresets",
+    "crs:ShowInQuickActions",
     "crs:CropConstrainToWarp",
     "crs:OverrideLookVignette",
     // the file's as-shot white, recorded next to the edit (ours comes from the file itself)
@@ -303,6 +306,21 @@ pub fn to_partial(props: &Props, target: Target) -> Value {
         n(o, &format!("SaturationAdjustment{crs}"), &format!("mixer.{band}.sat"));
         n(o, &format!("LuminanceAdjustment{crs}"), &format!("mixer.{band}.lum"));
         n(o, &format!("GrayMixer{crs}"), &format!("bw_mix.{band}"));
+    }
+
+    // ---- Point Color (empty slots are all -1; variance is stored apart, one per sample)
+    if let Some(lines) = props.get("crs:PointColors") {
+        let var = crate::crs_point_color::variances(props.get("crs:ColorVariance").into_iter().flatten().map(String::as_str));
+        let samples = crate::crs_point_color::read(lines.iter().map(String::as_str), &var);
+        // read when every used slot was understood (a slot of another shape stays reported)
+        let used = lines.iter().filter(|l| !l.split(',').all(|n| n.trim().parse::<f64>().is_ok_and(|x| x == -1.0))).count();
+        if samples.len() == used.min(lightcraft_develop::MAX_POINT_COLORS) {
+            note("crs:PointColors");
+            note("crs:ColorVariance");
+        }
+        if !samples.is_empty() {
+            put(o, "point_colors", json!(samples));
+        }
     }
 
     // ---- Tone curve: parametric regions + point curves
