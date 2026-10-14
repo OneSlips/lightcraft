@@ -2187,5 +2187,6 @@
   "Fill Selected Mask": "Ausgewählte Maske füllen",
   "Generate into Selected Mask": "In ausgewählte Maske generieren",
   "Remove what the selected mask covers (an Object selection made with a click, a brushed area) with a content-aware fill": "Entfernt, was die ausgewählte Maske abdeckt (eine per Klick erstellte Objektauswahl, ein gemalter Bereich), mit einer inhaltsbasierten Füllung",
-  "Generating fill": "Füllung wird generiert"
+  "Generating fill": "Füllung wird generiert",
+  "LightCraft keeps only the pixels of the area you fill: provenance metadata such as C2PA does not reach your photo or its exports. A watermark hidden in the pixels may.": "LightCraft übernimmt nur die Pixel des gefüllten Bereichs: Herkunftsmetadaten wie C2PA gelangen nicht in dein Foto oder seine Exporte. Ein in den Pixeln verborgenes Wasserzeichen kann erhalten bleiben."
 }

@@ -2066,5 +2066,6 @@
   "Fill Selected Mask": "填充所选蒙版",
   "Generate into Selected Mask": "在所选蒙版中生成",
   "Remove what the selected mask covers (an Object selection made with a click, a brushed area) with a content-aware fill": "用内容识别填充移除所选蒙版覆盖的内容（单击得到的对象选区、画笔涂抹的区域）",
-  "Generating fill": "正在生成填充"
+  "Generating fill": "正在生成填充",
+  "LightCraft keeps only the pixels of the area you fill: provenance metadata such as C2PA does not reach your photo or its exports. A watermark hidden in the pixels may.": "LightCraft 只保留所填充区域的像素：C2PA 等来源元数据不会进入你的照片或其导出文件。隐藏在像素中的水印可能会保留。"
 }

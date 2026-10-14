@@ -2220,5 +2220,6 @@
   "Fill Selected Mask": "Залить выбранную маску",
   "Generate into Selected Mask": "Создать в выбранной маске",
   "Remove what the selected mask covers (an Object selection made with a click, a brushed area) with a content-aware fill": "Удаляет то, что покрывает выбранная маска (выделение объекта щелчком, закрашенная область), заливкой с учётом содержимого",
-  "Generating fill": "Создание заливки"
+  "Generating fill": "Создание заливки",
+  "LightCraft keeps only the pixels of the area you fill: provenance metadata such as C2PA does not reach your photo or its exports. A watermark hidden in the pixels may.": "LightCraft берёт только пиксели заполняемой области: метаданные о происхождении, такие как C2PA, не попадают в фото и его экспорт. Водяной знак, скрытый в пикселях, может сохраниться."
 }

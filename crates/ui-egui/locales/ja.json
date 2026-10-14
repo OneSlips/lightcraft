@@ -2030,5 +2030,6 @@
   "Fill Selected Mask": "選択したマスクを塗りつぶす",
   "Generate into Selected Mask": "選択したマスクに生成",
   "Remove what the selected mask covers (an Object selection made with a click, a brushed area) with a content-aware fill": "選択したマスクの範囲（クリックで作ったオブジェクト選択、ブラシで塗った範囲）をコンテンツに応じた塗りつぶしで除去します",
-  "Generating fill": "塗りつぶしを生成中"
+  "Generating fill": "塗りつぶしを生成中",
+  "LightCraft keeps only the pixels of the area you fill: provenance metadata such as C2PA does not reach your photo or its exports. A watermark hidden in the pixels may.": "LightCraft が使うのは塗りつぶした範囲のピクセルだけです。C2PA などの来歴メタデータは写真や書き出しに含まれません。ピクセルに埋め込まれた透かしは残る場合があります。"
 }
