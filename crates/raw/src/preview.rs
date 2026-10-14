@@ -139,16 +139,92 @@ fn candidates<'a>(data: &'a [u8], ifd: &Ifd, base: u64, out: &mut Vec<&'a [u8]>)
 /// The largest embedded preview, if any: a JPEG, or (DNG 1.7) a JPEG XL file — both decode with
 /// `lightcraft_codecs::decode`.
 pub fn embedded_preview(bytes: &[u8]) -> Option<Vec<u8>> {
+    match previews(bytes)? {
+        Previews::One(p) => Some(p),
+        Previews::Several(found) => largest(&found).map(|s| if is_jxl(s) { s.to_vec() } else { trim_eoi(s).to_vec() }),
+    }
+}
+
+/// The smallest embedded preview that still covers `min_edge` pixels on its long side, else the
+/// largest ([`embedded_preview`]). A grid thumbnail or a loupe in a small window has no use for
+/// a camera's full-size JPEG when it also stores a smaller one: an EOS R5 C CR3 keeps a 1620 px
+/// `PRVW` JPEG beside its 8192 px one, and decoding the 8192 px one costs about 100 ms of entropy
+/// decoding however small it is asked for (DCT scaling saves only the inverse transform), against
+/// a few ms for the 1620 px one. A smaller preview is only taken when its shape is the largest
+/// one's (within 2 %: no letterboxed or cropped stand-ins).
+pub fn embedded_preview_fit(bytes: &[u8], min_edge: u32) -> Option<Vec<u8>> {
+    let found = match previews(bytes)? {
+        Previews::One(p) => return Some(p),
+        Previews::Several(found) => found,
+    };
+    let big = largest(&found)?;
+    let fits = |s: &&[u8]| -> Option<(u32, (u16, u16))> {
+        let (w, h) = jpeg_size(s)?;
+        let (bw, bh) = jpeg_size(big)?;
+        let aspect = |w: u16, h: u16| f64::from(w.max(1)) / f64::from(h.max(1));
+        let same_shape = (aspect(w, h) / aspect(bw, bh) - 1.0).abs() < 0.02;
+        let long = u32::from(w.max(h));
+        (same_shape && long >= min_edge).then_some((long, (w, h)))
+    };
+    let pick = found.iter().filter_map(|s| fits(s).map(|f| (f.0, *s))).min_by_key(|(long, s)| (*long, std::cmp::Reverse(s.len()))).map(|(_, s)| s).unwrap_or(big);
+    Some(if is_jxl(pick) { pick.to_vec() } else { trim_eoi(pick).to_vec() })
+}
+
+/// What [`previews`] found: a container with one preview (already trimmed), or several candidates.
+enum Previews<'a> {
+    One(Vec<u8>),
+    Several(Vec<&'a [u8]>),
+}
+
+/// The largest displayable candidate (by bytes, as [`embedded_preview`] has always chosen).
+fn largest<'a>(found: &[&'a [u8]]) -> Option<&'a [u8]> {
+    found.iter().copied().filter(|s| is_dct_jpeg(s) || is_jxl(s)).max_by_key(|s| s.len())
+}
+
+/// A baseline / progressive JPEG's stored size from its frame header (`None` for anything else,
+/// such as a JPEG XL preview, which never counts as "small enough").
+fn jpeg_size(b: &[u8]) -> Option<(u16, u16)> {
+    if !is_dct_jpeg(b) {
+        return None;
+    }
+    let mut i = 2usize;
+    for _ in 0..512 {
+        if *b.get(i)? != 0xff {
+            return None;
+        }
+        let m = *b.get(i + 1)?;
+        if m == 0xff {
+            i += 1;
+            continue;
+        }
+        if matches!(m, 0xc0..=0xc2) {
+            let h = u16::from_be_bytes([*b.get(i + 5)?, *b.get(i + 6)?]);
+            let w = u16::from_be_bytes([*b.get(i + 7)?, *b.get(i + 8)?]);
+            return (w > 0 && h > 0).then_some((w, h));
+        }
+        if matches!(m, 0xd9 | 0xda) {
+            return None;
+        }
+        let len = usize::from(u16::from_be_bytes([*b.get(i + 2)?, *b.get(i + 3)?]));
+        i = i.checked_add(2)?.checked_add(len)?;
+    }
+    None
+}
+
+/// Every preview candidate a raw holds (see [`embedded_preview`]).
+fn previews(bytes: &[u8]) -> Option<Previews<'_>> {
     if bytes.starts_with(b"FUJIFILMCCD-RAW") {
         let j = crate::vendor::raf::header(bytes).ok()?.jpeg?;
-        return is_dct_jpeg(j).then(|| trim_eoi(j).to_vec());
+        return is_dct_jpeg(j).then(|| Previews::One(trim_eoi(j).to_vec()));
     }
     let format = crate::probe(bytes);
     if format == Some(crate::RawFormat::Cr3) {
-        return cr3_preview(bytes).map(|j| trim_eoi(j).to_vec());
+        let mut found: Vec<&[u8]> = cr3_preview(bytes).into_iter().collect();
+        found.extend(cr3_boxes(bytes));
+        return (!found.is_empty()).then_some(Previews::Several(found));
     }
     if matches!(format, Some(crate::RawFormat::Crw | crate::RawFormat::Mrw | crate::RawFormat::X3f)) {
-        return scan_for_jpeg(bytes);
+        return scan_for_jpeg(bytes).map(Previews::One);
     }
     let tiff = Tiff::parse(bytes).ok()?;
     let mut found: Vec<&[u8]> = Vec::new();
@@ -173,13 +249,11 @@ pub fn embedded_preview(bytes: &[u8]) -> Option<Vec<u8>> {
     if let Some(p) = crate::vendor::orf::preview(bytes) {
         found.push(p);
     }
-    let best = found
-        .into_iter()
-        .filter(|s| is_dct_jpeg(s) || is_jxl(s))
-        .max_by_key(|s| s.len())
-        .map(|s| if is_jxl(s) { s.to_vec() } else { trim_eoi(s).to_vec() });
+    if largest(&found).is_some() {
+        return Some(Previews::Several(found));
+    }
     // a TIFF raw we can't decode whose preview no tag points to (Leaf MOS, Epson ERF)
-    best.or_else(|| format.filter(|f| !f.is_supported()).and_then(|_| scan_for_jpeg(bytes)))
+    format.filter(|f| !f.is_supported()).and_then(|_| scan_for_jpeg(bytes)).map(Previews::One)
 }
 
 /// The end of the DCT JPEG whose SOI is at `soi` (exclusive index after its EOI) and its component count,
@@ -356,7 +430,12 @@ fn cr3_preview(bytes: &[u8]) -> Option<&[u8]> {
 /// sample) is `u32 size, "PRVW", u32 0, u16 ?, u16 width, u16 height, u16 ?, u32 jpeg length, JPEG`; the smaller
 /// `THMB` box has the same shape. Returns the larger valid one.
 fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
-    let mut best: Option<&[u8]> = None;
+    cr3_boxes(bytes).into_iter().max_by_key(|j| j.len())
+}
+
+/// The valid JPEGs of a CR3's `PRVW` and `THMB` boxes (the first of each kind, see [`cr3_preview_boxes`]).
+fn cr3_boxes(bytes: &[u8]) -> Vec<&[u8]> {
+    let mut out = Vec::new();
     for tag in [b"PRVW", b"THMB"] {
         let mut from = 0;
         while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
@@ -370,14 +449,12 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
             }
             let jpeg = &bytes[j..j + len];
             if is_dct_jpeg(jpeg) {
-                if best.is_none_or(|b| b.len() < jpeg.len()) {
-                    best = Some(jpeg);
-                }
+                out.push(jpeg);
                 break;
             }
         }
     }
-    best
+    out
 }
 
 /// Trim trailing garbage after the last EOI when a stored length over-reports.
@@ -569,6 +646,62 @@ mod tests {
         // a track pointing past the end falls back to PRVW
         file.truncate(at as usize + 100);
         assert_eq!(embedded_preview(&file).unwrap(), small);
+    }
+
+    /// A fake JPEG whose frame header says `w × h`.
+    fn sized_jpeg(w: u16, h: u16, n: usize) -> Vec<u8> {
+        let mut j = vec![0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 8];
+        j.extend_from_slice(&h.to_be_bytes());
+        j.extend_from_slice(&w.to_be_bytes());
+        j.extend_from_slice(&[1, 1, 0x11, 0]);
+        j.extend(std::iter::repeat_n(0x55u8, n));
+        j.extend_from_slice(&[0xff, 0xd9]);
+        j
+    }
+
+    /// PERF-CULL-4: the smallest preview that covers the size asked for, of the largest one's shape;
+    /// the largest when none covers it. A CR3's 8192 px track, 1620 px `PRVW` and 160 px `THMB`.
+    #[test]
+    fn the_smallest_preview_covering_the_size_is_chosen() {
+        let bx = |kind: &[u8; 4], body: &[u8]| -> Vec<u8> { [&((body.len() + 8) as u32).to_be_bytes()[..], kind, body].concat() };
+        let full = |kind: &[u8; 4], body: &[u8]| bx(kind, &[&[0u8; 4][..], body].concat());
+        let boxed = |j: &[u8]| {
+            let mut b = b"\0\0\0\0\0\x01\x06\x54\x04\x38\0\x01".to_vec();
+            b.extend_from_slice(&(j.len() as u32).to_be_bytes());
+            b.extend_from_slice(j);
+            b
+        };
+        let (thmb, prvw, big) = (sized_jpeg(160, 107, 50), sized_jpeg(1620, 1080, 300), sized_jpeg(8192, 5464, 3000));
+        let mut file = bx(b"ftyp", b"crx \0\0\0\x01crx isom");
+        file.extend(bx(b"THMB", &boxed(&thmb)));
+        file.extend(bx(b"PRVW", &boxed(&prvw)));
+        let mut craw = vec![0u8; 82];
+        craw.extend(bx(b"JPEG", &[0; 4]));
+        let at = 4096u64;
+        let stsd = full(b"stsd", &[&1u32.to_be_bytes()[..], &bx(b"CRAW", &craw)].concat());
+        let stsz = full(b"stsz", &[0u32.to_be_bytes(), 1u32.to_be_bytes(), (big.len() as u32).to_be_bytes()].concat());
+        let co64 = full(b"co64", &[&1u32.to_be_bytes()[..], &at.to_be_bytes()].concat());
+        let trak = bx(b"trak", &bx(b"mdia", &bx(b"minf", &bx(b"stbl", &[stsd, stsz, co64].concat()))));
+        file.extend(bx(b"moov", &trak));
+        file.resize(at as usize, 0);
+        file.extend_from_slice(&big);
+        assert_eq!(embedded_preview(&file).unwrap(), big);
+        assert_eq!(embedded_preview_fit(&file, 512).unwrap(), prvw, "a grid thumbnail");
+        assert_eq!(embedded_preview_fit(&file, 1620).unwrap(), prvw);
+        assert_eq!(embedded_preview_fit(&file, 100).unwrap(), thmb);
+        assert_eq!(embedded_preview_fit(&file, 2560).unwrap(), big, "a large loupe");
+        assert_eq!(embedded_preview_fit(&file, u32::MAX).unwrap(), big);
+        // a smaller preview of another shape (letterboxed 16:9) is never a stand-in for the 3:2 one
+        let mut wide = file.clone();
+        let p = wide.windows(4).position(|w| w == b"PRVW").unwrap();
+        // the JPEG starts 20 bytes after the tag; its frame height 7 bytes into it
+        let height = p + 20 + 7;
+        wide[height..height + 2].copy_from_slice(&911u16.to_be_bytes());
+        assert_eq!(embedded_preview_fit(&wide, 512).unwrap(), big);
+        // damaged files never panic
+        for n in (0..file.len()).step_by(7) {
+            let _ = embedded_preview_fit(&file[..n], 512);
+        }
     }
 
     /// A structurally complete DCT JPEG (no real image data): `nc` components, `n` entropy bytes.

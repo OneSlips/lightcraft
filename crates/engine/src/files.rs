@@ -708,7 +708,7 @@ pub fn fs_preview_loader() -> PreviewLoader {
         let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(len.saturating_mul(2)) } else { gate.acquire_urgent(len.saturating_mul(2)) };
-        if let Some(image) = preview_window(path).ok().flatten().and_then(|(header, window, _)| quick_image_srgb(&header, &window, max_edge)) {
+        if let Some(image) = preview_window_fit(path, max_edge).ok().flatten().and_then(|(header, window, _)| quick_image_srgb(&header, &window, max_edge)) {
             return Some(image);
         }
         embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge)
@@ -752,6 +752,13 @@ impl PreviewRead {
 /// out of a container that carries no preview colour space of its own (Nikon's maker note) the
 /// whole-file fallback stays in charge.
 pub fn preview_window(path: &str) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRead)>, String> {
+    preview_window_fit(path, usize::MAX)
+}
+
+/// [`preview_window`] for a picture of at most `max_edge` pixels: of the previews a container
+/// keeps, the smallest that still covers `max_edge` ([`lightcraft_raw::embedded_preview_fit`]; a
+/// grid thumbnail of an EOS R5 C CR3 decodes its 1620 px JPEG instead of the 8192 px one).
+pub fn preview_window_fit(path: &str, max_edge: usize) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRead)>, String> {
     use std::io::{Read, Seek, SeekFrom};
 
     let mut file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
@@ -773,7 +780,7 @@ pub fn preview_window(path: &str) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRea
         // preview tag sits past the prefix, the containers whose preview only a scan finds: ask the
         // sparse planner which ranges `embedded_preview` reads before handing the caller the
         // whole-file fallback.
-        return planned_preview(&mut file, path, total);
+        return planned_preview(&mut file, path, total, max_edge);
     };
     // A preview at the file's end may have been padded past it: clamp rather than fail.
     let end = range.offset.saturating_add(range.window_len).min(total);
@@ -838,7 +845,7 @@ const PLAN_PREFIX: u64 = 64 * 1024;
 /// below). The planner's contract is the one its corpus test asserts over real files (what it loaded
 /// gives what the whole file gives), so a window that still fails to decode ends in the same
 /// whole-file fallback in [`fs_preview_loader`], never in a wrong picture.
-fn planned_preview(file: &mut std::fs::File, path: &str, total: u64) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRead)>, String> {
+fn planned_preview(file: &mut std::fs::File, path: &str, total: u64, max_edge: usize) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRead)>, String> {
     use std::io::{Read, Seek, SeekFrom};
 
     if total > MAX_PREVIEW_PLAN_BYTES {
@@ -867,7 +874,8 @@ fn planned_preview(file: &mut std::fs::File, path: &str, total: u64) -> Result<O
                 }
             }
             lightcraft_raw::sparse::HeaderPlan::Ready => {
-                let Some(window) = lightcraft_raw::embedded_preview(&buf) else { return Ok(None) };
+                let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
+                let Some(window) = lightcraft_raw::embedded_preview_fit(&buf, edge) else { return Ok(None) };
                 // The quick path hands the JPEG to the decoder alone, so what the *container* says
                 // about the preview has to be something the bytes it is handed can show. Two container
                 // facts change the pixels and are not in the JPEG: the preview's colour space (which
@@ -939,6 +947,12 @@ fn raf_preview_extent(prefix: &[u8]) -> Option<u64> {
 /// [`embedded_preview_srgb`] for [`preview_window`], which does not re-read the container.
 /// `None` when the bytes are not a decodable image.
 fn quick_image_srgb(header: &[u8], window: &[u8], max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
+    // a plain sRGB camera JPEG (nearly all of them) straight to 8-bit (PERF-CULL-3: 45 MP preview
+    // of an EOS R5 C fitted to 2560 px, 194 → ~110 ms); anything else takes the general decode
+    let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
+    if let Ok(Some((image, orientation))) = lightcraft_codecs::decode_jpeg_srgb8_fit(window, edge, edge) {
+        return Some(image.oriented(preview_orientation(header, orientation)));
+    }
     let mut d = lightcraft_codecs::decode(window, fit_box(max_edge)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = fit(&d.image, max_edge, max_edge, Filter::Box);
