@@ -227,11 +227,11 @@ fn settings_tab_learn_and_edit_a_key() {
     h.settle(T);
     for id in [
         "button:surfaceControl-key.1",
-        "button:surfaceControl-dial",
+        "button:surfaceDevice-dialpad",
+        "button:surfaceSection-feel",
         "button:surfaceLearn",
         "check:surface.enabled",
         "combo:surfaceProfile",
-        "slider:surface.speed",
     ] {
         assert!(h.app.widgets.iter().any(|(w, _)| w == id), "{id}");
     }
@@ -246,7 +246,31 @@ fn settings_tab_learn_and_edit_a_key() {
     h.settle(T);
     assert_eq!(h.app.surface.editor.control.as_deref(), Some("key.5"));
     assert_eq!(h.app.session.active(), before, "a learnt press doesn't act");
-    assert!(h.app.widgets.iter().any(|(w, _)| w == "combo:surfaceBindingKind"), "the selected key's editor");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "field:surfaceActionSearch"), "the selected key's editor");
+    // learning a dial switches the drawing to the Dialpad
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceLearn"}), T)["ok"], true);
+    h.settle(T);
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 1}]))["ok"], true);
+    h.settle(T);
+    assert_eq!(h.app.surface.editor.device, "dialpad");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "button:surfaceControl-dial"), "the Dialpad is drawn");
+    // pick an action from the list: search, click
+    h.app.surface.editor.filter = "Highlights".into();
+    h.settle(T);
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "item:surfaceAction-v.light.highlights"}), T)["ok"], true);
+    h.settle(T);
+    let p = h.app.surface.settings().active_profile().unwrap().clone();
+    assert!(
+        p.pages.iter().any(|pg| pg.bindings.get("dial") == Some(&lightcraft_surface::Binding::value("light.highlights"))),
+        "the dial moves Highlights now"
+    );
+    // the other sections open
+    for s in ["pages", "feel", "readout", "setup", "layout"] {
+        assert_eq!(h.request("ui.clickWidget", json!({"id": format!("button:surfaceSection-{s}")}), T)["ok"], true);
+        h.settle(T);
+    }
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceDevice-keypad"}), T)["ok"], true);
+    h.settle(T);
     // make key 5 put Contrast on the dial
     let profile = h.app.surface.settings().profile.clone();
     let mut s = h.app.surface.settings().clone();

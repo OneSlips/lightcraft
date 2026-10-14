@@ -55,10 +55,15 @@ pub fn texture(ctx: &egui::Context, name: &str, points: f32) -> Option<egui::Tex
 
 /// Paint icon `name` into `rect` (nothing when there's no such icon).
 pub fn paint(ui: &egui::Ui, name: &str, rect: egui::Rect, tint: egui::Color32) -> bool {
+    paint_with(ui.ctx(), ui.painter(), name, rect, tint)
+}
+
+/// [`paint`] with any painter (the readout draws on its own layer).
+pub fn paint_with(ctx: &egui::Context, painter: &egui::Painter, name: &str, rect: egui::Rect, tint: egui::Color32) -> bool {
     let side = rect.width().min(rect.height());
-    let Some(t) = texture(ui.ctx(), name, side) else { return false };
+    let Some(t) = texture(ctx, name, side) else { return false };
     let r = egui::Rect::from_center_size(rect.center(), egui::vec2(side, side));
-    ui.painter().image(t.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
+    painter.image(t.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), tint);
     true
 }
 

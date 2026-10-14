@@ -257,5 +257,8 @@
   "Saved {path}": "Salvo: {path}",
   "Paired: {name}": "Pareado: {name}",
   "{name} asks to pair. Code: {code}": "{name} pede pareamento. Código: {code}",
-  "Listening on 127.0.0.1:{port}": "Aguardando em 127.0.0.1:{port}"
+  "Listening on 127.0.0.1:{port}": "Aguardando em 127.0.0.1:{port}",
+  "Plugin {version} installed": "Plugin {version} instalado",
+  "Show page {name}": "Mostrar a página {name}",
+  "Switch to profile {name}": "Mudar para o perfil {name}"
 }

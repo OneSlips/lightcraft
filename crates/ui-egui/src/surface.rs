@@ -72,6 +72,10 @@ pub struct EditorState {
     pub params_text: String,
     /// Name typed for a new profile or page.
     pub new_name: String,
+    /// The surface shown (`keypad`, `dialpad`, `ring`…; empty: the first).
+    pub device: String,
+    /// The part of the page shown (`layout`, `pages`, `feel`, `readout`, `setup`; empty: layout).
+    pub section: String,
 }
 
 pub struct SurfaceHost {

@@ -257,5 +257,8 @@
   "Saved {path}": "Збережено: {path}",
   "Paired: {name}": "Сполучено: {name}",
   "{name} asks to pair. Code: {code}": "{name} просить сполучення. Код: {code}",
-  "Listening on 127.0.0.1:{port}": "Очікує на 127.0.0.1:{port}"
+  "Listening on 127.0.0.1:{port}": "Очікує на 127.0.0.1:{port}",
+  "Plugin {version} installed": "Плагін {version} встановлено",
+  "Show page {name}": "Показати сторінку {name}",
+  "Switch to profile {name}": "Перемкнути на профіль {name}"
 }

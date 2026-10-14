@@ -18,22 +18,23 @@ const HEIGHT: f32 = 72.0;
 /// The fade after the display time (s).
 const FADE: f64 = 0.4;
 
-/// What the readout says: (title, value text, bar 0…1).
-pub fn content(app: &LightcraftApp) -> Option<(String, String, Option<f64>, f64)> {
+/// What the readout says: (title, value text, bar 0…1, age in s, icon).
+pub fn content(app: &LightcraftApp) -> Option<(String, String, Option<f64>, f64, Option<&'static str>)> {
     let now_ms = app.surface.now() * 1000.0;
     let (shown, at) = app.surface.runtime.shown(now_ms)?;
-    let (title, value, bar) = match shown {
+    let (title, value, bar, icon) = match shown {
         Shown::Value { target } => {
             let spec = ls::targets::target_spec(target)?;
             let v = crate::surface::value(app, target);
             let title = crate::i18n::tr(spec.label).to_string();
             let title = if spec.kind == ls::TargetKind::Mask { format!("{} · {}", crate::i18n::tr("Mask"), title) } else { title };
-            (title, v.map(|v| spec.format(v)).unwrap_or_else(|| "—".into()), v.map(|v| spec.position(v)))
+            let icon = ls::icons::icon_for(&ls::Binding::value(target));
+            (title, v.map(|v| spec.format(v)).unwrap_or_else(|| "—".into()), v.map(|v| spec.position(v)), icon)
         }
-        Shown::Command { label, .. } => (crate::i18n::tr(label).to_string(), String::new(), None),
-        Shown::Notice { text } => (notice_text(text), String::new(), None),
+        Shown::Command { label, icon } => (crate::i18n::tr(label).to_string(), String::new(), None, *icon),
+        Shown::Notice { text } => (notice_text(text), String::new(), None, None),
     };
-    Some((title, value, bar, (now_ms - at) / 1000.0))
+    Some((title, value, bar, (now_ms - at) / 1000.0, icon))
 }
 
 /// Notices come in English from the engine ("Dial: Exposure", "Apply to all selected: On"):
@@ -55,7 +56,7 @@ fn notice_text(text: &str) -> String {
 }
 
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
-    let Some((title, value, bar, age)) = content(app) else { return };
+    let Some((title, value, bar, age, icon)) = content(app) else { return };
     let osd = &app.surface.settings().osd;
     let display = f64::from(osd.display_ms) / 1000.0;
     let fade = if age <= display { 1.0 } else { (1.0 - (age - display) / FADE).clamp(0.0, 1.0) } as f32;
@@ -82,10 +83,14 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     crate::widgets::register(ctx, "osd:surface", rect);
     let title_c = Color32::from_rgb(220, 220, 220).gamma_multiply(fade);
     let value_c = Color32::WHITE.gamma_multiply(fade);
-    let left = rect.left() + 30.0;
+    // the action's icon (the same one the surface's key shows) at the left of the pill
+    let icon_rect = Rect::from_center_size(pos2(rect.left() + 40.0, rect.center().y), vec2(40.0, 40.0));
+    let has_icon = icon.is_some_and(|name| crate::surface_icons::paint_with(ctx, &painter, name, icon_rect, Color32::WHITE.gamma_multiply(fade)));
+    let left = if has_icon { rect.left() + 70.0 } else { rect.left() + 30.0 };
     let right = rect.right() - 30.0;
     if value.is_empty() {
-        painter.text(rect.center(), Align2::CENTER_CENTER, &title, t.semibold(17.0), value_c);
+        let center = if has_icon { pos2((left + right) / 2.0, rect.center().y) } else { rect.center() };
+        painter.text(center, Align2::CENTER_CENTER, &title, t.semibold(17.0), value_c);
         return;
     }
     let text_y = rect.top() + 26.0;

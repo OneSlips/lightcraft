@@ -38,7 +38,9 @@ const LABEL_W: f32 = 150.0;
 /// The dialog body for `tab` (the tab bar switches `tab`).
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(240.0, 560.0));
+    // Controls draws the device beside its editor: it takes more room
+    let widest = if tab == "controls" { 900.0 } else { 560.0 };
+    ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(240.0, widest));
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (id, label) in TABS {

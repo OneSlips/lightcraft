@@ -168,9 +168,21 @@ pub fn entries() -> Vec<Entry> {
     out
 }
 
+/// [`entries`], built once.
+pub fn cached() -> &'static [Entry] {
+    static ALL: std::sync::OnceLock<Vec<Entry>> = std::sync::OnceLock::new();
+    ALL.get_or_init(entries)
+}
+
 /// The entry with this key.
 pub fn find(key: &str) -> Option<Entry> {
-    entries().into_iter().find(|e| e.key == key)
+    cached().iter().find(|e| e.key == key).cloned()
+}
+
+/// The entry of a binding, if the catalogue has it.
+pub fn of(b: &Binding) -> Option<&'static Entry> {
+    let key = key_of(b);
+    cached().iter().find(|e| e.key == key)
 }
 
 #[cfg(test)]

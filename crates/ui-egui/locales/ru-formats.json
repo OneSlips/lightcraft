@@ -257,5 +257,8 @@
   "Saved {path}": "Сохранено: {path}",
   "Paired: {name}": "Сопряжено: {name}",
   "{name} asks to pair. Code: {code}": "{name} просит сопряжение. Код: {code}",
-  "Listening on 127.0.0.1:{port}": "Ожидает на 127.0.0.1:{port}"
+  "Listening on 127.0.0.1:{port}": "Ожидает на 127.0.0.1:{port}",
+  "Plugin {version} installed": "Плагин {version} установлен",
+  "Show page {name}": "Показать страницу {name}",
+  "Switch to profile {name}": "Переключить на профиль {name}"
 }

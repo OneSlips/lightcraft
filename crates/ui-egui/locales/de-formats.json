@@ -257,5 +257,8 @@
   "Saved {path}": "Gespeichert: {path}",
   "Paired: {name}": "Gekoppelt: {name}",
   "{name} asks to pair. Code: {code}": "{name} möchte gekoppelt werden. Code: {code}",
-  "Listening on 127.0.0.1:{port}": "Wartet auf 127.0.0.1:{port}"
+  "Listening on 127.0.0.1:{port}": "Wartet auf 127.0.0.1:{port}",
+  "Plugin {version} installed": "Plugin {version} installiert",
+  "Show page {name}": "Seite {name} zeigen",
+  "Switch to profile {name}": "Zu Profil {name} wechseln"
 }
