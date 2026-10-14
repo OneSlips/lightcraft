@@ -660,7 +660,16 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // hover and before renders are stand-ins: the preview size is plenty and keeps them cheap
     let se = app.ui.settings.stand_in_edge(want, texture_side);
     let (sw, sh) = if aspect >= 1.0 { (se, short(se, aspect)) } else { (short(se, 1.0 / aspect), se) };
-    if let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
+    // stepping fast (an arrow held down): the render waits until the photo stays, the camera JPEG
+    // or thumbnail shows meanwhile, and a render queued for a photo already left is dropped
+    let settling = !interacting && app.loupe_timing.settling(id, now);
+    if settling {
+        if app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id) {
+            app.renderer.drop_queued(Slot::Main);
+        }
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(crate::loupe_timing::SETTLE_SECS / 2.0));
+    }
+    if !settling && let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
         let job = if interacting { job.draft() } else { job };
         // at rest the render is shrunk to exactly the size it is drawn at with a Lanczos filter on
         // the worker, so the window draws it texel for texel instead of shrinking it with 2-tap
@@ -718,6 +727,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         && let Some(q) = app.session.quick_view_job(id, want.max(8), !crop_tool)
     {
         app.renderer.request_quick(Slot::Preview, q, 110);
+    }
+    if !interacting {
+        look_ahead(app, id, want.max(8), !crop_tool);
     }
     let show_before = app.ui.before_after == BeforeAfter::Original || ui.input(|i| i.key_down(egui::Key::Backslash));
     if (split || show_before || split_view)
@@ -1457,6 +1469,62 @@ fn navigator(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, img: Rect
 
 /// Neighbour prefetch: below on-screen thumbnails, above background thumbnail refreshes.
 const PREFETCH_PRIORITY: u32 = 4;
+
+/// How many photos ahead (in the direction of travel) the loupe makes its stand-in for, and how
+/// many behind (a step back is common when culling).
+const AHEAD: usize = 5;
+const BEHIND: usize = 1;
+/// The look-ahead's priority: below the loupe's own render (100), above everything else.
+const AHEAD_PRIORITY: u32 = 96;
+
+/// What [`look_ahead`] last worked out (see `LightcraftApp::look_ahead`).
+#[derive(Debug, Default)]
+pub struct LookAhead {
+    /// The last photo the loupe showed, for the direction of travel.
+    last: Option<PhotoId>,
+    /// +1 forward (the default), -1 backward.
+    dir: i8,
+    /// (photo, direction, catalog revision, edge) the requests were made for.
+    made_for: Option<(PhotoId, i8, u64, usize)>,
+}
+
+impl LookAhead {
+    /// The photos to prepare around `id` at position `i` of `ids`: [`AHEAD`] in the direction of
+    /// travel, nearest first, then [`BEHIND`] the other way.
+    fn targets(&self, ids: &[PhotoId], i: usize) -> Vec<PhotoId> {
+        let dir: isize = if self.dir < 0 { -1 } else { 1 };
+        let at = |k: isize| i.checked_add_signed(k).and_then(|j| ids.get(j)).copied();
+        let ahead = (1..=AHEAD as isize).filter_map(|k| at(dir * k));
+        let behind = (1..=BEHIND as isize).filter_map(|k| at(-dir * k));
+        ahead.chain(behind).collect()
+    }
+}
+
+/// Culling: make the loupe's stand-ins (the camera JPEG of an unedited raw, or a cached render) of
+/// the next photos in the direction of travel, so that a step shows the next one at once instead
+/// of after reading and decoding it (see [`Slot::QuickAhead`]).
+fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
+    let rev = app.session.catalog.revision;
+    if app.look_ahead.last != Some(id) {
+        let ids = app.session.visible_cloned();
+        let pos = |p: PhotoId| ids.iter().position(|q| *q == p);
+        if let (Some(prev), Some(i)) = (app.look_ahead.last, pos(id))
+            && let Some(j) = pos(prev)
+        {
+            app.look_ahead.dir = if j > i { -1 } else { 1 };
+        }
+        app.look_ahead.last = Some(id);
+    }
+    let want = (id, app.look_ahead.dir, rev, edge);
+    if app.look_ahead.made_for == Some(want) {
+        return;
+    }
+    app.look_ahead.made_for = Some(want);
+    let ids = app.session.visible_cloned();
+    let Some(i) = ids.iter().position(|p| *p == id) else { return };
+    let jobs = app.look_ahead.targets(&ids, i).into_iter().filter_map(|nid| app.session.quick_view_job(nid, edge, crop)).collect();
+    app.renderer.look_ahead(jobs, AHEAD_PRIORITY);
+}
 
 /// How long a render may be on its way, with nothing new on screen, before the loupe says
 /// "Rendering…" (s): as long as the activity stack waits before it shows a task.
