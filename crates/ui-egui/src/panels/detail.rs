@@ -2109,7 +2109,14 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(sq, vec2(14.0, 14.0)));
             grips.push((i, true, sq, r));
         }
-        pin(&p, tq, sel);
+        match s.auto {
+            // Remove Dust's spots: an amber (known dust) or yellow (this photo alone) pin
+            Some(a) if !sel => {
+                p.circle_filled(tq, 6.0, if a.confirmed { Color32::from_rgb(255, 166, 0) } else { Color32::from_rgb(240, 214, 80) });
+                p.circle_stroke(tq, 6.0, Stroke::new(1.5, Color32::WHITE));
+            }
+            _ => pin(&p, tq, sel),
+        }
         register(ui.ctx(), format!("spotPin:{i}"), Rect::from_center_size(tq, vec2(14.0, 14.0)));
         grips.push((i, false, tq, r));
     }
