@@ -1025,6 +1025,10 @@ pub struct QuickJob {
     pub cached: Vec<(Arc<PreviewCache>, Hash128)>,
     /// Embedded preview of an unedited raw: (path, loader, max edge).
     pub embedded: Option<(String, PreviewLoader, usize)>,
+    /// Where a decoded [`Self::embedded`] preview is kept in memory, so stepping back to a photo
+    /// shows its camera JPEG again without reading and decoding it (culling goes back and forth):
+    /// the cache (memory only, never its disk) and the key for this photo and edge.
+    pub embedded_cache: Option<(Arc<PreviewCache>, Hash128)>,
     /// Last resort: run this thumbnail job.
     pub small: Option<Box<RenderJob>>,
 }
@@ -1072,10 +1076,18 @@ impl QuickJob {
                 return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Cached));
             }
         }
-        if let Some((path, loader, edge)) = &self.embedded
-            && let Some(image) = loader(path, *edge)
-        {
-            return done(rendered(image), Some(QuickSource::Embedded));
+        if let Some((path, loader, edge)) = &self.embedded {
+            if let Some((cache, k)) = &self.embedded_cache
+                && let Some(img) = cache.get_memory(*k)
+            {
+                return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Embedded));
+            }
+            if let Some(image) = loader(path, *edge) {
+                if let Some((cache, k)) = &self.embedded_cache {
+                    cache.put_memory(*k, Arc::new(image.clone()));
+                }
+                return done(rendered(image), Some(QuickSource::Embedded));
+            }
         }
         if let Some(job) = self.small {
             let r = job.run();
@@ -1422,7 +1434,10 @@ impl crate::Session {
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
         let embedded = self.embedded_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
-        Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, small: apply_crop.then(|| Box::new(small)) })
+        let embedded_cache = embedded.as_ref().map(|(_, _, edge)| {
+            (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish())
+        });
+        Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, small: apply_crop.then(|| Box::new(small)) })
     }
 
     /// A first grid thumbnail for an unedited raw: the cached render for `job` (the real
@@ -1439,6 +1454,7 @@ impl crate::Session {
             key: job.key,
             cached: job.cache.clone().into_iter().collect(),
             embedded: Some((path, l, edge)),
+            embedded_cache: None,
             small: None,
         })
     }
@@ -1683,6 +1699,7 @@ mod thumbnail_hash_tests {
             key: 9,
             cached: Vec::new(),
             embedded: Some(("x.arw".into(), Arc::new(|_: &str, _: usize| -> Option<Rgba8> { panic!("preview reader bug") }), 256)),
+            embedded_cache: None,
             small: None,
         };
         let r = quick.run();

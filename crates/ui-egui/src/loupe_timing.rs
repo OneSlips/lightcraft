@@ -15,6 +15,14 @@ use serde_json::{Value, json};
 /// Steps kept for `ui.inspect`.
 const KEEP: usize = 256;
 
+/// A photo left sooner than this (s) after it was stepped to was skipped past: the user is
+/// holding an arrow key or tapping through.
+pub const FAST_STEP_SECS: f64 = 0.25;
+/// While stepping fast, how long a photo has to stay before its render is started (s). Until then
+/// the loupe shows its camera JPEG or thumbnail, and the workers make the next ones' instead of
+/// starting a full raw develop that the next step throws away.
+pub const SETTLE_SECS: f64 = 0.12;
+
 /// One photo's way onto the screen (times in ms since the frame it was stepped to).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct StepTiming {
@@ -86,6 +94,18 @@ impl LoupeTiming {
         }
     }
 
+    /// Whether the user is stepping fast and `photo` (being drawn in the frame at `now`) has not
+    /// stayed [`SETTLE_SECS`] yet: the photo before it was left within [`FAST_STEP_SECS`].
+    pub fn settling(&self, photo: PhotoId, now: f64) -> bool {
+        let (since, prev_dwell) = match &self.current {
+            // the first frame of a step: `observe` has not seen this photo yet
+            Some((since, t)) if t.photo != photo => (now, (now - since) * 1000.0),
+            Some((since, _)) => (*since, self.done.back().map(|t| t.dwell_ms).unwrap_or(f64::INFINITY)),
+            None => return false,
+        };
+        prev_dwell.is_finite() && prev_dwell < FAST_STEP_SECS * 1000.0 && now - since < SETTLE_SECS
+    }
+
     /// The loupe is not showing a photo any more (the grid is up).
     pub fn left(&mut self, now: f64) {
         self.finish(now);
@@ -141,6 +161,23 @@ mod tests {
         assert!((t.sharp_ms.unwrap() - 1000.0).abs() < 0.01);
         assert!((t.dwell_ms - 2000.0).abs() < 0.01);
         assert_eq!(l.to_json()["current"]["photo"], 2);
+    }
+
+    #[test]
+    fn stepping_fast_holds_the_render_back_until_the_photo_stays() {
+        let mut l = LoupeTiming::default();
+        // the first photo opened: no step before it
+        assert!(!l.settling(PhotoId(1), 0.0));
+        l.observe(PhotoId(1), "embedded", 0.0);
+        // a deliberate step (the photo before stayed 2 s): render at once
+        assert!(!l.settling(PhotoId(2), 2.0));
+        l.observe(PhotoId(2), "embedded", 2.0);
+        // held arrow: the photo before stayed 33 ms
+        assert!(l.settling(PhotoId(3), 2.033));
+        l.observe(PhotoId(3), "thumb", 2.033);
+        assert!(l.settling(PhotoId(3), 2.1));
+        // …until this one has stayed long enough
+        assert!(!l.settling(PhotoId(3), 2.033 + SETTLE_SECS + 0.001));
     }
 
     #[test]

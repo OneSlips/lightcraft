@@ -72,6 +72,24 @@ impl PreviewCache {
         Some(img)
     }
 
+    /// The memory LRU's copy of `key`, without looking on disk.
+    pub fn get_memory(&self, key: Hash128) -> Option<Arc<Rgba8>> {
+        if self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_none() {
+            return None;
+        }
+        self.mem.lock().unwrap_or_else(|e| e.into_inner()).get(&key).cloned()
+    }
+
+    /// Keep `img` in memory only (it is never written to disk): for pictures that are cheap
+    /// enough to make again, such as a raw's decoded camera JPEG, but worth keeping for a revisit.
+    pub fn put_memory(&self, key: Hash128, img: Arc<Rgba8>) {
+        if self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_none() {
+            return;
+        }
+        let c = cost(&img);
+        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img, c);
+    }
+
     pub fn put(&self, key: Hash128, img: Arc<Rgba8>) {
         self.put_at(self.generation(), key, img);
     }

@@ -341,6 +341,9 @@ pub struct LightcraftApp {
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
     /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
     pub loupe_timing: loupe_timing::LoupeTiming,
+    /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
+    /// catalog revision and the edge, so it is worked out again only when one of them changes.
+    pub(crate) look_ahead: panels::detail::LookAhead,
     /// The window render the loupe asked for last, by job key (see [`region`]); kept for the few
     /// windows whose textures can be on screen, and for the inspector.
     pub region_view: Option<region::RegionView>,
@@ -452,6 +455,7 @@ impl LightcraftApp {
             brush_live: None,
             loupe_shown: None,
             loupe_timing: Default::default(),
+            look_ahead: Default::default(),
             region_view: None,
             region_before_view: None,
             size_hold: Default::default(),
