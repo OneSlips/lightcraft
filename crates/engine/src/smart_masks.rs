@@ -393,7 +393,8 @@ impl Session {
                 match self.segment_wait_kind(photo, kind) {
                     Ok(result) => {
                         let mut polled = crate::segment::Polled::default();
-                        let o = crate::segment::worker::Outcome { tag, result: Ok(result), superseded: false, payload: Default::default() };
+                        let o =
+                            crate::segment::worker::Outcome { tag, result: Ok(result), superseded: false, payload: Default::default(), note: None };
                         if self.apply_recipe_outcome(o, &mut polled) {
                             updated += 1;
                         }
@@ -531,6 +532,9 @@ impl Session {
     pub(crate) fn apply_recipe_outcome(&mut self, o: crate::segment::worker::Outcome, polled: &mut crate::segment::Polled) -> bool {
         let crate::segment::Tag::Recipe { photo, mask, comp, part, batch } = o.tag else { return false };
         let finished = self.finish_batch_job(batch, o.superseded);
+        if let Some(note) = o.note.clone().filter(|_| !o.superseded) {
+            self.batch_note(batch, note, polled);
+        }
         let changed = (|| {
             if o.superseded {
                 return false;

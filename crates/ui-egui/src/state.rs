@@ -622,7 +622,7 @@ pub struct UiState {
     /// A SAM 3 download was started from the app (to report its end once).
     #[serde(skip)]
     pub sam_downloading: bool,
-    /// Open AI model downloads started from the app (model keys), to report their end once.
+    /// Openly licensed AI model downloads started from the app (model keys), to report their end once.
     #[serde(skip)]
     pub ai_downloading: Vec<String>,
     /// An AI mask was made by a heuristic because its model isn't installed: the model's key (the
@@ -996,7 +996,7 @@ pub enum Dialog {
         #[serde(default)]
         error: Option<String>,
     },
-    /// An open AI mask model (`model`: its key in `ai.models.status`, e.g. `subject`, `scene`,
+    /// An openly licensed AI mask model (`model`: its key in `ai.models.status`, e.g. `subject`, `scene`,
     /// `sam2`) isn't installed: offer to download it (what it does, size, licence, progress).
     /// `then`: the AI mask to start once it is there, as for [`Dialog::SamModel`].
     AiModel {

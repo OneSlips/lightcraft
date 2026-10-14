@@ -1453,7 +1453,7 @@ fn show_model_folder(app: &mut LightcraftApp, dir: &std::path::Path) -> Result<(
     reveal(&dir.to_string_lossy())
 }
 
-/// The dialog for an open AI model: what it does, its size and licence, and the download's progress.
+/// The dialog for an openly licensed AI model: what it does, its size and licence, and the download's progress.
 fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error: Option<&str>) {
     let t = Tokens::get(ui.ctx());
     let seg = &app.session.segmenter;

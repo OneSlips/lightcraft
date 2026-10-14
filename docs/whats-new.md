@@ -17,7 +17,7 @@
 - Resting on a preset previews its AI masks too. Face data stays on your computer; People and Roles
   can forget it.
 
-### AI masks with open models
+### AI masks with openly licensed models
 - **Subject**, **Background**, **Sky**, **People** and **Landscape** masks now use AI models instead of
   guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
   need it, after a dialog that shows its size and licence. Without a model the mask is made the old

@@ -771,7 +771,7 @@ fn landscape_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 
 /// Under the tiles: an AI mask made by the heuristic because its model is missing (with a button to
 /// get it), a selected mask whose AI selections can now be computed by their model (Update), and
-/// open model downloads while their dialog is closed.
+/// openly licensed model downloads while their dialog is closed.
 fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     if let Some(model) = app.ui.ai_hint.clone() {

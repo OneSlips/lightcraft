@@ -196,7 +196,9 @@ fn recipe_results_complete_the_step_and_undo_cancels_the_rest() {
         use crate::smart_masks::Part;
         let tag = Tag::Recipe { photo, mask, comp: 0, part: Part::Seg(AutoKind::Sky), batch: 99 };
         let mut polled = Polled::default();
-        assert!(s.apply_recipe_outcome(Outcome { tag, result: Ok(Some(seg())), superseded: false, payload: Default::default() }, &mut polled));
+        assert!(
+            s.apply_recipe_outcome(Outcome { tag, result: Ok(Some(seg())), superseded: false, payload: Default::default(), note: None }, &mut polled)
+        );
         assert!(masks(&s)[0].components[0].shape.has_seg(), "computed");
         assert_eq!(s.undo.len(), undo_len, "no undo step of its own");
         assert_eq!(masks(&s)[0].preset.as_deref(), Some(sky.as_str()), "still provisional");
@@ -208,7 +210,12 @@ fn recipe_results_complete_the_step_and_undo_cancels_the_rest() {
         assert!(masks(&s)[0].components[0].shape.has_seg());
         // a late result for a mask that is gone changes nothing
         let tag = Tag::Recipe { photo, mask: 4242, comp: 0, part: Part::Seg(AutoKind::Sky), batch: 99 };
-        assert!(!s.apply_recipe_outcome(Outcome { tag, result: Ok(Some(seg())), superseded: false, payload: Default::default() }, &mut polled));
+        assert!(
+            !s.apply_recipe_outcome(
+                Outcome { tag, result: Ok(Some(seg())), superseded: false, payload: Default::default(), note: None },
+                &mut polled
+            )
+        );
     }
     #[cfg(not(feature = "sam"))]
     let _ = (photo, mask, undo_len);

@@ -334,6 +334,24 @@ impl Grid {
         let y = (self.rect[1] + v * (self.rect[3] - self.rect[1])) * self.h as f64;
         [x as f32, y as f32]
     }
+
+    /// The cells whose area meets the photo-pixel box `bb` (`[x0, y0, x1, y1]`), as half-open
+    /// ranges of columns and rows (empty when it lies outside the grid).
+    fn cells(&self, bb: [f32; 4]) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+        let (rw, rh) = ((self.rect[2] - self.rect[0]) * self.w as f64, (self.rect[3] - self.rect[1]) * self.h as f64);
+        if !(rw > 0.0 && rh > 0.0) || bb.iter().any(|v| !v.is_finite()) {
+            return (0..0, 0..0);
+        }
+        let s = self.side as f64;
+        let col = |x: f32| ((f64::from(x) - self.rect[0] * self.w as f64) / rw * s).clamp(0.0, s);
+        let row = |y: f32| ((f64::from(y) - self.rect[1] * self.h as f64) / rh * s).clamp(0.0, s);
+        (col(bb[0]).floor() as usize..col(bb[2]).ceil() as usize, row(bb[1]).floor() as usize..row(bb[3]).ceil() as usize)
+    }
+}
+
+/// The bounding box of `pts` grown by `m` pixels.
+fn bbox(pts: &[[f32; 2]], m: f32) -> [f32; 4] {
+    pts.iter().fold([f32::MAX, f32::MAX, f32::MIN, f32::MIN], |b, p| [b[0].min(p[0] - m), b[1].min(p[1] - m), b[2].max(p[0] + m), b[3].max(p[1] + m)])
 }
 
 /// Whether `p` lies inside the closed polygon `poly` (even–odd rule).
@@ -349,11 +367,13 @@ fn inside(poly: &[[f32; 2]], p: [f32; 2]) -> bool {
     c
 }
 
-/// Coverage 0..1 of each grid cell by the region `f` (4 × 4 samples per cell, for smooth edges).
-fn coverage(grid: &Grid, cov: &mut [f32], f: impl Fn([f32; 2]) -> bool) {
+/// Coverage 0..1 of each grid cell inside the photo-pixel box `bb` by the region `f` (4 × 4
+/// samples per cell, for smooth edges).
+fn coverage(grid: &Grid, cov: &mut [f32], bb: [f32; 4], f: impl Fn([f32; 2]) -> bool) {
     const N: usize = 4;
-    for j in 0..grid.side {
-        for i in 0..grid.side {
+    let (cols, rows) = grid.cells(bb);
+    for j in rows {
+        for i in cols.clone() {
             let mut hit = 0;
             for sy in 0..N {
                 for sx in 0..N {
@@ -393,7 +413,7 @@ pub fn rasterize(grid: &Grid, cov: &mut [f32], lm: &[[f32; 2]], part: FacePart, 
             for (upper, lower) in BROWS {
                 let mut poly = points(lm, &upper);
                 poly.extend(points(lm, &lower).into_iter().rev());
-                coverage(grid, cov, |p| inside(&poly, p));
+                coverage(grid, cov, bbox(&poly, 1.0), |p| inside(&poly, p));
             }
         }
         FacePart::Sclera | FacePart::Iris => {
@@ -401,15 +421,16 @@ pub fn rasterize(grid: &Grid, cov: &mut [f32], lm: &[[f32; 2]], part: FacePart, 
                 let poly = points(lm, eye);
                 let Some((c, r)) = iris(lm, e) else { continue };
                 let in_iris = |p: [f32; 2]| (p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2) <= r * r;
+                let bb = bbox(&poly, 1.0);
                 match part {
-                    FacePart::Iris => coverage(grid, cov, |p| in_iris(p) && inside(&poly, p)),
-                    _ => coverage(grid, cov, |p| inside(&poly, p) && !in_iris(p)),
+                    FacePart::Iris => coverage(grid, cov, bb, |p| in_iris(p) && inside(&poly, p)),
+                    _ => coverage(grid, cov, bb, |p| inside(&poly, p) && !in_iris(p)),
                 }
             }
         }
         FacePart::Lips => {
             let (outer, inner) = (points(lm, &LIPS_OUTER), points(lm, &LIPS_INNER));
-            coverage(grid, cov, |p| inside(&outer, p) && !inside(&inner, p));
+            coverage(grid, cov, bbox(&outer, 1.0), |p| inside(&outer, p) && !inside(&inner, p));
         }
         FacePart::Teeth => {
             let inner = points(lm, &LIPS_INNER);
@@ -452,9 +473,131 @@ pub fn rasterize(grid: &Grid, cov: &mut [f32], lm: &[[f32; 2]], part: FacePart, 
                 return;
             }
             let mean = lum / n;
-            coverage(grid, cov, |p| inside(&inner, p) && sample(p).is_some_and(|(l, s)| l > mean.max(70.0) && s < 0.45));
+            coverage(grid, cov, bbox(&inner, 1.0), |p| inside(&inner, p) && sample(p).is_some_and(|(l, s)| l > mean.max(70.0) && s < 0.45));
         }
     }
+}
+
+/// `poly` scaled about its centroid by `sx` horizontally and `sy` vertically.
+fn grown(poly: &[[f32; 2]], sx: f32, sy: f32) -> Vec<[f32; 2]> {
+    let n = poly.len().max(1) as f32;
+    let c = poly.iter().fold([0f32; 2], |a, p| [a[0] + p[0] / n, a[1] + p[1] / n]);
+    poly.iter().map(|p| [c[0] + (p[0] - c[0]) * sx, c[1] + (p[1] - c[1]) * sy]).collect()
+}
+
+/// Luminance (0..255) of the photo at `p`, and its spread (standard deviation) over the 5 × 5
+/// pixels around it — how textured the spot is.
+fn luma_texture(rgb: &[u8], w: usize, h: usize, p: [f32; 2]) -> Option<(f32, f32)> {
+    let (cx, cy) = (p[0].round() as isize, p[1].round() as isize);
+    if cx < 2 || cy < 2 || cx + 2 >= w as isize || cy + 2 >= h as isize {
+        return None;
+    }
+    let (mut sum, mut sq, mut centre) = (0f32, 0f32, 0f32);
+    for dy in -2..=2isize {
+        for dx in -2..=2isize {
+            let i = ((cy + dy) as usize * w + (cx + dx) as usize) * 3;
+            let px = rgb.get(i..i + 3)?;
+            let l = 0.299 * f32::from(px[0]) + 0.587 * f32::from(px[1]) + 0.114 * f32::from(px[2]);
+            sum += l;
+            sq += l * l;
+            if dx == 0 && dy == 0 {
+                centre = l;
+            }
+        }
+    }
+    let mean = sum / 25.0;
+    Some((centre, (sq / 25.0 - mean * mean).max(0.0).sqrt()))
+}
+
+/// Cheek landmarks (one per side) whose surroundings are the face's reference skin.
+const CHEEKS: [usize; 2] = [205, 425];
+/// Below the nose (subnasale): the lower face, where beards and moustaches grow, starts here.
+const SUBNASALE: usize = 2;
+
+/// What face skin must leave out of one face (`lm`: its 478 landmarks in photo pixels), as
+/// coverage 0..1 into `holes`: the eye openings grown for the lashes and lash line, the brows, the
+/// mouth (the outer lip line filled: lips, teeth, tongue), and — in the lower face only — facial
+/// hair: pixels clearly darker *and* more textured than the cheeks (so skin in shadow, which is
+/// dark but smooth, stays). The nostrils stay in the skin (cutting them looked unnatural).
+pub fn feature_holes(grid: &Grid, holes: &mut [f32], lm: &[[f32; 2]], rgb: &[u8]) {
+    if lm.len() < MESH_POINTS {
+        return;
+    }
+    for eye in &EYES {
+        let poly = grown(&points(lm, eye), 1.18, 1.6);
+        coverage(grid, holes, bbox(&poly, 1.0), |p| inside(&poly, p));
+    }
+    for (upper, lower) in BROWS {
+        let mut poly = points(lm, &upper);
+        poly.extend(points(lm, &lower).into_iter().rev());
+        let poly = grown(&poly, 1.08, 1.35);
+        coverage(grid, holes, bbox(&poly, 1.0), |p| inside(&poly, p));
+    }
+    let mouth = grown(&points(lm, &LIPS_OUTER), 1.06, 1.1);
+    coverage(grid, holes, bbox(&mouth, 1.0), |p| inside(&mouth, p));
+    // facial hair: compared with the cheeks' skin
+    let (w, h) = (grid.w, grid.h);
+    let oval = points(lm, &FACE_OVAL);
+    let face_w = bbox(&oval, 0.0);
+    let r = ((face_w[2] - face_w[0]) * 0.06).max(2.0);
+    let mut cheek = Vec::new();
+    for c in CHEEKS {
+        let Some(c) = lm.get(c) else { continue };
+        let mut y = c[1] - r;
+        while y <= c[1] + r {
+            let mut x = c[0] - r;
+            while x <= c[0] + r {
+                if let Some(v) = luma_texture(rgb, w, h, [x, y]) {
+                    cheek.push(v);
+                }
+                x += (r / 4.0).max(1.0);
+            }
+            y += (r / 4.0).max(1.0);
+        }
+    }
+    if cheek.len() < 8 {
+        return;
+    }
+    let n = cheek.len() as f32;
+    let mean = cheek.iter().map(|v| v.0).sum::<f32>() / n;
+    let spread = (cheek.iter().map(|v| (v.0 - mean).powi(2)).sum::<f32>() / n).sqrt();
+    let texture = cheek.iter().map(|v| v.1).sum::<f32>() / n;
+    let Some(top) = lm.get(SUBNASALE).map(|p| p[1]) else { return };
+    // (from just below the nose: the nostrils are dark and textured too, and stay skin)
+    let start = top + 0.3 * r;
+    let mut lower = bbox(&oval, 1.0);
+    lower[1] = lower[1].max(start);
+    let hair = |p: [f32; 2]| {
+        p[1] >= start
+            && inside(&oval, p)
+            && luma_texture(rgb, w, h, p).is_some_and(|(l, t)| l < mean - (2.0 * spread).max(25.0) && t > (2.5 * texture).max(6.0))
+    };
+    coverage(grid, holes, lower, hair);
+}
+
+/// A 3 × 3 box blur of a coverage grid (`side × side`): soft edges for the holes face features cut.
+pub fn soften(grid: &[f32], side: usize) -> Vec<f32> {
+    let mut out = grid.to_vec();
+    if side < 3 || grid.len() < side * side {
+        return out;
+    }
+    for j in 0..side {
+        for i in 0..side {
+            let (mut sum, mut n) = (0f32, 0f32);
+            for y in j.saturating_sub(1)..=(j + 1).min(side - 1) {
+                for x in i.saturating_sub(1)..=(i + 1).min(side - 1) {
+                    if let Some(v) = grid.get(y * side + x) {
+                        sum += v;
+                        n += 1.0;
+                    }
+                }
+            }
+            if let Some(o) = out.get_mut(j * side + i) {
+                *o = sum / n.max(1.0);
+            }
+        }
+    }
+    out
 }
 
 /// Coverage (0..1) to logits, clamped so a stored segmentation stays finite.
