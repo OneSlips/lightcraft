@@ -6,7 +6,7 @@
 //! first). Everything works without them: AI masks then fall back to heuristics (Subject, Sky,
 //! Background) or say that the model is needed (Object).
 //!
-//! The open models (SAM 2.1, EoMT, BiRefNet, Depth Anything V2 Small) are Apache-2.0 or MIT,
+//! The openly licensed models (SAM 2.1, EoMT, BiRefNet, Depth Anything V2 Small) are Apache-2.0 or MIT,
 //! ungated, and may be redistributed: their default download location is the publisher's own
 //! Hugging Face repository, pinned to a commit. SAM 3 is gated under Meta's SAM License and has no
 //! default location (see `fetch`).
@@ -147,7 +147,7 @@ pub const DEPTH_FILES: &[FileSpec<'static>] = &[
     },
 ];
 
-// TODO(maintainer): put LightCraft's own mirror first in each open model's list (https, the same
+// TODO(maintainer): put LightCraft's own mirror first in each openly licensed model's list (https, the same
 // files unchanged, with the model's LICENSE next to them), e.g. "https://<cdn-host>/models/<dir_name>/<revision>".
 // The publishers' repositories below stay as fallbacks; they are pinned to a commit, so the files
 // can't change under the pinned hashes.
@@ -325,10 +325,10 @@ mod tests {
         keys.dedup();
         assert_eq!(keys.len(), MODELS.len(), "keys are unique");
         for m in MODELS.iter().filter(|m| m.open) {
-            assert!(!m.default_mirrors.is_empty(), "{}: an open model downloads without configuration", m.key);
+            assert!(!m.default_mirrors.is_empty(), "{}: an openly licensed model downloads without configuration", m.key);
             assert!(m.default_mirrors.iter().all(|u| u.starts_with("https://")), "{}", m.key);
             assert!(m.files.iter().all(|f| f.size.is_some() && f.sha256.is_some_and(|h| h.len() == 64)), "{}: pinned", m.key);
-            assert!(m.token_env.is_none(), "{}: open models never send a token", m.key);
+            assert!(m.token_env.is_none(), "{}: openly licensed models never send a token", m.key);
         }
         assert_eq!(by_key("scene").map(|m| m.id), Some(ModelId::Scene));
         assert!(by_key("nope").is_none());

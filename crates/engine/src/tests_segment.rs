@@ -87,6 +87,8 @@ fn a_failing_download_ends_with_an_error_and_never_blocks() {
             while r.read_line(&mut line).unwrap_or(0) > 2 {
                 line.clear();
             }
+            // (slowly: the download is still running when the test asks again)
+            std::thread::sleep(Duration::from_millis(400));
             let _ = c.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 13\r\nConnection: close\r\n\r\n<h1>404</h1>\n");
         }
     });
@@ -100,9 +102,11 @@ fn a_failing_download_ends_with_an_error_and_never_blocks() {
     let r = s.execute("segment.model.download", &json!({"acknowledged": true})).unwrap();
     assert_eq!(r["started"], true);
     assert!(t.elapsed() < Duration::from_secs(1), "starting a download returns at once");
-    // a second request while it runs starts nothing
+    // a second request while it runs starts nothing (on a loaded machine the 404 may have ended the
+    // first one already: then a new one may start)
+    let was_running = s.segmenter.download_status().running;
     let again = s.execute("segment.model.download", &json!({"acknowledged": true})).unwrap();
-    assert!(again["started"] == false || again["downloading"] == false);
+    assert!(!was_running || again["started"] == false || again["downloading"] == false, "{again}");
     let t = Instant::now();
     while s.segmenter.download_status().running {
         assert!(t.elapsed() < Duration::from_secs(30), "the download never ended");
@@ -309,7 +313,7 @@ fn a_missing_model_is_model_missing_by_kind() {
     }
 }
 
-/// The open AI models (`ai.models.*`): listed with size and licence, downloads need consent and a
+/// The openly licensed AI models (`ai.models.*`): listed with size and licence, downloads need consent and a
 /// known id, and a model whose files are in place counts as installed (nothing is downloaded).
 #[test]
 fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
@@ -333,7 +337,7 @@ fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
         assert!(m["sizeBytes"].as_u64().unwrap() > 0 || m["id"] == "sam3", "{m}");
         if m["id"] != "sam3" {
             assert_eq!(m["open"], true, "{m}");
-            assert!(m["mirrors"].as_u64().unwrap() >= 1, "open models download without configuration: {m}");
+            assert!(m["mirrors"].as_u64().unwrap() >= 1, "openly licensed models download without configuration: {m}");
             assert!(["MIT", "Apache-2.0"].contains(&m["license"].as_str().unwrap()), "{m}");
         }
     }

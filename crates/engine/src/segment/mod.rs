@@ -12,7 +12,7 @@
 //! data in the develop settings).
 //!
 //! The models see the photo as developed, uncropped and without masks, at 1008 px (SAM 3) or
-//! 1024 px (the open models) — the frame
+//! 1024 px (the openly licensed models) — the frame
 //! mask coordinates live in — so a stored segmentation lines up with the photo at any size.
 //! Everything that touches the model (loading it, rendering and encoding the photo, clicks,
 //! descriptions, detail passes) runs on one worker thread ([`worker`]); the session talks to it
@@ -48,7 +48,7 @@ pub const NOT_INSTALLED: &str = "The SAM 3 model is not installed";
 const WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 /// Most clicks one Object selection takes (the model's prompt grows with each).
 pub const MAX_CLICKS: usize = 64;
-/// Long edge of the image the open models (SAM 2.1, BiRefNet, EoMT) see.
+/// Long edge of the image the openly licensed models (SAM 2.1, BiRefNet, EoMT) see.
 pub const AUTO_EDGE: usize = 1024;
 
 /// An automatic AI selection (no clicks, no words): what it selects.
@@ -157,7 +157,7 @@ impl AutoKind {
         }
     }
 
-    /// The open model that computes it best (its key in `ai.models.status`).
+    /// The openly licensed model that computes it best (its key in `ai.models.status`).
     pub fn preferred_model(&self) -> &'static str {
         match self {
             AutoKind::Subject | AutoKind::Background => "subject",
@@ -275,8 +275,8 @@ pub struct Segmenter {
     pub dir: Option<PathBuf>,
     /// The user's list of download mirrors (one base URL per line), if any.
     pub mirrors_file: Option<PathBuf>,
-    /// The models folder: each open AI mask model (SAM 2.1, EoMT, BiRefNet, Depth Anything) lives
-    /// in its own subfolder ([`lightcraft_segment::models`]); `None`: no open models.
+    /// The models folder: each openly licensed AI mask model (SAM 2.1, EoMT, BiRefNet, Depth Anything) lives
+    /// in its own subfolder ([`lightcraft_segment::models`]); `None`: no openly licensed models.
     pub models_root: Option<PathBuf>,
     /// Run requests in the background and apply them in [`Session::segment_poll`] (the
     /// desktop app); otherwise commands wait for their result (CLI, MCP, tests).
@@ -287,7 +287,7 @@ pub struct Segmenter {
     worker: worker::Worker,
     #[cfg(feature = "sam")]
     download: download::Downloader,
-    /// Downloads of the open models, by model key.
+    /// Downloads of the openly licensed models, by model key.
     #[cfg(feature = "sam")]
     model_downloads: std::collections::HashMap<&'static str, download::Downloader>,
     #[cfg(feature = "sam")]
@@ -444,7 +444,7 @@ impl Segmenter {
         if !Self::AVAILABLE {
             return Err("AI masks are not available in this build".into());
         }
-        // (no folder for the open models: only SAM 3 can be offered)
+        // (no folder for the openly licensed models: only SAM 3 can be offered)
         if self.installed() || self.remote_endpoint().is_some() || self.models_root.is_none() {
             return self.model_dir().map(|d| (d, false));
         }
@@ -477,7 +477,15 @@ impl Segmenter {
                 let body = parts.is_empty() || parts.iter().any(|p| !FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
                 let need_face = face_parts || *person > 0;
                 let people = if body { Some(self.require_model("people")) } else { None };
-                let face = if need_face { Some(self.require_model("face")) } else { None };
+                // skin leaves the face's features out when the face model is there to find them
+                let skin = parts.iter().any(|p| p.to_ascii_lowercase().contains("skin"));
+                let face = if need_face {
+                    Some(self.require_model("face"))
+                } else if skin {
+                    ok("face").map(Ok)
+                } else {
+                    None
+                };
                 match (people, face) {
                     (Some(Err(e)), _) | (_, Some(Err(e))) => {
                         // the entire person (everyone, or one of them) EoMT can do on its own
@@ -631,7 +639,7 @@ impl Session {
             worker::Kind::Auto { .. } => (PathBuf::new(), false),
             _ => self.segmenter.object_model()?,
         };
-        // SAM 3 sees 1008 px, the open models 1024
+        // SAM 3 sees 1008 px, the openly licensed models 1024
         let edge = if sam2 || matches!(kind, worker::Kind::Auto { .. }) { AUTO_EDGE } else { INPUT_EDGE };
         let (key, mut d) = self.segment_key(id).ok_or("no such photo")?;
         let key = mix(key, edge as u64);
@@ -821,7 +829,7 @@ impl Session {
                 self.segment_queue(id, kind, tag, Some(region))?;
             } else {
                 let patch = self.segment_wait(id, kind, Some(region))?;
-                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false, notice: None };
+                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false, note: None, notice: None };
                 let mut polled = Polled::default();
                 self.apply_outcome(outcome, &mut polled);
             }
@@ -958,6 +966,9 @@ impl Session {
                 }
             }
             Tag::Auto { photo, mask, comp, kind } => {
+                if let Some(note) = o.note {
+                    polled.messages.push(note);
+                }
                 let seg = match o.result {
                     Ok(Some(seg)) => seg,
                     Ok(None) => {
