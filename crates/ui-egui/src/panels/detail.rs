@@ -487,15 +487,16 @@ fn request_window(app: &mut LightcraftApp, c: &WindowCtx, v: &WindowView) -> Opt
 
 /// Draw `v`'s window texture over the whole-frame render, if it is the one asked for (or, in a
 /// drag, an earlier draft of it).
-fn draw_window(p: &egui::Painter, app: &LightcraftApp, c: &WindowCtx, v: &WindowView, wanted: &crate::region::RegionView) {
-    let Some(tex) = app.renderer.textures.get(&v.slot).filter(|t| t.photo == c.id) else { return };
+fn draw_window(p: &egui::Painter, app: &LightcraftApp, c: &WindowCtx, v: &WindowView, wanted: &crate::region::RegionView) -> bool {
+    let Some(tex) = app.renderer.textures.get(&v.slot).filter(|t| t.photo == c.id) else { return false };
     let Some(tile) = app.region_tiles.get(&(v.before, tex.key)).filter(|t| t.is_current(c.id, wanted.full, wanted.settings, c.interacting)) else {
-        return;
+        return false;
     };
     let (fw, fh) = (tile.full.0 as f32, tile.full.1 as f32);
     let at = v.img.min + vec2(tile.window.x as f32 / fw * v.img.width(), tile.window.y as f32 / fh * v.img.height());
     let dst = Rect::from_min_size(at, vec2(tile.window.w as f32 / fw * v.img.width(), tile.window.h as f32 / fh * v.img.height()));
     p.image(tex.tex.id(), dst, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+    true
 }
 
 /// Draw the Develop loupe: the optional filmstrip, the fitted or zoomed photo (before/after and
@@ -790,6 +791,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             app.renderer.release(slot);
         }
     }
+    // zoomed in on an unedited raw: its camera JPEG at full size under the window render, so a
+    // focus check doesn't wait for the raw (PERF-CULL-5; Capture One's Cull view shows the
+    // embedded JPEG at 100 % too). Released when the view is not zoomed any more (180 MB).
+    let camera_full = !windows.is_empty()
+        && hover_key.is_none()
+        && !split
+        && !show_before
+        && !split_view
+        && !interacting
+        && app.session.embedded_thumb_is_final(&photo);
+    if camera_full {
+        if let Some(q) = app.session.embedded_full_job(id, native_long.min(texture_side)) {
+            app.renderer.request_quick(Slot::QuickFull, q, 98);
+        }
+    } else if app.renderer.textures.contains_key(&Slot::QuickFull) || app.renderer.is_pending(Slot::QuickFull) {
+        app.renderer.forget(Slot::QuickFull);
+    }
     let p = ui.painter_at(canvas);
     // what a view slot shows: its own render of this photo, else the stand-ins (no blank frame
     // between photos, and the full render replaces them in place)
@@ -869,6 +887,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     app.loupe_shown = Some((id, shown));
     app.loupe_timing.observe(id, shown, now);
+    // the camera's own JPEG is on screen, not LightCraft's rendering of the raw: say so, so colour
+    // and tone are not judged on it (PERF-CULL-4; Lightroom Classic badges its embedded previews)
+    if shown == "embedded" || (shown == "thumb" && app.session.embedded_thumb_is_final(&photo)) {
+        camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
+    }
     // a wipe shows the Before whole-frame render on its side of the line…
     let line = crate::region::wipe_line(img_rect, canvas);
     if app.ui.before_after == BeforeAfter::Split
@@ -887,13 +910,27 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let top = Rect::from_min_max(before_rect.min, pos2(before_rect.right(), before_rect.top() + v * before_rect.height()));
         p.image(tex.tex.id(), top, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, v)), Color32::WHITE);
     }
+    // the camera JPEG at full size, magnified like the whole-frame render, until the window is there
+    let mut camera_full_drawn = false;
+    if camera_full
+        && let Some(tex) = app.renderer.textures.get(&Slot::QuickFull).filter(|t| t.photo == id)
+        && crate::region::same_aspect(tex.size[0].max(1) as f32 / tex.size[1].max(1) as f32, display_aspect)
+    {
+        p.image(tex.tex.id(), img_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        camera_full_drawn = true;
+    }
     // …and the window renders go over the whole-frame ones, all of them, where they belong in the
     // frame (clipped to their pane, or their side of the line)
+    let mut window_drawn = false;
     for (v, view) in &windows {
         // (holding `\` in a wipe shows the Before everywhere: it is the Before view alone then)
         let mode = if show_before { BeforeAfter::Original } else { app.ui.before_after };
         let clip = crate::region::window_clip(mode, v.before, v.visible, canvas, img_rect);
-        draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
+        window_drawn |= draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
+    }
+    if camera_full_drawn && !window_drawn {
+        app.loupe_shown = Some((id, "embedded"));
+        camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
     }
     if let Some((bg, g)) = before_badge {
         p.rect_filled(bg, 4.0, Color32::from_black_alpha(160));
@@ -1370,6 +1407,24 @@ fn filter_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
     }
 }
 
+/// A small "Camera preview" label at the top right of the photo while the loupe shows the camera's
+/// embedded JPEG (widget `loupe:cameraPreview`), with what that means on hover.
+fn camera_preview_badge(ui: &egui::Ui, canvas: Rect, over: Rect) {
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(canvas);
+    let text = crate::i18n::tr("Camera preview");
+    let g = p.layout_no_wrap(text.to_string(), t.font(11.5), Color32::from_gray(225));
+    let size = vec2(g.size().x + 16.0, 18.0);
+    let over = if over.is_positive() { over } else { canvas };
+    let r = Rect::from_min_size(pos2(over.right() - size.x - 8.0, over.top() + 8.0), size);
+    p.rect_filled(r, 9.0, Color32::from_black_alpha(165));
+    p.galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, Color32::from_gray(225));
+    register(ui, "loupe:cameraPreview", r);
+    let tip = crate::i18n::tr("The camera's own JPEG, shown until LightCraft has rendered the raw. Judge colour and tone on the rendered photo.");
+    let resp = ui.interact(r, egui::Id::unique("camera-preview-badge"), Sense::hover()).on_hover_text(tip);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, format!("{text}: {tip}")));
+}
+
 /// A raw shown from its embedded JPEG (issue #10): a pill at the canvas' top centre saying so;
 /// hovering it explains (registered as `notice:previewOnly:loupe`).
 fn preview_only_pill(ui: &mut egui::Ui, canvas: Rect, reason: &str) {
@@ -1476,6 +1531,12 @@ const AHEAD: usize = 5;
 const BEHIND: usize = 1;
 /// The look-ahead's priority: below the loupe's own render (100), above everything else.
 const AHEAD_PRIORITY: u32 = 96;
+/// Thumbnails the loupe keeps while stepping (as many as the grid keeps), and how many photos on
+/// either side of the open one stay when it trims them.
+const MAX_LOUPE_THUMBS: usize = 600;
+const KEEP_AROUND: usize = 64;
+/// The thumbnail size the look-ahead asks for (the filmstrip's at 2x).
+const AHEAD_THUMB_EDGE: usize = 256;
 
 /// What [`look_ahead`] last worked out (see `LightcraftApp::look_ahead`).
 #[derive(Debug, Default)]
@@ -1522,7 +1583,20 @@ fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
     app.look_ahead.made_for = Some(want);
     let ids = app.session.visible_cloned();
     let Some(i) = ids.iter().position(|p| *p == id) else { return };
-    let jobs = app.look_ahead.targets(&ids, i).into_iter().filter_map(|nid| app.session.quick_view_job(nid, edge, crop)).collect();
+    let targets = app.look_ahead.targets(&ids, i);
+    // stepping through a whole wedding in the loupe would keep every thumbnail it ever drew: keep
+    // the ones around the photo (what the filmstrip can show) once there are many
+    if app.renderer.thumb_textures() > MAX_LOUPE_THUMBS {
+        let keep = ids.iter().skip(i.saturating_sub(KEEP_AROUND)).take(2 * KEEP_AROUND + 1).copied().collect();
+        app.renderer.evict_thumbs(&keep, MAX_LOUPE_THUMBS);
+    }
+    // their thumbnails first (a small embedded JPEG each, a few ms): something to show at once
+    // even when a step outruns the full-size previews, and in full screen, where no filmstrip
+    // asks for them
+    for &nid in &targets {
+        super::grid::request_thumb(app, nid, AHEAD_THUMB_EDGE, AHEAD_PRIORITY + 2);
+    }
+    let jobs = targets.into_iter().filter_map(|nid| app.session.quick_view_job(nid, edge, crop)).collect();
     app.renderer.look_ahead(jobs, AHEAD_PRIORITY);
 }
 

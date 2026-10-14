@@ -1606,6 +1606,17 @@ impl crate::Session {
         Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, small: apply_crop.then(|| Box::new(small)) })
     }
 
+    /// The camera's embedded JPEG of an unedited raw at up to `max_edge` pixels (its full size for
+    /// a camera that stores one), for the loupe zoomed to 100 % while LightCraft renders the window
+    /// on screen: a focus check needs the pixels at once, and a 45 MP render of the window takes
+    /// seconds. Not kept in any cache (a full-size picture is 180 MB). `None` for other photos.
+    pub fn embedded_full_job(&mut self, id: PhotoId, max_edge: usize) -> Option<QuickJob> {
+        let p = self.catalog.photo(id)?.clone();
+        let (path, l) = self.embedded_of(&p)?;
+        let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(max_edge as u64).finish().0 as u64;
+        Some(QuickJob { request_id: 0, photo: id, key, cached: Vec::new(), embedded: Some((path, l, max_edge.max(1))), embedded_cache: None, small: None })
+    }
+
     /// A first grid thumbnail for an unedited raw: the cached render for `job` (the real
     /// thumbnail job, from [`Self::thumb_job`]) if there is one — then the result carries
     /// [`QuickSource::Cached`] and `job.key` and is final — else its embedded preview, else `job`
@@ -1777,6 +1788,42 @@ mod thumbnail_hash_tests {
         s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
         s
     }
+    /// PERF-CULL: an unedited raw's camera JPEG is read once for the loupe and kept in memory for a
+    /// step back; the full-size one (zoomed in) is made at the size asked for and kept nowhere; an
+    /// edited raw or another file has none.
+    #[test]
+    fn camera_previews_are_kept_for_a_revisit_and_full_size_ones_are_not() {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut s = crate::Session::new();
+        let r = reads.clone();
+        s.media.preview_loader = Some(Arc::new(move |_: &str, edge: usize| {
+            r.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Some(Rgba8 { width: edge.min(64), height: 2, data: vec![[9, 8, 7, 255]; edge.min(64) * 2] })
+        }));
+        let mut raw = Photo::new(PhotoId(1), Source::File { path: "a.cr3".into() }, "a.cr3", "CR3", 6000, 4000, "2026-01-01");
+        raw.kind = MediaKind::Raw;
+        raw.develop = Arc::new(raw.camera_defaults());
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(raw) }).unwrap();
+        let jpeg = Photo::new(PhotoId(2), Source::File { path: "b.jpg".into() }, "b.jpg", "JPEG", 600, 400, "2026-01-01");
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(jpeg) }).unwrap();
+        for _ in 0..3 {
+            let q = s.quick_view_job(PhotoId(1), 48, true).unwrap();
+            let r = q.run();
+            assert_eq!(r.quick, Some(QuickSource::Embedded));
+        }
+        assert_eq!(reads.load(std::sync::atomic::Ordering::SeqCst), 1, "read once, then from memory");
+        let full = s.embedded_full_job(PhotoId(1), 8192).unwrap();
+        assert!(full.embedded_cache.is_none() && full.cached.is_empty() && full.small.is_none());
+        assert_eq!(full.embedded.as_ref().map(|e| e.2), Some(8192));
+        assert_ne!(full.key, s.quick_view_job(PhotoId(1), 48, true).unwrap().key);
+        assert_eq!(full.run().quick, Some(QuickSource::Embedded));
+        assert!(s.embedded_full_job(PhotoId(2), 8192).is_none(), "not a raw");
+        let mut edited = (*s.catalog.photo(PhotoId(1)).unwrap().develop).clone();
+        edited.light.exposure = 1.0;
+        s.catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(edited), label: "edit".into(), edited: None }).unwrap();
+        assert!(s.embedded_full_job(PhotoId(1), 8192).is_none(), "an edit is shown rendered");
+    }
+
     #[test]
     fn hashes_match_uncached_keys_and_are_not_recomputed_for_sizes_metadata_or_before() {
         let mut s = session();

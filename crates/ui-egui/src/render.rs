@@ -49,6 +49,9 @@ pub enum Slot {
     /// unedited raw, or a cached render), made ahead in the direction of travel so a step shows it
     /// at once: [`Renderer::request_quick`] takes the texture over into [`Slot::Preview`].
     QuickAhead(u8),
+    /// The loupe zoomed in on an unedited raw: its camera JPEG at full size, drawn under the window
+    /// render until that arrives (a focus check at 100 % without waiting for the raw).
+    QuickFull,
     /// A variant thumbnail (profile / preset browsers), by its job key ([`Session::variant_job`]).
     /// Kept in a bounded LRU ([`VARIANT_TEXTURES`]).
     Variant(u64),
@@ -1092,6 +1095,16 @@ impl Renderer {
         self.textures.values().filter_map(|t| Some((t.tex.id(), crate::softpaint::CpuTexture::linear(t.pixels.clone()?)))).collect()
     }
 
+    /// Forget everything about `slot`: its texture, its queued job, and that its stand-in was asked
+    /// for (so asking again makes it again).
+    pub fn forget(&mut self, slot: Slot) {
+        self.drop_queued(slot);
+        self.pending.remove(&slot);
+        self.requests.remove(&slot);
+        self.quick_tried.remove(&slot);
+        self.release(slot);
+    }
+
     /// Drop `slot`'s job if it is still queued (a running one finishes). Returns whether one was.
     pub fn drop_queued(&mut self, slot: Slot) -> bool {
         let dropped = self.pool.reprioritize(|s, p| if *s == slot { None } else { Some(p) });
@@ -1664,6 +1677,63 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert!(app.renderer.is_pending(Slot::Thumb(PhotoId(1))) || !app.renderer.queue.is_empty(), "an edited raw renders its thumbnail");
+    }
+
+    /// PERF-CULL-2: the loupe's stand-ins made ahead are taken over at the step (no job, the texture
+    /// at once), a photo still wanted keeps its slot as the photos shift, and a step to a photo whose
+    /// stand-in is still being made shows it when it arrives.
+    #[test]
+    fn a_step_takes_over_the_camera_preview_made_ahead() {
+        let gate = Arc::new(std::sync::Mutex::new(()));
+        let mut s = Session::new();
+        let g = gate.clone();
+        s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
+            drop(g.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            Some(lightcraft_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
+        }));
+        let raw = |id: u64| {
+            let mut p = Photo::new(PhotoId(id), Source::File { path: format!("r{id}.cr3") }, &format!("r{id}.cr3"), "CR3", 6000, 4000, "2026-01-01");
+            p.kind = lightcraft_catalog::MediaKind::Raw;
+            p.develop = Arc::new(p.camera_defaults());
+            p
+        };
+        let (mut app, _, ctx) = fixture_with(s, raw(1));
+        for id in 2..=4 {
+            app.session.catalog.apply(Op::AddPhoto { photo: Box::new(raw(id)) }).unwrap();
+        }
+        let job = |app: &mut crate::LightcraftApp, id: u64| app.session.quick_view_job(PhotoId(id), 64, true).unwrap();
+        let wait = |app: &mut crate::LightcraftApp, done: &dyn Fn(&Renderer) -> bool| {
+            let t0 = std::time::Instant::now();
+            while !done(&app.renderer) {
+                assert!(t0.elapsed() < std::time::Duration::from_secs(20), "the stand-ins never arrived");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                app.renderer.poll(&ctx, &mut app.session);
+            }
+        };
+        let ahead_of = |r: &Renderer, id: u64| r.textures.iter().any(|(s, t)| matches!(s, Slot::QuickAhead(_)) && t.photo == PhotoId(id));
+        let jobs = vec![job(&mut app, 2), job(&mut app, 3)];
+        app.renderer.look_ahead(jobs, 96);
+        wait(&mut app, &|r| ahead_of(r, 2) && ahead_of(r, 3));
+        // the step to photo 2: its stand-in is the loupe's at once, nothing is made again
+        let q = job(&mut app, 2);
+        app.renderer.request_quick(Slot::Preview, q, 110);
+        assert!(!app.renderer.is_pending(Slot::Preview));
+        assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(2)));
+        assert!(!ahead_of(&app.renderer, 2));
+        // the next look-ahead (3 and 4): 3 keeps its slot and is not made again
+        let held = gate.lock().unwrap();
+        let jobs = vec![job(&mut app, 3), job(&mut app, 4)];
+        app.renderer.look_ahead(jobs, 96);
+        assert!(ahead_of(&app.renderer, 3), "a photo still wanted keeps what was made for it");
+        let pending_ahead: Vec<Slot> = app.renderer.pending.keys().copied().filter(|s| matches!(s, Slot::QuickAhead(_))).collect();
+        assert_eq!(pending_ahead.len(), 1, "only photo 4 is being made: {pending_ahead:?}");
+        // the step to photo 4 while its stand-in is still being made: shown when it arrives
+        let q = job(&mut app, 4);
+        app.renderer.request_quick(Slot::Preview, q, 110);
+        drop(held);
+        wait(&mut app, &|r| r.textures.get(&Slot::Preview).is_some_and(|t| t.photo == PhotoId(4)) && !r.is_pending(Slot::Preview));
+        wait(&mut app, &|r| !r.pending.keys().any(|s| matches!(s, Slot::QuickAhead(_) | Slot::Preview)));
+        assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(4)));
     }
 
     #[test]

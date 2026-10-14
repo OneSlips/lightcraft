@@ -2354,5 +2354,7 @@
   "Import dropped files without review": "Імпортувати перетягнуті файли без перегляду",
   "An import is running": "Імпорт уже виконується",
   "An import is running. Drop photos when it has finished": "Імпорт уже виконується. Перетягніть фото, коли він завершиться",
-  "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото"
+  "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото",
+  "Camera preview": "Прев'ю камери",
+  "The camera's own JPEG, shown until LightCraft has rendered the raw. Judge colour and tone on the rendered photo.": "Власний JPEG камери, показаний, доки LightCraft не обробить RAW. Оцінюйте колір і тон за обробленим фото."
 }

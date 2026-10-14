@@ -2358,5 +2358,7 @@
   "Import dropped files without review": "Importar los archivos soltados sin revisión",
   "An import is running": "Hay una importación en curso",
   "An import is running. Drop photos when it has finished": "Hay una importación en curso. Suelta las fotos cuando termine",
-  "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos"
+  "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos",
+  "Camera preview": "Vista previa de la cámara",
+  "The camera's own JPEG, shown until LightCraft has rendered the raw. Judge colour and tone on the rendered photo.": "El JPEG propio de la cámara, mostrado hasta que LightCraft haya renderizado el RAW. Juzga el color y el tono en la foto renderizada."
 }
