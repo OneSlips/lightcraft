@@ -88,6 +88,8 @@ pub struct Outcome {
     pub superseded: bool,
     /// The faces a [`Kind::Skin`] request found (left to right, normalized).
     pub faces: Option<Vec<super::FoundFace>>,
+    /// Something the user should know about the result (e.g. face features it couldn't find).
+    pub note: Option<String>,
 }
 
 /// Counters the session reads without locking.
@@ -216,10 +218,12 @@ struct State {
     face: Option<(PathBuf, FaceModel)>,
     /// The faces (with landmarks) of a photo.
     faces_cache: Option<(u64, Vec<Face>)>,
-    /// The last rendered input of the open models (several of them may run on one photo).
+    /// The last rendered input of the openly licensed models (several of them may run on one photo).
     input_cache: Option<(u64, Input)>,
     /// The faces the job that just ran found (a [`Kind::Skin`] request's), for its outcome.
     found: Option<Vec<super::FoundFace>>,
+    /// A note about the job just run, for its outcome.
+    note: Option<String>,
 }
 
 impl State {
@@ -308,7 +312,7 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         let done = Done(if is_detail { &shared.detail } else { &shared.pending });
         if queue.iter().any(|later| supersedes(later, &job)) {
             drop(done);
-            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, faces: None });
+            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, faces: None, note: None });
             continue;
         }
         let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job))) {
@@ -327,7 +331,11 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         let faces = state.found.take();
         shared.loaded.store(state.any_loaded(), Ordering::SeqCst);
         drop(done);
-        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, faces });
+        let note = state.note.take();
+        if let Some(n) = &note {
+            log::info!("AI masks: {n}");
+        }
+        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, faces, note });
     }
 }
 
@@ -448,7 +456,7 @@ fn row(job: &Job, name: &str) -> Option<crate::activity::TaskGuard> {
     })
 }
 
-/// The open models' input for `job`'s photo, rendered once per photo.
+/// The openly licensed models' input for `job`'s photo, rendered once per photo.
 fn photo<'a>(cache: &'a mut Option<(u64, Input)>, job: &mut Job) -> Result<&'a Input, String> {
     if cache.as_ref().is_none_or(|(k, _)| *k != job.key || job.key == 0) {
         *cache = None;
@@ -560,7 +568,17 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 None => None,
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
-            Ok(people_mask(&req, &input.rgb, input.w, input.h, map, &faces).map(|g| match g.rect {
+            let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
+            let Some(g) = people_mask(&req, &input.rgb, input.w, input.h, map, &faces) else { return Ok(None) };
+            if skin && face.is_none() {
+                state.note = Some("Skin includes eyes, brows and mouth: the MediaPipe faces model, which finds them, isn't installed.".into());
+            } else if skin && g.faces_without_features > 0 {
+                state.note = Some(format!(
+                    "Face skin: eyes and mouth couldn't be located on {} face(s) (seen in profile), so there only hair is left out.",
+                    g.faces_without_features
+                ));
+            }
+            Ok(Some(match g.rect {
                 Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
                 None => SegMask::from_logits(g.side, &g.logits),
             }))

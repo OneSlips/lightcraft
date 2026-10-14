@@ -744,7 +744,7 @@ impl LightcraftApp {
         if download.running {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
-        // open AI model downloads: keep the progress moving, and say once how each ended when its
+        // openly licensed AI model downloads: keep the progress moving, and say once how each ended when its
         // dialog is closed
         let mut ended = Vec::new();
         for key in &self.ui.ai_downloading {
@@ -817,7 +817,7 @@ impl LightcraftApp {
         }
     }
 
-    /// Open the dialog offering an open AI model's download (`model`: its key; never downloads by itself).
+    /// Open the dialog offering an openly licensed AI model's download (`model`: its key; never downloads by itself).
     pub fn offer_ai_model(&mut self, model: &str, then: Option<(&str, &str)>) {
         if self.ui.dialog.is_none() || matches!(self.ui.dialog, Some(state::Dialog::AiModel { .. })) {
             self.ui.dialog =

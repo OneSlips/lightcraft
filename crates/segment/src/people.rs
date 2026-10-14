@@ -234,7 +234,13 @@ pub struct MaskGrid {
     pub side: usize,
     pub logits: Vec<f32>,
     pub rect: Option<[f64; 4]>,
+    /// Faces whose features couldn't be located (no landmarks: profiles), so face skin there
+    /// still includes eyes and mouth (only hair is left out).
+    pub faces_without_features: usize,
 }
+
+/// Selfie Multiclass's skin classes (body skin, face skin).
+const SKIN: [usize; 2] = [2, 3];
 
 /// The People selection `req` on an 8-bit RGB image (`w × h`), from the Selfie Multiclass map and
 /// the faces (left to right) its parts need. `None`: nothing of it is there (no such person, no
@@ -264,9 +270,10 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
     };
     let mut rect = None;
     let side;
+    let skin = req.classes.iter().any(|c| SKIN.contains(c));
     if req.needs_people() {
-        // the whole image: classes cover bodies; face parts drawn at a finer grid when only they are asked for
-        side = if req.face_parts.is_empty() { 512 } else { 1024 };
+        // the whole image: classes cover bodies; finer when face features are drawn or cut out
+        side = if req.face_parts.is_empty() && !(skin && !faces.is_empty()) { 512 } else { 1024 };
     } else {
         // only face parts: a grid over the chosen faces
         let boxes: Vec<&Detection> = chosen.iter().filter_map(|i| faces.get(*i)).map(|f| &f.detection).collect();
@@ -292,6 +299,20 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
     }
     let grid = Grid { side, rect: rect.unwrap_or([0.0, 0.0, 1.0, 1.0]), w, h };
     let mut cov = vec![0f32; side * side];
+    // skin never includes the face's features: eyes, brows, mouth, facial hair (of every face,
+    // whoever the mask is for)
+    let mut holes = vec![0f32; if skin { side * side } else { 0 }];
+    let mut faces_without_features = 0;
+    if skin {
+        for f in faces {
+            match &f.landmarks {
+                Some(lm) => mediapipe::feature_holes(&grid, &mut holes, lm, rgb),
+                None => faces_without_features += 1,
+            }
+        }
+        holes = mediapipe::soften(&holes, side);
+    }
+    let (skin_classes, other_classes): (Vec<usize>, Vec<usize>) = req.classes.iter().partition(|c| SKIN.contains(c));
     if let Some(map) = map.filter(|_| req.needs_people()) {
         let r = grid.rect;
         for j in 0..side {
@@ -301,8 +322,11 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
                 if req.person > 0 && owner(u, v).is_none_or(|o| !chosen.contains(&o)) {
                     continue;
                 }
+                let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
+                let skin = if skin_classes.is_empty() { 0.0 } else { map.at(&skin_classes, u, v) * (1.0 - hole) };
+                let other = if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) };
                 if let Some(c) = cov.get_mut(j * side + i) {
-                    *c = map.at(&req.classes, u, v);
+                    *c = (skin + other).clamp(0.0, 1.0);
                 }
             }
         }
@@ -316,7 +340,7 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
     if cov.iter().all(|c| *c < 0.5) {
         return None;
     }
-    Some(MaskGrid { side, logits: mediapipe::coverage_to_logits(&cov), rect })
+    Some(MaskGrid { side, logits: mediapipe::coverage_to_logits(&cov), rect, faces_without_features })
 }
 
 #[cfg(test)]
@@ -368,6 +392,128 @@ mod tests {
         assert!(people_mask(&PeopleRequest::parse(3, &["Hair".into()]).unwrap(), &[], 100, 100, Some(&map), &faces).is_none());
         assert!(people_mask(&PeopleRequest::parse(0, &["Lips".into()]).unwrap(), &[], 100, 100, None, &faces).is_none());
         assert!(people_mask(&req, &[], 0, 0, Some(&map), &[]).is_none());
+    }
+
+    /// A synthetic face filling a 1000 × 1000 photo: oval, eyes, brows and lips as rings of landmarks.
+    fn synthetic_face() -> Vec<[f32; 2]> {
+        let mut lm = vec![[500.0f32, 500.0]; mediapipe::MESH_POINTS];
+        let ring = |idx: &[usize], cx: f32, cy: f32, rx: f32, ry: f32, lm: &mut Vec<[f32; 2]>| {
+            for (k, i) in idx.iter().enumerate() {
+                let a = k as f32 / idx.len() as f32 * std::f32::consts::TAU;
+                lm[*i] = [cx + rx * a.cos(), cy + ry * a.sin()];
+            }
+        };
+        ring(&mediapipe::FACE_OVAL, 500.0, 500.0, 300.0, 400.0, &mut lm);
+        ring(&mediapipe::EYES[0], 380.0, 400.0, 50.0, 18.0, &mut lm);
+        ring(&mediapipe::EYES[1], 620.0, 400.0, 50.0, 18.0, &mut lm);
+        for (e, (c, rim)) in mediapipe::IRISES.iter().enumerate() {
+            let cx = if e == 0 { 380.0 } else { 620.0 };
+            lm[*c] = [cx, 400.0];
+            ring(rim, cx, 400.0, 12.0, 12.0, &mut lm);
+        }
+        for (b, (upper, lower)) in mediapipe::BROWS.iter().enumerate() {
+            let cx = if b == 0 { 380.0 } else { 620.0 };
+            for (k, i) in upper.iter().enumerate() {
+                lm[*i] = [cx - 60.0 + 30.0 * k as f32, 335.0];
+            }
+            for (k, i) in lower.iter().enumerate() {
+                lm[*i] = [cx - 60.0 + 30.0 * k as f32, 350.0];
+            }
+        }
+        ring(&mediapipe::LIPS_OUTER, 500.0, 680.0, 90.0, 35.0, &mut lm);
+        ring(&mediapipe::LIPS_INNER, 500.0, 680.0, 60.0, 12.0, &mut lm);
+        lm[2] = [500.0, 590.0];
+        lm[205] = [360.0, 560.0];
+        lm[425] = [640.0, 560.0];
+        lm
+    }
+
+    fn face_skin_everywhere(side: usize) -> PeopleMap {
+        let mut probs = vec![0f32; side * side * 6];
+        for px in probs.chunks_mut(6) {
+            px[3] = 1.0;
+        }
+        PeopleMap { side, probs }
+    }
+
+    /// Face skin has holes where the eyes, brows and mouth are, and keeps the cheeks and forehead;
+    /// hair inside the face (the model's hair class) is not skin; body skin loses the features too.
+    #[test]
+    fn face_skin_leaves_the_features_out() {
+        let lm = synthetic_face();
+        let rgb = vec![150u8; 1000 * 1000 * 3];
+        let det = Detection { x0: 200.0, y0: 100.0, x1: 800.0, y1: 900.0, score: 1.0, keypoints: [[0.0; 2]; 6] };
+        let faces = [Face { detection: det, landmarks: Some(lm) }];
+        let map = face_skin_everywhere(64);
+        let req = PeopleRequest::parse(0, &["Face Skin".into()]).unwrap();
+        let m = people_mask(&req, &rgb, 1000, 1000, Some(&map), &faces).unwrap();
+        assert_eq!((m.side, m.faces_without_features), (1024, 0));
+        let at = |x: usize, y: usize| m.logits[(y * 1024 / 1000) * 1024 + x * 1024 / 1000];
+        for (what, x, y) in
+            [("eye", 380, 400), ("iris", 620, 400), ("eye corner (lashes)", 425, 405), ("brow", 380, 342), ("lips", 500, 650), ("mouth", 500, 680)]
+        {
+            assert!(at(x, y) < -2.0, "{what} is not skin: {}", at(x, y));
+        }
+        for (what, x, y) in [("cheek", 300, 560), ("forehead", 500, 220), ("chin", 500, 800)] {
+            assert!(at(x, y) > 2.0, "{what} is skin: {}", at(x, y));
+        }
+        // soft edges: something between in and out next to the eye
+        let edge = (300..400).map(|y| at(380, y)).any(|l| l.abs() < 2.0);
+        assert!(edge, "feathered edge");
+        // the same holes in body skin
+        let body = PeopleMap { side: 64, probs: map.probs.iter().enumerate().map(|(i, _)| if i % 6 == 2 { 1.0 } else { 0.0 }).collect() };
+        let req = PeopleRequest::parse(0, &["Body Skin".into()]).unwrap();
+        let m2 = people_mask(&req, &rgb, 1000, 1000, Some(&body), &faces).unwrap();
+        assert!(m2.logits[(400 * 1024 / 1000) * 1024 + 380 * 1024 / 1000] < -2.0);
+        // hair over the face (here its left half) is not face skin
+        let mut probs = map.probs.clone();
+        for y in 0..64 {
+            for x in 0..32 {
+                let i = (y * 64 + x) * 6;
+                probs[i + 3] = 0.0;
+                probs[i + 1] = 1.0;
+            }
+        }
+        let hair = PeopleMap { side: 64, probs };
+        let m3 = people_mask(&PeopleRequest::parse(0, &["Face Skin".into()]).unwrap(), &rgb, 1000, 1000, Some(&hair), &faces).unwrap();
+        assert!(m3.logits[(560 * 1024 / 1000) * 1024 + 300 * 1024 / 1000] < -2.0, "hair over the cheek is not skin");
+        // a face without landmarks (profile): nothing cut, and the result says so
+        let profile = [Face { detection: faces[0].detection.clone(), landmarks: None }];
+        let m4 = people_mask(&PeopleRequest::parse(0, &["Face Skin".into()]).unwrap(), &rgb, 1000, 1000, Some(&map), &profile).unwrap();
+        assert_eq!(m4.faces_without_features, 1);
+        // asking for skin and lips: lips come back on top of the skin's hole
+        let m5 = people_mask(&PeopleRequest::parse(0, &["Face Skin".into(), "Lips".into()]).unwrap(), &rgb, 1000, 1000, Some(&map), &faces).unwrap();
+        assert!(m5.logits[(650 * 1024 / 1000) * 1024 + 500 * 1024 / 1000] > 2.0);
+    }
+
+    /// Facial hair: dark, textured pixels in the lower face are cut out of skin; dark but smooth
+    /// skin (a shadow) and the cheeks stay.
+    #[test]
+    fn beards_are_not_skin_but_shadows_are() {
+        let lm = synthetic_face();
+        let mut rgb = vec![150u8; 1000 * 1000 * 3];
+        for y in 0..1000 {
+            for x in 0..1000 {
+                let i = (y * 1000 + x) * 3;
+                let v = if (700..880).contains(&y) && (380..620).contains(&x) {
+                    // stubble: dark and noisy
+                    if (x * 7 + y * 13) % 3 == 0 { 20 } else { 75 }
+                } else if (600..700).contains(&y) && (250..330).contains(&x) {
+                    // a smooth shadow on the lower cheek
+                    70
+                } else {
+                    150
+                };
+                rgb[i..i + 3].copy_from_slice(&[v, v, v]);
+            }
+        }
+        let grid = mediapipe::Grid { side: 200, rect: [0.0, 0.0, 1.0, 1.0], w: 1000, h: 1000 };
+        let mut holes = vec![0f32; 200 * 200];
+        mediapipe::feature_holes(&grid, &mut holes, &lm, &rgb);
+        let at = |x: usize, y: usize| holes[(y / 5) * 200 + x / 5];
+        assert!(at(500, 800) > 0.9, "stubble is cut");
+        assert!(at(290, 650) < 0.1, "a smooth shadow stays skin");
+        assert!(at(300, 560) < 0.1 && at(500, 220) < 0.1, "cheek and forehead stay");
     }
 
     #[test]

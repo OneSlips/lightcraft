@@ -42,7 +42,13 @@ In the Masking panel (M):
   Entire Person, Face Skin, Body Skin, Hair, Clothes, Eyebrows, Eye Sclera, Iris and Pupil, Lips,
   Teeth — then **Create Mask** (`mask.add {"kind": "people", "person": n, "parts": [...]}`). Face
   parts come from landmarks (polygons; teeth are the bright part of the mouth opening) and need a
-  face that isn't in profile; with several people, body parts go to the person whose face is nearest.
+  face that isn't in profile; with several people, body parts go to the person whose face is nearest. **Face Skin**
+  and **Body Skin** are skin only: the eyes (with the lash line), eyebrows, lips and mouth
+  (teeth, tongue) are cut out, and so is facial hair — the model's hair class, plus, in the lower
+  face, pixels clearly darker and more textured than the cheeks (beards, moustaches, stubble; skin
+  in shadow is dark but smooth and stays). Nostrils stay in the skin. On a face seen in profile the
+  features can't be located: only hair is left out there, and the app says so. Pick Lips, Eyebrows
+  and so on alongside a skin part to add them back.
 - **Landscape**: pick a class under the tiles — Sky, Water, Vegetation, Mountains, Architecture,
   Natural Ground, Artificial Ground.
 - **Update**: a mask made before its model was installed (or an older document) keeps its
@@ -95,7 +101,7 @@ in 200 ms on the same GPU, but compiles each model into the app, pulls in C code
 dependencies and failed to import BiRefNet and SAM 2.1's decoder; tract (pure-Rust ONNX) can't read
 MediaPipe's files, needs an assembler at build time and was 2–7× slower here.
 
-## The open models: download and licences
+## The openly licensed models: download and licences
 
 The first time a mask needs a model that isn't installed, LightCraft asks: **Download an AI
 Model?** — what the model does, its size, its licence (MIT or Apache-2.0: open-source licences that

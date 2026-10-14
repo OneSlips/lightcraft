@@ -1,7 +1,7 @@
 //! The AI mask models as the session sees them ([`lightcraft_segment::models`] in builds with the
 //! `sam` feature): where each one lives, whether it is installed, and its download (`ai.models.*`).
 //!
-//! The open models (SAM 2.1, EoMT, BiRefNet, Depth Anything V2 Small) live in
+//! The openly licensed models (SAM 2.1, EoMT, BiRefNet, Depth Anything V2 Small) live in
 //! `<models folder>/<dir_name>/`; SAM 3 keeps its own folder ([`Segmenter::dir`]). Nothing is
 //! downloaded unless asked for (`ai.models.download {"id", "acknowledged": true}`), each download
 //! is a row in the activity stack, can be cancelled, resumes, and every file is checked against its
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use super::{DownloadStatus, Segmenter};
 
-/// How the error about a missing open model reads (after its title); the UI offers its download on it.
+/// How the error about a missing openly licensed model reads (after its title); the UI offers its download on it.
 pub const MODEL_NOT_INSTALLED: &str = "model is not installed";
 
 /// One model, for `ai.models.status` and the download dialog.
@@ -205,7 +205,7 @@ impl Segmenter {
     }
 }
 
-/// The key of the open model an error from [`Segmenter::require_model`] says is missing (the UI
+/// The key of the openly licensed model an error from [`Segmenter::require_model`] says is missing (the UI
 /// then offers its download), if it is one.
 pub fn missing_model(error: &str) -> Option<&'static str> {
     #[cfg(feature = "sam")]

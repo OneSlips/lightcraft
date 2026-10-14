@@ -392,6 +392,8 @@ mod tests {
     /// read once per key. Skipped without a usable GPU.
     #[test]
     fn matmul_matches_the_cpu() {
+        // (creating the device writes the process-wide init marker the backend tests check)
+        let _turn = crate::backend::tests::GLOBAL.lock().unwrap_or_else(|e| e.into_inner());
         if adapter().is_err() {
             eprintln!("skipped: no GPU ({:?})", adapter().err());
             return;
@@ -420,6 +422,7 @@ mod tests {
     #[test]
     #[ignore]
     fn gemm_speed() {
+        let _turn = crate::backend::tests::GLOBAL.lock().unwrap_or_else(|e| e.into_inner());
         let Ok(name) = adapter() else { return };
         let (m, k, n) = (16_384, 768, 3072);
         let a = vec![0.5f32; m * k];
