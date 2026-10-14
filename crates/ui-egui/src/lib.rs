@@ -19,6 +19,7 @@ pub mod icons;
 pub mod import;
 pub mod lightroom_import;
 pub mod links;
+pub mod loupe_timing;
 pub mod menu_level;
 pub mod menubar;
 pub mod menus;
@@ -338,6 +339,8 @@ pub struct LightcraftApp {
     /// What the loupe drew last frame: photo and source ("render", "cached", "embedded", "small",
     /// "thumb", "none").
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
+    /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
+    pub loupe_timing: loupe_timing::LoupeTiming,
     /// The window render the loupe asked for last, by job key (see [`region`]); kept for the few
     /// windows whose textures can be on screen, and for the inspector.
     pub region_view: Option<region::RegionView>,
@@ -448,6 +451,7 @@ impl LightcraftApp {
             gesture: None,
             brush_live: None,
             loupe_shown: None,
+            loupe_timing: Default::default(),
             region_view: None,
             region_before_view: None,
             size_hold: Default::default(),
