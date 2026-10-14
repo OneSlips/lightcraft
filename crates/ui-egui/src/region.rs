@@ -72,8 +72,11 @@ pub struct ViewSizes {
     pub native_long: usize,
     /// The largest texture the GPU takes.
     pub texture_side: usize,
-    /// 1.0, or less while a slider is dragged (a draft of the whole-frame render).
+    /// 1.0, or less while a slider is dragged (a draft of the whole-frame render; see
+    /// [`DraftSize`]).
     pub draft_scale: f32,
+    /// A slider is being dragged: the whole-frame draft is never larger than the canvas.
+    pub drafting: bool,
     /// Whether a window can be drawn over the whole-frame render (not with a diagnostic overlay
     /// that needs whole-frame context, soft proofing, or a read too far for one window). Mask
     /// overlays are window-safe.
@@ -102,7 +105,7 @@ pub fn plan(settings: &crate::state::AppSettings, v: ViewSizes) -> LoupePlan {
         // the whole frame at the size it is drawn (soft proof or a whole-frame diagnostic has no
         // window); while a slider drags, a canvas-sized draft as with windows: a drag at 1:1 must
         // not render the photo's every pixel each frame
-        let long = if scale < 1.0 { drawn_long.min(canvas_long) } else { drawn_long };
+        let long = if v.drafting || scale < 1.0 { drawn_long.min(canvas_long) } else { drawn_long };
         let main_edge = settings.loupe_edge(long * scale, v.native_long, v.texture_side);
         return LoupePlan { main_edge, window_edge: None };
     }
@@ -117,6 +120,148 @@ pub fn plan(settings: &crate::state::AppSettings, v: ViewSizes) -> LoupePlan {
     // (against the undrafted whole-frame render: a drag must not switch the window off and on)
     let window_edge = (frame_edge as f32 > edge_at(1.0) as f32 * WINDOW_RATIO && !(fit && settings.preview_limit != 0)).then_some(frame_edge);
     LoupePlan { main_edge, window_edge }
+}
+
+/// What a slider drag's whole-frame drafts may cost (ms): one frame at 60 Hz (the budget in
+/// `CLAUDE.md`, "slider update ≤ 16 ms draft").
+pub const DRAFT_BUDGET_MS: f64 = 16.0;
+
+/// The draft scales a drag may use, sharpest first. A drag keeps the one it started with (each
+/// size is a new geometry: every plane of the stage cache would be redone), stepping down only
+/// when its renders keep running over budget.
+pub const DRAFT_SCALES: [f32; 5] = [1.0, 0.8, 0.6, 0.45, 0.35];
+
+/// The scale of the first drafts on the CPU, before anything has been measured (on the GPU a
+/// full-size draft takes a few milliseconds: it starts at 1.0).
+pub const FIRST_DRAFT_SCALE_CPU: f32 = 0.6;
+
+/// How long the photo must stay unchanged in an open interaction before the view renders at full
+/// quality (s), at least: a slider held still, or a control surface whose gesture stays open for a
+/// second and more after the last turn of a knob, shows the sharp render instead of the last
+/// draft. The time the last full render took is added (up to [`REFINE_MAX_SECS`]): a slow CPU
+/// render started at every pause of the pointer would hold up the drafts behind it.
+pub const REFINE_AFTER_SECS: f64 = 0.15;
+/// The most the refine delay grows to.
+pub const REFINE_MAX_SECS: f64 = 1.0;
+
+/// Draft renders over twice the budget in a row that make a drag step down to the next scale.
+const OVER_BUDGET_STEPS: u32 = 3;
+
+/// The part of a render's time that does not grow with its size (ms): dispatch, readback,
+/// texture upload. Left out of the cost per megapixel, or small drafts (a zoomed view's
+/// whole-frame render) would make a fit view's drafts look dearer than they are.
+const DRAFT_OVERHEAD_MS: f64 = 2.0;
+
+/// How sharp a slider drag's drafts are, and when they end.
+///
+/// Drafts used to be a fixed 60 % of the view, and the view stayed a draft until the interaction
+/// ended: at Fit a drag was visibly soft, and with a control surface (whose gesture ends about
+/// 1.5 s after the last turn) it stayed soft for seconds after the photo had stopped changing.
+/// Now the scale is the sharpest that the measured draft cost allows within [`DRAFT_BUDGET_MS`]
+/// (a full-size draft on the GPU), and the view refines to full quality once the photo has been
+/// still for the refine delay ([`REFINE_AFTER_SECS`]), interaction open or not.
+#[derive(Clone, Debug, Default)]
+pub struct DraftSize {
+    /// The photo and look seen last, and since when (s; `-inf`: not changed in an interaction).
+    seen: Option<(lightcraft_catalog::PhotoId, u64, f64)>,
+    /// Measured cost of drafts: ms per megapixel (a running average), and the photo and
+    /// renderer (GPU?) it was measured for: another photo (other masks) or renderer starts over.
+    ms_per_mp: Option<f64>,
+    cost_of: Option<(lightcraft_catalog::PhotoId, bool)>,
+    /// The scale of the drag in progress.
+    held: Option<f32>,
+    /// Draft renders over budget in a row (in this drag).
+    over: u32,
+    /// When the newest draft taken into account reached the screen ([`crate::render::LoupeRender::at_ms`]).
+    last_draft_at: f64,
+}
+
+impl DraftSize {
+    /// Whether the view renders drafts this frame: an interaction is `open` and the photo's `look`
+    /// changed within the refine delay (`full_ms`: the last full render's time). `now` is in s.
+    pub fn drafting(&mut self, open: bool, photo: lightcraft_catalog::PhotoId, look: u64, now: f64, full_ms: f64) -> bool {
+        let changed = !matches!(self.seen, Some((p, l, _)) if p == photo && l == look);
+        if changed {
+            // (a look first seen outside an interaction is not an edit in progress)
+            self.seen = Some((photo, look, if open { now } else { f64::NEG_INFINITY }));
+        }
+        if !open {
+            self.held = None;
+            self.over = 0;
+            return false;
+        }
+        let since = self.seen.map_or(f64::NEG_INFINITY, |(_, _, t)| t);
+        now - since < Self::refine_after(full_ms)
+    }
+
+    /// How long the photo must be still before a full render, when the last one took `full_ms`.
+    pub fn refine_after(full_ms: f64) -> f64 {
+        let full = if full_ms.is_finite() { full_ms.max(0.0) / 1e3 } else { 0.0 };
+        (REFINE_AFTER_SECS + full).min(REFINE_MAX_SECS)
+    }
+
+    /// In how many seconds from `now` the view refines (a repaint is due then); `None`: no
+    /// refine is waiting.
+    pub fn refine_in(&self, now: f64, full_ms: f64) -> Option<f64> {
+        let (_, _, since) = self.seen?;
+        let left = since + Self::refine_after(full_ms) - now;
+        (left.is_finite() && left > 0.0).then_some(left)
+    }
+
+    /// The scale of this drag's drafts of `photo`, for a view whose full render has `full_px`
+    /// pixels (`gpu`: views render on the GPU). Chosen once per drag.
+    pub fn scale(&mut self, photo: lightcraft_catalog::PhotoId, full_px: usize, gpu: bool) -> f32 {
+        if let Some(s) = self.held {
+            return s;
+        }
+        if self.cost_of.is_some_and(|c| c != (photo, gpu)) {
+            self.ms_per_mp = None;
+        }
+        self.cost_of = Some((photo, gpu));
+        let s = match self.ms_per_mp {
+            None if gpu => 1.0,
+            None => FIRST_DRAFT_SCALE_CPU,
+            Some(c) => {
+                let mp = full_px as f64 / 1e6;
+                let fits = |s: &&f32| DRAFT_OVERHEAD_MS + c * mp * f64::from(**s) * f64::from(**s) <= DRAFT_BUDGET_MS;
+                DRAFT_SCALES.iter().find(fits).or(DRAFT_SCALES.last()).copied().unwrap_or(FIRST_DRAFT_SCALE_CPU)
+            }
+        };
+        self.held = Some(s);
+        s
+    }
+
+    /// Learn from a whole-frame draft that reached the screen at `at_ms`: `pixels` rendered in
+    /// `render_ms`. Each draft counts once.
+    pub fn observe(&mut self, at_ms: f64, pixels: usize, render_ms: f64) {
+        if at_ms <= self.last_draft_at || pixels == 0 || !render_ms.is_finite() || render_ms < 0.0 {
+            return;
+        }
+        self.last_draft_at = at_ms;
+        let cost = (render_ms - DRAFT_OVERHEAD_MS).max(0.0) / (pixels as f64 / 1e6);
+        // (one slow render, a plane redone for another slider, moves the average only so far)
+        self.ms_per_mp = Some(match self.ms_per_mp {
+            Some(c) => 0.7 * c + 0.3 * cost.min(3.0 * c.max(0.1)),
+            None => cost,
+        });
+        self.over = if render_ms > 2.0 * DRAFT_BUDGET_MS { self.over + 1 } else { 0 };
+        if self.over >= OVER_BUDGET_STEPS
+            && let Some(held) = self.held
+        {
+            self.over = 0;
+            self.held = Some(DRAFT_SCALES.iter().copied().find(|s| *s < held).unwrap_or(held));
+        }
+    }
+
+    /// The measured draft cost (ms per megapixel), for `ui.inspect`.
+    pub fn ms_per_mp(&self) -> Option<f64> {
+        self.ms_per_mp
+    }
+
+    /// The scale of the drag in progress, for `ui.inspect`.
+    pub fn held(&self) -> Option<f32> {
+        self.held
+    }
 }
 
 /// How long the render sizes stay as they were after a pinch or two-finger scroll stops (s).
@@ -238,7 +383,7 @@ mod tests {
     const BIG: usize = 16384;
 
     fn sizes(drawn: f32, canvas: f32, native: usize) -> ViewSizes {
-        ViewSizes { drawn_long: drawn, canvas_long: canvas, native_long: native, texture_side: BIG, draft_scale: 1.0, windows: true }
+        ViewSizes { drawn_long: drawn, canvas_long: canvas, native_long: native, texture_side: BIG, draft_scale: 1.0, drafting: false, windows: true }
     }
 
     fn auto() -> AppSettings {
@@ -299,7 +444,7 @@ mod tests {
     // windowed path
     #[test]
     fn without_a_window_a_drag_drafts_at_the_canvas_size() {
-        let no_window = |draft_scale: f32| ViewSizes { windows: false, draft_scale, ..sizes(24000.0, 2800.0, 6000) };
+        let no_window = |draft_scale: f32| ViewSizes { windows: false, draft_scale, drafting: draft_scale < 1.0, ..sizes(24000.0, 2800.0, 6000) };
         let still = plan(&auto(), no_window(1.0));
         let drag = plan(&auto(), no_window(0.6));
         assert_eq!(still.window_edge, None);
@@ -560,5 +705,89 @@ mod tests {
     fn a_window_is_bounded() {
         let w = window_for(100_000, 100_000, (0.0, 0.0, 90_000.0, 90_000.0), MAX_SPAN).unwrap();
         assert!(w.w <= MAX_SPAN && w.h <= MAX_SPAN);
+    }
+
+    // Given a slider drag, the view drafts while the photo changes and refines once it has been
+    // still for the refine delay, though the interaction stays open (a control surface's gesture
+    // ends 1.5 s after the last turn); nothing drafts outside an interaction
+    #[test]
+    fn drafts_while_the_photo_changes_and_refine_when_it_is_still() {
+        use lightcraft_catalog::PhotoId;
+        let mut d = DraftSize::default();
+        let p = PhotoId(1);
+        assert!(!d.drafting(false, p, 1, 0.0, 10.0), "no interaction");
+        assert!(!d.drafting(true, p, 1, 0.1, 10.0), "an interaction that has not changed the photo yet");
+        assert!(d.drafting(true, p, 2, 0.2, 10.0), "the first change");
+        assert!(d.drafting(true, p, 2, 0.3, 10.0), "within the refine delay");
+        let left = d.refine_in(0.3, 10.0).expect("a refine is due");
+        assert!((left - (0.2 + DraftSize::refine_after(10.0) - 0.3)).abs() < 1e-9, "{left}");
+        assert!(!d.drafting(true, p, 2, 0.2 + DraftSize::refine_after(10.0) + 0.01, 10.0), "still: the full render");
+        assert!(d.drafting(true, p, 3, 2.0, 10.0), "changing again drafts again");
+        assert!(!d.drafting(false, p, 3, 2.01, 10.0), "the interaction ended");
+        assert!(!d.drafting(true, PhotoId(2), 9, 3.0, 10.0) || d.refine_in(3.0, 10.0).is_some());
+    }
+
+    // Given a slow full render (the CPU), the refine waits longer, but never more than a second
+    #[test]
+    fn the_refine_delay_follows_the_full_render_time() {
+        assert!((DraftSize::refine_after(0.0) - REFINE_AFTER_SECS).abs() < 1e-9);
+        assert!((DraftSize::refine_after(200.0) - (REFINE_AFTER_SECS + 0.2)).abs() < 1e-9);
+        assert_eq!(DraftSize::refine_after(5000.0), REFINE_MAX_SECS);
+        for v in [f64::NAN, f64::INFINITY, -1.0] {
+            let r = DraftSize::refine_after(v);
+            assert!((REFINE_AFTER_SECS..=REFINE_MAX_SECS).contains(&r), "{v}: {r}");
+        }
+    }
+
+    // Given nothing measured yet, a GPU drag drafts at full size and a CPU one at the old 60 %;
+    // once measured, the sharpest scale within the budget, held for the whole drag
+    #[test]
+    fn the_draft_scale_is_the_sharpest_the_measured_cost_allows() {
+        const P: lightcraft_catalog::PhotoId = lightcraft_catalog::PhotoId(1);
+        let px = 1280 * 1920; // 2.46 MP
+        assert_eq!(DraftSize::default().scale(P, px, true), 1.0);
+        assert_eq!(DraftSize::default().scale(P, px, false), FIRST_DRAFT_SCALE_CPU);
+        // a GPU draft: 5 ms for 1.3 MP: a full-size draft fits the budget
+        let mut cheap = DraftSize::default();
+        cheap.observe(1.0, 768 * 1152, 5.0);
+        assert_eq!(cheap.scale(P, px, false), 1.0);
+        // a CPU draft with masks: 50 ms for 1.3 MP
+        let mut dear = DraftSize::default();
+        dear.observe(1.0, 768 * 1152, 50.0);
+        let s = dear.scale(P, px, false);
+        assert!(s < 0.6, "{s}");
+        let per_mp = dear.ms_per_mp().unwrap_or(0.0);
+        assert!(DRAFT_OVERHEAD_MS + per_mp * px as f64 / 1e6 * f64::from(s * s) <= DRAFT_BUDGET_MS || s == DRAFT_SCALES[DRAFT_SCALES.len() - 1]);
+        // held for the drag, though the cost changes
+        dear.observe(2.0, 768 * 1152, 1.0);
+        assert_eq!(dear.scale(P, px, false), s);
+        // a new drag starts from the new measurements
+        dear.drafting(false, lightcraft_catalog::PhotoId(1), 1, 0.0, 0.0);
+        assert!(dear.held().is_none());
+        // another photo (other masks) starts over
+        assert_eq!(dear.scale(lightcraft_catalog::PhotoId(2), px, true), 1.0);
+    }
+
+    // Given drafts that keep taking over twice the budget, the drag steps down one scale; one
+    // slow draft (a plane redone) does not
+    #[test]
+    fn a_drag_over_budget_steps_down() {
+        const P: lightcraft_catalog::PhotoId = lightcraft_catalog::PhotoId(1);
+        let mut d = DraftSize::default();
+        assert_eq!(d.scale(P, 1000 * 1000, true), 1.0);
+        d.observe(1.0, 1000 * 1000, 80.0);
+        d.observe(2.0, 1000 * 1000, 5.0);
+        d.observe(3.0, 1000 * 1000, 80.0);
+        assert_eq!(d.held(), Some(1.0));
+        d.observe(4.0, 1000 * 1000, 80.0);
+        d.observe(5.0, 1000 * 1000, 80.0);
+        assert_eq!(d.held(), Some(DRAFT_SCALES[1]));
+        // the same draft twice, and hostile numbers, change nothing
+        let before = d.ms_per_mp();
+        d.observe(5.0, 1000 * 1000, 999.0);
+        d.observe(6.0, 0, 5.0);
+        d.observe(7.0, 1000, f64::NAN);
+        d.observe(8.0, 1000, -1.0);
+        assert_eq!(d.ms_per_mp(), before);
     }
 }
