@@ -21,6 +21,7 @@ pub mod availability;
 pub(crate) mod camera_preview;
 pub mod camera_profiles;
 pub mod cmd;
+pub mod concepts_store;
 pub mod config;
 pub mod contact_sheet;
 pub mod crs;
@@ -53,6 +54,7 @@ pub mod memory;
 pub mod merge;
 mod model_download;
 pub mod originals;
+pub mod people_store;
 pub mod preset_import;
 pub mod preset_luminar;
 pub mod presets;
@@ -61,6 +63,7 @@ pub mod rename;
 pub mod segment;
 pub mod sidecar;
 pub mod smart;
+pub mod smart_masks;
 pub mod sync;
 mod view;
 pub mod walk;
@@ -612,6 +615,7 @@ impl Session {
             }
         };
         self.show_undone(&e.op);
+        self.after_history_jump(&e.op);
         self.pending_log.push(e.op);
         self.redo.push(UndoEntry {
             label: e.label.clone(),
@@ -637,6 +641,7 @@ impl Session {
             }
         };
         self.show_undone(&e.op);
+        self.after_history_jump(&e.op);
         self.pending_log.push(e.op);
         self.undo.push(UndoEntry {
             label: e.label.clone(),
@@ -757,6 +762,12 @@ impl Session {
         {
             return self.apply_silent(Op::SetDevelop { id, settings, label: label.into(), edited: Some(now) });
         }
+        // an edit of a preset's provisional masks makes them the photographer's own
+        let mut settings = (*settings).clone();
+        if let Some(before) = self.develop_of(id) {
+            lightcraft_develop::presets::settle_provisional(&before, &mut settings);
+        }
+        let settings = Arc::new(settings);
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
         ops.extend(self.auto_sync_ops(id, &settings, label));
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
@@ -1036,6 +1047,8 @@ mod tests_process;
 mod tests_segment;
 #[cfg(test)]
 mod tests_settings_files;
+#[cfg(test)]
+mod tests_smart_presets;
 #[cfg(test)]
 mod tests_spots;
 #[cfg(test)]

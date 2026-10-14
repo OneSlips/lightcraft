@@ -17,6 +17,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use lightcraft_develop::SegMask;
+use lightcraft_segment::identity::Signature;
 use lightcraft_segment::{
     Encoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
     birefnet::{BIREFNET_SIDE, BiRefNet},
@@ -42,10 +43,22 @@ pub enum Kind {
         prompt: Prompt,
         region: [f64; 4],
     },
-    /// An automatic selection (Subject, Sky, …) computed by `model`.
+    /// An automatic selection (Subject, Sky, …) computed by `model`; `target` says which person
+    /// or object (by name, role or examples) when the selection is about one.
     Auto {
         what: AutoKind,
         model: AutoModel,
+        target: Target,
+    },
+    /// The faces on the photo with their appearance signatures (`people.faces`); `people` is
+    /// Selfie Multiclass for the clothes, hair and skin colours, when installed.
+    Faces {
+        face: PathBuf,
+        people: Option<PathBuf>,
+    },
+    /// Learn an example of a remembered object from a mask on the photo (`concepts.teach`).
+    Learn {
+        mask: Box<lightcraft_develop::Mask>,
     },
     /// Panics (tests of the worker's recovery).
     #[cfg(test)]
@@ -69,6 +82,15 @@ pub struct Job {
     pub reply: mpsc::Sender<Outcome>,
     /// Where the slow steps (loading a model, analyzing a photo) show as activity rows.
     pub activity: Option<crate::activity::Activity>,
+    /// The batch it belongs to and the batches cancelled meanwhile (an undone preset): a job of a
+    /// cancelled batch is skipped.
+    pub batch: Option<(u64, Arc<std::sync::Mutex<std::collections::HashSet<u64>>>)>,
+}
+
+impl Job {
+    fn cancelled(&self) -> bool {
+        self.batch.as_ref().is_some_and(|(b, set)| set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(b))
+    }
 }
 
 /// A finished request: the segmentation (`None`: nothing selected / nothing to report).
@@ -77,6 +99,38 @@ pub struct Outcome {
     pub result: Result<Option<SegMask>, String>,
     /// A newer request for the same selection came in; this one was skipped.
     pub superseded: bool,
+    /// What a request that isn't a segmentation returns (faces, a learned example).
+    pub payload: Payload,
+}
+
+/// Which person or object an automatic selection is about.
+#[derive(Clone, Debug, Default)]
+pub enum Target {
+    #[default]
+    None,
+    /// A person: their named face box on this photo (normalized), else their known appearance.
+    Person { rect: Option<[f64; 4]>, known: Vec<Signature> },
+    /// A remembered object's examples.
+    Concept(Arc<Vec<lightcraft_segment::concept::Example>>),
+}
+
+/// A face found on a photo (normalized box; left to right).
+#[derive(Clone, Debug)]
+pub struct FoundFace {
+    pub rect: [f64; 4],
+    pub score: f32,
+    pub signature: Signature,
+    /// FaceMesh placed its landmarks (not a strong profile).
+    pub landmarks: bool,
+}
+
+/// Non-segmentation results.
+#[derive(Clone, Debug, Default)]
+pub enum Payload {
+    #[default]
+    None,
+    Faces(Vec<FoundFace>),
+    Example(Box<lightcraft_segment::concept::Example>),
 }
 
 /// Counters the session reads without locking.
@@ -293,12 +347,13 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         // counts the job as pending until just before its reply goes out: a caller woken by the
         // reply must not still see the worker busy with it
         let done = Done(if is_detail { &shared.detail } else { &shared.pending });
-        if queue.iter().any(|later| supersedes(later, &job)) {
+        if queue.iter().any(|later| supersedes(later, &job)) || job.cancelled() {
             drop(done);
-            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true });
+            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, payload: Payload::None });
             continue;
         }
-        let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job))) {
+        let mut payload = Payload::None;
+        let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job, &mut payload))) {
             Ok(r) => r,
             Err(p) => {
                 let why = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
@@ -313,7 +368,7 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         }
         shared.loaded.store(state.any_loaded(), Ordering::SeqCst);
         drop(done);
-        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false });
+        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, payload });
     }
 }
 
@@ -483,7 +538,7 @@ fn ensure<M, T>(
 }
 
 /// An automatic selection; `None` when nothing of the kind was found.
-fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel) -> Result<Option<SegMask>, String> {
+fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel, target: &Target) -> Result<Option<SegMask>, String> {
     let invert = |l: Vec<f32>| l.into_iter().map(|v| -v).collect::<Vec<f32>>();
     let background = *what == AutoKind::Background;
     match model {
@@ -519,7 +574,7 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 // a person is the subject when there is one; else EoMT's most confident thing
                 let person_there = map.as_ref().is_some_and(|m| m.person_share() > 0.005);
                 if !person_there && let Some(scene) = scene {
-                    return auto(state, shared, job, what, AutoModel::Scene(scene));
+                    return auto(state, shared, job, what, AutoModel::Scene(scene), target);
                 }
                 let Some(map) = map else { return Ok(None) };
                 let req = PeopleRequest::parse(0, &[]).ok_or("people request")?;
@@ -529,8 +584,8 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                     SegMask::from_logits(g.side, &logits)
                 }));
             }
-            let AutoKind::People { person, parts } = what else { return Err("not a People selection".into()) };
-            let req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
+            let AutoKind::People { person, parts, .. } = what else { return Err("not a People selection".into()) };
+            let mut req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
             let faces: Vec<Face> = match &face {
                 Some(dir) => {
                     ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
@@ -546,12 +601,182 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 None => None,
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+            if let Target::Person { rect, known } = target {
+                // by name or role: which of the faces it is
+                match pick_face(&faces, *rect, known, map, input) {
+                    Some(i) => req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1),
+                    None => return Ok(None),
+                }
+            }
             Ok(people_mask(&req, &input.rgb, input.w, input.h, map, &faces).map(|g| match g.rect {
                 Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
                 None => SegMask::from_logits(g.side, &g.logits),
             }))
         }
+        AutoModel::Concept(dir) => {
+            let Target::Concept(examples) = target else { return Err("which remembered object?".into()) };
+            job.dir = dir;
+            let (m, enc, input) = sam2_on_input(state, shared, job)?;
+            let _row = row(job, "Finding a remembered object");
+            let found = lightcraft_segment::concept::find(m, enc, examples, &input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+            Ok(found.map(|f| SegMask::from_logits(f.mask_side, &f.logits)))
+        }
     }
+}
+
+/// A face's box in normalized photo coordinates.
+fn norm_box(f: &Face, w: usize, h: usize) -> [f64; 4] {
+    let (w, h) = (w.max(1) as f64, h.max(1) as f64);
+    let d = &f.detection;
+    [f64::from(d.x0) / w, f64::from(d.y0) / h, f64::from(d.x1) / w, f64::from(d.y1) / h].map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 })
+}
+
+fn iou(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let ix = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+    let iy = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+    let inter = ix * iy;
+    let union = (a[2] - a[0]).max(0.0) * (a[3] - a[1]).max(0.0) + (b[2] - b[0]).max(0.0) * (b[3] - b[1]).max(0.0) - inter;
+    if union > 0.0 { inter / union } else { 0.0 }
+}
+
+/// Faces whose appearance scores at least this against a person's examples are taken for them.
+pub const PERSON_MATCH: f32 = 0.55;
+
+/// Which of `faces` (index) is the person: the one overlapping their named face box, else the
+/// one that looks most like their examples. `None`: they aren't on this photo (as far as can be
+/// told).
+fn pick_face(faces: &[Face], rect: Option<[f64; 4]>, known: &[Signature], map: Option<&PeopleMap>, input: &Input) -> Option<usize> {
+    if let Some(r) = rect {
+        let centre = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
+        let best = faces
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let b = norm_box(f, input.w, input.h);
+                let inside = (b[0]..=b[2]).contains(&centre[0]) && (b[1]..=b[3]).contains(&centre[1]);
+                (i, iou(b, r).max(if inside { 0.25 } else { 0.0 }))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((i, s)) = best
+            && s >= 0.2
+        {
+            return Some(i);
+        }
+    }
+    if known.is_empty() {
+        return None;
+    }
+    let scored: Vec<(usize, f32)> = (0..faces.len())
+        .filter_map(|i| {
+            let sig = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h)?;
+            let mut s: Vec<f32> = known.iter().map(|k| lightcraft_segment::identity::similarity(&sig, k)).collect();
+            s.sort_by(|a, b| b.total_cmp(a));
+            let top: Vec<f32> = s.into_iter().take(2).collect();
+            (!top.is_empty()).then(|| (i, top.iter().sum::<f32>() / top.len() as f32))
+        })
+        .collect();
+    scored.into_iter().filter(|(_, s)| *s >= PERSON_MATCH).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+}
+
+/// The faces of `job`'s photo with their appearance signatures (`people.faces`).
+fn found_faces(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    face: &std::path::Path,
+    people: Option<&std::path::Path>,
+) -> Result<Vec<FoundFace>, String> {
+    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    let faces =
+        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
+            .clone();
+    if let Some(dir) = people {
+        ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
+        cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
+    }
+    let map = people.and(state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m));
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+    Ok(faces
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let signature = lightcraft_segment::identity::signature(&faces, i, map, &input.rgb, input.w, input.h)?;
+            Some(FoundFace { rect: norm_box(f, input.w, input.h), score: f.detection.score, signature, landmarks: f.landmarks.is_some() })
+        })
+        .collect())
+}
+
+/// SAM 2.1 (from `job.dir`) and the photo encoded by it, from the open models' shared input.
+fn sam2_on_input<'a>(state: &'a mut State, shared: &Shared, job: &mut Job) -> Result<(&'a Sam2, &'a Sam2Encoded, &'a Input), String> {
+    if state.sam2.as_ref().is_none_or(|(d, _)| *d != job.dir) {
+        state.sam2_cache = None;
+    }
+    load(&mut state.sam2, shared, &job.dir, "SAM 2.1", Sam2::load)?;
+    photo(&mut state.input_cache, job)?;
+    if state.sam2_cache.as_ref().is_none_or(|(k, _)| *k != job.key) {
+        state.sam2_cache = None;
+        let input = state.input_cache.as_ref().map(|(_, i)| i).ok_or("the photo is not available")?;
+        let _busy = Flag::raise(&shared.encoding);
+        let _row = row(job, "SAM 2.1");
+        let m = state.sam2.as_ref().map(|(_, m)| m).ok_or("SAM 2.1 did not load")?;
+        let t = web_time::Instant::now();
+        let enc = m.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+        log::info!("SAM 2.1 encoded {}×{} in {:?}", input.w, input.h, t.elapsed());
+        state.sam2_cache = Some((job.key, enc));
+    }
+    match (&state.sam2, &state.sam2_cache, &state.input_cache) {
+        (Some((_, m)), Some((_, e)), Some((_, i))) => Ok((m, e, i)),
+        _ => Err("SAM 2.1 is not ready".into()),
+    }
+}
+
+/// The alpha of `mask` over the model input, on a grid of about `edge` cells on the long side
+/// (the mask's coordinates are the uncropped photo's, which the input is).
+pub(crate) fn mask_alpha(mask: &lightcraft_develop::Mask, input: &Input, edge: usize) -> lightcraft_raster::Plane {
+    let (w, h) = (input.w.max(1), input.h.max(1));
+    let s = edge.max(8) as f64 / w.max(h) as f64;
+    let (gw, gh) = (((w as f64 * s).round() as usize).max(1), ((h as f64 * s).round() as usize).max(1));
+    let lin = |v: u8| {
+        let c = f32::from(v) / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let px = |x: usize, y: usize| -> [f32; 3] {
+        let (sx, sy) = ((x * w / gw).min(w - 1), (y * h / gh).min(h - 1));
+        let i = (sy * w + sx) * 3;
+        match input.rgb.get(i..i + 3) {
+            Some(p) => [lin(p[0]), lin(p[1]), lin(p[2])],
+            None => [0.0; 3],
+        }
+    };
+    let img = lightcraft_raster::Rgb32f::from_fn(gw, gh, px);
+    let log_l = lightcraft_raster::Plane::from_fn(gw, gh, |x, y| {
+        let p = img.data.get(y * gw + x).copied().unwrap_or_default();
+        (0.2627 * p[0] + 0.678 * p[1] + 0.0593 * p[2]).max(1e-6).log2()
+    });
+    let frame = lightcraft_pipeline::geometry::Frame::new(gw, gh, &lightcraft_develop::DevelopSettings::default(), false);
+    let mut m = mask.clone();
+    m.visible = true;
+    m.adjust.amount = 100.0;
+    lightcraft_pipeline::masks::evaluate_one(&m, &frame, gw, gh, &img, &log_l, 0.0, None)
+}
+
+/// Learn an example of a remembered object from `mask` on the photo.
+fn learn(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    mask: &lightcraft_develop::Mask,
+) -> Result<Option<lightcraft_segment::concept::Example>, String> {
+    let (_, enc, input) = sam2_on_input(state, shared, job)?;
+    let alpha = mask_alpha(mask, input, 128);
+    let (emb, es, dim) = enc.embedding().map_err(|e| e.to_string())?;
+    let (aw, ah) = (alpha.width.max(1), alpha.height.max(1));
+    let at = |u: f32, v: f32| {
+        let x = ((u * aw as f32) as usize).min(aw - 1);
+        let y = ((v * ah as f32) as usize).min(ah - 1);
+        alpha.data.get(y * aw + x).copied().unwrap_or(0.0)
+    };
+    Ok(lightcraft_segment::concept::learn(&emb, es, dim, at, &input.rgb, input.w, input.h))
 }
 
 /// The probability of `what` at each cell of `scene`'s grid; `None` when it isn't there.
@@ -565,6 +790,7 @@ fn scene_probs(scene: &Scene, what: &AutoKind) -> Option<Vec<f32>> {
             let names = landscape_classes(class);
             Some(scene.class_probability(&class_ids(|n| names.contains(&n))))
         }
+        AutoKind::People { who: Some(_), .. } | AutoKind::Concept { .. } => None,
         AutoKind::People { person: 0, .. } => Some(scene.class_probability(&person)).filter(|p| found(p)),
         AutoKind::People { person: n, .. } => {
             // people counted from the left (by the centre of their mask)
@@ -668,7 +894,7 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
                 }
             }
         }
-        Kind::Auto { .. } => return Err("automatic selections run locally".into()),
+        Kind::Auto { .. } | Kind::Faces { .. } | Kind::Learn { .. } => return Err("automatic selections run locally".into()),
         #[cfg(test)]
         Kind::Panic => return Err("test panic request".into()),
     };
@@ -684,10 +910,22 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
     }))
 }
 
-fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<SegMask>, String> {
-    if let Kind::Auto { what, model } = &job.kind {
-        let (what, model) = (what.clone(), model.clone());
-        return auto(state, shared, job, &what, model);
+fn run_job(state: &mut State, shared: &Shared, job: &mut Job, payload: &mut Payload) -> Result<Option<SegMask>, String> {
+    if let Kind::Auto { what, model, target } = &job.kind {
+        let (what, model, target) = (what.clone(), model.clone(), target.clone());
+        return auto(state, shared, job, &what, model, &target);
+    }
+    if let Kind::Faces { face, people } = &job.kind {
+        let (face, people) = (face.clone(), people.clone());
+        *payload = Payload::Faces(found_faces(state, shared, job, &face, people.as_deref())?);
+        return Ok(None);
+    }
+    if let Kind::Learn { mask } = &job.kind {
+        let mask = mask.clone();
+        if let Some(e) = learn(state, shared, job, &mask)? {
+            *payload = Payload::Example(Box::new(e));
+        }
+        return Ok(None);
     }
     if job.sam2 {
         return sam2_job(state, shared, job);
@@ -714,7 +952,7 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<S
             let (m, enc) = encoded(state, shared, job)?;
             Ok(text_logits(m, enc, &text)?.map(|l| SegMask::from_logits(side, &l)))
         }
-        Kind::Auto { .. } => Err("an automatic selection reached the SAM 3 path".into()),
+        Kind::Auto { .. } | Kind::Faces { .. } | Kind::Learn { .. } => Err("an automatic selection reached the SAM 3 path".into()),
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
@@ -764,7 +1002,7 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
             Ok(Some(SegMask::from_logits_in(side, &p.logits, region)))
         }
         Kind::Text(_) | Kind::Detail { prompt: Prompt::Text(_), .. } => Err("Describe needs the SAM 3 model".into()),
-        Kind::Auto { .. } => Err("an automatic selection reached the SAM 2.1 path".into()),
+        Kind::Auto { .. } | Kind::Faces { .. } | Kind::Learn { .. } => Err("an automatic selection reached the SAM 2.1 path".into()),
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
@@ -778,7 +1016,7 @@ mod tests {
     fn job(tag: Tag, reply: &mpsc::Sender<Outcome>) -> Job {
         // an empty folder: loading fails with an error (no model files)
         let dir = std::env::temp_dir().join(format!("lc-sam3-worker-none-{}", std::process::id()));
-        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None }
+        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None, batch: None }
     }
 
     #[test]

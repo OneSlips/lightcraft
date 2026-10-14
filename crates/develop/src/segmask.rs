@@ -133,7 +133,7 @@ mod tests {
             (r#"{"kind":"subject"}"#, MaskShape::Subject { seg: None }),
             (r#"{"kind":"sky"}"#, MaskShape::Sky { seg: None }),
             (r#"{"kind":"background"}"#, MaskShape::Background { seg: None }),
-            (r#"{"kind":"people","person":0,"parts":["Hair"]}"#, MaskShape::People { person: 0, parts: vec!["Hair".into()], seg: None }),
+            (r#"{"kind":"people","person":0,"parts":["Hair"]}"#, MaskShape::People { who: None, person: 0, parts: vec!["Hair".into()], seg: None }),
         ] {
             let read: MaskShape = serde_json::from_str(json).unwrap();
             assert_eq!(read, shape);
@@ -180,6 +180,7 @@ mod tests {
         d.masks.push(crate::Mask {
             id: 1,
             components: vec![crate::MaskComponent {
+                anchor: None,
                 name: None,
                 op: crate::MaskOp::Add,
                 invert: false,

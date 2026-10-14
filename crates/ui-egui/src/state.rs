@@ -636,6 +636,24 @@ pub struct UiState {
     /// n-th person from the left) and which parts (Lightroom's names; none: the entire person).
     #[serde(skip)]
     pub people_pick: Option<(u32, Vec<String>)>,
+    /// The face chosen in the People picker (index into the photo's faces).
+    #[serde(skip)]
+    pub people_face: Option<usize>,
+    /// The People picker's name and role fields, and whether the mask finds the person by role.
+    #[serde(skip)]
+    pub people_name: String,
+    #[serde(skip)]
+    pub people_role: String,
+    #[serde(skip)]
+    pub people_by_role: bool,
+    /// The remembered objects are shown under the mask tiles (the Remembered tile was clicked).
+    #[serde(skip)]
+    pub concept_pick: bool,
+    /// The People and Roles window is open; its Forget All button was clicked once.
+    #[serde(skip)]
+    pub roles_window: bool,
+    #[serde(skip)]
+    pub forget_all_armed: bool,
     /// When to start the zoomed-in detail pass of an AI mask (app time) and which mask: set by
     /// each click or description, so the pass runs once the clicking stops.
     #[serde(skip)]
@@ -1119,6 +1137,13 @@ impl Default for UiState {
             ai_hint: None,
             landscape_pick: false,
             people_pick: None,
+            people_face: None,
+            people_name: String::new(),
+            people_role: String::new(),
+            people_by_role: false,
+            concept_pick: false,
+            roles_window: false,
+            forget_all_armed: false,
             renaming_component: None,
             quit: false,
             dragging_photos: None,

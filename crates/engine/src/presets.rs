@@ -579,7 +579,7 @@ mod tests {
         let mut ids = std::collections::HashSet::new();
         for pr in builtin() {
             assert!(ids.insert(pr.id.clone()));
-            let out = pr.apply(&base, 1.0);
+            let out = pr.apply(&base, 1.0, 1.5);
             assert_ne!(out, base, "{} had no effect", pr.id);
         }
     }

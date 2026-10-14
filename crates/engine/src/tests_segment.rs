@@ -219,6 +219,7 @@ fn object_clicks_are_capped() {
     d.masks.push(lightcraft_develop::Mask {
         id: 1,
         components: vec![lightcraft_develop::MaskComponent {
+            anchor: None,
             name: None,
             op: lightcraft_develop::MaskOp::Add,
             invert: false,

@@ -526,7 +526,8 @@ pub fn has_saved_upright_transform(props: &Props) -> bool {
 pub fn preset_from_xmp(xmp: &str, fallback_name: &str) -> Option<Preset> {
     let d = lightcraft_meta::parse_xmp(xmp).ok()?;
     let props = &d.properties;
-    let settings = to_partial(props, Target::Any);
+    // (masks too: Lightroom's AI masks become recipes, computed on each photo)
+    let (settings, _) = to_partial_report(props, Some(&d.values), Target::Any, crate::crs_masks::DEFAULT_ASPECT);
     if settings.as_object().is_none_or(Map::is_empty) {
         return None;
     }

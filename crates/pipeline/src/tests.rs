@@ -106,6 +106,7 @@ fn mask_brightens_only_inside() {
     let mut s = DevelopSettings::default();
     s.masks.push(Mask {
         components: vec![MaskComponent {
+            anchor: None,
             name: None,
             op: MaskOp::Add,
             invert: false,

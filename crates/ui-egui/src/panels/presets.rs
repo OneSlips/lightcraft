@@ -118,6 +118,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
         let active = app.session.active();
         let current = active.and_then(|id| app.session.develop_of(id)).map(|d| (*d).clone());
+        // the photo's proportions place a preset's gradients
+        let aspect = active.map_or(lightcraft_develop::recipe::RECIPE_ASPECT, |id| app.session.photo_aspect(id));
+        let now = ui.input(|i| i.time);
+        let hover_since_id = egui::Id::new("preset-hover-since");
+        let mut hovered_any = false;
         let thumbs = app.ui.preset_thumbs && active.is_some();
         let row_h = if thumbs { 54.0 } else { 26.0 };
         let groups = grouped(ui.ctx(), &app.session.presets);
@@ -171,7 +176,38 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     } else if resp.hovered() {
                         ui.painter().rect_filled(r, 0.0, t.hover.gamma_multiply(0.7));
                     }
-                    let look = if thumbs || resp.hovered() { current.as_ref().map(|d| pr.apply(d, 1.0)) } else { None };
+                    let look = if thumbs || resp.hovered() { current.as_ref().map(|d| pr.apply(d, 1.0, aspect)) } else { None };
+                    // its AI masks: what is known shows at once; resting on it ~150 ms computes the rest
+                    let look = match (look, active) {
+                        (Some(s), Some(id)) if pr.settings.get("masks").is_some() => {
+                            let compute = resp.hovered() && {
+                                let since = ui.data(|d| d.get_temp::<(String, f64)>(hover_since_id)).filter(|(p, _)| *p == pid).map(|(_, t)| t);
+                                let since = since.unwrap_or_else(|| {
+                                    ui.data_mut(|d| d.insert_temp(hover_since_id, (pid.clone(), now)));
+                                    now
+                                });
+                                now - since >= 0.15
+                            };
+                            let (s, complete) = app.session.preview_preset(id, s, compute);
+                            if resp.hovered() && !complete {
+                                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+                            }
+                            Some(s)
+                        }
+                        (look, _) => look,
+                    };
+                    hovered_any |= resp.hovered();
+                    if pr.has_ai_masks() {
+                        // AI: its masks are computed on each photo
+                        let badge = ui.painter().text(
+                            pos2(r.right() - if fav { 38.0 } else { 20.0 }, r.center().y),
+                            Align2::RIGHT_CENTER,
+                            crate::i18n::tr("AI"),
+                            t.font(10.5),
+                            t.text_dim,
+                        );
+                        register(ui.ctx(), format!("presetAi:{pid}"), badge);
+                    }
                     let mut text_x = r.left() + 40.0;
                     if thumbs && let (Some(id), Some(s)) = (active, look.as_ref()) {
                         let tr = Rect::from_min_size(pos2(r.left() + 36.0, r.top() + 5.0), vec2(66.0, row_h - 10.0));
@@ -262,10 +298,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     ui.data(|d| d.get_temp::<(lightcraft_catalog::PhotoId, Preset, String)>(last_hover_id))
                 && saved_id == id
             {
-                app.hover_preview = Some(HoverPreview { label: saved_label, settings: saved_preset.apply(curr, 1.0) });
+                let look = saved_preset.apply(curr, 1.0, aspect);
+                let look = if saved_preset.settings.get("masks").is_some() { app.session.preview_preset(id, look, false).0 } else { look };
+                app.hover_preview = Some(HoverPreview { label: saved_label, settings: look });
             }
         } else {
             ui.data_mut(|d| d.remove::<(lightcraft_catalog::PhotoId, Preset, String)>(last_hover_id));
+        }
+        if !hovered_any {
+            // off the presets: the preview's selections still queued are skipped
+            ui.data_mut(|d| d.remove::<(String, f64)>(hover_since_id));
+            app.session.cancel_preview();
         }
     });
 }

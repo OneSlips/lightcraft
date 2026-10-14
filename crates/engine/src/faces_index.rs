@@ -213,6 +213,22 @@ impl Drop for Index {
     }
 }
 
+impl Index {
+    /// Forget every embedding, in memory and on disk (`people.forgetAll`: biometric data).
+    pub(crate) fn forget_all(&mut self) {
+        self.entries.clear();
+        self.unsaved.clear();
+        self.skipped.clear();
+        self.file_matches = false;
+        if let Some(p) = &self.path
+            && let Err(e) = std::fs::remove_file(p)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("faces: couldn't delete {}: {e}", p.display());
+        }
+    }
+}
+
 const SCAN_MAGIC: &[u8; 4] = b"LCFS";
 const SCAN_VERSION: u8 = 1;
 /// The detector a search was made with: a record made by another one is ignored (a better detector may find more).
@@ -317,6 +333,21 @@ impl Scanned {
 impl Drop for Scanned {
     fn drop(&mut self) {
         let _ = self.save();
+    }
+}
+
+impl Scanned {
+    /// Forget which photos were searched, in memory and on disk (`people.forgetAll`).
+    pub(crate) fn forget_all(&mut self) {
+        self.set.clear();
+        self.unsaved.clear();
+        self.file_matches = false;
+        if let Some(p) = &self.path
+            && let Err(e) = std::fs::remove_file(p)
+            && e.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("faces: couldn't delete {}: {e}", p.display());
+        }
     }
 }
 

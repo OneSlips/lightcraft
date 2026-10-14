@@ -213,6 +213,9 @@ pub struct ImportReport {
     /// Per-photo diagnostics from foreign XMP develop settings that could not be fully carried over.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<ImportWarning>,
+    /// About the develop preset's AI masks (computed after the import, in the background in the app).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 /// A structured diagnostic from foreign XMP develop settings.
@@ -356,7 +359,7 @@ pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
     let preset = s.import_defaults.preset_for(raw, &p.meta.camera).and_then(|id| s.presets.iter().find(|x| x.id == id));
     match preset {
         Some(pr) => {
-            let look = std::sync::Arc::new(pr.apply(&base, 1.0));
+            let look = std::sync::Arc::new(pr.apply(&base, 1.0, crate::smart_masks::aspect_of(p)));
             p.develop = look.clone();
             p.import_look = (*look != base).then_some(look);
         }
@@ -1353,7 +1356,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     }
                 }
                 if let Some(preset) = &opts.preset {
-                    let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0));
+                    let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0, crate::smart_masks::aspect_of(&p)));
                     let label = format!("Preset: {}", preset.name);
                     p.develop = d.clone();
                     p.edited = Some(now.clone());
@@ -1388,6 +1391,20 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
     }
     if !placed.is_empty() {
         finish_moves(s, placed, log0, &mut report);
+    }
+    // a develop preset with AI masks: each photo computes its own, after the photos are in (in
+    // the app in the background, with an activity row; import never waits for a model)
+    let need: Vec<PhotoId> = report
+        .imported
+        .iter()
+        .map(|i| PhotoId(*i))
+        .filter(|id| s.develop_of(*id).is_some_and(|d| d.masks.iter().any(|m| m.needs_compute())))
+        .collect();
+    if !need.is_empty() {
+        let r = s.compute_masks(&need, false);
+        if let Some(notes) = r.get("notes").and_then(serde_json::Value::as_array) {
+            report.notes.extend(notes.iter().filter_map(serde_json::Value::as_str).map(String::from));
+        }
     }
     Ok(report)
 }

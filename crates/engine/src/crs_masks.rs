@@ -98,6 +98,77 @@ fn pt(x: f64, y: f64) -> Value {
     json!({"x": x, "y": y})
 }
 
+/// Lightroom's People parts by `MaskSubCategoryID`, as Lightroom Classic writes them in presets
+/// (read from presets made with it: face skin 2, iris and pupil 3, body skin 4, hair 5, lips 6,
+/// eye sclera 8, clothes 11, teeth 12). Other parts are recognised by the mask's name.
+fn people_part(id: i64) -> Option<&'static str> {
+    Some(match id {
+        2 => "Face Skin",
+        3 => "Iris and Pupil",
+        4 => "Body Skin",
+        5 => "Hair",
+        6 => "Lips",
+        8 => "Eye Sclera",
+        11 => "Clothes",
+        12 => "Teeth",
+        _ => return None,
+    })
+}
+
+/// A People part from a mask's name ("Person 1 - Face Skin", "Clothes", "Eyebrows 2").
+fn part_from_name(name: &str) -> Option<&'static str> {
+    let tail = name.rsplit(" - ").next().unwrap_or(name).trim();
+    let tail = tail.trim_end_matches(|c: char| c.is_ascii_digit() || c == ' ');
+    const PARTS: [&str; 11] =
+        ["Entire Person", "Face Skin", "Body Skin", "Hair", "Clothes", "Eyebrows", "Eye Sclera", "Iris and Pupil", "Lips", "Teeth", "Skin"];
+    PARTS.into_iter().find(|p| p.eq_ignore_ascii_case(tail))
+}
+
+/// A Landscape class from a mask's name ("Water 1", "Landscape - Vegetation").
+fn landscape_from_name(name: &str) -> Option<&'static str> {
+    let n = name.to_ascii_lowercase();
+    [
+        ("artificial ground", "artificialGround"),
+        ("natural ground", "naturalGround"),
+        ("vegetation", "vegetation"),
+        ("mountain", "mountains"),
+        ("architecture", "architecture"),
+        ("water", "water"),
+    ]
+    .into_iter()
+    .find(|(k, _)| n.contains(k))
+    .map(|(_, v)| v)
+}
+
+/// A Lightroom AI mask (`Mask/Image`) → our shape. Lightroom keeps in presets what to select,
+/// not the pixels, and selects again on each photo; so does LightCraft (a recipe, computed per
+/// photo). People masks name "Person 1" after the photo the preset was made on: they become
+/// everyone's (Lightroom detects the people of each photo again), and can be retargeted to a
+/// role or a name (`preset.setMaskTarget`).
+fn image_mask(m: &XmpValue) -> Result<Value, String> {
+    let sub = text(m, "crs:MaskSubType").unwrap_or("?");
+    let cat = text(m, "crs:MaskSubCategoryID").and_then(|c| c.trim().parse::<i64>().ok());
+    let name = text(m, "crs:MaskName").unwrap_or("");
+    Ok(match (sub, cat) {
+        ("1", _) => json!({"kind": "subject"}),
+        ("2", _) => json!({"kind": "sky"}),
+        ("0", Some(22)) => json!({"kind": "background"}),
+        ("0", _) if name.to_ascii_lowercase().starts_with("background") => json!({"kind": "background"}),
+        ("3", _) => {
+            let part = cat
+                .and_then(people_part)
+                .or_else(|| part_from_name(name))
+                .ok_or_else(|| format!("AI mask: People part {}", cat.map_or("?".into(), |c| c.to_string())))?;
+            json!({"kind": "people", "person": 0, "parts": [part]})
+        }
+        ("4", _) => return Err("AI mask: Objects (selected on the photo the preset was made on)".into()),
+        _ => match landscape_from_name(name) {
+            Some(class) => json!({"kind": "landscape", "class": class}),
+            None => return Err(format!("AI mask ({sub}{})", cat.map_or(String::new(), |c| format!("/{c}")))),
+        },
+    })
+}
+
 /// One mask component → our component JSON; `Err(kind)` names an unsupported one.
 fn component(m: &XmpValue, aspect: f64) -> Result<Value, String> {
     let what = text(m, "crs:What").unwrap_or("");
@@ -152,11 +223,7 @@ fn component(m: &XmpValue, aspect: f64) -> Result<Value, String> {
                 "erase": erase,
             }]})
         }
-        "Mask/Image" => match text(m, "crs:MaskSubType") {
-            Some("1") => json!({"kind": "subject"}),
-            Some("2") => json!({"kind": "sky"}),
-            other => return Err(format!("AI mask ({})", other.unwrap_or("?"))),
-        },
+        "Mask/Image" => image_mask(m)?,
         "Mask/RangeMask" => {
             let r = m.field("crs:CorrectionRangeMask").unwrap_or(m);
             match text(r, "crs:Type") {
@@ -179,6 +246,14 @@ fn component(m: &XmpValue, aspect: f64) -> Result<Value, String> {
     Ok(json!({"op": op, "invert": invert, "shape": shape}))
 }
 
+/// Whether a local curve (`"x, y"` points, 0..1) is something other than the straight line.
+fn curve_moved(v: &XmpValue) -> bool {
+    v.items().iter().filter_map(XmpValue::text).any(|p| {
+        let q: Vec<f64> = p.split(',').filter_map(|t| t.trim().parse().ok()).collect();
+        matches!(q[..], [x, y] if (x - y).abs() > 1e-3)
+    })
+}
+
 /// Masks in `values` (JSON for `DevelopSettings::masks`), plus the kinds of component that
 /// couldn't be carried over. `aspect` = width / height of the target (presets: assume 3:2).
 pub fn masks(values: &Values, aspect: f64) -> (Vec<Value>, Vec<String>) {
@@ -191,6 +266,16 @@ pub fn masks(values: &Values, aspect: f64) -> (Vec<Value>, Vec<String>) {
                 continue;
             }
             let comps = c.field("crs:CorrectionMasks").map(XmpValue::items).unwrap_or_default();
+            // local adjustments LightCraft's masks don't have yet: say so rather than drop them silently
+            if c.field("crs:LocalPointColors").is_some_and(|v| !v.items().is_empty()) {
+                skipped.push("adjustment: Point Color (in a mask)".to_string());
+            }
+            if ["crs:MainCurve", "crs:RedCurve", "crs:GreenCurve", "crs:BlueCurve"].iter().any(|k| c.field(k).is_some_and(curve_moved)) {
+                skipped.push("adjustment: Curve (in a mask)".to_string());
+            }
+            if num(c, "crs:LocalGrain").is_some_and(|g| g.abs() > 1e-6) {
+                skipped.push("adjustment: Grain (in a mask)".to_string());
+            }
             let mut parts = Vec::new();
             for m in comps {
                 match component(m, aspect) {
@@ -474,12 +559,76 @@ mod tests {
             lightcraft_develop::Preset { id: "t".into(), name: "t".into(), group: "g".into(), settings: partial, favorite: false, builtin: false };
         let mut mine = DevelopSettings::default();
         mine.masks.push(lightcraft_develop::Mask { id: 7, name: "Mine".into(), ..Default::default() });
-        let once = p.apply(&mine, 1.0);
+        let once = p.apply(&mine, 1.0, 1.5);
         assert_eq!(once.masks.len(), 4, "added to the photo's own mask");
         assert_eq!(once.masks[1].id, 8, "fresh ids");
-        assert_eq!(p.apply(&once, 1.0).masks.len(), 4, "applying again adds nothing");
-        let half = p.apply(&mine, 0.5);
+        assert_eq!(p.apply(&once, 1.0, 1.5).masks.len(), 4, "applying again right away replaces its own masks");
+        let half = p.apply(&mine, 0.5, 1.5);
         assert_eq!(half.masks[1].adjust.amount, 50.0, "amount scales the masks");
+    }
+
+    /// Lightroom's AI masks as Lightroom Classic writes them in presets (structure as LrC 15
+    /// writes it; values made up for this test): Background minus a gradient, People parts by
+    /// category id and by name, an Objects mask, a Landscape class, local Point Color.
+    const AI_PRESET: &str = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/">
+ <crs:MaskGroupBasedCorrections><rdf:Seq>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionAmount="1" crs:CorrectionName="Warm back" crs:LocalTemperature="0.2">
+   <crs:CorrectionMasks><rdf:Seq>
+    <rdf:li crs:What="Mask/Image" crs:MaskName="Background 1" crs:MaskBlendMode="0" crs:MaskSubType="0" crs:MaskSubCategoryID="22"/>
+    <rdf:li crs:What="Mask/Gradient" crs:MaskBlendMode="1" crs:FullX="0.5" crs:FullY="1" crs:ZeroX="0.5" crs:ZeroY="0.6"/>
+   </rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Suit" crs:LocalSaturation="0.3">
+   <crs:LocalPointColors><rdf:Seq><rdf:li>4.5, 0.4, 0.3, 0, -1, 0, 1, 0.01, 0.01, 1, 1, 0, 0.2, 0.7, 1, 0, 0.2, 0.7, 1</rdf:li></rdf:Seq></crs:LocalPointColors>
+   <crs:CorrectionMasks><rdf:Seq>
+    <rdf:li crs:What="Mask/Image" crs:MaskName="Clothes" crs:MaskSubType="3" crs:MaskSubCategoryID="11"/>
+    <rdf:li><rdf:Description crs:What="Mask/RangeMask" crs:MaskBlendMode="1" crs:MaskInverted="true">
+     <crs:CorrectionRangeMask crs:Type="2" crs:LumRange="0.1 0.2 1 1"/></rdf:Description></rdf:li>
+   </rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Face" crs:LocalTexture="-0.2">
+   <crs:CorrectionMasks><rdf:Seq>
+    <rdf:li crs:What="Mask/Image" crs:MaskName="Person 1 - Lips" crs:MaskSubType="3" crs:MaskSubCategoryID="6"/>
+    <rdf:li crs:What="Mask/Image" crs:MaskName="Person 1 - Eyebrows" crs:MaskSubType="3" crs:MaskSubCategoryID="77"/>
+    <rdf:li crs:What="Mask/Image" crs:MaskName="Object 1" crs:MaskSubType="4"/>
+   </rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+  <rdf:li><rdf:Description crs:What="Correction" crs:CorrectionName="Lake">
+   <crs:CorrectionMasks><rdf:Seq><rdf:li crs:What="Mask/Image" crs:MaskName="Water 1" crs:MaskSubType="7" crs:MaskSubCategoryID="3"/></rdf:Seq></crs:CorrectionMasks>
+  </rdf:Description></rdf:li>
+ </rdf:Seq></crs:MaskGroupBasedCorrections>
+</rdf:Description></rdf:RDF></x:xmpmeta>"#;
+
+    #[test]
+    fn lightroom_ai_masks_become_recipes() {
+        let d = lightcraft_meta::parse_xmp(AI_PRESET).unwrap();
+        let (partial, unmapped) = crate::crs::to_partial_report(&d.properties, Some(&d.values), crate::crs::Target::Any, 1.5);
+        let s = DevelopSettings::default().merged(&partial).expect("valid settings");
+        assert_eq!(s.masks.len(), 4);
+        let back = &s.masks[0];
+        assert_eq!(back.components[0].shape, MaskShape::Background { seg: None });
+        assert_eq!(back.components[1].op, MaskOp::Subtract);
+        let suit = &s.masks[1];
+        assert!(
+            matches!(&suit.components[0].shape, MaskShape::People { person: 0, parts, who: None, seg: None } if parts == &["Clothes".to_string()])
+        );
+        // Lightroom's "intersect with" (subtract the inverted range) keeps its meaning
+        assert!(suit.components[1].op == MaskOp::Subtract && suit.components[1].invert);
+        let face = &s.masks[2];
+        let parts: Vec<String> = face
+            .components
+            .iter()
+            .filter_map(|c| match &c.shape {
+                MaskShape::People { parts, .. } => parts.first().cloned(),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(parts, vec!["Lips".to_string(), "Eyebrows".to_string()], "by id, else by name");
+        assert_eq!(s.masks[3].components[0].shape, MaskShape::Landscape { class: "water".into(), seg: None });
+        assert!(unmapped.iter().any(|u| u.contains("Objects")), "{unmapped:?}");
+        assert!(unmapped.iter().any(|u| u.contains("Point Color")), "{unmapped:?}");
+        assert!(!unmapped.iter().any(|u| u.contains("AI mask (0") || u.contains("AI mask (3")), "{unmapped:?}");
     }
 
     #[test]
