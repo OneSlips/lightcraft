@@ -2118,5 +2118,21 @@
   "Adding to Apple Photos": "Wird zu Apple Fotos hinzugefügt",
   "No graphics processor found: LightCraft renders on the CPU, which is much slower. Details in Help → System Info.": "Kein Grafikprozessor gefunden: LightCraft rendert auf der CPU, was viel langsamer ist. Details unter Hilfe → Systeminformationen.",
   "On NixOS, start it from `nix develop`.": "Unter NixOS starten Sie es aus `nix develop`.",
-  "Files with the same content as another file in this import: only the first is imported.": "Dateien mit demselben Inhalt wie eine andere Datei dieses Imports: Nur die erste wird importiert."
+  "Files with the same content as another file in this import: only the first is imported.": "Dateien mit demselben Inhalt wie eine andere Datei dieses Imports: Nur die erste wird importiert.",
+  "Sensor": "Sensor",
+  "Fix hot and dead pixels": "Heiße und tote Pixel korrigieren",
+  "Replace single stuck, hot or dead sensor pixels. Pixels this camera has shown in several photos are always fixed.": "Ersetzt einzelne hängende, heiße oder tote Sensorpixel. Pixel, die diese Kamera in mehreren Fotos gezeigt hat, werden immer korrigiert.",
+  "Remove Dust": "Staub entfernen",
+  "Remove Dust from Selected": "Staub aus Auswahl entfernen",
+  "Heal the small, soft dark spots sensor dust leaves on smooth areas, and the dust this camera is known to have": "Heilt die kleinen, weichen dunklen Flecken, die Sensorstaub auf glatten Flächen hinterlässt, und den bekannten Staub dieser Kamera",
+  "Even Out": "Ausgleichen",
+  "Camera Sensor": "Kamerasensor",
+  "Rebuild Hot Pixel Map": "Karte heißer Pixel neu erstellen",
+  "Rebuild Sensor Dust Map": "Sensorstaub-Karte neu erstellen",
+  "Mapping hot pixels": "Heiße Pixel werden erfasst",
+  "Mapping sensor dust": "Sensorstaub wird erfasst",
+  "Removing dust": "Staub wird entfernt",
+  "Fix Hot and Dead Pixels": "Heiße und tote Pixel korrigieren",
+  "Remove dust on import": "Beim Import Staub entfernen",
+  "After an import, Remove Dust runs on the new raw photos in the background (their camera's dust map included).": "Nach einem Import läuft „Staub entfernen“ im Hintergrund über die neuen Raw-Fotos (mit der Staubkarte ihrer Kamera)."
 }

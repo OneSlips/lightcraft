@@ -2084,9 +2084,18 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     for (i, s) in d.spots.iter().enumerate() {
         let r = (s.size * long) as f32;
         let sel = Some(i) == active;
-        let col = Color32::from_white_alpha(if sel { 230 } else { 150 });
+        // Remove Dust's spots: amber (the camera's known dust) or yellow (found in this photo alone); with Visualize
+        // Spots on they stand out more
+        let col = match s.auto {
+            Some(a) => {
+                let alpha = if sel || app.ui.visualize_spots { 255 } else { 190 };
+                if a.confirmed { Color32::from_rgba_unmultiplied(255, 166, 0, alpha) } else { Color32::from_rgba_unmultiplied(255, 228, 92, alpha) }
+            }
+            None => Color32::from_white_alpha(if sel { 230 } else { 150 }),
+        };
+        let width = if sel || (s.auto.is_some() && app.ui.visualize_spots) { 2.0 } else { 1.0 };
         for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+            p.circle_stroke(map.screen(*q), r, Stroke::new(width, col));
         }
         let Some(&t) = s.points.first() else { continue };
         let tq = map.screen(t);

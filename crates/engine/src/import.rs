@@ -310,6 +310,9 @@ pub struct ImportDefaults {
     pub auto_folder: Option<String>,
     pub auto_copy: bool,
     pub auto_album: Option<String>,
+    /// After an import, Remove Dust runs on the new raw photos in the background (`spot.findDust`; off by default).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub remove_dust: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1388,6 +1391,15 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
     }
     if !placed.is_empty() {
         finish_moves(s, placed, log0, &mut report);
+    }
+    if s.import_defaults.remove_dust {
+        let raws: Vec<lightcraft_catalog::PhotoId> = report
+            .imported
+            .iter()
+            .map(|id| lightcraft_catalog::PhotoId(*id))
+            .filter(|id| s.catalog.photo(*id).is_some_and(|p| p.develops_raw()))
+            .collect();
+        crate::cmd::sensor::remove_dust_after_import(s, raws);
     }
     Ok(report)
 }

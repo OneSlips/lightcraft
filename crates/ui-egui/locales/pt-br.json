@@ -1998,5 +1998,21 @@
   "Recognition models": "Modelos de reconhecimento",
   "No graphics processor found: LightCraft renders on the CPU, which is much slower. Details in Help → System Info.": "Nenhum processador gráfico encontrado: o LightCraft renderiza na CPU, o que é muito mais lento. Detalhes em Ajuda → Informações do sistema.",
   "On NixOS, start it from `nix develop`.": "No NixOS, inicie-o a partir de `nix develop`.",
-  "Files with the same content as another file in this import: only the first is imported.": "Arquivos com o mesmo conteúdo de outro arquivo desta importação: apenas o primeiro é importado."
+  "Files with the same content as another file in this import: only the first is imported.": "Arquivos com o mesmo conteúdo de outro arquivo desta importação: apenas o primeiro é importado.",
+  "Sensor": "Sensor",
+  "Fix hot and dead pixels": "Corrigir pixels quentes e mortos",
+  "Replace single stuck, hot or dead sensor pixels. Pixels this camera has shown in several photos are always fixed.": "Substitui pixels isolados do sensor travados, quentes ou mortos. Pixels que esta câmera mostrou em várias fotos são sempre corrigidos.",
+  "Remove Dust": "Remover poeira",
+  "Remove Dust from Selected": "Remover poeira da seleção",
+  "Heal the small, soft dark spots sensor dust leaves on smooth areas, and the dust this camera is known to have": "Corrige as pequenas manchas escuras e suaves que a poeira do sensor deixa em áreas lisas, e a poeira conhecida desta câmera",
+  "Even Out": "Uniformizar",
+  "Camera Sensor": "Sensor da câmera",
+  "Rebuild Hot Pixel Map": "Refazer mapa de pixels quentes",
+  "Rebuild Sensor Dust Map": "Refazer mapa de poeira do sensor",
+  "Mapping hot pixels": "Mapeando pixels quentes",
+  "Mapping sensor dust": "Mapeando poeira do sensor",
+  "Removing dust": "Removendo poeira",
+  "Fix Hot and Dead Pixels": "Corrigir pixels quentes e mortos",
+  "Remove dust on import": "Remover poeira ao importar",
+  "After an import, Remove Dust runs on the new raw photos in the background (their camera's dust map included).": "Depois de uma importação, “Remover poeira” roda em segundo plano nas novas fotos raw (com o mapa de poeira da câmera delas)."
 }

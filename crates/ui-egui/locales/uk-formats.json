@@ -247,5 +247,10 @@
   "{n} photos opened for editing; each is stacked with its original": "Відкрито для редагування фото: {n}; кожне об’єднано в стос з оригіналом",
   "{name} opened in the other editor": "{name} відкрито в іншому редакторі",
   "{n} originals opened in the other editor": "Відкрито оригіналів в іншому редакторі: {n}",
-  "· {in_source} identical copies": "· ідентичних копій: {in_source}"
+  "· {in_source} identical copies": "· ідентичних копій: {in_source}",
+  "{} fixed in this photo": "{} виправлено на цьому фото",
+  "{} fixed: {} known for camera {}, {} found in this photo": "{} виправлено: {} відомо для камери {}, {} знайдено на цьому фото",
+  "Removing dust from {n} photos": "Видалення пилу з {n} фото",
+  "Camera {} dust map: {} spots ({} confirmed)": "Карта пилу камери {}: плям — {} (підтверджено — {})",
+  "{} spot(s) from Remove Dust (outlined in amber)": "Плям від «Видалити пил»: {} (обведені бурштиновим)"
 }

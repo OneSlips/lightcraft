@@ -29,6 +29,7 @@ pub mod demo;
 pub mod denoise;
 pub mod devices;
 pub mod display;
+pub mod dust_map;
 pub mod export;
 pub mod face_download;
 #[cfg(not(target_arch = "wasm32"))]
@@ -59,6 +60,7 @@ pub mod presets;
 pub mod proof;
 pub mod rename;
 pub mod segment;
+pub mod sensor_maps;
 pub mod sidecar;
 pub mod smart;
 pub mod sync;
@@ -288,6 +290,8 @@ pub struct Session {
     pub activity: activity::Activity,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
+    /// The camera sensor map build or batch Remove Dust running in the background, or the last one.
+    pub sensor_job: Option<std::sync::Arc<cmd::sensor::SensorJob>>,
     /// Develop defaults applied on import (persisted in prefs.json).
     pub import_defaults: import::ImportDefaults,
     /// Disk budget of the library's thumbnail cache in MB (0 = default; persisted in prefs.json).
@@ -388,6 +392,7 @@ impl Session {
             folder_changes: None,
             activity: Default::default(),
             preview_build: None,
+            sensor_job: None,
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
             smart_previews_dir: None,
@@ -1034,6 +1039,8 @@ mod tests_presets_scale;
 mod tests_process;
 #[cfg(test)]
 mod tests_segment;
+#[cfg(test)]
+mod tests_sensor;
 #[cfg(test)]
 mod tests_settings_files;
 #[cfg(test)]

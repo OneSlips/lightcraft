@@ -247,5 +247,10 @@
   "{n} photos opened for editing; each is stacked with its original": "{n} fotos abiertas para editar; cada una está apilada con su original",
   "{name} opened in the other editor": "{name} abierto en el otro editor",
   "{n} originals opened in the other editor": "{n} originales abiertos en el otro editor",
-  "· {in_source} identical copies": "· {in_source} copias idénticas"
+  "· {in_source} identical copies": "· {in_source} copias idénticas",
+  "{} fixed in this photo": "{} corregidos en esta foto",
+  "{} fixed: {} known for camera {}, {} found in this photo": "{} corregidos: {} conocidos de la cámara {}, {} encontrados en esta foto",
+  "Removing dust from {n} photos": "Quitando polvo de {n} fotos",
+  "Camera {} dust map: {} spots ({} confirmed)": "Mapa de polvo de la cámara {}: {} manchas ({} confirmadas)",
+  "{} spot(s) from Remove Dust (outlined in amber)": "{} mancha(s) de «Quitar polvo» (contorno ámbar)"
 }

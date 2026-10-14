@@ -92,6 +92,27 @@ pub struct SourceInfo {
     /// The raw's own local tone mapping (DNG `ProfileGainTableMap`), rendered only when the
     /// photo's Profile option asks for it ([`local_tone`]).
     pub local_tone: Option<Arc<local_tone::LocalTone>>,
+    /// Raw sources: what was done about hot, dead and stuck pixels before demosaic (`None`: not a raw).
+    pub pixels: Option<PixelRepair>,
+}
+
+/// Hot, dead and stuck pixels corrected on a raw's mosaic while it was decoded.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PixelRepair {
+    /// Whether correction was on (the photo's `sensor.pixelFix`).
+    pub on: bool,
+    /// The camera body's key (`lightcraft_engine::sensor_maps::body_key`), when known.
+    pub body: Option<String>,
+    /// Samples corrected from the body's map, and found in this photo alone.
+    pub from_map: u32,
+    pub found: u32,
+    /// The file's own orientation (the source is developed upright from it) and the developed sensor area's size
+    /// before it: what turns a position on the photo into one on the sensor (sensor dust).
+    pub orientation: lightcraft_geom::Orientation,
+    pub developed: [usize; 2],
+    /// The full raw data size and camera model (what a body's map is for).
+    pub sensor: [usize; 2],
+    pub model: String,
 }
 
 impl Default for SourceInfo {
@@ -107,6 +128,7 @@ impl Default for SourceInfo {
             camera_tone: None,
             mattes: None,
             local_tone: None,
+            pixels: None,
         }
     }
 }

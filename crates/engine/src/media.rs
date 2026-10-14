@@ -350,6 +350,11 @@ pub struct MediaCache {
     pub rendered: Arc<PreviewCache>,
     /// Which photos have a cached denoised picture, and how to read it.
     pub denoise: DenoiseIndex,
+    /// The loaders for photos whose `sensor.pixelFix` is off (plain and with a denoised picture): they decode raws
+    /// without correcting hot, dead and stuck pixels. `None`: such photos load like the others.
+    pub unfixed: Option<(FileLoader, PairLoader)>,
+    /// The camera bodies' corrections the decoded sources were made with ([`crate::sensor_maps::generation`]).
+    sensor_generation: u64,
 }
 
 /// The photos that have a cached denoised picture for the denoise model in use. Only memory: nothing here touches the
@@ -419,6 +424,8 @@ impl Default for MediaCache {
             scenes: Vec::new(),
             rendered: Arc::new(PreviewCache::memory(rendered_budget(budget))),
             denoise: DenoiseIndex::default(),
+            unfixed: None,
+            sensor_generation: 0,
         }
     }
 }
@@ -537,6 +544,16 @@ impl MediaCache {
     }
 
     fn get_source(&mut self, id: PhotoId, level: SourceLevel) -> Option<DecodedSource> {
+        // a camera body's corrections changed (a pixel was confirmed): raws decoded before are out of date
+        let generation = crate::sensor_maps::generation();
+        if generation != self.sensor_generation {
+            if self.sensor_generation != 0 {
+                self.thumbs = Lru::new(THUMB_SOURCE_BYTES.min(self.budget));
+                self.previews.clear();
+                self.full.clear();
+            }
+            self.sensor_generation = generation;
+        }
         match level {
             SourceLevel::Thumb => self.thumbs.get(&id).cloned(),
             SourceLevel::Preview => self.previews.iter_mut().find(|e| e.0 == id).map(|e| {
@@ -650,11 +667,25 @@ impl MediaCache {
         if let (SourceRef::File { denoise, .. }, Some((spec, loader))) = (&mut r, self.denoise.get(p.id)) {
             *denoise = Some((spec.clone(), loader.clone()));
         }
+        // hot, dead and stuck pixels left as they are: the loaders that don't correct them
+        if !p.develop.sensor.fixes_pixels()
+            && let (SourceRef::File { loader, denoise, .. }, Some((plain, pair))) = (&mut r, &self.unfixed)
+        {
+            *loader = Some(plain.clone());
+            if let Some((_, l)) = denoise {
+                *l = pair.clone();
+            }
+        }
         r
     }
 
+    /// Whether a decoded source was made the way photo `p` asks (hot, dead and stuck pixels corrected or not).
+    fn fits_pixels(src: &DecodedSource, p: &Photo) -> bool {
+        src.info.as_ref().and_then(|i| i.pixels.as_ref()).is_none_or(|r| r.on == p.develop.sensor.fixes_pixels())
+    }
+
     fn source_ref_plain(&mut self, p: &Photo, level: SourceLevel, cached: bool) -> SourceRef {
-        if cached && let Some(a) = self.get_source(p.id, level) {
+        if cached && let Some(a) = self.get_source(p.id, level).filter(|a| Self::fits_pixels(a, p)) {
             return SourceRef::Loaded(Box::new(a));
         }
         // a thumbnail of a photo whose preview is decoded (the one in the loupe) is cut from it; not
@@ -662,7 +693,7 @@ impl MediaCache {
         if cached
             && level == SourceLevel::Thumb
             && self.denoise.spec(p.id).is_none()
-            && let Some(big) = self.get_source(p.id, SourceLevel::Preview)
+            && let Some(big) = self.get_source(p.id, SourceLevel::Preview).filter(|a| Self::fits_pixels(a, p))
         {
             return SourceRef::Fit { from: Box::new(big), max_edge: level.max_edge() };
         }
@@ -1169,7 +1200,12 @@ impl crate::Session {
             ^ salt;
         let cache = thumb_bucket.map(|b| {
             let mut k = Hasher128::new();
-            k.str(&content_key).u64(settings_hash).u64(b as u64).u64(RENDER_CACHE_VERSION).u64(crate::camera_profiles::cache_key());
+            k.str(&content_key)
+                .u64(settings_hash)
+                .u64(b as u64)
+                .u64(RENDER_CACHE_VERSION)
+                .u64(crate::camera_profiles::cache_key())
+                .u64(crate::sensor_maps::generation());
             // (only a render that uses a denoised picture has it in its key, so every other thumbnail stays valid)
             if salt != 0 {
                 k.u64(salt);
@@ -1213,6 +1249,7 @@ impl crate::Session {
             .u64(edge as u64)
             .u64(RENDER_CACHE_VERSION)
             .u64(crate::camera_profiles::cache_key())
+            .u64(crate::sensor_maps::generation())
             .finish()
     }
 
@@ -1301,6 +1338,7 @@ impl crate::Session {
             .u64(apply_crop as u64)
             .u64(RENDER_CACHE_VERSION)
             .u64(crate::camera_profiles::cache_key())
+            .u64(crate::sensor_maps::generation())
             .finish()
     }
 
@@ -1599,6 +1637,7 @@ mod thumbnail_hash_tests {
                 .u64(b as u64)
                 .u64(RENDER_CACHE_VERSION)
                 .u64(crate::camera_profiles::cache_key())
+                .u64(crate::sensor_maps::generation())
                 .finish();
             let job = s.thumb_job(p.id, edge).unwrap();
             assert_eq!(job.key, expected);
@@ -2040,6 +2079,7 @@ mod tests {
             points: vec![lightcraft_geom::Point::new(0.2, 0.5)],
             size: 0.01,
             source_offset: Some(lightcraft_geom::Point::new(0.6, 0.0)),
+            auto: None,
             ..Default::default()
         });
         s.set_develop(id, d, "Spot").unwrap();

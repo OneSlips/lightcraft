@@ -352,6 +352,36 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         {
             control(app, ui, d, c, true);
         }
+        // hot, dead and stuck pixels: fixed on the raw data while it is read (raw files only)
+        if app.session.catalog.photo(id).is_some_and(|p| p.develops_raw()) {
+            sub_title(ui, crate::i18n::tr("Sensor"));
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+                let mut on = d.sensor.fixes_pixels();
+                let r = ui.checkbox(&mut on, crate::i18n::tr("Fix hot and dead pixels")).on_hover_text(crate::i18n::tr(
+                    "Replace single stuck, hot or dead sensor pixels. Pixels this camera has shown in several photos are always fixed.",
+                ));
+                crate::widgets::register(ui.ctx(), "check:sensor.pixelFix", r.rect);
+                if r.changed() {
+                    let _ = app.run("develop.set", json!({"control": "sensor.pixelFix", "value": if on { 1.0 } else { 0.0 }}));
+                }
+                let px = app.session.source_info(id).pixels;
+                if let Some(px) = px.filter(|p| p.on) {
+                    let label = px.body.as_deref().map(lightcraft_engine::sensor_maps::body_label).unwrap_or_default();
+                    let text = if label.is_empty() {
+                        crate::i18n::tr_format!("{} fixed in this photo", px.found)
+                    } else {
+                        crate::i18n::tr_format!(
+                            "{} fixed: {} known for camera {}, {} found in this photo",
+                            px.from_map + px.found,
+                            px.from_map,
+                            label,
+                            px.found
+                        )
+                    };
+                    ui.label(egui::RichText::new(text).size(11.0).color(Tokens::get(ui.ctx()).text_dim));
+                }
+            });
+        }
         ui.add_space(8.0);
     });
     section(app, ui, &d, "optics", "Optics", |app, ui, d| {

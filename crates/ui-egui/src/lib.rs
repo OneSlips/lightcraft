@@ -1075,6 +1075,7 @@ impl LightcraftApp {
         }
         self.session.persist_if_dirty();
         panels::denoise::pump(self, ctx);
+        panels::right::dust_pump(self, ctx);
         model_setup::pump(self, ctx);
         panels::faces::pump(self, ctx);
         self.collect_screenshots(ctx);

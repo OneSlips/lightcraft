@@ -2151,5 +2151,21 @@
   "Adding to Apple Photos": "Добавление в Apple Фото",
   "No graphics processor found: LightCraft renders on the CPU, which is much slower. Details in Help → System Info.": "Графический процессор не найден: LightCraft выполняет рендеринг на CPU, а это намного медленнее. Подробности: Справка → Сведения о системе.",
   "On NixOS, start it from `nix develop`.": "В NixOS запускайте его из `nix develop`.",
-  "Files with the same content as another file in this import: only the first is imported.": "Файлы с тем же содержимым, что и другой файл этого импорта: импортируется только первый."
+  "Files with the same content as another file in this import: only the first is imported.": "Файлы с тем же содержимым, что и другой файл этого импорта: импортируется только первый.",
+  "Sensor": "Сенсор",
+  "Fix hot and dead pixels": "Исправлять горячие и битые пиксели",
+  "Replace single stuck, hot or dead sensor pixels. Pixels this camera has shown in several photos are always fixed.": "Заменяет отдельные застрявшие, горячие или битые пиксели сенсора. Пиксели, которые эта камера показала на нескольких фото, исправляются всегда.",
+  "Remove Dust": "Удалить пыль",
+  "Remove Dust from Selected": "Удалить пыль с выбранных",
+  "Heal the small, soft dark spots sensor dust leaves on smooth areas, and the dust this camera is known to have": "Убирает небольшие мягкие тёмные пятна, которые пыль на сенсоре оставляет на ровных участках, и известную пыль этой камеры",
+  "Even Out": "Выровнять",
+  "Camera Sensor": "Сенсор камеры",
+  "Rebuild Hot Pixel Map": "Пересобрать карту горячих пикселей",
+  "Rebuild Sensor Dust Map": "Пересобрать карту пыли сенсора",
+  "Mapping hot pixels": "Поиск горячих пикселей",
+  "Mapping sensor dust": "Поиск пыли на сенсоре",
+  "Removing dust": "Удаление пыли",
+  "Fix Hot and Dead Pixels": "Исправлять горячие и битые пиксели",
+  "Remove dust on import": "Удалять пыль при импорте",
+  "After an import, Remove Dust runs on the new raw photos in the background (their camera's dust map included).": "После импорта «Удалить пыль» выполняется в фоне для новых raw-фото (с картой пыли их камеры)."
 }

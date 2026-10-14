@@ -247,5 +247,10 @@
   "{n} photos opened for editing; each is stacked with its original": "{n}枚の写真を編集用に開きました。それぞれ元の写真とスタックされています",
   "{name} opened in the other editor": "{name}を別のエディタで開きました",
   "{n} originals opened in the other editor": "{n}個の元ファイルを別のエディタで開きました",
-  "· {in_source} identical copies": "・同一のコピー {in_source} 件"
+  "· {in_source} identical copies": "・同一のコピー {in_source} 件",
+  "{} fixed in this photo": "この写真で {} 個を補正",
+  "{} fixed: {} known for camera {}, {} found in this photo": "{} 個を補正（既知 {} 個・カメラ {}、この写真で検出 {} 個）",
+  "Removing dust from {n} photos": "{n} 枚の写真からダストを除去中",
+  "Camera {} dust map: {} spots ({} confirmed)": "カメラ {} のダストマップ: {} 箇所（確認済み {}）",
+  "{} spot(s) from Remove Dust (outlined in amber)": "「ダストを除去」によるスポット {} 個（琥珀色の枠）"
 }

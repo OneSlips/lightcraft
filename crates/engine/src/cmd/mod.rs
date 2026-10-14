@@ -33,6 +33,7 @@ mod prefs;
 mod preset_files;
 pub mod previews;
 mod query;
+pub mod sensor;
 mod sync;
 mod xmp;
 
@@ -129,6 +130,7 @@ macro_rules! cmd {
     };
 }
 pub(crate) use cmd;
+pub use masks::SPOT_SIZE;
 
 pub fn command_specs() -> &'static [CommandSpec] {
     static SPECS: std::sync::OnceLock<Vec<CommandSpec>> = std::sync::OnceLock::new();
@@ -162,6 +164,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(geocode::specs());
         v.extend(filters::specs());
         v.extend(denoise::specs());
+        v.extend(sensor::specs());
         v.extend(face_models::specs());
         v.extend(face_detect::specs());
         v.extend(face_recognize::specs());
