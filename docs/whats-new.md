@@ -1,5 +1,20 @@
 # What's new in LightCraft
 
+## 2026-10-14
+
+### Control surfaces: the Logitech MX Creative Console
+- Turn dials and press keys on a Logitech MX Creative Console to edit: the dial moves Exposure, Temp, a mask's
+  sliders or the brush size, accelerating when you turn fast, and each turn is one undo step. With "Dials change
+  every selected photo" a turn edits all of them at once.
+- The keypad follows what you do: Crop puts crop keys on it and Straighten on the dial, Masking its mask tools, a
+  dialog OK and Cancel. A readout in the window shows the value as you turn.
+- Settings, Controls holds it all: six ready profiles (Default, Wedding, Portrait, Fashion, Landscape, Real Estate),
+  a layout editor where you touch a key on the console to change what it does, dial speed per slider, and pairing:
+  a new console shows a code you approve once.
+- Coming from TactileBridge? One click brings your dial tuning, readout, colours and tool layouts over.
+- It is TactileBridge's engine, contributed by its author; the console connects through the LightCraft plugin for
+  Logi Options+.
+
 ## 2026-10-13
 
 ### Slider drags on large raws

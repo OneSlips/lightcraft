@@ -665,30 +665,26 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
     if let Some(c) = field(&root, "controls") {
         if let Some(x) = num(c, "globalSpeedMultiplier") {
             s.motion.speed = x;
-            line(&mut r, "Global speed", "Dial feel ▸ Speed", "");
+            line(&mut r, "Global speed", "Dial Feel ▸ Speed", "");
         }
         if let Some(x) = num(c, "globalAccelerationMultiplier") {
             s.motion.acceleration = x;
-            line(&mut r, "Global acceleration", "Dial feel ▸ Acceleration", "");
+            line(&mut r, "Global acceleration", "Dial Feel ▸ Acceleration", "");
         }
         if let Some(x) = boolean(c, "invertDirection") {
             s.motion.invert = x;
-            line(&mut r, "Invert dial direction", "Dial feel ▸ Turn the other way", "");
+            line(&mut r, "Invert dial direction", "Dial Feel ▸ Turn every dial the other way", "");
         }
         if let Some(x) = boolean(c, "enableEchoSuppression") {
             s.transport.echo_suppression = x;
         }
         if let Some(x) = int(c, "echoSuppressionMs") {
             s.transport.echo_suppression_ms = x;
-            line(&mut r, "Echo suppression", "Timing ▸ Steady readout while turning", "");
+            line(&mut r, "Echo suppression", "Editing ▸ Keep the surface's readout steady while turning", "");
         }
         if let Some(Value::Object(profiles)) = field(c, "adjustmentProfiles") {
             for (key, t) in profiles {
                 let from = format!("Tuning: {key}");
-                let Some(Binding::Value { target }) = binding_of(key) else {
-                    r.dropped.push(ReportLine { from, to: String::new(), note: "no LightCraft value to tune".into() });
-                    continue;
-                };
                 let d = Tuning::default();
                 let tuning = Tuning {
                     speed: num(t, "speedMultiplier").unwrap_or(d.speed),
@@ -700,17 +696,23 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
                     invert: boolean(t, "invertDirection").unwrap_or(false),
                 }
                 .sanitized();
-                if tuning != Tuning::default() {
-                    r.mapped.push(ReportLine { from, to: format!("Tuning: {target}"), note: String::new() });
-                    s.tuning.insert(target, tuning);
+                // an untouched (default) tuning carries nothing to bring over
+                if tuning == Tuning::default() {
+                    continue;
                 }
+                let Some(Binding::Value { target }) = binding_of(key) else {
+                    r.dropped.push(ReportLine { from, to: String::new(), note: "no LightCraft value to tune".into() });
+                    continue;
+                };
+                r.mapped.push(ReportLine { from, to: format!("Tuning: {target}"), note: String::new() });
+                s.tuning.insert(target, tuning);
             }
         }
     }
     if let Some(b) = field(&root, "bridge") {
         if let Some(x) = int(b, "flushIntervalMs") {
             s.transport.flush_ms = x;
-            line(&mut r, "Flush interval", "Timing ▸ Apply dial movement every", "");
+            line(&mut r, "Flush interval", "Editing ▸ Apply movement every", "");
         }
         for k in ["idleReconcileDelayMs", "stateRetentionMs", "periodicValuePollMs", "enableCoalescingDiagnostics"] {
             if b.get(k).is_some() {
@@ -728,7 +730,7 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
         }
         if let Some(x) = boolean(h, "enableLedIndicator") {
             s.look.show_values = x;
-            line(&mut r, "LED value indicator", "Surface ▸ Show values on the device", "");
+            line(&mut r, "LED value indicator", "Surface ▸ Show values on the keys and the dial display", "");
         }
     }
     if let Some(o) = field(&root, "osd") {
@@ -752,7 +754,7 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
                 _ => OsdPosition::Bottom,
             };
         }
-        line(&mut r, "On-screen display", "On-screen readout", "drawn inside the LightCraft window");
+        line(&mut r, "On-screen display", "On-Screen Readout", "drawn inside the LightCraft window");
     }
     if let Some(c) = field(&root, "pluginColors") {
         if let Some(x) = c.get("backgroundColor").and_then(Value::as_str) {
@@ -761,11 +763,11 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
         if let Some(x) = c.get("foregroundColor").and_then(Value::as_str) {
             s.look.foreground = hex_color(x, "#FFFFFF");
         }
-        line(&mut r, "Plugin colours", "Surface ▸ Key colours", "");
+        line(&mut r, "Plugin colours", "Surface ▸ Key background, Key text", "");
     }
     if let Some(x) = field(&root, "toolSwitching").and_then(|t| boolean(t, "enabled")) {
         s.follow_context = x;
-        line(&mut r, "Automatic tool switching", "Pages follow what LightCraft shows", "");
+        line(&mut r, "Automatic tool switching", "Pages That Follow the App", "");
     }
     if let Some(a) = field(&root, "autoSync") {
         if let Some(x) = boolean(a, "enabled") {
@@ -774,7 +776,7 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
         if let Some(x) = int(a, "idleTimeoutMs") {
             s.transport.gesture_end_ms = x;
         }
-        line(&mut r, "Auto Sync", "Dials change every selected photo", "one undo step per dial gesture");
+        line(&mut r, "Auto Sync", "Editing ▸ Dials change every selected photo", "one undo step per dial gesture");
         if a.get("copyApplyDelayMs").is_some() {
             r.dropped.push(ReportLine {
                 from: "Auto Sync: copy-apply delay".into(),
@@ -787,9 +789,9 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
         let mut p = crate::defaults::profiles().into_iter().find(|p| p.name == "Default").unwrap_or_default();
         p.name = unique_name(s, "TactileBridge");
         p.description = "Imported from TactileBridge".into();
-        // the tool-context pages replace the Default profile's context pages
-        p.contexts.clear();
-        p.pages.retain(|pg| !pg.auto);
+        // TactileBridge's tool layouts take the contexts they cover; LightCraft's own tool pages stay
+        // for the rest (a selected mask, Masking without a tool, …)
+        let mut taken: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         for (tool, m) in ctx {
             let Some(context) = context_of(tool) else {
                 r.dropped.push(ReportLine {
@@ -814,8 +816,25 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
                 }
             }
             let name = if tool == "default" { "Tool: Default".to_string() } else { format!("Tool: {tool}") };
-            p.pages.push(Page { name: name.clone(), groups: Vec::new(), bindings, auto: true });
-            p.contexts.entry(context.to_string()).or_default().push(name);
+            // TactileBridge's default and Select layouts were its everyday ones (Select is Capture
+            // One's normal cursor): ordinary pages, first, so the Keypad's own page 1 shows them; the
+            // other tools' layouts are tool pages shown by their context
+            let everyday = tool == "default" || tool == "Select";
+            let page = Page { name: name.clone(), groups: Vec::new(), bindings, auto: !everyday };
+            if everyday {
+                let at = if tool == "default" { 0 } else { usize::from(p.pages.first().is_some_and(|f| f.name == "Tool: Default")) };
+                p.pages.insert(at.min(p.pages.len()), page);
+                if tool == "default" {
+                    p.contexts.insert("default".into(), vec![name]);
+                }
+            } else {
+                p.pages.push(page);
+                if taken.insert(context.to_string()) {
+                    p.contexts.insert(context.to_string(), vec![name]);
+                } else {
+                    p.contexts.entry(context.to_string()).or_default().push(name);
+                }
+            }
         }
         p.sanitize();
         s.profile = p.name.clone();
@@ -961,6 +980,9 @@ mod tests {
         assert_eq!(p.contexts["crop"], ["Tool: Crop"]);
         let def = p.page("Tool: Default").unwrap();
         assert_eq!(def.bindings["roller"], Binding::value("wb.temp"));
+        assert!(!def.auto && p.pages[0].name == "Tool: Default", "TactileBridge's default layout is the first ordinary page");
+        assert_eq!(p.contexts["default"], ["Tool: Default"]);
+        assert!(p.page("Tool: Crop").unwrap().auto);
         assert!(r.dropped.iter().any(|l| l.from.contains("Draw Annotations")));
         assert!(r.dropped.iter().any(|l| l.from == "Tuning: PenSize"));
         assert!(r.dropped.iter().any(|l| l.from.contains("idleReconcileDelayMs")));
