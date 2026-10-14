@@ -292,7 +292,7 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
             p.rect_filled(pill, 7.0, fill);
             closed_eye_icon(&p, pos2(pill.left() + 10.0, pill.center().y), 11.0, Color32::WHITE);
             p.galley(pos2(pill.left() + 19.0, pill.center().y - g.size().y / 2.0), g, Color32::WHITE);
-            register(ui.ctx(), &format!("eyes:closed:{i}"), pill);
+            register(ui.ctx(), format!("eyes:closed:{i}"), pill);
         }
         // the person's verdict: sharp and open is a keeper
         let v = pos2(r.left() + 8.0, r.top() + 8.0);

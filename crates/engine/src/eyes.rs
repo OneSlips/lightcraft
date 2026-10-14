@@ -922,7 +922,7 @@ mod tests {
                         d.score
                     );
                     if let Some((rgb, cw, ch, _, _)) = face_crop(&img, &full) {
-                        let data = rgb.chunks_exact(3).map(|c| [c[0], c[1], c[2], 255]).collect();
+                        let data = rgb.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2], 255]).collect();
                         let face = Rgba8 { width: cw, height: ch, data };
                         let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&face), &Default::default()).unwrap();
                         std::fs::write(
