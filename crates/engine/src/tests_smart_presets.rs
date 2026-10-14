@@ -258,3 +258,26 @@ fn hostile_parameters_are_errors() {
     }
     assert!(s.execute("concepts.list", &json!({})).unwrap()["concepts"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn smart_presets_export_as_lightroom_xmp_and_import_back_unchanged() {
+    let mut s = Session::with_demo();
+    let dir = std::env::temp_dir().join(format!("lc-smart-xmp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let r = s.execute("preset.exportXmp", &json!({"id": "lc.smart.sunKissed", "folder": dir.to_string_lossy()})).unwrap();
+    let path = r["written"][0]["path"].as_str().unwrap().to_string();
+    assert!(r["written"][0]["notes"].as_array().unwrap().iter().any(|n| n.as_str().unwrap().contains("follows the people")), "{r}");
+    let bytes = std::fs::read(&path).unwrap();
+    let back = crate::preset_import::read_presets(&path, &bytes, None).unwrap().remove(0);
+    let original = s.presets.iter().find(|p| p.id == "lc.smart.sunKissed").unwrap().settings.clone();
+    assert_eq!(back.preset.settings, original, "the LightCraft recipe survives the round trip");
+    assert_eq!(back.preset.group, "Smart Masks");
+    assert!(back.unmapped.is_empty());
+    let parsed = crate::presets::parse_preset_file(&path, &bytes).unwrap();
+    assert_eq!(parsed[0].settings, original);
+    // the same preset imported again is recognised as already there
+    let r = s.execute("preset.import", &json!({"paths": [path]})).unwrap();
+    assert_eq!(r["imported"].as_array().map_or(0, Vec::len) + r["skipped"].as_u64().unwrap_or(0) as usize, 1, "{r}");
+    assert!(s.execute("preset.exportXmp", &json!({"folder": dir.to_string_lossy()})).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
+}

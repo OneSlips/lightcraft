@@ -26,7 +26,7 @@ pub const NEGATIVES: usize = 16;
 /// Examples a concept keeps (the oldest go first).
 pub const MAX_EXAMPLES: usize = 12;
 /// Below this best cell score nothing is found.
-pub const FOUND: f32 = 0.10;
+pub const FOUND: f32 = 0.15;
 
 /// What one taught photo contributed.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -217,9 +217,7 @@ pub fn score_map(emb: &[f32], side: usize, dim: usize, examples: &[Example], rgb
     if dim == 0 || emb.len() != cells * dim {
         return vec![-1.0; cells];
     }
-    let pos: Vec<&Vec<f32>> = examples.iter().flat_map(|e| &e.positives).filter(|p| p.len() == dim).collect();
-    let neg: Vec<&Vec<f32>> = examples.iter().flat_map(|e| &e.negatives).filter(|p| p.len() == dim).collect();
-    if pos.is_empty() {
+    if !examples.iter().any(|e| e.positives.iter().any(|p| p.len() == dim)) {
         return vec![-1.0; cells];
     }
     let colors = cell_colors(rgb, w, h, side);
@@ -227,17 +225,19 @@ pub fn score_map(emb: &[f32], side: usize, dim: usize, examples: &[Example], rgb
         .map(|k| {
             let Some(v) = emb.get(k * dim..(k + 1) * dim) else { return -1.0 };
             let v = unit(v);
-            let p = pos.iter().map(|q| dot(&v, q)).fold(f32::MIN, f32::max);
-            let n = neg.iter().map(|q| dot(&v, q)).fold(0.0f32, f32::max);
             let c = colors.get(k).copied().unwrap_or_default();
-            let color = examples
+            // each example on its own terms: like what it taught, unlike what was around it there
+            // (a black dress's example knows the groom's black suit was not it), its colours
+            examples
                 .iter()
+                .filter(|e| e.positives.iter().any(|p| p.len() == dim))
                 .map(|e| {
+                    let p = e.positives.iter().filter(|q| q.len() == dim).map(|q| dot(&v, q)).fold(f32::MIN, f32::max);
+                    let n = e.negatives.iter().filter(|q| q.len() == dim).map(|q| dot(&v, q)).fold(0.0f32, f32::max);
                     let d: f32 = (0..3).map(|i| ((c[i] - e.color[i]) / (2.0 * e.spread[i].max(0.04))).powi(2)).sum();
-                    (-d / 3.0).exp()
+                    p - n + 0.15 * ((-d / 3.0).exp() - 0.5)
                 })
-                .fold(0.0f32, f32::max);
-            p - n + 0.1 * (color - 0.5)
+                .fold(-1.0f32, f32::max)
         })
         .collect()
 }
@@ -317,7 +317,7 @@ pub fn find(sam: &Sam2, enc: &Sam2Encoded, examples: &[Example], rgb: &[u8], w: 
     }
     // keep SAM's mask only where the concept's map agrees (dilated by two cells)
     let dil = dilate(&score, side, 2);
-    let gate = (0.35 * best).max(FOUND * 0.5);
+    let gate = (0.5 * best).max(FOUND * 0.5);
     let logits = p
         .logits
         .iter()
@@ -328,6 +328,19 @@ pub fn find(sam: &Sam2, enc: &Sam2Encoded, examples: &[Example], rgb: &[u8], w: 
         })
         .collect::<Vec<f32>>();
     if logits.iter().all(|l| *l <= 0.0) {
+        return Ok(None);
+    }
+    // SAM selects whole things: when what it drew is mostly not like the concept (it grew from a
+    // stray seed into a person or a wall), it isn't the concept
+    let (mut inside, mut n) = (0.0f32, 0usize);
+    for (i, l) in logits.iter().enumerate() {
+        if *l > 0.0 {
+            let (u, v) = (((i % mask_side) as f32 + 0.5) / mask_side as f32, ((i / mask_side) as f32 + 0.5) / mask_side as f32);
+            inside += dilated_at(&score, side, u, v);
+            n += 1;
+        }
+    }
+    if n == 0 || inside / (n as f32) < 0.45 * best {
         return Ok(None);
     }
     Ok(Some(Found { logits, mask_side, score: best, seeds: picks }))

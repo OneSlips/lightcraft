@@ -43,6 +43,68 @@ pub struct Signature {
     /// An identity embedding from an optional face-recognition model (L2-normalized).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding: Option<Vec<f32>>,
+    /// SAM 2.1 image features pooled over the person (body: their part of the photo where Selfie
+    /// Multiclass sees a person; face: the face box), L2-normalized: appearance beyond colour
+    /// (cut, fabric, beard, hair style).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<Vec<f32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub face: Option<Vec<f32>>,
+}
+
+fn unit(v: Vec<f32>) -> Option<Vec<f32>> {
+    let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    (n.is_finite() && n > 1e-9).then(|| v.into_iter().map(|x| x / n).collect())
+}
+
+/// Pool a channel-last image embedding (`side² × dim` over the stretched photo) over
+/// `faces[index]`'s body and face: `(body, face)` features for [`Signature::body`] /
+/// [`Signature::face`]. `w × h` are the photo's pixels the faces are in.
+pub fn features(
+    emb: &[f32],
+    side: usize,
+    dim: usize,
+    faces: &[Face],
+    index: usize,
+    map: Option<&PeopleMap>,
+    w: usize,
+    h: usize,
+) -> (Option<Vec<f32>>, Option<Vec<f32>>) {
+    let Some(face) = faces.get(index) else { return (None, None) };
+    if side == 0 || dim == 0 || emb.len() != side * side * dim || w == 0 || h == 0 {
+        return (None, None);
+    }
+    let d = &face.detection;
+    let (fx0, fy0, fx1, fy1) = (d.x0 / w as f32, d.y0 / h as f32, d.x1 / w as f32, d.y1 / h as f32);
+    let (mut body, mut fac) = (vec![0f32; dim], vec![0f32; dim]);
+    let (mut nb, mut nf) = (0usize, 0usize);
+    for k in 0..side * side {
+        let (u, v) = (((k % side) as f32 + 0.5) / side as f32, ((k / side) as f32 + 0.5) / side as f32);
+        let Some(cell) = emb.get(k * dim..(k + 1) * dim) else { continue };
+        let n = cell.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-9);
+        let in_face = u >= fx0 && u <= fx1 && v >= fy0 && v <= fy1;
+        if in_face {
+            fac.iter_mut().zip(cell).for_each(|(a, b)| *a += b / n);
+            nf += 1;
+        }
+        // the body: below the face, the person's own part of the photo, a person per the map
+        let below = v > fy1 && v < fy1 + 5.0 * (fy1 - fy0) && (u - (fx0 + fx1) / 2.0).abs() < 2.5 * (fx1 - fx0);
+        let person = map.map_or(below, |m| m.at(&[1, 2, 3, 4, 5], u, v) > 0.5);
+        if below && person && owner(faces, w, h, u, v) == Some(index) {
+            body.iter_mut().zip(cell).for_each(|(a, b)| *a += b / n);
+            nb += 1;
+        }
+    }
+    let body = if nb >= 2 { unit(body) } else { None };
+    let fac = if nf >= 1 { unit(fac) } else { None };
+    (body, fac)
+}
+
+fn cosine(a: &Option<Vec<f32>>, b: &Option<Vec<f32>>) -> Option<f32> {
+    match (a, b) {
+        (Some(x), Some(y)) if x.len() == y.len() && !x.is_empty() => Some(x.iter().zip(y).map(|(p, q)| p * q).sum()),
+        _ => None,
+    }
 }
 
 /// sRGB 8-bit to a simple opponent space: lightness, red–green, yellow–blue (0..1-ish).
@@ -183,10 +245,6 @@ pub fn signature(faces: &[Face], index: usize, map: Option<&PeopleMap>, rgb: &[u
     Some(sig)
 }
 
-fn gauss(d: f32, sigma: f32) -> f32 {
-    (-(d / sigma).powi(2)).exp()
-}
-
 fn dist3(a: [f32; 3], b: [f32; 3], l_weight: f32) -> f32 {
     (l_weight * (a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
 }
@@ -198,27 +256,27 @@ fn rms(a: &[f32], b: &[f32]) -> Option<f32> {
 /// How alike two signatures are, 0..1 (1: the same look). With identity embeddings on both, their
 /// cosine similarity carries most of the weight.
 pub fn similarity(a: &Signature, b: &Signature) -> f32 {
-    let mut parts: Vec<(f32, f32)> = Vec::new(); // (weight, score)
-    if let (Some(x), Some(y)) = (a.clothes, b.clothes) {
-        // clothes: the strongest cue within a shoot; lightness counts (white dress vs. grey suit)
-        parts.push((0.45, gauss(dist3(x, y, 1.5), 0.10)));
-    }
-    if let (Some(x), Some(y)) = (a.hair, b.hair) {
-        parts.push((0.15, gauss(dist3(x, y, 1.0), 0.08)));
-    }
-    if let (Some(x), Some(y)) = (a.skin, b.skin) {
-        parts.push((0.12, gauss(dist3(x, y, 0.5), 0.06)));
-    }
-    if let Some(d) = rms(&a.geometry, &b.geometry) {
-        parts.push((0.16, gauss(d, 0.07)));
-    }
-    if let Some(d) = rms(&a.layout, &b.layout) {
-        parts.push((0.12, gauss(d, 0.12)));
-    }
-    let look = {
-        let w: f32 = parts.iter().map(|p| p.0).sum();
-        if w > 0.0 { parts.iter().map(|p| p.0 * p.1).sum::<f32>() / w } else { 0.0 }
+    // A logistic model over the cues' distances, fitted on pairs of faces from three weddings
+    // (same person or not, within one shoot): (distance, weight, mean, spread). The colours of the
+    // clothes and hair and SAM 2.1's features of the body carry it; face proportions, skin colour
+    // and the face's own features hardly told people apart there and are left out.
+    let mut z = -0.84f32;
+    let mut any = false;
+    let mut add = |d: Option<f32>, w: f32, mean: f32, spread: f32| {
+        if let Some(d) = d.filter(|d| d.is_finite()) {
+            z += w * (d - mean) / spread;
+            any = true;
+        }
     };
+    let pair3 = |x: Option<[f32; 3]>, y: Option<[f32; 3]>, lw: f32| match (x, y) {
+        (Some(x), Some(y)) => Some(dist3(x, y, lw)),
+        _ => None,
+    };
+    add(pair3(a.clothes, b.clothes, 1.5), -0.51, 0.28, 0.256);
+    add(pair3(a.hair, b.hair, 1.0), -0.378, 0.127, 0.097);
+    add(cosine(&a.body, &b.body).map(|c| 1.0 - c), -0.662, 0.203, 0.084);
+    add(rms(&a.layout, &b.layout), -0.096, 0.299, 0.126);
+    let look = if any { 1.0 / (1.0 + (-z.clamp(-30.0, 30.0)).exp()) } else { 0.0 };
     match (&a.embedding, &b.embedding) {
         (Some(x), Some(y)) if x.len() == y.len() && !x.is_empty() => {
             let cos: f32 = x.iter().zip(y).map(|(p, q)| p * q).sum();
@@ -351,11 +409,11 @@ mod tests {
         let c = bride.clothes.unwrap();
         assert!(c[0] > 0.9, "white dress: {c:?}");
         assert!(groom.clothes.unwrap()[2] < -0.1, "navy suit is blue: {:?}", groom.clothes);
-        assert!(similarity(&bride, &bride) > 0.99);
-        assert!(similarity(&bride, &groom) < 0.5, "{}", similarity(&bride, &groom));
+        assert!(similarity(&bride, &bride) > 0.55, "{}", similarity(&bride, &bride));
+        assert!(similarity(&bride, &groom) < 0.3, "{}", similarity(&bride, &groom));
         let known = vec![("Groom".to_string(), vec![groom.clone()]), ("Bride".to_string(), vec![bride.clone()])];
-        assert_eq!(best_match(&bride, &known, 0.6, 0.1).map(|m| m.0), Some(1));
-        let clusters = cluster(&[bride.clone(), groom.clone(), bride.clone(), groom], 0.7);
+        assert_eq!(best_match(&bride, &known, 0.5, 0.1).map(|m| m.0), Some(1));
+        let clusters = cluster(&[bride.clone(), groom.clone(), bride.clone(), groom], 0.5);
         assert_eq!(clusters, vec![vec![0, 2], vec![1, 3]]);
         assert!(signature(&faces, 5, Some(&map), &rgb, 100, 100).is_none());
     }

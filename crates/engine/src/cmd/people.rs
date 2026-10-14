@@ -112,9 +112,8 @@ mod faces {
     use crate::segment::worker::{FoundFace, Kind, Payload};
     use lightcraft_segment::identity::{self, Signature};
 
-    /// Suggestions need this score and this lead over the next person.
-    pub const SUGGEST: f32 = 0.62;
-    pub const MARGIN: f32 = 0.05;
+    /// Suggestions need this score (the appearance model's probability of the same person).
+    pub const SUGGEST: f32 = 0.6;
 
     /// The faces on photo `id`: from the cache, else computed (waiting) or queued (the app:
     /// `None` until they are found; the UI asks again when `segment_poll` reports a change).
@@ -127,7 +126,8 @@ mod faces {
         }
         let face = s.segmenter.require_model("face").map_err(crate::EngineError::Other)?;
         let people = s.segmenter.require_model("people").ok();
-        let kind = Kind::Faces { face, people };
+        let sam2 = s.segmenter.require_model("sam2").ok();
+        let kind = Kind::Faces { face, people, sam2 };
         let tag = crate::segment::Tag::Faces { photo: id, key };
         if s.segmenter.background {
             if s.segmenter.smart.faces_pending.insert(id) {
@@ -145,14 +145,61 @@ mod faces {
         Ok(Some(faces))
     }
 
-    /// Everyone named, with their remembered appearance.
-    pub fn known(s: &mut Session) -> Vec<(String, Vec<Signature>)> {
-        s.people_store()
+    /// Everyone named, with their remembered appearance as it is in photo `id`'s shoot: the
+    /// examples from its folder (appearance — clothes above all — only holds within a shoot), or,
+    /// when nobody was named there yet, every example.
+    pub fn known(s: &mut Session, id: PhotoId) -> Vec<(String, Vec<Signature>)> {
+        let folder = s.photo_context(id).folder;
+        let store = s.people_store().clone();
+        let parse = |e: &crate::people_store::Example| serde_json::from_value::<Signature>(e.signature.clone()).ok();
+        let here: Vec<(String, Vec<Signature>)> = store
             .people
             .iter()
-            .map(|p| (p.name.clone(), p.examples.iter().filter_map(|e| serde_json::from_value(e.signature.clone()).ok()).collect::<Vec<_>>()))
+            .map(|p| {
+                let sigs =
+                    p.examples.iter().filter(|e| folder.is_some() && s.photo_context(PhotoId(e.photo)).folder == folder).filter_map(parse).collect();
+                (p.name.clone(), sigs)
+            })
+            .filter(|(_, v): &(String, Vec<Signature>)| !v.is_empty())
+            .collect();
+        if !here.is_empty() {
+            return here;
+        }
+        store
+            .people
+            .iter()
+            .map(|p| (p.name.clone(), p.examples.iter().filter_map(parse).collect::<Vec<_>>()))
             .filter(|(_, v)| !v.is_empty())
             .collect()
+    }
+
+    /// Who the unnamed faces of a photo are: each person at most once, the most alike first.
+    /// `(face index, index into known, score)`.
+    pub fn assign(faces: &[FoundFace], skip: &[usize], known: &[(String, Vec<Signature>)], threshold: f32) -> Vec<(usize, usize, f32)> {
+        let person_score = |sig: &Signature, sigs: &[Signature]| {
+            let mut v: Vec<f32> = sigs.iter().map(|q| identity::similarity(sig, q)).collect();
+            v.sort_by(|a, b| b.total_cmp(a));
+            let top: Vec<f32> = v.into_iter().take(2).collect();
+            if top.is_empty() { 0.0 } else { top.iter().sum::<f32>() / top.len() as f32 }
+        };
+        let mut pairs: Vec<(usize, usize, f32)> = Vec::new();
+        for (i, f) in faces.iter().enumerate().filter(|(i, _)| !skip.contains(i)) {
+            for (k, (_, sigs)) in known.iter().enumerate() {
+                let sc = person_score(&f.signature, sigs);
+                if sc >= threshold {
+                    pairs.push((i, k, sc));
+                }
+            }
+        }
+        pairs.sort_by(|a, b| b.2.total_cmp(&a.2));
+        let mut out: Vec<(usize, usize, f32)> = Vec::new();
+        for (i, k, sc) in pairs {
+            if out.iter().any(|(fi, fk, _)| *fi == i || *fk == k) {
+                continue;
+            }
+            out.push((i, k, sc));
+        }
+        out
     }
 
     /// The JSON of photo `id`'s faces: box, the person named there, their roles in this shoot, a
@@ -160,7 +207,11 @@ mod faces {
     pub fn describe(s: &mut Session, id: PhotoId, faces: &[FoundFace]) -> Vec<Value> {
         let meta = s.catalog.photo(id).map(|p| p.meta.clone()).unwrap_or_default();
         let ctx = s.photo_context(id);
-        let known = known(s);
+        let known = known(s, id);
+        let named: Vec<usize> = (0..faces.len())
+            .filter(|i| faces.get(*i).is_some_and(|f| region_of(&meta, f.rect).and_then(|r| meta.regions.get(r)).is_some_and(|r| r.name.is_some())))
+            .collect();
+        let picks = assign(faces, &named, &known, SUGGEST);
         faces
             .iter()
             .enumerate()
@@ -171,8 +222,8 @@ mod faces {
                 if let Some(n) = &person {
                     v["person"] = json!(n);
                     v["roles"] = json!(s.people_store().person_roles(n, &ctx));
-                } else if let Some((k, score)) = identity::best_match(&f.signature, &known, SUGGEST, MARGIN)
-                    && let Some((name, _)) = known.get(k)
+                } else if let Some((_, k, score)) = picks.iter().find(|p| p.0 == i)
+                    && let Some((name, _)) = known.get(*k)
                 {
                     v["suggestion"] = json!({"name": name, "score": score, "roles": s.people_store().person_roles(name, &ctx)});
                 }
@@ -295,7 +346,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Faces on This Photo",
             [],
             None,
-            "{id?} — the faces MediaPipe finds on the photo (left to right): {faces: [{index, rect [x0,y0,x1,y1] normalized, person?, roles?, suggestion?: {name, score, roles}, profile}], pending?} — in the app `pending: true` until they are found (ask again)",
+            "{id?, signatures?: bool} — the faces MediaPipe finds on the photo (left to right): {faces: [{index, rect [x0,y0,x1,y1] normalized, person?, roles?, suggestion?: {name, score, roles}, profile}], pending?} — in the app `pending: true` until they are found (ask again)",
             always,
             |s, p| {
                 let c = "people.faces";
@@ -304,7 +355,13 @@ pub fn specs() -> Vec<CommandSpec> {
                 {
                     match faces::faces_on(s, id, c)? {
                         Some(f) => {
-                            let faces = faces::describe(s, id, &f);
+                            let mut faces = faces::describe(s, id, &f);
+                            // (tools tuning recognition: the appearance signatures themselves)
+                            if bool_or(p, "signatures", false) {
+                                for (v, ff) in faces.iter_mut().zip(&f) {
+                                    v["signature"] = serde_json::to_value(&ff.signature).unwrap_or(Value::Null);
+                                }
+                            }
                             Ok(json!({"id": id.0, "faces": faces}))
                         }
                         None => Ok(json!({"id": id.0, "faces": [], "pending": true})),
@@ -408,21 +465,33 @@ pub fn specs() -> Vec<CommandSpec> {
                 {
                     let threshold = p.get("threshold").and_then(Value::as_f64).map_or(faces::SUGGEST, |t| t.clamp(0.3, 0.99) as f32);
                     let (ready, pending) = faces_of(s, &ids, c)?;
-                    let known = faces::known(s);
-                    if known.is_empty() {
+                    if s.people_store().people.is_empty() {
                         return Err(bad(c, "name a few faces first (people.name): recognition matches against them"));
                     }
                     let mut suggestions = Vec::new();
                     let mut todo: Vec<(PhotoId, usize, String)> = Vec::new();
                     for (id, faces) in &ready {
+                        let known = faces::known(s, *id);
                         let meta = s.catalog.photo(*id).map(|p| p.meta.clone()).unwrap_or_default();
-                        for (i, f) in faces.iter().enumerate() {
-                            if region_of(&meta, f.rect).and_then(|r| meta.regions.get(r)).is_some_and(|r| r.name.is_some()) {
-                                continue;
-                            }
-                            if let Some((k, score)) = lightcraft_segment::identity::best_match(&f.signature, &known, threshold, faces::MARGIN)
-                                && let Some((name, _)) = known.get(k)
-                            {
+                        let named: Vec<usize> = (0..faces.len())
+                            .filter(|i| {
+                                faces
+                                    .get(*i)
+                                    .is_some_and(|f| region_of(&meta, f.rect).and_then(|r| meta.regions.get(r)).is_some_and(|r| r.name.is_some()))
+                            })
+                            .collect();
+                        // a person already named on the photo isn't suggested for another face
+                        let here: Vec<String> = named
+                            .iter()
+                            .filter_map(|i| faces.get(*i))
+                            .filter_map(|f| region_of(&meta, f.rect))
+                            .filter_map(|r| meta.regions.get(r))
+                            .filter_map(|r| r.name.clone())
+                            .collect();
+                        let known: Vec<(String, Vec<lightcraft_segment::identity::Signature>)> =
+                            known.into_iter().filter(|(n, _)| !here.iter().any(|h| h.eq_ignore_ascii_case(n))).collect();
+                        for (i, k, score) in faces::assign(faces, &named, &known, threshold) {
+                            if let Some((name, _)) = known.get(k) {
                                 suggestions.push(json!({"photo": id.0, "face": i, "name": name, "score": score}));
                                 todo.push((*id, i, name.clone()));
                             }

@@ -250,8 +250,14 @@ impl Session {
                 .find(|r| r.kind == lightcraft_meta::RegionKind::Face && r.name.as_deref().is_some_and(|n| n.trim().eq_ignore_ascii_case(&name)))
                 .map(|r| [r.rect.x0, r.rect.y0, r.rect.x1, r.rect.y1])
         });
-        let known: Vec<Value> =
-            self.people_store().person(&name).map(|p| p.examples.iter().map(|e| e.signature.clone()).collect()).unwrap_or_default();
+        // their examples from this shoot when there are some (appearance holds within a shoot)
+        let examples: Vec<crate::people_store::Example> = self.people_store().person(&name).map(|p| p.examples.clone()).unwrap_or_default();
+        let here: Vec<Value> = examples
+            .iter()
+            .filter(|e| ctx.folder.is_some() && self.photo_context(PhotoId(e.photo)).folder == ctx.folder)
+            .map(|e| e.signature.clone())
+            .collect();
+        let known: Vec<Value> = if here.is_empty() { examples.into_iter().map(|e| e.signature).collect() } else { here };
         if rect.is_none() && known.is_empty() {
             return Resolved::Missing(format!("{name} has no named face yet: name them in the People picker of the Masking panel"));
         }
@@ -442,7 +448,12 @@ impl Session {
             Part::Seg(AutoKind::People { person, parts, who: Some(who) }) => match self.resolve_who(photo, who) {
                 Resolved::Person { rect, known } => {
                     let known = known.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect();
-                    auto(self, AutoKind::People { person: *person, parts: parts.clone(), who: Some(who.clone()) }, Target::Person { rect, known })
+                    let sam2 = self.segmenter.require_model("sam2").ok();
+                    auto(
+                        self,
+                        AutoKind::People { person: *person, parts: parts.clone(), who: Some(who.clone()) },
+                        Target::Person { rect, known, sam2 },
+                    )
                 }
                 Resolved::Everyone(note) => {
                     self.note_batchless(note);
@@ -467,9 +478,11 @@ impl Session {
                 };
                 let target = match &what {
                     AutoKind::People { who: Some(w), .. } => match self.resolve_who(photo, w) {
-                        Resolved::Person { rect, known } => {
-                            Target::Person { rect, known: known.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect() }
-                        }
+                        Resolved::Person { rect, known } => Target::Person {
+                            rect,
+                            known: known.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect(),
+                            sam2: self.segmenter.require_model("sam2").ok(),
+                        },
                         Resolved::Everyone(_) => return auto(self, AutoKind::People { person: 0, parts: Vec::new(), who: None }, Target::None),
                         Resolved::Missing(n) => return Err(RecipeSkip::Note(n)),
                     },
@@ -531,7 +544,9 @@ impl Session {
                         _ => "Nothing was selected on this photo".to_string(),
                     };
                     self.batch_note(batch, note, polled);
-                    return false;
+                    // settled: nothing there (a gradient: the whole photo), not asked again on every
+                    // later preset (Update AI Masks with `force` asks again)
+                    SegMask::from_logits(1, &[if part == Part::Anchor { 8.0 } else { -8.0 }])
                 }
                 Err(e) => {
                     self.batch_note(batch, e, polled);

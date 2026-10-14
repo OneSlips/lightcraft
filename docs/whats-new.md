@@ -2,6 +2,21 @@
 
 ## 2026-10-14
 
+### Smart AI-mask presets
+- Presets remember their **AI masks as recipes**: applying one finds the sky, the subject, the
+  background or the people again on each photo, in the background, with one undo step per preset.
+- Presets work as in Lightroom Classic: their settings are set and their masks are **added**, so
+  they stack (a look, then Recover Blue Suit, then Bring Sky Down). Clicking the same preset again
+  right away replaces its own masks instead of doubling them.
+- **People by name and role**: the People picker shows the faces on the photo; name them and make
+  them the Bride or the Groom of the shoot, and masks and presets follow them on other photos.
+- **Remembered objects**: select a wedding dress (or anything) and Remember Selected Mask As…;
+  LightCraft finds it on other photos.
+- New **Smart Masks** presets: Sun Kissed, Recover Blue Suit, Bring Sky Down, Brighten Dress, Darken
+  Background. Lightroom presets with AI masks import with their masks.
+- Resting on a preset previews its AI masks too. Face data stays on your computer; People and Roles
+  can forget it.
+
 ### AI masks with open models
 - **Subject**, **Background**, **Sky**, **People** and **Landscape** masks now use AI models instead of
   guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
