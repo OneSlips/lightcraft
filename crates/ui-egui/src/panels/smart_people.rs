@@ -180,14 +180,18 @@ fn naming(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: lightcraft_catalog:
     let current = f.get("person").and_then(Value::as_str).map(str::to_string);
     let (names, roles) = app.session.people_names();
     ui.add_space(4.0);
+    // (one field a row: the panel is narrow, and translated labels are longer)
+    let field = (ui.available_width() - 60.0).clamp(80.0, 200.0);
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::tr("Name"));
+        ui.add_sized(vec2(50.0, 18.0), egui::Label::new(crate::i18n::tr("Name")));
         let mut name = app.ui.people_name.clone();
-        TextField::singleline("maskPeople:name", &mut name).hint(crate::i18n::tr("Sam")).width(130.0).show(ui);
+        TextField::singleline("maskPeople:name", &mut name).hint(crate::i18n::tr("Sam")).width(field).show(ui);
         app.ui.people_name = name;
-        ui.label(crate::i18n::tr("Role"));
+    });
+    ui.horizontal(|ui| {
+        ui.add_sized(vec2(50.0, 18.0), egui::Label::new(crate::i18n::tr("Role")));
         let mut role = app.ui.people_role.clone();
-        TextField::singleline("maskPeople:role", &mut role).hint(crate::i18n::tr("Bride")).width(110.0).show(ui);
+        TextField::singleline("maskPeople:role", &mut role).hint(crate::i18n::tr("Bride")).width(field).show(ui);
         app.ui.people_role = role;
     });
     // suggestions: names starting like the typed one, a recognised face's suggestion, the usual roles
@@ -239,6 +243,8 @@ fn naming(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: lightcraft_catalog:
                 Err(e) => app.toast(ui.ctx(), e),
             }
         }
+    });
+    ui.horizontal_wrapped(|ui| {
         if let (Some(name), Some(role)) = (current.as_deref(), first_role(f)) {
             ui.label(egui::RichText::new(crate::i18n::tr("Find on other photos by")).color(t.text_dim));
             let r = ui.selectable_label(!app.ui.people_by_role, name);
