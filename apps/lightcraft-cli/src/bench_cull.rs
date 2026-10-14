@@ -11,7 +11,11 @@
 //! - camera preview at loupe sizes (1280, 2560) and at full size (the 100 % view), one at a time;
 //! - LightCraft's render of the loupe (2560 px) from a cold source;
 //! - rating: `photo.rate` on many photos in a row, journal included;
-//! - import: adding N files in place to a fresh library, and copying M of them into it.
+//! - import: adding N files in place to a fresh library, and copying M of them into it (`--n 0`:
+//!   no import).
+//!
+//! `--files K` reads only the first K files (by name) of the folder, as browsing reads them: a
+//! sample of a folder on a network share, where reading thousands of raws takes hours.
 //!
 //! Each number is printed as `name: X ms wall` (median, with p95 and n), the format
 //! `cargo xtask bench` parses, and the lot as one JSON object with `--json FILE`. Nothing is
@@ -27,7 +31,7 @@ use lightcraft_engine::Session;
 use lightcraft_engine::catalog::PhotoId;
 use serde_json::{Value, json};
 
-const USAGE: &str = "lightcraft-cli bench-cull FOLDER [--n N] [--copy M] [--work DIR] [--json FILE]";
+const USAGE: &str = "lightcraft-cli bench-cull FOLDER [--files K] [--n N] [--copy M] [--work DIR] [--json FILE]";
 
 /// Threads the app renders thumbnails with (`Renderer::default`: cores − 1, at most 6).
 fn render_threads() -> usize {
@@ -83,6 +87,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut copy = 200usize;
     let mut work = None;
     let mut json_out = None;
+    let mut files = None;
     let mut i = 0;
     while i < args.len() {
         let value = |i: usize| args.get(i + 1).cloned().ok_or_else(|| format!("{} needs a value\n{USAGE}", args[i]));
@@ -93,6 +98,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             "--copy" => {
                 copy = value(i)?.parse().map_err(|_| "--copy needs a number".to_string())?;
+                i += 1;
+            }
+            "--files" => {
+                files = Some(value(i)?.parse::<usize>().map_err(|_| "--files needs a number".to_string())?);
                 i += 1;
             }
             "--work" => {
@@ -122,13 +131,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // --- browse: the whole folder into the Local view -------------------------------------------
     let mut s = library(&fresh_dir(&work, "lib-browse")?)?;
+    // `--files K`: only the first K files by name, read as browsing reads them (a sample of a slow
+    // network folder)
     let t = Instant::now();
-    let r = s.execute("library.browse", &json!({"path": folder.display().to_string()})).map_err(|e| e.to_string())?;
+    let (photos, ids): (u64, Vec<PhotoId>) = match files {
+        None => {
+            let r = s.execute("library.browse", &json!({"path": folder.display().to_string()})).map_err(|e| e.to_string())?;
+            (r["photos"].as_u64().unwrap_or(0), s.visible_cloned())
+        }
+        Some(k) => {
+            let mut list: Vec<String> = std::fs::read_dir(&folder)
+                .map_err(|e| format!("{}: {e}", folder.display()))?
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.is_file() && lightcraft_engine::import::is_supported(p))
+                .map(|p| p.display().to_string())
+                .collect();
+            list.sort();
+            list.truncate(k);
+            let r = s.execute("library.import", &json!({"paths": list, "mode": "add", "local": true})).map_err(|e| e.to_string())?;
+            let ids: Vec<PhotoId> = r["imported"].as_array().into_iter().flatten().filter_map(Value::as_u64).map(PhotoId).collect();
+            (ids.len() as u64, ids)
+        }
+    };
     let browse_ms = ms_since(t);
-    let photos = r["photos"].as_u64().unwrap_or(0);
-    println!("browse {photos} photos (whole folder): {browse_ms:.1} ms wall");
+    let what = if files.is_some() { "first files" } else { "whole folder" };
+    println!("browse {photos} photos ({what}): {browse_ms:.1} ms wall");
     out["browse"] = json!({"ms": round(browse_ms), "photos": photos, "perPhotoMs": round(browse_ms / photos.max(1) as f64)});
-    let ids: Vec<PhotoId> = s.visible_cloned();
     let paths: Vec<String> = ids
         .iter()
         .filter_map(|id| match &s.catalog.photo(*id)?.source {
@@ -223,6 +252,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     drop(s);
 
     // --- import: add in place, then copy ----------------------------------------------------------
+    if n == 0 {
+        return finish(out, json_out);
+    }
     let add: Vec<String> = paths.iter().take(n).cloned().collect();
     let mut s = library(&fresh_dir(&work, "lib-add")?)?;
     let t = Instant::now();
@@ -247,6 +279,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
         drop(s);
         let _ = std::fs::remove_dir_all(&lib);
     }
+    finish(out, json_out)
+}
+
+fn finish(out: Value, json_out: Option<PathBuf>) -> Result<(), String> {
     if let Some(p) = json_out {
         std::fs::write(&p, serde_json::to_string_pretty(&out).unwrap_or_default()).map_err(|e| format!("{}: {e}", p.display()))?;
     }
