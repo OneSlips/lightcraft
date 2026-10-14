@@ -1,6 +1,6 @@
 # Gaps: where LightCraft falls short of Lightroom
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** patch (gap 8: Nikon Z 6II / Z 8 / Z f in-file distortion; gaps 10, 22 and 23 listed once again: merges had left two copies of each, and `cargo xtask parity` now fails on a gap listed twice)
+> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-15 · **Change:** patch (gap 26: sharp slider drags at Fit; before: gap 8: Nikon Z 6II / Z 8 / Z f in-file distortion; gaps 10, 22 and 23 listed once again: merges had left two copies of each, and `cargo xtask parity` now fails on a gap listed twice)
 
 Every known shortfall, one entry each, ranked by user impact (how many Lightroom users hit it, and
 how hard it blocks them), then by effort. **Agents pick work from the top** (the first entry nobody is
@@ -40,7 +40,7 @@ Hours are Opus 5.5 agent wall-clock hours (see [target-app-parity.md](target-app
 | 22 | **Pen pressure**, OS monitor profiles on Windows (Linux reads colord's, macOS the screen's), follow-window colour on Linux / Windows | hardware-parity.md | brush users with tablets; multi-monitor setups | 11–22 | [hardware-parity](hardware-parity.md) |
 | 24 | **Brush live preview and masking feel** (#517, #518); Feather / Edge mask refinement (15.5) | issues | masking feels slower than Lightroom | 8–12 | [ui-parity](ui-parity.md) |
 | 25 | **File writes**: lossy DNG; AVIF import; Render to DNG as a catalog command (the export format landed) (PSD export landed with Edit in PhotoCraft, #953) | file-format-parity.md | interchange edge cases | 19–34 | [file-format-parity](file-format-parity.md) |
-| 26 | **Performance at scale**: 85k-photo library opens in 1.7–4.7 s; 100k grid test pending; colour NR at half resolution | ROADMAP log, gpu-pipeline.md | large-catalog users | 15–30 | [target-app-parity](target-app-parity.md#by-dimension) |
+| 26 | **Performance at scale**: 85k-photo library opens in 1.7–4.7 s; 100k grid test pending; colour NR at half resolution; slider drags at Fit draw full-size drafts on the GPU and refine 0.15 s after the photo stops changing (PERF-EDIT; masks' planes kept between ticks); still open: a drag of a photo whose sky or range mask reads the exposure re-evaluates it every tick, and the CPU path drafts at 35–60 % | ROADMAP log, gpu-pipeline.md | large-catalog users | 15–30 | [target-app-parity](target-app-parity.md#by-dimension) |
 | 27 | **Windows / Linux runtime coverage**: Windows installer UI unverified on Windows (#79); GPU path proven on Apple and on one AMD GPU on Linux (Radeon 8060S, Vulkan); NVIDIA, Intel and DX12 unverified; the Linux riscv64 tarball (new in 0.6.0, #844) is cross-compiled and never run beyond a QEMU smoke test | ROADMAP, issues, `release.yml` | non-Mac users find bugs first | 13–27 | [hardware-parity](hardware-parity.md) |
 | 28 | **Small Classic shortcuts and keys**: rating `[` `]`, flag cycling, filter-bar keys, F1 help, panel keys (Tab, F5–F8) | [ui-parity](ui-parity.md#shortcuts) | Classic muscle memory | 4–8 | [ui-parity](ui-parity.md) |
 
@@ -72,6 +72,7 @@ Beta-blocking gaps (B) total **~230–430 h**; with the stability and platform w
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | patch | Gap 26 shrinks: slider drags at Fit draw full-size drafts on the GPU and refine as soon as the photo is still (PERF-EDIT); gap not closed |
 | 2026-10-13 | patch | Gaps 10, 22 and 23 each had two rows (two branches edited them; the merges kept both): the older copies are removed, and `cargo xtask parity` (in `ci`) now fails when a gap number is listed twice |
 | 2026-10-11 | minor | Gap 10 shrinks: Leica Q3 verified by a recorded check of 38 private DNGs (236 models verified; Leica 14); gap not closed |
 | 2026-10-12 | minor | Camera-look deep shadows follow the JPEG toe (#1307); camera calibration remains partial |

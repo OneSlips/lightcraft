@@ -258,6 +258,33 @@ so CPU numbers are pessimistic; the GPU numbers are less affected):
 | per-pixel stage 1920×1280, + vibrance/saturation | 53–65 ms | 5 ms |
 | export render 6000×4000 | 1037–1414 ms | 291–330 ms |
 
+### Slider drags at Fit (PERF-EDIT)
+A drag's drafts of the whole frame are as sharp as their measured cost allows within 16 ms
+(`region::DraftSize` in `crates/ui-egui`: 1.0, 0.8, 0.6, 0.45 or 0.35 of the view, chosen per drag
+from the photo's draft cost on this renderer, fixed overhead left out; one step down after three
+drafts over twice the budget; unmeasured, 1.0 on the GPU and 0.6 on the CPU). They used to be a
+fixed 60 %, so a Fit view went soft for the whole drag. In an open interaction the view renders at
+full quality once the photo has been still for 0.15 s plus the last full render's time (at most
+1 s): a slider held still, or a control surface whose gesture ends 1.5 s after the last turn, no
+longer keeps the last draft on screen. The masks' alpha planes are kept with the view's stages on
+both renderers (`masks::alpha_key`: the visible masks' components, inversion, Refine Edges, amount,
+the size, and the exposure only for shapes that select on it, i.e. not for a matte); AI masks are
+evaluated on the CPU, and re-evaluating them every tick was most of a drag's time.
+
+`ONLY=fit` in `render_bench` (procedural 24 MP, 2560 px preview → 1280×1920 draft, a radial, a
+subject and a sky mask, warm stages; RTX 5070, DX12, Ryzen 9 5950X):
+
+| scenario | before CPU | before GPU | after CPU | after GPU |
+|---|---|---|---|---|
+| fit draft contrast drag, masks | 112 ms | 110 ms | 74 ms | 10.8 ms |
+| fit draft mask exposure drag | 116 ms | 116 ms | 84 ms | 8.8 ms |
+
+In the app (45 MP Canon R5 C CR3, portrait, 3840×2160 window, ppp 1, GPU), a Contrast drag with
+those masks drew 1152 px drafts in 53–430 ms; now full-size (1919 px) drafts in 8.8 ms (p95
+9.7 ms), sharp 0.17 s after the last change. `ui.inspect` → `perf.loupeRenders` lists each loupe
+render that reached the screen (size, draft, render time, latency), with `draftScale`,
+`draftMsPerMp` and `refineAfterS`.
+
 On Windows (Radeon 780M iGPU, DX12), a full-size JPEG export of the same raw with heavy edits (NR 30
 / 25, clarity, texture, dehaze, sharpening, highlights / shadows) took 3.6–4.0 s on the GPU against
 1.9–2.0 s on the CPU: the horizontal box pass had each thread slide a running sum over 16 pixels, so
