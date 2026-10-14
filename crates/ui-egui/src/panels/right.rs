@@ -386,6 +386,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             lightcraft_develop::SpotMode::Clone => "Clone",
             lightcraft_develop::SpotMode::Remove => "Remove",
             lightcraft_develop::SpotMode::Fill => "Content-Aware",
+            lightcraft_develop::SpotMode::Generate => "Generative",
         };
         super::edit::sub_title(ui, &crate::i18n::tr_format!("{mode} spot {} of {}", i + 1, d.spots.len(), mode = crate::i18n::tr(mode)));
     }

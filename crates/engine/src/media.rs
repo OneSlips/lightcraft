@@ -214,9 +214,13 @@ impl DecodedSource {
     }
 
     /// What to render these pixels against: the decoder's facts, else `header` (the catalog's)
-    /// with any stored camera tone curve.
+    /// with any stored camera tone curve. The photo's generative fill patches always come from
+    /// `header` (the session knows them, the decoder doesn't).
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
-        self.info.clone().unwrap_or_else(|| SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header })
+        match &self.info {
+            Some(i) => SourceInfo { generated: header.generated, ..i.clone() },
+            None => SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header },
+        }
     }
 }
 

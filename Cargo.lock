@@ -3392,6 +3392,7 @@ dependencies = [
  "image",
  "lightcraft-color",
  "lightcraft-develop",
+ "lightcraft-genfill",
  "lightcraft-geom",
  "lightcraft-inpaint",
  "lightcraft-raster",

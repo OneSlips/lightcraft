@@ -29,6 +29,7 @@ pub mod colorops;
 pub mod cull;
 pub mod dust;
 pub mod finish;
+pub mod genpatch;
 pub mod geometry;
 pub mod local;
 pub mod local_tone;
@@ -92,6 +93,8 @@ pub struct SourceInfo {
     /// The raw's own local tone mapping (DNG `ProfileGainTableMap`), rendered only when the
     /// photo's Profile option asks for it ([`local_tone`]).
     pub local_tone: Option<Arc<local_tone::LocalTone>>,
+    /// The photo's generative fill patches ([`genpatch`]), read from the library by the engine.
+    pub generated: Option<genpatch::GenStore>,
 }
 
 impl Default for SourceInfo {
@@ -107,6 +110,7 @@ impl Default for SourceInfo {
             camera_tone: None,
             mattes: None,
             local_tone: None,
+            generated: None,
         }
     }
 }
@@ -438,6 +442,9 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         local_tone::enabled(info, s),
         src_long,
     ));
+    // a generated patch whose file appears (or goes) changes the image
+    let shown: Vec<bool> = genpatch::shown(&s.spots, info.generated.as_ref()).iter().map(Option::is_some).collect();
+    let pre_nr_key = hash_of((pre_nr_key, shown));
     let lin_key = hash_of((pre_nr_key, [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits)));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, pre_nr_key, eyes, fixed_air, keep, mattes: info.mattes.clone() }
 }
@@ -453,11 +460,19 @@ pub fn lin_needs_cpu(s: &DevelopSettings, info: &SourceInfo) -> bool {
 /// scene-linear stage, in place.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
+    // generated patches are source pixels: before anything else touches them
+    let patches = genpatch::shown(&s.spots, info.generated.as_ref());
+    for (sp, layer) in s.spots.iter().zip(&patches) {
+        if let (Some(g), Some(layer)) = (sp.shown_gen(), layer) {
+            genpatch::apply_layer(img, layer, &p.frame, genpatch::seed_of(&g.id, g.variant));
+        }
+    }
     // (before the white balance: the gain's input is the as-shot development, as in the file)
     local_tone::apply(img, info, p);
     local::white_balance(img, info, s);
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
-    spots::apply(img, &s.spots, &p.frame, p.px_per_long);
+    let skip: Vec<bool> = patches.iter().map(Option::is_some).collect();
+    spots::apply_skipping(img, &s.spots, &p.frame, p.px_per_long, &skip);
     redeye::apply(img, &p.eyes);
 }
 

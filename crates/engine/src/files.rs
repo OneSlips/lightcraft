@@ -495,6 +495,7 @@ fn load_bytes_now(
                 camera_tone,
                 mattes,
                 local_tone,
+                generated: None,
             },
         ));
     }
