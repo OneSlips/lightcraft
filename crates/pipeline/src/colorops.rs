@@ -115,8 +115,14 @@ impl PointK {
     /// Apply this sample's adjustment to an OkLCh colour.
     #[inline]
     pub fn apply(&self, lch: [f32; 3]) -> [f32; 3] {
+        self.apply_scaled(lch, 1.0)
+    }
+
+    /// [`Self::apply`] at `strength` 0..1 (a mask's opacity there: its local Point Color).
+    #[inline]
+    pub fn apply_scaled(&self, lch: [f32; 3], strength: f32) -> [f32; 3] {
         let [mut l, mut c, mut h] = lch;
-        let w = self.weight(l, c, h);
+        let w = self.weight(l, c, h) * strength;
         if w <= 0.0 {
             return lch;
         }

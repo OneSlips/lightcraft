@@ -1,7 +1,8 @@
 // The per-pixel stage: a straight port of `lightcraft_pipeline::finish` (keep in step with it).
 // Bindings: img (rgb, pre-exposure), log_l, base, clar, tex, dark, masks (NMASK planes, then the
 // blurred chromaticity when HAS_CHROMA), aux
-// (tone LUT | chroma curve | sRGB LUT | curve LUTs | mask terms), out (packed RGBA8).
+// (tone LUT | chroma curve | sRGB LUT | curve LUTs | mask terms | local records | local curve LUTs),
+// out (packed RGBA8).
 
 fn tone_apply(y: f32) -> f32 {
     if (y <= 0.0) {
@@ -68,13 +69,22 @@ fn band_weights(h: f32) -> array<f32, 8> {
 // `PointK::apply` for Point Color sample `k` (OkLCh in, OkLCh out).
 fn point_color(k: u32, lch: vec3<f32>) -> vec3<f32> {
     let o = F_PC + k * POINT_WORDS;
-    let sl = pf(o);
-    let sc = pf(o + 1u);
-    let sh = pf(o + 2u);
-    let var_k = pf(o + 6u);
-    let wh_ = pf(o + 7u);
-    let wc_ = pf(o + 8u);
-    let wl_ = pf(o + 9u);
+    var w: array<f32, POINT_WORDS>;
+    for (var j = 0u; j < POINT_WORDS; j++) {
+        w[j] = pf(o + j);
+    }
+    return point_apply(w, lch, 1.0);
+}
+
+// `PointK::apply_scaled`: the sample's words `pw` (`PointK::words`) at `strength`.
+fn point_apply(pw: array<f32, POINT_WORDS>, lch: vec3<f32>, strength: f32) -> vec3<f32> {
+    let sl = pw[0];
+    let sc = pw[1];
+    let sh = pw[2];
+    let var_k = pw[6];
+    let wh_ = pw[7];
+    let wc_ = pw[8];
+    let wl_ = pw[9];
     var l = lch.x;
     var c = lch.y;
     var h = lch.z;
@@ -87,15 +97,89 @@ fn point_color(k: u32, lch: vec3<f32>) -> vec3<f32> {
     }
     let wc = 1.0 - sstep(0.5 * wc_, wc_, abs(c - sc));
     let wl = 1.0 - sstep(0.5 * wl_, wl_, abs(l - sl));
-    let w = wh * wc * wl;
+    let w = wh * wc * wl * strength;
     if (w <= 0.0) {
         return lch;
     }
-    h += w * (var_k * wrap_angle(h - sh) + pf(o + 3u));
+    h += w * (var_k * wrap_angle(h - sh) + pw[3]);
     c += w * var_k * (c - sc);
-    c = max(c * (1.0 + w * pf(o + 4u)), 0.0);
-    l += w * (var_k * (l - sl) + pf(o + 5u));
+    c = max(c * (1.0 + w * pw[4]), 0.0);
+    l += w * (var_k * (l - sl) + pw[5]);
     return vec3<f32>(l, c, h);
+}
+
+// The opacity of mask `m` at pixel `i` for the local Curve / Point Color (at most 1).
+fn local_alpha(m: u32, i: u32, n: u32) -> f32 {
+    return min(masks[m * n + i], 1.0);
+}
+
+// `finish::local_point_colors`: each mask's Point Color samples at the mask's opacity.
+fn local_point_colors(d: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
+    var lch = vec3<f32>(0.0);
+    var any = false;
+    for (var m = 0u; m < pu(F_NMASK); m++) {
+        let rec = pu(F_LOCAL_OFF) + m * LOCAL_WORDS;
+        let np = min(u32(aux[rec + 2u]), 8u);
+        if (np == 0u) {
+            continue;
+        }
+        let a = local_alpha(m, i, n);
+        if (a <= 0.0) {
+            continue;
+        }
+        if (!any) {
+            let lab = oklab(d);
+            lch = vec3<f32>(lab.x, sqrt(lab.y * lab.y + lab.z * lab.z), atan2(lab.z, lab.y));
+            any = true;
+        }
+        for (var k = 0u; k < np; k++) {
+            var w: array<f32, POINT_WORDS>;
+            for (var j = 0u; j < POINT_WORDS; j++) {
+                w[j] = aux[rec + 3u + k * POINT_WORDS + j];
+            }
+            lch = point_apply(w, lch, a);
+        }
+    }
+    if (!any) {
+        return d;
+    }
+    return oklab_inv(vec3<f32>(lch.x, lch.y * cos(lch.z), lch.y * sin(lch.z)));
+}
+
+// One channel of the curve tables at `o` (`curve`, at another offset).
+fn curve_at(o: u32, x: f32) -> f32 {
+    let f = clamp(x, 0.0, 1.0) * f32(CURVE_N - 1u);
+    let i = min(u32(f), CURVE_N - 2u);
+    let t = f - f32(i);
+    return aux[o + i] + (aux[o + i + 1u] - aux[o + i]) * t;
+}
+
+// `finish::local_curves`: each mask's curve, blended in by the mask's opacity (SDR).
+fn local_curves(e_in: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
+    var e = e_in;
+    for (var m = 0u; m < pu(F_NMASK); m++) {
+        let rec = pu(F_LOCAL_OFF) + m * LOCAL_WORDS;
+        let o = bitcast<u32>(aux[rec]);
+        if (o == 0u) {
+            continue;
+        }
+        let a = local_alpha(m, i, n);
+        if (a <= 0.0) {
+            continue;
+        }
+        let e0 = e;
+        var c = vec3<f32>(curve_at(o, e.x), curve_at(o + CURVE_N, e.y), curve_at(o + 2u * CURVE_N, e.z));
+        let rs = aux[rec + 1u];
+        if (rs < 1.0) {
+            c = refine_saturation(e0, c, rs);
+        }
+        if (a >= 1.0) {
+            e = c;
+        } else {
+            e = e0 + (c - e0) * a;
+        }
+    }
+    return e;
 }
 
 // `ColorOps::apply`.
@@ -425,6 +509,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- colour
     d = color_ops(d, lt[11], lt[12]);
+    if (pu(F_LOCAL) != 0u) {
+        d = local_point_colors(d, i, n);
+    }
     if (tint_on) {
         let lab = oklab(d);
         d = oklab_inv(vec3<f32>(lab.x, lab.y + tint_dir.x * 0.08 * tint_amt, lab.z + tint_dir.y * 0.08 * tint_amt));
@@ -497,6 +584,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (rs < 1.0) {
             e = refine_saturation(e0, e, rs);
         }
+    }
+    if (pu(F_LOCAL) != 0u) {
+        e = local_curves(e, i, n);
     }
     if (pu(F_GRAIN) != 0u) {
         let px = f32(x) + 0.5;

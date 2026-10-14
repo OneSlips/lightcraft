@@ -17,6 +17,9 @@ const FIELDS: &[(&str, usize)] = &[
     ("SRGB_OFF", 1),
     ("CURVE_OFF", 1),
     ("CURVES", 1),
+    // the masks' local Curve / Point Color records in `aux` (`LOCAL_WORDS` each, one per mask)
+    ("LOCAL", 1),
+    ("LOCAL_OFF", 1),
     ("GAIN", 1),
     ("EV", 1),
     ("AIR", 1),
@@ -129,6 +132,11 @@ impl Block {
     }
 }
 
+/// Words per mask in the local Curve / Point Color records: the offset of its three curve tables in
+/// `aux` (as `f32` bits; 0 = no curve: the tone table is first), Refine Saturation, the number of Point Color
+/// samples, then up to 8 samples of [`POINT_WORDS`].
+pub const LOCAL_WORDS: usize = 3 + 8 * POINT_WORDS;
+
 /// Which optional planes are bound.
 pub struct Present {
     pub clarity: bool,
@@ -156,6 +164,30 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     for m in masks {
         aux.extend_from_slice(m);
     }
+    // local Curve / Point Color: one record per mask, then the curve tables they point to
+    let local = !fp.local.is_empty() && fp.local.len() == masks.len();
+    let local_off = aux.len();
+    if local {
+        aux.resize(local_off + LOCAL_WORDS * fp.local.len(), 0.0);
+        for (k, ml) in fp.local.iter().enumerate() {
+            let rec = local_off + k * LOCAL_WORDS;
+            let curve_at = match &ml.curves {
+                Some(c) if c.iter().all(|l| l.v.len() == CURVE_N as usize) => {
+                    let at = aux.len() as u32;
+                    for l in c {
+                        aux.extend_from_slice(&l.v);
+                    }
+                    at
+                }
+                _ => 0,
+            };
+            let points: Vec<f32> = ml.points.iter().take(8).flat_map(|p| p.words()).collect();
+            let head = [f32::from_bits(curve_at), ml.refine_sat, ml.points.len().min(8) as f32];
+            for (slot, v) in aux.iter_mut().skip(rec).zip(head.iter().chain(&points)) {
+                *slot = *v;
+            }
+        }
+    }
 
     let mut p = Block::new();
     p.u("W", fp.w as u32);
@@ -165,6 +197,8 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
     p.u("SRGB_OFF", srgb_off as u32);
     p.u("CURVE_OFF", curve_off as u32);
     p.b("CURVES", fp.curves.is_some());
+    p.b("LOCAL", local);
+    p.u("LOCAL_OFF", local_off as u32);
     p.f("REFINE_SAT", fp.refine_sat);
     p.f("GAIN", fp.gain);
     p.f("EV", fp.ev);
