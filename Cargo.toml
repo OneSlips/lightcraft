@@ -35,6 +35,7 @@ lightcraft-merge = { path = "crates/merge" }
 lightcraft-engine = { path = "crates/engine" }
 lightcraft-ui-egui = { path = "crates/ui-egui" }
 lightcraft-mcp = { path = "crates/mcp" }
+lightcraft-surface = { path = "crates/surface" }
 lightcraft-fetch = { path = "crates/fetch" }
 lightcraft-heif = { path = "crates/heif" }
 lightcraft-segment = { path = "crates/segment" }

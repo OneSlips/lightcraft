@@ -3461,6 +3461,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-surface"
+version = "0.7.1"
+dependencies = [
+ "lightcraft-develop",
+ "miniz_oxide 0.8.9",
+ "serde",
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "lightcraft-sysmem"
 version = "0.7.1"
 
