@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (AI masks on open models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (LR-REM-CONTENTAWARE: structure-aware Fill, source exclusion, masks as spots; LR-REM-GEN, LR-REM-PEOPLE: OOS → 🟡 via bring-your-own-key cloud providers; LR-CROP-GENEXPAND: OOS → ⬜; AI masks on open models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -33,8 +33,8 @@ cited here still exists. Formerly docs/parity.md.
 | E. Metadata (META) | 5 | 1 | 0 | 0 | 2/2 (100%) | 2/2 (100%) |
 | F. Edit panel — global adjustments (EDIT) | 43 | 2 | 3 | 1 | 28/28 (100%) | 13/14 (93%) |
 | G. Profiles (PROF) | 7 | 1 | 3 | 0 | 3/4 (75%) | 3/3 (100%) |
-| H. Crop & rotate (CROP) | 9 | 0 | 0 | 1 | 6/6 (100%) | 3/3 (100%) |
-| I. Remove / healing (REM) | 8 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
+| H. Crop & rotate (CROP) | 9 | 0 | 1 | 0 | 6/6 (100%) | 3/3 (100%) |
+| I. Remove / healing (REM) | 8 | 3 | 2 | 0 | 4/4 (100%) | 2/3 (67%) |
 | J. Red eye (EYE) | 2 | 0 | 0 | 0 | — | 1/1 (100%) |
 | K. Masking (MASK) | 14 | 8 | 2 | 0 | 7/8 (88%) | 6/6 (100%) |
 | L. Presets (PRE) | 6 | 0 | 1 | 1 | 2/2 (100%) | 2/2 (100%) |
@@ -53,9 +53,9 @@ cited here still exists. Formerly docs/parity.md.
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
 | Lightroom Classic extras | 34 | 16 | 35 | 8 | — | 24/26 (92%) |
-| **Total** | 409 | 55 | 69 | 35 | 193/201 (96%) | 146/158 (92%) |
+| **Total** | 409 | 57 | 70 | 32 | 193/201 (96%) | 146/158 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.9%** of 533 in-scope rows — P0 98.0% of 201 · P1 95.3% of 158 · P2 50.9% of 173.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.6%** of 536 in-scope rows — P0 98.0% of 201 · P1 95.3% of 158 · P2 50.6% of 176.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -254,21 +254,21 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-CROP-FLIP | Flip | P0 | ✅ | `cmd:photo.flipHorizontal`, `cmd:photo.flipVertical`, `crates/pipeline/src/geometry.rs` | the crop tool's uncropped view shows the flips too, with the crop box and its dimming mirrored to match |
 | LR-CROP-OVERLAY | Crop overlays | P1 | ✅ | `cmd:view.cropOverlay`, `cmd:view.cropOverlayOrientation`, `crates/ui-egui/src/panels/crop_overlay.rs` | thirds, grid, golden ratio, diagonal, triangle, golden spiral (mirrored with ⇧O while cropping); no aspect-ratio overlays |
 | LR-CROP-ZOOM | Zoom while cropping | P1 | ✅ | `cmd:view.zoom100`, `cmd:view.zoomIn`, `crates/ui-egui/src/panels/detail.rs` | zoom levels apply with the crop tool open (verified: 100% shows the photo at native size with the crop frame) |
-| LR-CROP-GENEXPAND | Generative expand | OOS | 🚫 | | |
+| LR-CROP-GENEXPAND | Generative expand | P2 | ⬜ | | possible with the same bring-your-own-key providers (Stability Outpaint, OpenAI edits with a transparent border); not built |
 
 ## I. Remove / healing (REM)
 
 | Id | Feature | Tier | Status | Evidence | Missing / notes |
 |---|---|---|---|---|---|
-| LR-REM-CONTENTAWARE | Content-aware remove | P1 | 🟡 | `cmd:spot.add` (`mode: remove` / `fill`), `crates/pipeline/src/spots.rs`, `crates/inpaint/src/lib.rs` | Remove heals with an automatic source; Fill synthesises the area from its surroundings (PatchMatch completion over a membrane-blended start, `crates/inpaint`, ported from PhotoCraft; bounded by the spot size limit); no generative fill (M8.4) |
+| LR-REM-CONTENTAWARE | Content-aware remove | P1 | 🟡 | `cmd:spot.add` (`mode: remove` / `fill`), `cmd:spot.fromMask`, `crates/pipeline/src/spots.rs`, `crates/inpaint/src/structure.rs`, `crates/inpaint/tests/quality.rs`, [generative-fill.md](generative-fill.md) | Remove heals with an automatic source; Fill synthesises the area from its surroundings (PatchMatch completion, `crates/inpaint`, ported from PhotoCraft): straight edges and thin lines crossing the hole are detected and continued first (structure pass), coarse to fine, never copying from other spots or face regions, on perceptual (square-root) values; the painted radius grows 5 % + 1 px to take in edges and shadows. A mask (Object click with SAM 2.1, brush, People…) becomes a Fill spot (`spot.fromMask`). Bounded by the spot size limit; quality not measured against Lightroom; no automatic distraction detection (LR-REM-DETECT) |
 | LR-REM-HEAL | Heal | P0 | ✅ | `cmd:spot.add` (`mode: heal`) | |
 | LR-REM-CLONE | Clone | P0 | ✅ | `cmd:spot.add` (`mode: clone`) | |
-| LR-REM-GEN | Generative remove | OOS | 🚫 | | |
+| LR-REM-GEN | Generative remove | P2 | 🟡 | `cmd:spot.generate`, `cmd:genfill.providers`, `cmd:genfill.setKey`, `cmd:genfill.consent`, `cmd:genfill.plan`, `cmd:spot.variation`, `crates/genfill/src/lib.rs`, `crates/pipeline/src/genpatch.rs`, `crates/engine/src/genfill.rs`, `crates/engine/src/tests_genfill.rs`, [generative-fill.md](generative-fill.md) | Not built in: bring-your-own-key cloud providers (OpenAI gpt-image, Stability Inpaint / Erase, BFL FLUX Fill, fal.ai), off until the user adds a key and accepts the provider's terms in a dialog that shows the crop sent. Only a native-resolution context crop is uploaded (tiled along thin holes, downscaled with a warning when too big); results return to linear as-shot light, are matched to the surroundings, stored as float patches in the library (`genfill/`, never XMP) and composited before white balance, so every later edit applies; matching sensor noise is added before noise reduction; 1–4 variations. Tested against a local mock of each provider only (no real account used); maintainers' out-of-scope call changed by the user's request (PR notes) |
 | LR-REM-DETECT | Object detection for remove | P2 | ⬜ | | |
 | LR-REM-BRUSH-PARAMS | Brush size / feather / opacity | P0 | ✅ | `cmd:spot.add` (`size`, `feather`, `opacity`), `cmd:brush.smaller`, `cmd:brush.larger`, `cmd:brush.featherLess`, `cmd:brush.featherMore`, `crates/ui-egui/src/panels/right.rs` | Size / Feather / Opacity sliders (for new spots and the selected one); `[` `]` size, ⇧`[` ⇧`]` feather (also the Masking brush) |
 | LR-REM-SPOT-EDIT | Edit existing spots | P0 | ✅ | `cmd:spot.select`, `cmd:spot.update`, `cmd:spot.refreshSource`, `cmd:spot.delete` | click a pin to select, drag target or source, ⌫ deletes the selected spot, `/` picks another source; automatic sources are resolved when the spot is added |
 | LR-REM-VISUALIZE | Visualize spots | P1 | ✅ | `cmd:view.visualizeSpots` | |
-| LR-REM-PEOPLE | Remove people (generative) | OOS | 🚫 | | |
+| LR-REM-PEOPLE | Remove people (generative) | P2 | 🟡 | `cmd:spot.fromMask`, `cmd:spot.generate` | select people with a People or Object mask, then Generate into Selected Mask (BYO-key provider, see LR-REM-GEN) or Fill Selected Mask; Lightroom's one-click detection of distracting people is not there |
 | LR-REM-REFLECT | Remove reflections | P2 | ⬜ | | |
 | LR-REM-DUST | Dust detection | P2 | ✅ | `cmd:spot.findDust`, `crates/pipeline/src/dust.rs` | Remove panel ▸ Find Dust Spots: small, soft, round dark spots on smooth areas become heal spots (sensitivity; one undo step); Visualize Spots for checking by eye |
 | LR-REM-BLEMISH | Find blemishes on faces (beyond Lightroom) | P2 | ✅ | `cmd:spot.findBlemishes`, `crates/pipeline/src/blemish.rs`, `crates/engine/src/cmd/face_detect.rs` | Remove panel ▸ Find Blemishes: with the YuNet detector installed, small darker-or-redder round spots on each face's skin (eyes, brows, nostrils and mouth cut out around the landmarks) become heal spots (one undo step); faces under 160 px and faces with more than 12 candidates (stubble, freckles) get none, at most 6 per face; sensitivity 0–100. Classical, no learned model beyond the detector; not a Lightroom feature |
@@ -814,3 +814,4 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 | 2026-10-10 | patch | LR-BEHAV-UNDO: file/XMP repair retries and merged rename Undo/Redo evidence; status and summary counts unchanged. |
 | 2026-10-10 | minor | Renamed from `parity.md` (progress-docs standard); Top gaps moved to gaps.md (its duplicated items 1–2 from a bad merge resolved there), shortcut notes moved to ui-parity.md. Rows unchanged; a recount of the rows gives 81.1% of 517 in-scope rows (P0 98.0%, P1 95.1%, P2 46.9%), so the generated summary above is due a `cargo xtask parity --write` |
 | 2026-09-30 – 2026-10-11 | — | Rows added and updated with each feature (see `git log -- docs/parity.md docs/parity-checklist.md`) |
+| 2026-10-14 | minor | LR-REM-CONTENTAWARE: structure pass (edges and lines continued), no sources from other spots or faces, slightly grown masks, `spot.fromMask` (🟡); LR-REM-GEN and LR-REM-PEOPLE out of scope → P2 🟡 (bring-your-own-key cloud generative fill, placed before white balance); LR-CROP-GENEXPAND out of scope → P2 ⬜ |

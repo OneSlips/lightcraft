@@ -2,6 +2,24 @@
 
 ## 2026-10-14
 
+### Better Content-Aware fill, and Generative fill with your own account
+- **Content-Aware** now continues straight edges and thin lines through the area you paint — a
+  horizon, a door frame, a power line — instead of breaking them, never copies from other spots or
+  from faces, and takes in a little more than you painted so soft edges and the start of a shadow go
+  too.
+- **Select, then remove**: make a mask (an **Object** selection with one click, a brushed area,
+  people) and click **Fill Selected Mask** or **Generate into Selected Mask** in Remove.
+- **Generative** (new tool in Remove): fills the area with an image model you choose — OpenAI,
+  Stability AI, Black Forest Labs or fal.ai — using **your own API key and account** (Settings ▸
+  Generative Fill). It is off until you add a key; nothing is sent until you click **Generate**, and
+  the first time a dialog shows exactly the crop that will be uploaded, what the service does with it
+  and what it costs. Only a crop around the spot is sent, never the whole photo or its metadata.
+- The result goes back into the photo's own raw-level pixels, before white balance: change white
+  balance, exposure, colour or noise reduction afterwards and the filled area follows like the rest
+  of the photo, with the photo's own grain. Pick between up to 4 variations.
+- See docs/generative-fill.md for the details and the limits (8-bit highlights, softer patches when
+  a very large area has to be downscaled).
+
 ### AI masks with open models
 - **Subject**, **Background**, **Sky**, **People** and **Landscape** masks now use AI models instead of
   guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
