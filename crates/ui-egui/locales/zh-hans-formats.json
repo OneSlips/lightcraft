@@ -30,6 +30,7 @@
   "Exported {} preset{}": "已导出 {0} 个预设{1:.0}",
   "Exporting {} of {total}": "正在导出 {total} 张中的第 {0} 张",
   "Filter bar — {active} active filter{}": "筛选栏 — 已启用 {active} 个筛选{0:.0}",
+  "Healed {n} blemishes": "已修复 {n} 处瑕疵",
   "Healed {n} dust spot{}": "已修复 {n} 处尘点{0:.0}",
   "Imported {n} point curve preset{}": "已导入 {n} 个点曲线预设{0:.0}",
   "Imported {n} preset{}": "已导入 {n} 个预设{0:.0}",

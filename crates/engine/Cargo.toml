@@ -57,3 +57,7 @@ jxl-oxide = { workspace = true }
 lightcraft-heif = { workspace = true, features = ["testdata"] }
 libc = { workspace = true }
 lightcraft-tiff = { workspace = true }
+
+[[example]]
+name = "retouch_probe"
+required-features = ["sam"]

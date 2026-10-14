@@ -30,6 +30,7 @@
   "Exported {} preset{}": "{}件のプリセットを書き出しました{:.0}",
   "Exporting {} of {total}": "書き出し中：{total}枚中{}枚",
   "Filter bar — {active} active filter{}": "フィルターバー：{active}件適用中{:.0}",
+  "Healed {n} blemishes": "{n} か所のシミを修復しました",
   "Healed {n} dust spot{}": "{n}か所のほこりを修復しました{:.0}",
   "Imported {n} point curve preset{}": "{n}件のポイントカーブを読み込みました{:.0}",
   "Imported {n} preset{}": "{n}件のプリセットを読み込みました{:.0}",

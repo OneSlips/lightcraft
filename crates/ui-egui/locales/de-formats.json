@@ -57,6 +57,7 @@
   "Focus {:.0}": "Schärfe {:.0}",
   "Folder “{}” (and its subfolders)": "Ordner „{}“ (und seine Unterordner)",
   "Found {n} missing photo{}; {left} still missing{unsure}": "Gefundene fehlende Fotos: {n}{:.0}; weiterhin fehlend: {left}{unsure}",
+  "Healed {n} blemishes": "{n} Hautunreinheiten behoben",
   "Healed {n} dust spot{}": "Reparierte Staubflecken: {n}{:.0}",
   "Import cancelled · {} photo{} added": "Import abgebrochen · {} Foto{} hinzugefügt",
   "Import failed: {e}": "Import fehlgeschlagen: {e}",

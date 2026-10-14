@@ -57,6 +57,7 @@
   "Focus {:.0}": "Фокус {:.0}",
   "Folder “{}” (and its subfolders)": "Тека «{}» (і вкладені теки)",
   "Found {n} missing photo{}; {left} still missing{unsure}": "Знайдено відсутніх фото: {n}{:.0}; усе ще відсутні: {left}{unsure}",
+  "Healed {n} blemishes": "Виправлено вад шкіри: {n}",
   "Healed {n} dust spot{}": "Усунено пилових плям: {n}{:.0}",
   "Import cancelled · {} photo{} added": "Імпорт скасовано · додано фото: {}{:.0}",
   "Import failed: {e}": "Помилка імпорту: {e}",

@@ -57,6 +57,7 @@
   "Focus {:.0}": "Mise au point {:.0}",
   "Folder “{}” (and its subfolders)": "Dossier « {} » (et ses sous-dossiers)",
   "Found {n} missing photo{}; {left} still missing{unsure}": "{n} photo{} manquante(s) retrouvée(s) ; {left} toujours manquante(s){unsure}",
+  "Healed {n} blemishes": "{n} imperfections corrigées",
   "Healed {n} dust spot{}": "{n} tache{} de poussière corrigée(s)",
   "Import cancelled · {} photo{} added": "Importation annulée · {} photo{} ajoutée(s)",
   "Import failed: {e}": "Échec de l’importation : {e}",
