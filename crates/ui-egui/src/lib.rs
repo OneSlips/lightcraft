@@ -567,8 +567,8 @@ impl LightcraftApp {
             Err(e) => {
                 log::warn!("{id}: {e}");
                 self.ui.status = e.clone();
-                // no detector yet: offer it (its terms first) instead of only saying so
-                if id == "faces.detect" && e.contains("Settings > Faces") {
+                // no face model yet: offer it (its terms first) instead of only saying so
+                if id == "faces.detect" && lightcraft_engine::segment::missing_model_in(e).is_some() {
                     panels::faces::offer_detector(self);
                 }
             }

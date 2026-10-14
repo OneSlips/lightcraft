@@ -675,7 +675,7 @@ fn render(args: &[String]) -> Result<(), String> {
     }
     let input = input.ok_or("render: missing input file")?;
     let output = output.ok_or("render: missing -o OUTPUT")?;
-    let mut s = Session::new().with_fs().with_default_denoise_models().with_system_clock();
+    let mut s = Session::new().with_fs().with_default_denoise_models().with_system_clock().with_default_sam3_model();
     let abs = expand_paths(std::slice::from_ref(&input));
     let r = s.execute("library.import", &json!({"paths": abs})).map_err(|e| e.to_string())?;
     let id = r["imported"][0].as_u64().ok_or_else(|| format!("{input}: not a readable photo"))?;

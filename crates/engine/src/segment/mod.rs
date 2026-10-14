@@ -23,8 +23,12 @@
 #[cfg(feature = "sam")]
 mod download;
 pub mod models;
+mod skin;
 #[cfg(feature = "sam")]
 mod worker;
+
+pub use skin::{FoundFace, SkinFound, missing_model_in};
+pub(crate) use skin::{SkinKey, SkinPurpose};
 
 use std::path::PathBuf;
 
@@ -216,6 +220,8 @@ pub(crate) enum Tag {
     /// An automatic selection for component `comp` of mask `mask` (applied while the component is
     /// still that kind without a segmentation).
     Auto { photo: PhotoId, mask: u32, comp: usize, kind: AutoKind },
+    /// The skin and faces of a photo, for Smooth Skin or Find Blemishes.
+    Skin { key: SkinKey, purpose: SkinPurpose },
 }
 
 /// The model input: 8-bit RGB.
@@ -280,6 +286,9 @@ pub struct Segmenter {
     pub background: bool,
     pending: Option<PendingClicks>,
     messages: Vec<String>,
+    /// Smooth Skin analyses queued, and those that failed (asked again only on request).
+    pub(crate) skin_pending: Vec<SkinKey>,
+    pub(crate) skin_failed: Vec<SkinKey>,
     #[cfg(feature = "sam")]
     worker: worker::Worker,
     #[cfg(feature = "sam")]
@@ -302,6 +311,8 @@ impl Default for Segmenter {
             background: false,
             pending: None,
             messages: Vec::new(),
+            skin_pending: Vec::new(),
+            skin_failed: Vec::new(),
             #[cfg(feature = "sam")]
             worker: worker::Worker::default(),
             #[cfg(feature = "sam")]
@@ -364,6 +375,18 @@ impl Segmenter {
         return self.worker.loaded();
         #[cfg(not(feature = "sam"))]
         false
+    }
+
+    /// A notice for the user, shown with the next [`Session::segment_poll`].
+    pub(crate) fn push_message(&mut self, m: String) {
+        if !self.messages.contains(&m) {
+            self.messages.push(m);
+        }
+    }
+
+    /// Whether Smooth Skin is looking for the skin of photo `id` right now.
+    pub fn skin_pending(&self, id: PhotoId) -> bool {
+        self.skin_pending.iter().any(|k| k.photo == id)
     }
 
     /// Clicks waiting for their segmentation.
@@ -579,6 +602,9 @@ impl Session {
         let p = self.catalog.photo(id)?;
         let mut d = (*p.develop).clone();
         d.masks.clear();
+        // (nor Smooth Skin: the models see the skin as it is, and its sliders don't ask again)
+        d.skin = Default::default();
+        d.skin_analysis = None;
         let content = crate::media::content_key(p);
         let mut h = mix(0xcbf2_9ce4_8422_2325, d.hash64());
         h = mix(h, id.0);
@@ -608,11 +634,11 @@ impl Session {
     ) -> Result<worker::Job, String> {
         let (dir, sam2) = match &kind {
             worker::Kind::Text(_) | worker::Kind::Detail { prompt: Prompt::Text(_), .. } => (self.segmenter.model_dir()?, false),
-            worker::Kind::Auto { .. } => (PathBuf::new(), false),
+            worker::Kind::Auto { .. } | worker::Kind::Skin { .. } => (PathBuf::new(), false),
             _ => self.segmenter.object_model()?,
         };
         // SAM 3 sees 1008 px, the open models 1024
-        let edge = if sam2 || matches!(kind, worker::Kind::Auto { .. }) { AUTO_EDGE } else { INPUT_EDGE };
+        let edge = if sam2 || matches!(kind, worker::Kind::Auto { .. } | worker::Kind::Skin { .. }) { AUTO_EDGE } else { INPUT_EDGE };
         let (key, mut d) = self.segment_key(id).ok_or("no such photo")?;
         let key = mix(key, edge as u64);
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
@@ -797,7 +823,7 @@ impl Session {
                 self.segment_queue(id, kind, tag, Some(region))?;
             } else {
                 let patch = self.segment_wait(id, kind, Some(region))?;
-                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false };
+                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false, faces: None };
                 let mut polled = Polled::default();
                 self.apply_outcome(outcome, &mut polled);
             }
@@ -959,6 +985,7 @@ impl Session {
                     Err(e) => polled.messages.push(e.to_string()),
                 }
             }
+            Tag::Skin { key, purpose } => self.apply_skin_outcome(key, purpose, o.result, o.faces, polled),
             Tag::Detail { photo, mask, comp, shape } => {
                 let patch = match o.result {
                     Ok(Some(p)) => p,

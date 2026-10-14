@@ -47,6 +47,15 @@ pub enum Kind {
         what: AutoKind,
         model: AutoModel,
     },
+    /// The skin of `area` (of everyone, or of the `person`-th from the left) and every face with
+    /// its landmarks, by MediaPipe's Selfie Multiclass (`people`) and Face Landmarker (`face`):
+    /// what Smooth Skin and Find Blemishes work with.
+    Skin {
+        area: lightcraft_develop::SkinArea,
+        person: u32,
+        people: PathBuf,
+        face: PathBuf,
+    },
     /// Panics (tests of the worker's recovery).
     #[cfg(test)]
     Panic,
@@ -77,6 +86,8 @@ pub struct Outcome {
     pub result: Result<Option<SegMask>, String>,
     /// A newer request for the same selection came in; this one was skipped.
     pub superseded: bool,
+    /// The faces a [`Kind::Skin`] request found (left to right, normalized).
+    pub faces: Option<Vec<super::FoundFace>>,
 }
 
 /// Counters the session reads without locking.
@@ -207,6 +218,8 @@ struct State {
     faces_cache: Option<(u64, Vec<Face>)>,
     /// The last rendered input of the open models (several of them may run on one photo).
     input_cache: Option<(u64, Input)>,
+    /// The faces the job that just ran found (a [`Kind::Skin`] request's), for its outcome.
+    found: Option<Vec<super::FoundFace>>,
 }
 
 impl State {
@@ -295,7 +308,7 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         let done = Done(if is_detail { &shared.detail } else { &shared.pending });
         if queue.iter().any(|later| supersedes(later, &job)) {
             drop(done);
-            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true });
+            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, faces: None });
             continue;
         }
         let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job))) {
@@ -311,9 +324,10 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         if result.is_err() && !is_detail {
             state.forget_photos();
         }
+        let faces = state.found.take();
         shared.loaded.store(state.any_loaded(), Ordering::SeqCst);
         drop(done);
-        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false });
+        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, faces });
     }
 }
 
@@ -554,6 +568,41 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
     }
 }
 
+/// A [`Kind::Skin`] request: the skin of `area` (everyone's, or person `person`'s) as a stored
+/// segmentation (`None`: none found), and every face found, normalized, kept in `state.found`.
+fn skin(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    area: lightcraft_develop::SkinArea,
+    person: u32,
+    people: &std::path::Path,
+    face: &std::path::Path,
+) -> Result<Option<SegMask>, String> {
+    use lightcraft_develop::SkinArea;
+    ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
+    cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
+    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    let faces: Vec<Face> =
+        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
+            .clone();
+    let map = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+    let parts: Vec<String> = match area {
+        SkinArea::Face => vec!["Face Skin".into()],
+        SkinArea::Body => vec!["Body Skin".into()],
+        SkinArea::Both => vec!["Face Skin".into(), "Body Skin".into()],
+    };
+    let req = PeopleRequest::parse(person, &parts).ok_or("unknown People part")?;
+    let seg = people_mask(&req, &input.rgb, input.w, input.h, map, &faces).map(|g| match g.rect {
+        Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
+        None => SegMask::from_logits(g.side, &g.logits),
+    });
+    let (w, h) = (input.w.max(1) as f32, input.h.max(1) as f32);
+    state.found = Some(faces.iter().map(|f| super::FoundFace::from_pixels(f, w, h)).collect());
+    Ok(seg)
+}
+
 /// The probability of `what` at each cell of `scene`'s grid; `None` when it isn't there.
 fn scene_probs(scene: &Scene, what: &AutoKind) -> Option<Vec<f32>> {
     use lightcraft_segment::scene::class_ids;
@@ -668,7 +717,7 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
                 }
             }
         }
-        Kind::Auto { .. } => return Err("automatic selections run locally".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } => return Err("automatic selections run locally".into()),
         #[cfg(test)]
         Kind::Panic => return Err("test panic request".into()),
     };
@@ -688,6 +737,10 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<S
     if let Kind::Auto { what, model } = &job.kind {
         let (what, model) = (what.clone(), model.clone());
         return auto(state, shared, job, &what, model);
+    }
+    if let Kind::Skin { area, person, people, face } = &job.kind {
+        let (area, person, people, face) = (*area, *person, people.clone(), face.clone());
+        return skin(state, shared, job, area, person, &people, &face);
     }
     if job.sam2 {
         return sam2_job(state, shared, job);
@@ -714,7 +767,7 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<S
             let (m, enc) = encoded(state, shared, job)?;
             Ok(text_logits(m, enc, &text)?.map(|l| SegMask::from_logits(side, &l)))
         }
-        Kind::Auto { .. } => Err("an automatic selection reached the SAM 3 path".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } => Err("an automatic selection reached the SAM 3 path".into()),
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
@@ -764,7 +817,7 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
             Ok(Some(SegMask::from_logits_in(side, &p.logits, region)))
         }
         Kind::Text(_) | Kind::Detail { prompt: Prompt::Text(_), .. } => Err("Describe needs the SAM 3 model".into()),
-        Kind::Auto { .. } => Err("an automatic selection reached the SAM 2.1 path".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } => Err("an automatic selection reached the SAM 2.1 path".into()),
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
