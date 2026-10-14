@@ -142,7 +142,7 @@ Agents and scripts: `ai.models.status`, `ai.models.download {"id": "subject"|"sc
 | MediaPipe Face Landmarker (BlazeFace, FaceMesh-V2) | Apache-2.0 | Apache-2.0 (model cards) | no | "consented images of people" captured by Google (cards) | <https://storage.googleapis.com/mediapipe-assets/MediaPipe%20BlazeFace%20Model%20Card%20(Short%20Range).pdf>, <https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf> |
 | SAM 3 | SAM License | SAM License | yes | — | see [Licence of SAM 3](#licence-of-sam-3) |
 
-Rejected, and why: YuNet (its training set WIDER FACE is CC BY-NC-ND), the general BiRefNet / BiRefNet_lite / IS-Net checkpoints (trained on DIS5K,
+Rejected, and why: YuNet (its training set WIDER FACE is CC BY-NC-ND; Detect Faces, the face scan and Find Blemishes use the Face Landmarker instead, see [faces.md](faces.md)), the general BiRefNet / BiRefNet_lite / IS-Net checkpoints (trained on DIS5K,
 whose terms forbid commercial use), BiRefNet matting / HR (PPM-100, CC BY-NC-SA), RMBG 1.4 / 2.0
 (non-commercial, gated), ViTMatte (Adobe's Composition-1k), SegFormer (NVIDIA non-commercial
 licence), ADE20K-trained Mask2Former / OneFormer (ADE20K images are for non-commercial research),
@@ -154,6 +154,11 @@ Not yet covered: **Describe** without SAM 3 (Florence-2-base, MIT, and OWLv2 / G
 candidates, all with research-only data in their training sets: a maintainer decision) and
 **Depth Range**. No openly licensed face-parsing network exists (all are trained on
 non-commercial datasets), so face parts come from MediaPipe's landmarks.
+
+### Beyond masks
+
+The two MediaPipe models also power **Photo ▸ Detect Faces** and the face scan ([faces.md](faces.md)), **Find
+Blemishes** and **Smooth Skin** ([smooth-skin.md](smooth-skin.md)): one download each serves them all.
 
 ## SAM 3 (optional)
 
