@@ -708,7 +708,9 @@ pub fn fs_preview_loader() -> PreviewLoader {
         let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(len.saturating_mul(2)) } else { gate.acquire_urgent(len.saturating_mul(2)) };
-        if let Some(image) = preview_window_fit(path, max_edge).ok().flatten().and_then(|(header, window, _)| quick_image_srgb(&header, &window, max_edge)) {
+        if let Some(image) =
+            preview_window_fit(path, max_edge).ok().flatten().and_then(|(header, window, read)| quick_image_srgb(&header, &window, max_edge, read.adobe_rgb))
+        {
             return Some(image);
         }
         embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge)
@@ -729,6 +731,10 @@ pub struct PreviewRead {
     /// path a Canon CR3 and the TIFF raws whose preview tag sits past the prefix take (`false` on
     /// the header path, and on the whole-file fallback).
     pub planned: bool,
+    /// The container says the preview is Adobe RGB (a Sony body set to Adobe RGB, see
+    /// [`lightcraft_raw::embedded_preview_color_space`]): the JPEG must be decoded as that space
+    /// when it declares none itself. Only [`preview_window_fit`] hands such a window on.
+    pub adobe_rgb: bool,
 }
 
 impl PreviewRead {
@@ -752,7 +758,8 @@ impl PreviewRead {
 /// out of a container that carries no preview colour space of its own (Nikon's maker note) the
 /// whole-file fallback stays in charge.
 pub fn preview_window(path: &str) -> Result<Option<(Vec<u8>, Vec<u8>, PreviewRead)>, String> {
-    preview_window_fit(path, usize::MAX)
+    // a window whose colour space the JPEG alone can't show is the whole-file path's here
+    Ok(preview_window_fit(path, usize::MAX)?.filter(|(_, _, read)| !read.adobe_rgb))
 }
 
 /// [`preview_window`] for a picture of at most `max_edge` pixels: of the previews a container
@@ -803,7 +810,7 @@ pub fn preview_window_fit(path: &str, max_edge: usize) -> Result<Option<(Vec<u8>
     if lightcraft_raw::embedded_preview_from_range(&window, range).is_none() {
         return Ok(None);
     }
-    let read = PreviewRead { read: bytes_read, total, header_path: true, planned: false };
+    let read = PreviewRead { read: bytes_read, total, header_path: true, planned: false, adobe_rgb: false };
     // On a network share the bytes are the wait, so say what this preview actually cost. A window
     // taken from the prefix cost nothing beyond the prefix itself.
     if lightcraft_pipeline::profiling() {
@@ -885,9 +892,10 @@ fn planned_preview(file: &mut std::fs::File, path: &str, total: u64, max_edge: u
                 // it already does for a container-declared colour space. A container that says sRGB
                 // agrees with the JPEG-only decode (its own declaration, else sRGB), so only the other
                 // space declines.
-                if lightcraft_raw::embedded_preview_color_space(&buf) == Some(lightcraft_raw::PreviewColorSpace::AdobeRgb) {
-                    return Ok(None);
-                }
+                // (an Adobe RGB container is handed on with its space, see `PreviewRead::adobe_rgb`:
+                // the user's Sony weddings shot in Adobe RGB read the whole 25 MB raw for a 0.3 MB
+                // preview before; `preview_window` itself still declines them)
+                let adobe_rgb = lightcraft_raw::embedded_preview_color_space(&buf) == Some(lightcraft_raw::PreviewColorSpace::AdobeRgb);
                 // `extract` copies a TIFF's bytes to hand on its Exif block, so ask the cheap side
                 // first: a JPEG that carries its own orientation needs nothing from the container.
                 if lightcraft_meta::extract(&window).orientation.is_none()
@@ -896,7 +904,7 @@ fn planned_preview(file: &mut std::fs::File, path: &str, total: u64, max_edge: u
                 {
                     return Ok(None);
                 }
-                let read = PreviewRead { read: loaded.total(), total, header_path: true, planned: true };
+                let read = PreviewRead { read: loaded.total(), total, header_path: true, planned: true, adobe_rgb };
                 // A plan-driven preview is the one that used to cost the whole file, so it is worth
                 // saying what it cost now too.
                 if lightcraft_pipeline::profiling() {
@@ -946,14 +954,20 @@ fn raf_preview_extent(prefix: &[u8]) -> Option<u64> {
 /// The display-ready preview of a raw whose embedded JPEG was already located: the counterpart of
 /// [`embedded_preview_srgb`] for [`preview_window`], which does not re-read the container.
 /// `None` when the bytes are not a decodable image.
-fn quick_image_srgb(header: &[u8], window: &[u8], max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
+fn quick_image_srgb(header: &[u8], window: &[u8], max_edge: usize, adobe_rgb: bool) -> Option<lightcraft_raster::Rgba8> {
     // a plain sRGB camera JPEG (nearly all of them) straight to 8-bit (PERF-CULL-3: 45 MP preview
     // of an EOS R5 C fitted to 2560 px, 194 → ~110 ms); anything else takes the general decode
     let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
-    if let Ok(Some((image, orientation))) = lightcraft_codecs::decode_jpeg_srgb8_fit(window, edge, edge) {
+    if !adobe_rgb && let Ok(Some((image, orientation))) = lightcraft_codecs::decode_jpeg_srgb8_fit(window, edge, edge) {
         return Some(image.oriented(preview_orientation(header, orientation)));
     }
-    let mut d = lightcraft_codecs::decode(window, fit_box(max_edge)).ok()?;
+    // an Adobe RGB container: its space for a JPEG that declares none, as `decode_raw_preview` does
+    let decoded = if adobe_rgb {
+        lightcraft_codecs::decode_jpeg_with_fallback(window, fit_box(max_edge), lightcraft_codecs::NamedSpace::AdobeRgb)
+    } else {
+        lightcraft_codecs::decode(window, fit_box(max_edge))
+    };
+    let mut d = decoded.ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = fit(&d.image, max_edge, max_edge, Filter::Box);
         d.alpha = None;
@@ -1148,7 +1162,7 @@ mod tests {
         assert!(window.len() < file.len() / 2, "the raw tail must not be read: {} of {} bytes", window.len(), file.len());
 
         // The quick path and the whole-file path agree byte for byte.
-        let quick = quick_image_srgb(&header, &window, max_edge).expect("the window holds a decodable preview");
+        let quick = quick_image_srgb(&header, &window, max_edge, false).expect("the window holds a decodable preview");
         let whole = embedded_preview_srgb(&file, max_edge).expect("the whole file decodes too");
         assert_eq!((quick.width, quick.height), (whole.width, whole.height), "same preview size");
         assert_eq!(quick.data, whole.data, "byte for byte");
@@ -1239,7 +1253,7 @@ mod tests {
         assert!(window.len() < file.len() / 2, "the sensor strip must not be read: {} of {} bytes", window.len(), file.len());
 
         // The plan path and the whole-file path agree byte for byte.
-        let quick = quick_image_srgb(&header, &window, max_edge).expect("the window holds a decodable preview");
+        let quick = quick_image_srgb(&header, &window, max_edge, false).expect("the window holds a decodable preview");
         let whole = embedded_preview_srgb(&file, max_edge).expect("the whole file decodes too");
         assert_eq!((quick.width, quick.height), (whole.width, whole.height), "same preview size");
         assert_eq!(quick.data, whole.data, "byte for byte");
@@ -1300,6 +1314,14 @@ mod tests {
         assert_eq!(lightcraft_raw::embedded_preview_color_space(&adobe), Some(PreviewColorSpace::AdobeRgb), "the fixture declares Adobe RGB");
         std::fs::write(&path, &adobe).unwrap();
         assert!(preview_window(&path).expect("the file reads").is_none(), "the whole-file path applies the space");
+        // …but the loader takes the bounded read with the space (PERF-CULL: Sony weddings shot in
+        // Adobe RGB read the whole raw for every thumbnail): the same picture as the whole file
+        let (_, _, read) = preview_window_fit(&path, usize::MAX).expect("the file reads").expect("the plan locates it");
+        assert!(read.adobe_rgb && read.planned && read.read < adobe.len() as u64 / 2, "{read:?}");
+        let quick = fs_preview_loader()(&path, 64).expect("a preview");
+        let whole = embedded_preview_srgb(&adobe, 64).expect("a preview");
+        assert_eq!((quick.width, quick.height), (whole.width, whole.height));
+        assert_eq!(quick.data, whole.data, "the bounded read shows what the whole file shows");
 
         let srgb = tiff_with_preview_strip(&jpeg, 400_000, Fixture { sony: true, color_space: Some(1), ..Default::default() });
         assert_eq!(lightcraft_raw::embedded_preview_color_space(&srgb), Some(PreviewColorSpace::Srgb), "the fixture declares sRGB");
