@@ -256,7 +256,7 @@
   "Generating… {} of {}": "Создание… {} из {}",
   "Variation {} of {}": "Вариант {} из {}",
   "Generated at {}% of the photo's resolution: softer than the rest.": "Создано при {}% разрешения фото: мягче остального снимка.",
-  "Add your {} API key in Settings ▸ Generative Fill first.": "Сначала добавьте API-ключ {} в «Настройки → Генеративная заливка».",
+  "Add your {} API key in Settings → Generative Fill first.": "Сначала добавьте API-ключ {} в «Настройки → Генеративная заливка».",
   "LightCraft will upload a crop of this photo to {name}, using your API key. This is the first time you use {name}.": "LightCraft загрузит фрагмент этого фото в {name} с вашим API-ключом. Вы используете {name} впервые.",
   "Uploaded: only this {} × {} px crop (red: the area to fill) and its mask. Not the whole photo, not its metadata.": "Загружается только этот фрагмент {} × {} пикс. (красным — область заливки) и его маска. Не всё фото и не его метаданные.",
   "Uploaded: {} crops along the area (red: the area to fill) and their masks. Not the whole photo, not its metadata.": "Загружается фрагментов вдоль области: {} (красным — область заливки) и их маски. Не всё фото и не его метаданные.",

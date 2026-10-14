@@ -256,7 +256,7 @@
   "Generating… {} of {}": "生成中… {} / {}",
   "Variation {} of {}": "バリエーション {} / {}",
   "Generated at {}% of the photo's resolution: softer than the rest.": "写真の解像度の {}% で生成：ほかの部分よりやわらかくなります。",
-  "Add your {} API key in Settings ▸ Generative Fill first.": "まず 設定 → 生成塗りつぶし で {} の API キーを追加してください。",
+  "Add your {} API key in Settings → Generative Fill first.": "まず 設定 → 生成塗りつぶし で {} の API キーを追加してください。",
   "LightCraft will upload a crop of this photo to {name}, using your API key. This is the first time you use {name}.": "LightCraft はあなたの API キーで、この写真の切り抜きを {name} にアップロードします。{name} を使うのは初めてです。",
   "Uploaded: only this {} × {} px crop (red: the area to fill) and its mask. Not the whole photo, not its metadata.": "アップロードされるのは、この {} × {} px の切り抜き（赤：塗りつぶす範囲）とそのマスクだけです。写真全体やメタデータは送信されません。",
   "Uploaded: {} crops along the area (red: the area to fill) and their masks. Not the whole photo, not its metadata.": "アップロードされるのは、範囲に沿った {} 枚の切り抜き（赤：塗りつぶす範囲）とそのマスクです。写真全体やメタデータは送信されません。",

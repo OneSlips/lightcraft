@@ -256,7 +256,7 @@
   "Generating… {} of {}": "Generando… {} de {}",
   "Variation {} of {}": "Variación {} de {}",
   "Generated at {}% of the photo's resolution: softer than the rest.": "Generado al {}% de la resolución de la foto: más suave que el resto.",
-  "Add your {} API key in Settings ▸ Generative Fill first.": "Primero añade tu clave de API de {} en Ajustes → Relleno generativo.",
+  "Add your {} API key in Settings → Generative Fill first.": "Primero añade tu clave de API de {} en Ajustes → Relleno generativo.",
   "LightCraft will upload a crop of this photo to {name}, using your API key. This is the first time you use {name}.": "LightCraft subirá un recorte de esta foto a {name} con tu clave de API. Es la primera vez que usas {name}.",
   "Uploaded: only this {} × {} px crop (red: the area to fill) and its mask. Not the whole photo, not its metadata.": "Se sube solo este recorte de {} × {} px (en rojo: la zona a rellenar) y su máscara. No la foto completa ni sus metadatos.",
   "Uploaded: {} crops along the area (red: the area to fill) and their masks. Not the whole photo, not its metadata.": "Se suben {} recortes a lo largo de la zona (en rojo: la zona a rellenar) y sus máscaras. No la foto completa ni sus metadatos.",

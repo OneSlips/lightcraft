@@ -256,7 +256,7 @@
   "Generating… {} of {}": "正在生成… {} / {}",
   "Variation {} of {}": "变体 {} / {}",
   "Generated at {}% of the photo's resolution: softer than the rest.": "以照片分辨率的 {}% 生成：比其他部分更柔和。",
-  "Add your {} API key in Settings ▸ Generative Fill first.": "请先在 设置 → 生成式填充 中添加你的 {} API 密钥。",
+  "Add your {} API key in Settings → Generative Fill first.": "请先在 设置 → 生成式填充 中添加你的 {} API 密钥。",
   "LightCraft will upload a crop of this photo to {name}, using your API key. This is the first time you use {name}.": "LightCraft 将使用你的 API 密钥把这张照片的裁切图像上传到 {name}。这是你第一次使用 {name}。",
   "Uploaded: only this {} × {} px crop (red: the area to fill) and its mask. Not the whole photo, not its metadata.": "上传的只有这块 {} × {} 像素的裁切图像（红色：要填充的区域）及其蒙版。不包括整张照片，也不包括其元数据。",
   "Uploaded: {} crops along the area (red: the area to fill) and their masks. Not the whole photo, not its metadata.": "上传的是沿该区域的 {} 块裁切图像（红色：要填充的区域）及其蒙版。不包括整张照片，也不包括其元数据。",
