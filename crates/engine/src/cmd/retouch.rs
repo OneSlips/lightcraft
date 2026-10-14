@@ -176,7 +176,11 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let off = bool_or(p, "off", false);
                 edit(s, "skin.smooth", "Smooth Skin", |k| {
-                    *k = if off { SkinSmoothing { area: k.area, person: k.person, ..SkinSmoothing::default() } } else { SkinSmoothing { area: k.area, person: k.person, ..SkinSmoothing::SUBTLE } };
+                    *k = if off {
+                        SkinSmoothing { area: k.area, person: k.person, ..SkinSmoothing::default() }
+                    } else {
+                        SkinSmoothing { area: k.area, person: k.person, ..SkinSmoothing::SUBTLE }
+                    };
                     Ok(())
                 })
             }
@@ -196,7 +200,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 };
                 let person = match p.get("person") {
                     Some(v) => {
-                        let n = v.as_u64().filter(|n| *n <= u64::from(SkinSmoothing::MAX_PERSON)).ok_or_else(|| bad(c, "`person` is 0 (everyone) or 1 to 4"))?;
+                        let n = v
+                            .as_u64()
+                            .filter(|n| *n <= u64::from(SkinSmoothing::MAX_PERSON))
+                            .ok_or_else(|| bad(c, "`person` is 0 (everyone) or 1 to 4"))?;
                         Some(n as u32)
                     }
                     None => None,

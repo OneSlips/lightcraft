@@ -23,8 +23,8 @@ use lightcraft_raster::{Plane, Rgba8, blur::gaussian};
 pub mod mesh {
     /// The face oval (closed).
     pub const FACE_OVAL: [usize; 36] = [
-        10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132,
-        93, 234, 127, 162, 21, 54, 103, 67, 109,
+        10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234,
+        127, 162, 21, 54, 103, 67, 109,
     ];
     /// The eye openings (the image's left eye first).
     pub const EYES: [[usize; 16]; 2] = [
@@ -530,7 +530,10 @@ mod tests {
         let dots: Vec<(f64, f64)> =
             [-0.42, -0.32, -0.22, 0.22, 0.32, 0.42].iter().flat_map(|&dx| (0..4).map(move |j| (dx, 0.0 + 0.08 * j as f64))).collect();
         let (img, face) = scene(800, 600, 300.0, &dots);
-        assert!(detect(&img, &[face], None, &Options::default()).is_empty(), "more than {MAX_CANDIDATES_PER_FACE} candidates means stubble or freckles");
+        assert!(
+            detect(&img, &[face], None, &Options::default()).is_empty(),
+            "more than {MAX_CANDIDATES_PER_FACE} candidates means stubble or freckles"
+        );
     }
 
     #[test]
@@ -558,7 +561,8 @@ mod tests {
     #[test]
     fn hostile_faces_do_not_panic() {
         let (img, _) = scene(64, 48, 20.0, &[]);
-        let weird = FaceBox { x0: -2.0, y0: 0.5, x1: 9.0, y1: f64::NAN, keypoints: [(f64::INFINITY, 0.0); 4], mesh: Some(vec![(f64::NAN, 1e300); 478]) };
+        let weird =
+            FaceBox { x0: -2.0, y0: 0.5, x1: 9.0, y1: f64::NAN, keypoints: [(f64::INFINITY, 0.0); 4], mesh: Some(vec![(f64::NAN, 1e300); 478]) };
         let inverted = FaceBox { x0: 0.9, y0: 0.9, x1: 0.1, y1: 0.1, keypoints: [(0.5, 0.5); 4], mesh: Some(vec![(0.5, 0.5); 10]) };
         let huge = FaceBox { x0: 0.0, y0: 0.0, x1: 1.0, y1: 1.0, keypoints: [(0.5, 0.5); 4], mesh: Some(vec![(1e9, -1e9); 478]) };
         let opts = Options { body: true, sensitivity: 100.0, max_per_face: 20 };

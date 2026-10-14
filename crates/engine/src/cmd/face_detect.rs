@@ -115,8 +115,8 @@ pub(crate) fn detector(s: &Session) -> std::result::Result<Arc<Finder>, String> 
         {
             return Ok(d.clone());
         }
-        let model =
-            lightcraft_segment::people::FaceModel::load(&dir).map_err(|e| format!("the face model doesn't load ({e}): remove it and download it again"))?;
+        let model = lightcraft_segment::people::FaceModel::load(&dir)
+            .map_err(|e| format!("the face model doesn't load ({e}): remove it and download it again"))?;
         let d = Arc::new(Finder { model });
         *loaded = Some((dir, d.clone()));
         Ok(d)

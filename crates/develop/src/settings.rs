@@ -1195,8 +1195,7 @@ impl SkinSmoothing {
     /// Most people Smooth Skin tells apart (Person 1 to 4, as the People mask offers).
     pub const MAX_PERSON: u32 = 4;
     /// The subtle starting point Smooth Skin is switched on with.
-    pub const SUBTLE: SkinSmoothing =
-        SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, area: SkinArea::Face, person: 0 };
+    pub const SUBTLE: SkinSmoothing = SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, area: SkinArea::Face, person: 0 };
 
     pub fn is_default(&self) -> bool {
         *self == SkinSmoothing::default()

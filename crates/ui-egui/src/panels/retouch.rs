@@ -3,8 +3,8 @@
 //! commands; the open MediaPipe models they need are offered for download when missing.
 
 use egui::RichText;
-use lightcraft_develop::{DevelopSettings, SkinArea, SkinSmoothing};
 use lightcraft_catalog::PhotoId;
+use lightcraft_develop::{DevelopSettings, SkinArea, SkinSmoothing};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;

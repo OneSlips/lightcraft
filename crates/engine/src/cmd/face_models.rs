@@ -258,7 +258,10 @@ fn install_file(s: &mut Session, c: &str, src: &Path, ins: Inspection, acknowled
         Suggestion::Unsupported(why) => return Err(bad(c, format!("this model cannot be used yet: {why}"))),
     };
     if m.role == Role::Detector {
-        return Err(bad(c, "LightCraft finds faces with the open MediaPipe face model (Masking panel, or `ai.models.download {\"id\": \"face\"}`): face detectors can't be added"));
+        return Err(bad(
+            c,
+            "LightCraft finds faces with the open MediaPipe face model (Masking panel, or `ai.models.download {\"id\": \"face\"}`): face detectors can't be added",
+        ));
     }
     if m.role != Role::Embedder {
         return Err(bad(c, "only face recognition models can be installed"));

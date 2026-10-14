@@ -12,8 +12,8 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use lightcraft_develop::{DevelopSettings, SkinArea};
 use lightcraft_catalog::PhotoId;
+use lightcraft_develop::{DevelopSettings, SkinArea};
 use lightcraft_engine::Session;
 use lightcraft_raster::Rgba8;
 use serde_json::{Value, json};
@@ -104,11 +104,20 @@ fn main() {
                 continue;
             }
         };
-        let skin = found.seg.as_ref().and_then(|g| g.logits()).map(|l| l.iter().filter(|v| **v > 0.0).count() as f64 / l.len().max(1) as f64).unwrap_or(0.0);
+        let skin =
+            found.seg.as_ref().and_then(|g| g.logits()).map(|l| l.iter().filter(|v| **v > 0.0).count() as f64 / l.len().max(1) as f64).unwrap_or(0.0);
         let faces: Vec<String> = found
             .faces
             .iter()
-            .map(|f| format!("{{w {:.0}px, eyes {:.0}px, mesh {}, score {:.2}}}", (f.rect[2] - f.rect[0]) as f64 * pw as f64, f.eye_distance() * pw.max(ph) as f64, f.mesh.is_some(), f.score))
+            .map(|f| {
+                format!(
+                    "{{w {:.0}px, eyes {:.0}px, mesh {}, score {:.2}}}",
+                    (f.rect[2] - f.rect[0]) as f64 * pw as f64,
+                    f.eye_distance() * pw.max(ph) as f64,
+                    f.mesh.is_some(),
+                    f.score
+                )
+            })
             .collect();
         println!("{stem}\t{pw}x{ph}\t{} faces {}\tskin {:.1}%\t{:.1}s", found.faces.len(), faces.join(" "), skin * 100.0, t.elapsed().as_secs_f64());
         if mode == "faces" {
