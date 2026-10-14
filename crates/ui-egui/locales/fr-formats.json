@@ -247,5 +247,15 @@
   "{n} photos opened for editing; each is stacked with its original": "{n} photos ouvertes pour modification ; chacune est empilée avec son original",
   "{name} opened in the other editor": "{name} ouvert dans l’autre éditeur",
   "{n} originals opened in the other editor": "{n} originaux ouverts dans l’autre éditeur",
-  "· {in_source} identical copies": "· {in_source} copies identiques"
+  "· {in_source} identical copies": "· {in_source} copies identiques",
+  "{name} asks to control LightCraft: see Settings, Controls": "{name} demande à piloter LightCraft : voir Réglages, Contrôles",
+  "Now: {context}": "Maintenant : {context}",
+  "Runs: {name}": "Exécute : {name}",
+  "Moves: {name}": "Règle : {name}",
+  "Imported into the profile “{name}”": "Importé dans le profil « {name} »",
+  "Last import: {mapped} brought over, {dropped} left out": "Dernier import : {mapped} repris, {dropped} laissés de côté",
+  "Saved {path}": "Enregistré : {path}",
+  "Paired: {name}": "Appairé : {name}",
+  "{name} asks to pair. Code: {code}": "{name} demande l’appairage. Code : {code}",
+  "Listening on 127.0.0.1:{port}": "À l’écoute sur 127.0.0.1:{port}"
 }

@@ -429,7 +429,7 @@ impl Runtime {
             Some(Binding::PageNext { group }) => self.page_step(group, ticks.signum(), now_ms),
             Some(Binding::PagePrevious { group }) => self.page_step(group, -ticks.signum(), now_ms),
             // other bindings act once per turn event, clockwise only
-            Some(b) if ticks > 0 => self.act(control, &b, now_ms),
+            Some(b) if ticks > 0 => self.perform(control, &b, now_ms),
             _ => Vec::new(),
         }
     }
@@ -461,7 +461,7 @@ impl Runtime {
             // a dial press: its own binding (`dial.press`), else reset what the dial moves
             let own = format!("{control}.press");
             if let Some(b) = self.binding(&own, None) {
-                return self.act(&own, &b, now_ms);
+                return self.perform(&own, &b, now_ms);
             }
             return match self.binding(control, None) {
                 Some(Binding::Value { target }) => self.reset(&target, now_ms),
@@ -469,7 +469,7 @@ impl Runtime {
             };
         }
         match self.binding(control, page) {
-            Some(b) => self.act(control, &b, now_ms),
+            Some(b) => self.perform(control, &b, now_ms),
             None => Vec::new(),
         }
     }
@@ -483,7 +483,9 @@ impl Runtime {
         out
     }
 
-    fn act(&mut self, control: &str, b: &Binding, now_ms: f64) -> Vec<Effect> {
+    /// Do what `b` does, as if a key bound to it (`control`) were pressed (commands that page,
+    /// switch profiles or toggle without a key).
+    pub fn perform(&mut self, control: &str, b: &Binding, now_ms: f64) -> Vec<Effect> {
         match b {
             Binding::Value { target } => {
                 // the adjustment dial toggle: press to put this value on the dial, again to give
@@ -499,7 +501,10 @@ impl Runtime {
             }
             Binding::Command { command, params } => {
                 self.show(Shown::Command { label: b.describe(), icon: crate::icons::icon_for(b) }, now_ms);
-                vec![Effect::Command { command: command.clone(), params: params.clone() }]
+                // a command may change the photo: what the dial did so far goes to this one first
+                let mut out = self.interrupt();
+                out.push(Effect::Command { command: command.clone(), params: params.clone() });
+                out
             }
             Binding::Modifier { modifier } => {
                 if !self.held.iter().any(|(c, m)| c == control && m == modifier) {
@@ -621,7 +626,7 @@ mod tests {
         p.base.insert("pad.4".into(), Binding::Reset);
         p.contexts.insert("default".into(), vec!["Cull".into(), "Light".into()]);
         p.contexts.insert("crop".into(), vec!["Crop".into()]);
-        SurfaceSettings { profiles: vec![p], profile: "T".into(), ..SurfaceSettings::default() }
+        SurfaceSettings { profiles: vec![p], profile: "T".into(), enabled: true, ..SurfaceSettings::default() }
     }
 
     fn turn(c: &str, t: i32) -> Input {
@@ -792,14 +797,14 @@ mod tests {
         s.profiles.push(q);
         let mut r = Runtime::new(s);
         r.input(press("pad.2"), 0.0);
-        let e = r.act("x", &Binding::ProfileNext, 10.0);
+        let e = r.perform("x", &Binding::ProfileNext, 10.0);
         assert!(e.contains(&Effect::Save));
         assert_eq!(r.settings().profile, "Q");
         assert_eq!(r.pages()[&PageGroup::Dials], "Light", "a new profile starts on its default pages");
-        r.act("x", &Binding::Profile { profile: "T".into() }, 20.0);
+        r.perform("x", &Binding::Profile { profile: "T".into() }, 20.0);
         assert_eq!(r.settings().profile, "T");
-        assert!(r.act("x", &Binding::Profile { profile: "missing".into() }, 30.0).is_empty());
-        let e = r.act("x", &Binding::Page { page: "Edit".into() }, 40.0);
+        assert!(r.perform("x", &Binding::Profile { profile: "missing".into() }, 30.0).is_empty());
+        let e = r.perform("x", &Binding::Page { page: "Edit".into() }, 40.0);
         assert_eq!(e, [Effect::Changed { notice: Some("Edit".into()) }]);
         assert_eq!(r.pages()[&PageGroup::Keys], "Edit");
     }

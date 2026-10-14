@@ -1,0 +1,334 @@
+//! Control surfaces in the app (`crate::surface`, Settings ▸ Controls, the on-screen readout).
+//!
+//! Scenarios, as a photographer with an MX Creative Console sees them:
+//!
+//! * The plugin asks to pair; LightCraft says so; I check the code and approve it in Settings ▸
+//!   Controls; from then on the plugin connects with its token. Anything unpaired is refused.
+//! * Turning the dial moves Exposure on the open photo, and the window shows the value. When I
+//!   stop turning, that turn is one undo step.
+//! * With "Dials change every selected photo" on, the turn lands on every selected photo, still as
+//!   one undo step.
+//! * Opening Crop puts the crop page on the keypad and Straighten on the dial.
+//! * In Settings ▸ Controls I can press Learn, touch a key, and change what it does.
+//! * My TactileBridge settings come over in one go; damaged files never crash anything.
+
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{Receiver, channel};
+use std::time::{Duration, Instant};
+
+use serde_json::{Value, json};
+
+use crate::control::ControlRequest;
+use crate::headless::Headless;
+use crate::state::{Dialog, RightPanel, ViewMode};
+use crate::surface::{EventSink, SurfaceStore};
+use crate::{LightcraftApp, Services};
+
+const T: Duration = Duration::from_secs(20);
+
+/// An in-memory settings file.
+#[derive(Clone, Default)]
+struct MemStore(Arc<std::sync::Mutex<Option<String>>>);
+
+impl SurfaceStore for MemStore {
+    fn load(&self) -> Result<Option<String>, String> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn save(&self, text: &str) -> Result<(), String> {
+        *self.0.lock().unwrap() = Some(text.to_string());
+        Ok(())
+    }
+}
+
+fn demo_with(store: MemStore, enabled: bool) -> Headless {
+    if enabled {
+        let s = lightcraft_surface::SurfaceSettings { enabled: true, ..Default::default() };
+        store.save(&s.to_json()).unwrap();
+    }
+    let services = Services { png: None, surface_store: Some(Box::new(store)), ..Default::default() };
+    let app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+    let mut h = Headless::new(app, [1400.0, 900.0], 1.0);
+    h.settle(T);
+    h
+}
+
+fn demo() -> Headless {
+    demo_with(MemStore::default(), true)
+}
+
+/// A request on a TCP-like connection `conn` whose events go to `sink`.
+fn request_on(h: &mut Headless, conn: u64, sink: &EventSink, method: &str, params: Value) -> Value {
+    let (req, rx) = ControlRequest::new(method, params);
+    let req = req.on_connection(conn, sink.clone());
+    h.control_sender().send(req).unwrap();
+    let t0 = Instant::now();
+    loop {
+        h.step();
+        if let Ok(v) = rx.try_recv() {
+            return v;
+        }
+        assert!(t0.elapsed() < T, "no reply to {method}");
+    }
+}
+
+fn sink() -> (EventSink, Receiver<Value>) {
+    let (tx, rx) = channel();
+    (EventSink { tx, open: Arc::new(AtomicBool::new(true)) }, rx)
+}
+
+fn exposure(h: &Headless) -> f64 {
+    let id = h.app.session.active().unwrap();
+    h.app.session.develop_of(id).unwrap().light.exposure
+}
+
+/// Open the first photo in Detail with the Edit panel.
+fn open_photo(h: &mut Headless) {
+    let first = h.app.session.visible_cloned()[0];
+    assert_eq!(h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [first.0]}}), T)["ok"], true);
+    h.app.ui.view = ViewMode::Detail;
+    h.app.ui.right = RightPanel::Edit;
+    h.settle(T);
+}
+
+/// Frames until the dial gesture has ended (the default 800 ms at 60 frames a second).
+fn finish_gesture(h: &mut Headless) {
+    for _ in 0..70 {
+        h.step();
+    }
+}
+
+fn input(h: &mut Headless, events: Value) -> Value {
+    h.request("engine.execute", json!({"command": "surface.input", "params": {"events": events}}), T)
+}
+
+#[test]
+fn pairing_then_subscribe_and_turn_over_a_connection() {
+    let mut h = demo();
+    open_photo(&mut h);
+    let (sink1, events1) = sink();
+    // unpaired: hello says so, input and subscribe are refused
+    let r = request_on(&mut h, 7, &sink1, "surface.hello", json!({"protocol": 1, "client": "test"}));
+    assert_eq!(r["result"]["paired"], false, "{r}");
+    let r = request_on(&mut h, 7, &sink1, "surface.input", json!({"events": [{"control": "dial", "ticks": 5}]}));
+    assert_eq!(r["ok"], false, "{r}");
+    assert!(r["error"].as_str().unwrap().contains("isn't paired"));
+    // ask; Settings ▸ Controls shows the request with its code
+    let r = request_on(&mut h, 7, &sink1, "surface.pair", json!({"client": "test", "name": "Test Plugin"}));
+    assert_eq!(r["result"]["status"], "pending", "{r}");
+    let (req, code) = (r["result"]["request"].as_str().unwrap().to_string(), r["result"]["code"].as_str().unwrap().to_string());
+    assert_eq!(code.len(), 6);
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "controls".into() });
+    h.settle(T);
+    assert!(h.painted_text().iter().any(|t| t.contains(&code)), "the code is shown");
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceApprove-test"}), T)["ok"], true);
+    h.settle(T);
+    assert_eq!(h.app.surface.settings().paired.len(), 1);
+    let r = request_on(&mut h, 7, &sink1, "surface.pair", json!({"request": req}));
+    assert_eq!(r["result"]["status"], "approved", "{r}");
+    let token = r["result"]["token"].as_str().unwrap().to_string();
+    h.app.ui.dialog = None;
+    // a new connection presents the token
+    let (sink2, events2) = sink();
+    let r = request_on(&mut h, 8, &sink2, "surface.hello", json!({"protocol": 1, "token": token}));
+    assert_eq!(r["result"]["paired"], true, "{r}");
+    let r = request_on(&mut h, 9, &sink2, "surface.hello", json!({"token": "forged"}));
+    assert_eq!(r["result"]["paired"], false);
+    let r = request_on(&mut h, 8, &sink2, "surface.subscribe", json!({"device": "mx-creative-console"}));
+    assert_eq!(r["ok"], true, "{r}");
+    let layout = &r["result"]["layout"];
+    assert_eq!(layout["dials"][0]["binding"]["target"], "light.exposure");
+    assert_eq!(layout["keys"].as_array().unwrap().len(), 9);
+    // turn the dial: exposure moves, the readout shows it, the plugin hears the new value
+    let before = exposure(&h);
+    let r = request_on(&mut h, 8, &sink2, "surface.input", json!({"events": [{"control": "dial", "ticks": 3}, {"control": "dial", "ticks": 2}]}));
+    assert_eq!(r["ok"], true, "{r}");
+    for _ in 0..3 {
+        h.step();
+    }
+    assert!(exposure(&h) > before, "{} > {before}", exposure(&h));
+    assert!(h.painted_text().iter().any(|t| t == "Exposure"), "the on-screen readout");
+    let pushed: Vec<Value> = events2.try_iter().collect();
+    let last = pushed.iter().rev().find(|e| e["event"] == "surface.layout").unwrap_or_else(|| panic!("no layout pushed: {pushed:?}"));
+    let shown: f64 = last["layout"]["dials"][0]["value"].as_str().unwrap().trim_start_matches('+').parse().unwrap();
+    assert!((shown - exposure(&h)).abs() < 0.006, "the pushed value is the photo's: {shown} vs {}", exposure(&h));
+    // the first connection never subscribed: nothing pushed to it
+    assert!(events1.try_iter().next().is_none());
+    // the turn is one undo step once it ends
+    finish_gesture(&mut h);
+    let after = exposure(&h);
+    assert_eq!(h.request("engine.execute", json!({"command": "edit.undo"}), T)["ok"], true);
+    assert!((exposure(&h) - before).abs() < 1e-9, "one undo puts the whole turn back: {} vs {before} (was {after})", exposure(&h));
+    // forget it: the token stops working
+    h.app.surface.unpair("test");
+    let r = request_on(&mut h, 10, &sink2, "surface.hello", json!({"token": token}));
+    assert_eq!(r["result"]["paired"], false);
+}
+
+#[test]
+fn apply_to_selected_changes_every_selected_photo_in_one_step() {
+    let mut h = demo();
+    open_photo(&mut h);
+    let ids: Vec<u64> = h.app.session.visible_cloned().iter().take(3).map(|p| p.0).collect();
+    assert_eq!(h.request("engine.execute", json!({"command": "library.select", "params": {"ids": ids}}), T)["ok"], true);
+    h.settle(T);
+    let r = h.request("engine.execute", json!({"command": "surface.applyToSelected", "params": {"on": true}}), T);
+    assert_eq!(r["result"]["on"], true, "{r}");
+    let exp = |h: &Headless, id: u64| h.app.session.develop_of(lightcraft_catalog::PhotoId(id)).unwrap().light.exposure;
+    let before: Vec<f64> = ids.iter().map(|i| exp(&h, *i)).collect();
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 10}]))["ok"], true);
+    finish_gesture(&mut h);
+    for (i, id) in ids.iter().enumerate() {
+        assert!((exp(&h, *id) - before[i] - 0.10).abs() < 1e-6, "photo {id}: {} vs {}", exp(&h, *id), before[i]);
+    }
+    assert_eq!(h.request("engine.execute", json!({"command": "edit.undo"}), T)["ok"], true);
+    for (i, id) in ids.iter().enumerate() {
+        assert!((exp(&h, *id) - before[i]).abs() < 1e-9, "one undo step for all");
+    }
+}
+
+#[test]
+fn pages_follow_crop_and_keys_run_commands() {
+    let mut h = demo();
+    open_photo(&mut h);
+    let state = |h: &mut Headless| h.request("engine.execute", json!({"command": "surface.state"}), T)["result"].clone();
+    let s = state(&mut h);
+    assert_eq!((s["keyPage"].as_str(), s["dialPage"].as_str()), (Some("Page 1"), Some("Dial Page")), "{s}");
+    assert!(s["context"].as_str().unwrap().starts_with("develop"), "{s}");
+    h.app.ui.right = RightPanel::Crop;
+    h.settle(T);
+    let s = state(&mut h);
+    assert_eq!((s["context"].as_str(), s["keyPage"].as_str(), s["dialPage"].as_str()), (Some("crop"), Some("Crop"), Some("Crop")), "{s}");
+    // the dial straightens
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 50}]))["ok"], true);
+    finish_gesture(&mut h);
+    let id = h.app.session.active().unwrap();
+    assert!(h.app.session.develop_of(id).unwrap().crop.geometry.angle.abs() > 0.1);
+    // back to Edit: the hand-picked pages come back
+    h.app.ui.right = RightPanel::Edit;
+    h.settle(T);
+    assert_eq!(state(&mut h)["keyPage"], "Page 1");
+    // a key runs its command: Page 1, key 2 = Next photo
+    let before = h.app.session.active();
+    assert_eq!(input(&mut h, json!([{"control": "key.2", "press": true}, {"control": "key.2", "press": false}]))["ok"], true);
+    h.settle(T);
+    assert_ne!(h.app.session.active(), before);
+    // the dialpad's fourth button turns the dial page
+    assert_eq!(input(&mut h, json!([{"control": "pad.4", "press": true}]))["ok"], true);
+    assert_eq!(state(&mut h)["dialPage"], "White Balance");
+}
+
+#[test]
+fn settings_tab_learn_and_edit_a_key() {
+    let store = MemStore::default();
+    let mut h = demo_with(store.clone(), true);
+    open_photo(&mut h);
+    assert_eq!(h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "controls"}}), T)["ok"], true);
+    h.settle(T);
+    for id in [
+        "button:surfaceControl-key.1",
+        "button:surfaceControl-dial",
+        "button:surfaceLearn",
+        "check:surface.enabled",
+        "combo:surfaceProfile",
+        "slider:surface.speed",
+    ] {
+        assert!(h.app.widgets.iter().any(|(w, _)| w == id), "{id}");
+    }
+    // Learn, then touch key 5 on the surface: it is selected, and nothing runs
+    let clip = h.app.widgets.iter().find(|(w, _)| w == "button:surfaceLearn").map(|(_, r)| *r).unwrap();
+    assert!(clip.bottom() < 900.0, "Learn is on screen: {clip:?}");
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceLearn"}), T)["ok"], true);
+    h.settle(T);
+    assert!(h.app.surface.runtime.learning());
+    let before = h.app.session.active();
+    assert_eq!(input(&mut h, json!([{"control": "key.5", "press": true}]))["ok"], true);
+    h.settle(T);
+    assert_eq!(h.app.surface.editor.control.as_deref(), Some("key.5"));
+    assert_eq!(h.app.session.active(), before, "a learnt press doesn't act");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "combo:surfaceBindingKind"), "the selected key's editor");
+    // make key 5 put Contrast on the dial
+    let profile = h.app.surface.settings().profile.clone();
+    let mut s = h.app.surface.settings().clone();
+    let page = s.profiles.iter_mut().find(|p| p.name == profile).unwrap().pages.iter_mut().find(|p| p.name == "Page 1").unwrap();
+    page.bindings.insert("key.5".into(), lightcraft_surface::Binding::value("light.contrast"));
+    assert_eq!(h.request("engine.execute", json!({"command": "surface.settings", "params": {"settings": s}}), T)["ok"], true);
+    h.settle(T);
+    assert!(h.painted_text().iter().any(|t| t == "Contrast"), "the key shows its new label");
+    h.app.ui.dialog = None;
+    // (the keypad follows the dialog's page until the next frame)
+    h.settle(T);
+    // press it: the dial moves Contrast until pressed again
+    assert_eq!(input(&mut h, json!([{"control": "key.5", "press": true}, {"control": "dial", "ticks": 4}]))["ok"], true);
+    finish_gesture(&mut h);
+    let id = h.app.session.active().unwrap();
+    assert!(h.app.session.develop_of(id).unwrap().light.contrast > 0.0);
+    // saved
+    for _ in 0..40 {
+        h.step();
+    }
+    assert!(store.load().unwrap().unwrap().contains("light.contrast"));
+}
+
+#[test]
+fn tactilebridge_settings_import_and_damaged_files() {
+    let dir = std::env::temp_dir().join(format!("lc-surface-tb-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("settings.json");
+    std::fs::write(
+        &path,
+        r##"{"controls": {"globalSpeedMultiplier": 1.2, "adjustmentProfiles": {"Kelvin": {"speedMultiplier": 0.3}}},
+            "osd": {"opacity": 0.6, "position": "Up"},
+            "toolContext": {"contexts": {"Crop": {"buttons": ["SwitchCropOrientation"], "encoders": ["Zoom"]}}}}"##,
+    )
+    .unwrap();
+    let mut h = demo();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["profile"], "TactileBridge");
+    let s = h.app.surface.settings();
+    assert_eq!((s.motion.speed, s.tuning["wb.temp"].speed, s.osd.opacity), (1.2, 0.3, 0.6));
+    assert!(r["result"]["report"]["mapped"].as_array().unwrap().len() > 3);
+    // junk is an error, not a crash
+    std::fs::write(&path, "{not json").unwrap();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], false);
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": dir.join("missing.lp5").to_string_lossy()}}), T);
+    assert_eq!(r["ok"], false);
+    let _ = std::fs::remove_dir_all(&dir);
+    // a damaged settings file: defaults, a notice, the file kept until something changes
+    let store = MemStore::default();
+    store.save("{ damaged").unwrap();
+    let services = Services { png: None, surface_store: Some(Box::new(store.clone())), ..Default::default() };
+    let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::with_demo(), services), [1000.0, 700.0], 1.0);
+    h.settle(T);
+    assert!(h.app.surface.load_error.is_some());
+    assert_eq!(store.load().unwrap().as_deref(), Some("{ damaged"));
+}
+
+#[test]
+fn surfaces_are_off_until_turned_on_and_hostile_input_is_refused() {
+    let mut h = demo_with(MemStore::default(), false);
+    let (sink1, _rx) = sink();
+    let r = request_on(&mut h, 3, &sink1, "surface.subscribe", json!({}));
+    assert!(r["error"].as_str().unwrap().contains("switched off"), "{r}");
+    h.app.surface.runtime.settings_mut().enabled = true;
+    for bad in [
+        json!({}),
+        json!({"events": 5}),
+        json!({"events": [{"control": "dial"}]}),
+        json!({"events": [{"ticks": 1}]}),
+        json!({"events": [{"control": "dial", "ticks": "x"}]}),
+    ] {
+        let r = h.request("engine.execute", json!({"command": "surface.input", "params": bad}), T);
+        assert_eq!(r["ok"], false, "{r}");
+    }
+    let many: Vec<Value> = (0..300).map(|_| json!({"control": "dial", "ticks": 1})).collect();
+    assert_eq!(input(&mut h, Value::Array(many))["ok"], false);
+    let r = input(&mut h, json!([{"control": "dial", "ticks": 1e300}, {"control": "key.1", "press": true, "page": 99999}]));
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    let r = h.request("surface.icons", json!({"names": ["exposure", "nope"]}), T);
+    assert!(r["result"]["exposure"].as_str().unwrap().contains("<svg"));
+    assert!(r["result"].get("nope").is_none());
+}

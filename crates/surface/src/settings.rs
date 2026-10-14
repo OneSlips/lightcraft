@@ -12,6 +12,8 @@ use crate::profile::Profile;
 
 /// The settings file's format version.
 pub const FORMAT_VERSION: u32 = 1;
+/// The port surfaces connect to by default.
+pub const DEFAULT_PORT: u16 = 7981;
 
 /// Per-value dial feel (TactileBridge's `AdjustmentTuning`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -204,14 +206,15 @@ pub struct PairedClient {
     pub approved_at: u64,
 }
 
-
 /// The whole settings file.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct SurfaceSettings {
     pub version: u32,
-    /// Surfaces may connect and drive the app.
+    /// Surfaces may connect and drive the app (off until the user turns it on).
     pub enabled: bool,
+    /// The loopback port surfaces connect to while enabled (the surfaces-only listener).
+    pub port: u16,
     /// The profile in use (by name).
     pub profile: String,
     /// Pages follow what the app shows (TactileBridge's automatic tool switching).
@@ -232,7 +235,8 @@ impl Default for SurfaceSettings {
     fn default() -> Self {
         SurfaceSettings {
             version: FORMAT_VERSION,
-            enabled: true,
+            enabled: false,
+            port: DEFAULT_PORT,
             profile: "Default".into(),
             follow_context: true,
             apply_to_selected: false,
@@ -286,6 +290,9 @@ impl SurfaceSettings {
     pub fn sanitize(&mut self) {
         let d = MotionSettings::default();
         self.version = FORMAT_VERSION;
+        if self.port < 1024 {
+            self.port = DEFAULT_PORT;
+        }
         self.motion.speed = clamp(self.motion.speed, 0.1, 5.0, d.speed);
         self.motion.acceleration = clamp(self.motion.acceleration, 0.1, 4.0, d.acceleration);
         self.motion.fine = clamp(self.motion.fine, 0.01, 1.0, d.fine);

@@ -247,5 +247,15 @@
   "{n} photos opened for editing; each is stacked with its original": "Открыто для редактирования фото: {n}; каждое объединено в стопку с оригиналом",
   "{name} opened in the other editor": "{name} открыт в другом редакторе",
   "{n} originals opened in the other editor": "Открыто оригиналов в другом редакторе: {n}",
-  "· {in_source} identical copies": "· идентичных копий: {in_source}"
+  "· {in_source} identical copies": "· идентичных копий: {in_source}",
+  "{name} asks to control LightCraft: see Settings, Controls": "{name} просит доступ к управлению LightCraft: см. Настройки, Управление",
+  "Now: {context}": "Сейчас: {context}",
+  "Runs: {name}": "Выполняет: {name}",
+  "Moves: {name}": "Меняет: {name}",
+  "Imported into the profile “{name}”": "Импортировано в профиль «{name}»",
+  "Last import: {mapped} brought over, {dropped} left out": "Последний импорт: перенесено {mapped}, пропущено {dropped}",
+  "Saved {path}": "Сохранено: {path}",
+  "Paired: {name}": "Сопряжено: {name}",
+  "{name} asks to pair. Code: {code}": "{name} просит сопряжение. Код: {code}",
+  "Listening on 127.0.0.1:{port}": "Ожидает на 127.0.0.1:{port}"
 }

@@ -595,7 +595,7 @@ pub fn context_of(tool: &str) -> Option<&'static str> {
         "Draw Mask" | "Erase Mask" => "masking.mask.brush",
         "Draw Healing Mask" => "remove",
         "Direct Color Editor" => "develop.color",
-        "Import" => "dialog.importReview",
+        "Import" => "dialog.import",
         "Export" | "Process" => "dialog.export",
         _ => return None,
     })

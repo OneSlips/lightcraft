@@ -4,6 +4,7 @@ pub mod activity;
 pub mod bottombar;
 pub mod chips;
 pub mod compare;
+pub mod controls;
 pub mod crop_overlay;
 pub mod denoise;
 pub mod detail;
@@ -28,6 +29,7 @@ pub mod rules_editor;
 pub mod second;
 pub mod settings;
 pub mod strip;
+pub mod surface_osd;
 pub mod topbar;
 pub mod unnamed;
 

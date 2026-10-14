@@ -247,5 +247,15 @@
   "{n} photos opened for editing; each is stacked with its original": "已開啟 {n} 張相片進行編輯；每張都與其原始相片堆疊在一起",
   "{name} opened in the other editor": "已在其他編輯器中開啟 {name}",
   "{n} originals opened in the other editor": "已在其他編輯器中開啟 {n} 個原始檔案",
-  "· {in_source} identical copies": "· {in_source} 個相同副本"
+  "· {in_source} identical copies": "· {in_source} 個相同副本",
+  "{name} asks to control LightCraft: see Settings, Controls": "{name} 要求控制 LightCraft：請查看「設定 - 控制裝置」",
+  "Now: {context}": "目前：{context}",
+  "Runs: {name}": "執行：{name}",
+  "Moves: {name}": "調整：{name}",
+  "Imported into the profile “{name}”": "已匯入至設定檔「{name}」",
+  "Last import: {mapped} brought over, {dropped} left out": "上次匯入：移轉 {mapped} 項，略過 {dropped} 項",
+  "Saved {path}": "已儲存：{path}",
+  "Paired: {name}": "已配對：{name}",
+  "{name} asks to pair. Code: {code}": "{name} 要求配對。代碼：{code}",
+  "Listening on 127.0.0.1:{port}": "正在 127.0.0.1:{port} 上監聽"
 }

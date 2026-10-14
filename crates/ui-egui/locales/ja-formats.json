@@ -247,5 +247,15 @@
   "{n} photos opened for editing; each is stacked with its original": "{n}枚の写真を編集用に開きました。それぞれ元の写真とスタックされています",
   "{name} opened in the other editor": "{name}を別のエディタで開きました",
   "{n} originals opened in the other editor": "{n}個の元ファイルを別のエディタで開きました",
-  "· {in_source} identical copies": "・同一のコピー {in_source} 件"
+  "· {in_source} identical copies": "・同一のコピー {in_source} 件",
+  "{name} asks to control LightCraft: see Settings, Controls": "{name} が LightCraft の操作を求めています：設定の「コントロール」を確認",
+  "Now: {context}": "現在：{context}",
+  "Runs: {name}": "実行：{name}",
+  "Moves: {name}": "調整：{name}",
+  "Imported into the profile “{name}”": "プロファイル「{name}」に読み込みました",
+  "Last import: {mapped} brought over, {dropped} left out": "前回の読み込み：{mapped} 件を移行、{dropped} 件は対象外",
+  "Saved {path}": "保存しました：{path}",
+  "Paired: {name}": "ペアリング済み：{name}",
+  "{name} asks to pair. Code: {code}": "{name} がペアリングを求めています。コード：{code}",
+  "Listening on 127.0.0.1:{port}": "127.0.0.1:{port} で待機中"
 }

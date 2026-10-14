@@ -222,6 +222,22 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.captureTime", "Edit Capture Time…", None, "Photo"),
     ("photo.tagFromTracklog", "Auto-Tag from Tracklog…", None, "Photo"),
     ("app.exportPrevious", "Export with Previous", Some("Cmd+Alt+Shift+E"), "File"),
+    // control surfaces (`surface`): what their keys run, and their settings for agents
+    ("surface.maskPrevious", "Select Mask Above", None, ""),
+    ("surface.maskNext", "Select Mask Below", None, ""),
+    ("surface.dialogConfirm", "Confirm Dialog", None, ""),
+    ("surface.dialogCancel", "Cancel Dialog", None, ""),
+    ("surface.pageNext", "Next Surface Page", None, ""),
+    ("surface.pagePrevious", "Previous Surface Page", None, ""),
+    ("surface.page", "Show Surface Page", None, ""),
+    ("surface.profile", "Control Surface Profile", None, ""),
+    ("surface.applyToSelected", "Dials Change All Selected Photos", None, ""),
+    ("surface.followContext", "Surface Pages Follow the App", None, ""),
+    ("surface.input", "Control Surface Input", None, ""),
+    ("surface.state", "Control Surface State", None, ""),
+    ("surface.settings", "Control Surface Settings", None, ""),
+    ("surface.import", "Import Control Surface Setup", None, ""),
+    ("surface.export", "Export Control Surface Layout", None, ""),
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
@@ -363,6 +379,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         // the app's own context: a fresh one's repaints reach no window and its clock starts at zero
         let ctx = app.tasks.repaint.clone().unwrap_or_default();
         return Some(crate::lightroom_import::command(app, id, p, &ctx));
+    }
+    if id.starts_with("surface.")
+        && let Some(r) = crate::surface::command(app, id, p)
+    {
+        return Some(r);
     }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
@@ -1872,6 +1893,10 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
                     .and_then(|id| app.session.catalog.photo(id))
                     .is_some_and(|p| matches!(p.source, lightcraft_engine::catalog::Source::File { .. }))
         }
+        "surface.maskPrevious" | "surface.maskNext" => {
+            app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| !d.masks.is_empty())
+        }
+        "surface.dialogConfirm" | "surface.dialogCancel" => app.ui.dialog.is_some(),
         "file.exportPresets" => app.session.presets.iter().any(|p| !p.builtin),
         "file.exportCurvePresets" => !app.session.curve_presets.is_empty(),
         "view.compare" => app.session.catalog.len() > 1,

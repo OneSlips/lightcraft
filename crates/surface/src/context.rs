@@ -116,7 +116,7 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("masking.mask.gradient", "Masking: gradient"),
     ("dialog", "Any dialog"),
     ("dialog.export", "Export dialog"),
-    ("dialog.importReview", "Import dialog"),
+    ("dialog.import", "Import dialog"),
     ("dialog.settings", "Settings"),
 ];
 

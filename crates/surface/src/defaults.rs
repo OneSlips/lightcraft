@@ -190,13 +190,14 @@ pub fn tool_pages() -> Vec<(Page, &'static [&'static str])> {
             ),
             &["dialog"],
         ),
-        // the Edit panel's section on the dials (TactileBridge's Direct Color Editor context
-        // put colour on the dials)
-        (lc_dials("Light", "light.exposure", "light.contrast"), &["develop.light"]),
-        (lc_dials("Color", "wb.temp", "wb.tint"), &["develop.color"]),
-        (lc_dials("Effects", "effects.clarity", "effects.texture"), &["develop.effects"]),
-        (lc_dials("Detail", "detail.sharpenAmount", "detail.nrLuminance"), &["develop.detail"]),
-        (lc_dials("Optics", "optics.distortion", "optics.vignetting"), &["develop.optics"]),
+        // the Edit panel's sections on the dials (TactileBridge's Direct Color Editor context put
+        // colour on the dials): ready to map to `develop.<section>` in Settings > Controls; not
+        // mapped by default, so the profile's own dial pages stay in charge while editing
+        (lc_dials("Light", "light.exposure", "light.contrast"), &[]),
+        (lc_dials("Color", "wb.temp", "wb.tint"), &[]),
+        (lc_dials("Effects", "effects.clarity", "effects.texture"), &[]),
+        (lc_dials("Detail", "detail.sharpenAmount", "detail.nrLuminance"), &[]),
+        (lc_dials("Optics", "optics.distortion", "optics.vignetting"), &[]),
     ]
 }
 

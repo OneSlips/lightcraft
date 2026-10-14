@@ -30,6 +30,10 @@ serde_json = { workspace = true }
 pollster = { workspace = true }
 log = { workspace = true }
 
+[dev-dependencies]
+# the end-to-end control-surface test (`control_server`)
+lightcraft-surface = { workspace = true }
+
 [build-dependencies]
 # Icon + VERSIONINFO for lightcraft.exe; build.rs only uses it when targeting Windows.
 winresource = "0.1"

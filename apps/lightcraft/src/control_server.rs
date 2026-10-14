@@ -6,15 +6,21 @@
 //! one error reply and the connection is closed, so nothing after it is executed. Lines are
 //! bounded ([`MAX_LINE`]) and so is the number of open connections ([`MAX_CONNECTIONS`]); junk
 //! never reaches the UI thread. See `docs/control-protocol.md`.
+//!
+//! A connection that subscribes to a control surface's layout (`surface.subscribe`,
+//! `docs/control-surfaces.md`) also receives pushed event lines (`{"event": ...}`) between its
+//! replies; lines never interleave. The surfaces-only listener ([`Mode::SurfacesOnly`], Settings,
+//! Controls) serves nothing but `surface.*` methods, which need pairing.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use lightcraft_ui_egui::ControlRequest;
+use lightcraft_ui_egui::surface::EventSink;
 use serde_json::{Value, json};
 
 /// Longest accepted request line (bytes, without the newline). Requests are small JSON objects;
@@ -23,23 +29,60 @@ pub const MAX_LINE: usize = 4 * 1024 * 1024;
 /// Connections served at once; further ones get an error line and are closed.
 pub const MAX_CONNECTIONS: usize = 16;
 
-pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
-    let (tx, rx) = channel::<ControlRequest>();
-    let listener = match TcpListener::bind(("127.0.0.1", port)) {
-        Ok(l) => l,
-        Err(e) => {
-            log::error!("control server failed to bind 127.0.0.1:{port}: {e}");
-            return rx;
-        }
-    };
-    log::info!("control server listening on 127.0.0.1:{port}");
-    std::thread::spawn(move || accept_loop(listener, tx, ctx));
-    rx
+/// What a listener serves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// Every method (`--control PORT`).
+    Full,
+    /// Only `surface.*` (the control-surface port of Settings, Controls).
+    SurfacesOnly,
 }
 
-fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context) {
+/// Connection numbers (0 is the in-process channel).
+static NEXT_CONN: AtomicU64 = AtomicU64::new(1);
+
+/// Serve `--control PORT`: requests go to `tx`.
+pub fn start(port: u16, tx: Sender<ControlRequest>, ctx: egui::Context) {
+    match TcpListener::bind(("127.0.0.1", port)) {
+        Ok(l) => {
+            log::info!("control server listening on 127.0.0.1:{port}");
+            let stop = Arc::new(AtomicBool::new(false));
+            std::thread::spawn(move || accept_loop(l, tx, ctx, Mode::Full, stop));
+        }
+        Err(e) => log::error!("control server failed to bind 127.0.0.1:{port}: {e}"),
+    }
+}
+
+/// Start the surfaces-only listener on `port` (0: any free port); set the returned flag to stop
+/// it. Returns the flag and the port.
+pub fn start_surfaces(port: u16, tx: Sender<ControlRequest>, ctx: egui::Context) -> Result<(Arc<AtomicBool>, u16), String> {
+    let l = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("can't listen on 127.0.0.1:{port}: {e}"))?;
+    l.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let port = l.local_addr().map(|a| a.port()).unwrap_or(port);
+    log::info!("control-surface listener on 127.0.0.1:{port}");
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    std::thread::spawn(move || accept_loop(l, tx, ctx, Mode::SurfacesOnly, flag));
+    Ok((stop, port))
+}
+
+fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context, mode: Mode, stop: Arc<AtomicBool>) {
     let open = Arc::new(AtomicUsize::new(0));
-    for mut stream in listener.incoming().flatten() {
+    loop {
+        if stop.load(Ordering::SeqCst) {
+            log::info!("control listener stopped");
+            return;
+        }
+        let mut stream = match listener.accept() {
+            Ok((s, _)) => s,
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            Err(_) => continue,
+        };
+        // a non-blocking listener hands out non-blocking sockets on some systems
+        let _ = stream.set_nonblocking(false);
         if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             open.fetch_sub(1, Ordering::SeqCst);
             let _ = writeln!(stream, "{}", json!({"ok": false, "error": "too many control connections"}));
@@ -49,9 +92,46 @@ fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Con
         let ctx = ctx.clone();
         let open = Arc::clone(&open);
         std::thread::spawn(move || {
-            serve(stream, &tx, &ctx);
+            serve(stream, &tx, &ctx, mode);
             open.fetch_sub(1, Ordering::SeqCst);
         });
+    }
+}
+
+/// A writer shared by a connection's replies and its pushed events: each line goes out whole.
+#[derive(Clone)]
+struct LineWriter {
+    out: Arc<Mutex<TcpStream>>,
+    buf: Vec<u8>,
+}
+
+impl Write for LineWriter {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(b);
+        Ok(b.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        let data = std::mem::take(&mut self.buf);
+        let mut out = self.out.lock().unwrap_or_else(PoisonError::into_inner);
+        out.write_all(&data)?;
+        out.flush()
+    }
+}
+
+/// Write pushed events to the connection until it closes.
+fn pump_events(events: Receiver<Value>, mut out: LineWriter, open: Arc<AtomicBool>) {
+    loop {
+        match events.recv_timeout(Duration::from_millis(500)) {
+            Ok(v) => {
+                if writeln!(out, "{v}").and_then(|()| out.flush()).is_err() {
+                    open.store(false, Ordering::SeqCst);
+                    return;
+                }
+            }
+            Err(RecvTimeoutError::Timeout) if open.load(Ordering::SeqCst) => {}
+            Err(_) => return,
+        }
     }
 }
 
@@ -66,15 +146,31 @@ const NO_FRAMES_AFTER: Duration = Duration::from_secs(5);
 pub const HIDDEN_WINDOW_ERROR: &str = "the app drew no frame for 5 s, so the request was not run: its window is probably not visible \
 (on Wayland a window on a hidden workspace or minimized is not redrawn, which pauses the app). Bring the window on screen and send it again";
 
-fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context) {
+fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context, mode: Mode) {
     let Ok(read) = stream.try_clone() else { return };
-    serve_lines(read, stream, |method, params| {
+    let conn = NEXT_CONN.fetch_add(1, Ordering::SeqCst);
+    let open = Arc::new(AtomicBool::new(true));
+    let (etx, erx) = channel::<Value>();
+    let out = LineWriter { out: Arc::new(Mutex::new(stream)), buf: Vec::new() };
+    let pump = {
+        let (out, open) = (out.clone(), Arc::clone(&open));
+        std::thread::spawn(move || pump_events(erx, out, open))
+    };
+    let sink = EventSink { tx: etx, open: Arc::clone(&open) };
+    serve_lines(read, out, |method, params| {
+        if mode == Mode::SurfacesOnly && !method.starts_with("surface.") {
+            return Some(json!({"ok": false, "error": "this port serves control surfaces only (surface.* methods)"}));
+        }
         let (req, rrx) = ControlRequest::new(method, params);
+        let req = req.on_connection(conn, sink.clone());
         let state = Arc::clone(&req.state);
         tx.send(req).ok()?;
         ctx.request_repaint();
         Some(await_reply(&rrx, &state, || ctx.cumulative_pass_nr(), || ctx.request_repaint(), NO_FRAMES_AFTER, REPLY_TIMEOUT))
     });
+    open.store(false, Ordering::SeqCst);
+    drop(sink);
+    let _ = pump.join();
 }
 
 /// Wait for a request's reply. While the app has not picked the request up and `frames` (its
@@ -252,6 +348,157 @@ mod tests {
         let r = await_reply(&rrx, &state, || n.fetch_add(1, Ordering::SeqCst), || {}, Duration::from_millis(30), Duration::from_secs(10));
         assert_eq!(r["ok"], true, "{r}");
         worker.join().unwrap();
+    }
+
+    /// A pushed event and a reply never share a line, and events stop when the peer goes.
+    #[test]
+    fn pushed_events_and_replies_arrive_as_whole_lines() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        let open = Arc::new(AtomicBool::new(true));
+        let (etx, erx) = channel::<Value>();
+        let out = LineWriter { out: Arc::new(Mutex::new(server)), buf: Vec::new() };
+        let pump = {
+            let (out, open) = (out.clone(), Arc::clone(&open));
+            std::thread::spawn(move || pump_events(erx, out, open))
+        };
+        let mut reply = out.clone();
+        for i in 0..50 {
+            etx.send(json!({"event": "surface.layout", "n": i})).unwrap();
+            writeln!(reply, "{}", json!({"id": i, "ok": true})).unwrap();
+            reply.flush().unwrap();
+        }
+        client.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut r = BufReader::new(client);
+        let (mut events, mut replies) = (0, 0);
+        let mut line = String::new();
+        while events + replies < 100 {
+            line.clear();
+            r.read_line(&mut line).unwrap();
+            let v: Value = serde_json::from_str(line.trim()).unwrap();
+            if v.get("event").is_some() { events += 1 } else { replies += 1 }
+        }
+        assert_eq!((events, replies), (50, 50));
+        open.store(false, Ordering::SeqCst);
+        drop(etx);
+        pump.join().unwrap();
+    }
+
+    /// A fake control surface drives a headless LightCraft over a real loopback socket: it is
+    /// refused until paired, pairs, subscribes, turns the dial and hears the new value pushed
+    /// back; the surfaces-only port refuses everything else.
+    #[test]
+    fn a_surface_client_pairs_subscribes_and_turns_the_dial_end_to_end() {
+        use std::time::Instant;
+
+        use lightcraft_ui_egui::headless::Headless;
+        use lightcraft_ui_egui::surface::SurfaceStore;
+        use lightcraft_ui_egui::{LightcraftApp, Services};
+
+        struct Store(Mutex<Option<String>>);
+        impl SurfaceStore for Store {
+            fn load(&self) -> Result<Option<String>, String> {
+                Ok(self.0.lock().unwrap().clone())
+            }
+            fn save(&self, t: &str) -> Result<(), String> {
+                *self.0.lock().unwrap() = Some(t.to_string());
+                Ok(())
+            }
+        }
+        let settings = lightcraft_surface::SurfaceSettings { enabled: true, ..Default::default() };
+        let services = Services { png: None, surface_store: Some(Box::new(Store(Mutex::new(Some(settings.to_json()))))), ..Default::default() };
+        let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::with_demo(), services), [1200.0, 800.0], 1.0);
+        h.settle(Duration::from_secs(20));
+        let first = h.app.session.visible_cloned()[0];
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [first.0]}}), Duration::from_secs(20));
+        h.app.ui.view = lightcraft_ui_egui::state::ViewMode::Detail;
+        h.settle(Duration::from_secs(20));
+        let before = h.app.session.develop_of(first).unwrap().light.exposure;
+        let (stop, port) = start_surfaces(0, h.control_sender(), egui::Context::default()).unwrap();
+
+        // the client, on its own thread (the app answers between frames on this one)
+        let client = std::thread::spawn(move || {
+            let send = |c: &mut TcpStream, id: u64, method: &str, params: Value| {
+                writeln!(c, "{}", json!({"id": id, "method": method, "params": params})).unwrap();
+            };
+            // read lines until the reply with `id`; events seen on the way are kept
+            let read = |r: &mut BufReader<TcpStream>, id: u64, events: &mut Vec<Value>| -> Value {
+                loop {
+                    let mut line = String::new();
+                    r.read_line(&mut line).unwrap();
+                    let v: Value = serde_json::from_str(line.trim()).unwrap();
+                    if v.get("event").is_some() {
+                        events.push(v);
+                    } else if v["id"] == id {
+                        return v;
+                    }
+                }
+            };
+            let connect = || {
+                let c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                c.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+                let r = BufReader::new(c.try_clone().unwrap());
+                (c, r)
+            };
+            let mut events = Vec::new();
+            let (mut c, mut r) = connect();
+            send(&mut c, 1, "engine.execute", json!({"command": "edit.undo"}));
+            let v = read(&mut r, 1, &mut events);
+            assert!(v["error"].as_str().unwrap().contains("control surfaces only"), "{v}");
+            send(&mut c, 2, "surface.input", json!({"events": [{"control": "dial", "ticks": 1}]}));
+            assert_eq!(read(&mut r, 2, &mut events)["ok"], false, "not paired");
+            send(&mut c, 3, "surface.pair", json!({"client": "e2e", "name": "E2E Surface"}));
+            let v = read(&mut r, 3, &mut events);
+            let request = v["result"]["request"].as_str().unwrap().to_string();
+            // wait for the approval (the test approves on the app's thread)
+            let token = loop {
+                send(&mut c, 4, "surface.pair", json!({"request": request}));
+                let v = read(&mut r, 4, &mut events);
+                if v["result"]["status"] == "approved" {
+                    break v["result"]["token"].as_str().unwrap().to_string();
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            };
+            drop(c);
+            let (mut c, mut r) = connect();
+            send(&mut c, 5, "surface.hello", json!({"protocol": 1, "client": "e2e", "token": token}));
+            assert_eq!(read(&mut r, 5, &mut events)["result"]["paired"], true);
+            send(&mut c, 6, "surface.subscribe", json!({"device": "mx-creative-console"}));
+            let v = read(&mut r, 6, &mut events);
+            assert_eq!(v["result"]["layout"]["dials"][0]["binding"]["target"], "light.exposure", "{v}");
+            send(&mut c, 7, "surface.input", json!({"events": [{"control": "dial", "ticks": 25}]}));
+            assert_eq!(read(&mut r, 7, &mut events)["ok"], true);
+            // the new value arrives as a pushed layout
+            let t0 = Instant::now();
+            loop {
+                if events.iter().any(|e| e["layout"]["dials"][0]["value"] == "+0.25") {
+                    break;
+                }
+                assert!(t0.elapsed() < Duration::from_secs(30), "no pushed value: {events:?}");
+                let mut line = String::new();
+                if r.read_line(&mut line).is_ok() && !line.trim().is_empty() {
+                    events.push(serde_json::from_str(line.trim()).unwrap());
+                }
+            }
+        });
+        let t0 = Instant::now();
+        while !client.is_finished() {
+            h.step();
+            let waiting: Vec<String> = h.app.surface.pairing.waiting().map(|w| w.request.clone()).collect();
+            for w in waiting {
+                let mut s = h.app.surface.settings().clone();
+                h.app.surface.pairing.approve(&w, &mut s, 0).unwrap();
+                h.app.surface.runtime.settings_mut().paired = s.paired;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+            assert!(t0.elapsed() < Duration::from_secs(60), "the client didn't finish");
+        }
+        client.join().unwrap();
+        let after = h.app.session.develop_of(first).unwrap().light.exposure;
+        assert!((after - before - 0.25).abs() < 1e-6, "{before} → {after}");
+        stop.store(true, Ordering::SeqCst);
     }
 
     fn run(input: &[u8]) -> (Vec<Value>, Vec<String>) {
