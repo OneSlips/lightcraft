@@ -1,5 +1,17 @@
 # What's new in LightCraft
 
+## 2026-10-15
+
+### Control surfaces: easier to set up
+- Settings, Controls now shows your MX Creative Keypad and Dialpad as drawings, every key and dial with its icon and
+  name. Click one and pick what it does from a list of actions in categories, with icons and a search box. Switch
+  between the Keypad, the Dialpad and the Actions Ring at the top; each shows whether it is connected.
+- LightCraft installs its Logi Options+ plugin for you: when Logi Options+ is on the computer, Settings, Controls
+  offers "Install the plugin" (and later Update or Remove). Logi Options+ asks you to confirm.
+- In Logi Options+ the console's keys now show LightCraft's icons instead of warning triangles, and every LightCraft
+  action and slider is listed there by category, ready to drag onto a key, a dial or the Actions Ring.
+- The readout in the window shows the icon of what you turned or pressed.
+
 ## 2026-10-14
 
 ### Control surfaces: the Logitech MX Creative Console

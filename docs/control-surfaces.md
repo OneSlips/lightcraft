@@ -1,6 +1,6 @@
 # Control surfaces
 
-> **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** major (created: the control-surface engine ported from TactileBridge, the surface protocol, Settings ▸ Controls, the Logitech MX Creative Console) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** major (Settings ▸ Controls rebuilt around the device; installing the Logi plugin from LightCraft; LightCraft's actions in Logi Options+) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 Hardware dials, keys and buttons that drive LightCraft: the **Logitech MX Creative Console** (Keypad + Dialpad) first,
 MIDI controllers and Tangent panels later. LightCraft owns the whole engine — layouts, what each control does, dial
@@ -20,9 +20,13 @@ repository (`lightcraft-logi`, a Logi Actions SDK plugin in C#).
 
 ## Using it
 
-1. **Settings ▸ Controls ▸ Let control surfaces drive LightCraft.** LightCraft then listens on `127.0.0.1:7981` (the
-   **Port** field; loopback only) for surfaces. Off by default.
-2. Install the surface's plugin (MX Creative Console: the LightCraft plugin for Logi Options+, see its README).
+1. **Settings ▸ Controls ▸ Use control surfaces.** LightCraft then listens on `127.0.0.1:7981` (the **Port** field
+   under *Profiles and Setup*; loopback only) for surfaces. Off by default.
+2. Install the surface's plugin. MX Creative Console: when Logi Options+ is on the computer and the plugin isn't,
+   Settings ▸ Controls says so with an **Install the plugin** button (also under *Profiles and Setup*, with Update and
+   Remove). LightCraft hands its copy of the plugin to Logi's own installer; **Logi Options+ asks you to confirm**
+   ("Ready to install plugins" → Continue), installs it with its default profiles and reloads its plugin service by
+   itself — a few seconds in which the console pauses. See [Installing the plugin](#installing-the-logi-plugin).
 3. The plugin asks to pair: LightCraft shows "… asks to control LightCraft" and lists the request in Settings ▸
    Controls with a six-digit code; the keypad shows the same code. Check they match and click **Approve**. The plugin
    keeps the token it gets; **Forget** under *Paired* revokes it.
@@ -51,20 +55,58 @@ What happens then:
 - **The on-screen readout** (TactileBridge's OSD) shows the value being turned (name, value, a bar) or the command a
   key ran, at the top or bottom of the photo, with its opacity, colour and display time.
 - **The surface** shows each key's icon (TactileBridge's hand-drawn pack), label and live value; a lit border marks
-  the value on the dial, a held modifier and toggles that are on.
+  the value on the dial, a held modifier and toggles that are on. While LightCraft isn't running the keys keep the
+  icons they last showed, dimmed. Logi Options+ shows the same keys in its editor.
+- **LightCraft's actions in Logi Options+.** Besides the keys LightCraft sets, the plugin lists every LightCraft
+  action and value in Options+'s actions panel, in numbered categories with their icons (*1. Light*, *2. Color* …,
+  then *Rating & Labels*, *Browse & Select*, *Edit* …), so they can also be dragged onto keys, dials or the Actions
+  Ring there. Values turn on a dial (one undo step per turn, pressing resets) and show their live value.
 
 ## Settings ▸ Controls
 
+Built around the device, as Logi Options+ shows it. At the top: **Use control surfaces**, the **profile**, then any
+pairing request (with its code, **Approve** / **Deny**) and, when Logi Options+ is installed without the plugin, an
+**Install the plugin** button. Under it the **device bar** switches between surfaces, each with a status dot:
+
+| Surface | What it shows |
+|---|---|
+| MX Creative Keypad | a drawing of the 3 × 3 keys and the page buttons; connected / offline |
+| MX Creative Dialpad | the dial, the roller and the four buttons; connected / offline |
+| Actions Ring | set up in Logi Options+ with LightCraft's actions (see above) |
+| Loupedeck Live / CT, MIDI controllers, Tangent panels | coming later |
+
+The sections under the device bar:
+
 | Section | What it holds |
 |---|---|
-| Control Surfaces | on / off, port, connected surfaces, pairing requests (Approve / Deny), paired surfaces (Forget) |
-| Profile | the profile in use, Duplicate / Rename / Delete, Add the built-in profiles, **Bring over my TactileBridge setup** (shown when `%LOCALAPPDATA%\TactileBridge\settings.json` exists), Import… (`settings.json`, `.lp5`, `.lcsurface`), Export… (`.lcsurface`), the last import's report |
-| Layout | the page (or *Every page (base)*), its groups (Keys / Dials) and *Tool page*, Add / Rename / Delete page; the device (3 × 3 keys, dial, roller, four buttons): click a control, or **Learn** and touch it on the surface, then choose what it does (a value, a command with JSON parameters, a modifier, next / previous page, reset, apply to selected) |
-| Pages That Follow the App | on / off; one page per context |
-| Dial Feel | global speed, acceleration, fine and big step factors, invert; per value: speed, acceleration, slow / fast turning (floor / ceiling), fast / slow thresholds, invert; TactileBridge's presets for every value (Wedding, Real Estate, Fashion, Landscape) |
-| Editing | apply to every selected photo, when a turn ends, how often movement is applied, steady readout while turning |
-| On-Screen Readout | on / off, also for key presses, opacity, display time, position (top edge, top, bottom, bottom edge), background colour |
-| Surface | show values on the device, haptics, key background and text colours |
+| Keys and Dials | page tabs (the device's pages, **All pages** for what a control does wherever a page leaves it empty, tool pages in a menu); the drawing — every control shows its icon and name, a control a page leaves empty shows the All pages one dimmed; click a control (or **Learn** and touch it on the surface) and its editor opens beside the drawing: what it does now, **Clear**, a value's own speed and acceleration, a command's JSON parameters (advanced), and the **action picker** — every action in categories with icons and a search box (keys list their one-press actions first, then the values they can put on the dial; dials list values and paging); show a page, switch profile and every other command of the app are there too. Narrow windows put the editor under the drawing |
+| Pages and Tools | each page's groups (Keys / Dials) and *Tool page*, Rename / Delete, Add page; *Pages that follow the app*: on / off, one page per context |
+| Dial Feel | global speed, acceleration, fine and big step factors, invert; one value's speed, acceleration, slow / fast turning (floor / ceiling), fast / slow thresholds, invert; TactileBridge's presets for every value (Wedding, Real Estate, Fashion, Landscape) |
+| Readout and Look | apply to every selected photo, when a turn ends, how often movement is applied, steady readout while turning; the on-screen readout (on / off, also for key presses, opacity, display time, position, background colour); keys: values on the device, haptics, key colours |
+| Profiles and Setup | the Logi Options+ plugin (found / installed version / connected; Install, Update, Reinstall, Remove); profiles (Duplicate / Rename / Delete, Add the built-in profiles, **Bring over my TactileBridge setup** when `%LOCALAPPDATA%\TactileBridge\settings.json` exists, Import… `settings.json` / `.lp5` / `.lcsurface`, Export… `.lcsurface`, the last import's report); connection (port, connected surfaces, paired surfaces with Forget) |
+
+Profiles are shared by the Keypad and the Dialpad (one MX Creative Console); surfaces that come later get their own.
+
+### Installing the Logi plugin
+
+The plugin is built in its own repository (`lightcraft-logi`: `scripts/package.ps1` → `dist/LightCraft.lplug4`, a
+ZIP of the plugin DLL, its `metadata/` and its default profiles `profiles/DefaultProfile70.lp5` / `…71.lp5`).
+LightCraft looks for **`LightCraft.lplug4` next to its executable** (or in `plugins/` beside it), or at
+`LIGHTCRAFT_LOGI_PLUGIN`. *Install the plugin* (`cmd:surface.installPlugin`) writes the plugin's
+`%LOCALAPPDATA%\Logi\LogiPluginService\PluginData\LightCraft\config.json` (the port LightCraft listens on) and
+runs `%ProgramFiles%\Logi\LogiPluginService\LogiPluginServiceTool.exe install-plugin LightCraft.lplug4` — what
+double-clicking a `.lplug4` does. Logi Options+ then asks the user to confirm, installs the plugin into
+`…\LogiPluginService\Plugins\LightCraft` and its profiles, and reloads its plugin service (Logi restarts it; the
+devices pause for a few seconds). *Remove the plugin* (`cmd:surface.uninstallPlugin`) runs `uninstall-plugin` the same
+way. `cmd:surface.plugin` reports `{status: {host, installed, package, packagePath}, busy, message}`. Nothing else in
+Logi Options+ is touched: other plugins, their profiles and the user's Options+ settings stay as they are. Windows
+only for now; elsewhere the page says to open `LightCraft.lplug4` by hand.
+
+**Releases (maintainer decision).** A release that ships the plugin builds `LightCraft.lplug4` from a pinned
+`lightcraft-logi` commit (a .NET build on Windows) and puts it next to `lightcraft.exe` in the Windows package (and
+the macOS app's `Contents/MacOS` once the macOS path is verified). Without it LightCraft runs as before and the page
+says no package came with it. Publishing the plugin on the Logi Marketplace instead is the other option; then
+LightCraft would only link to it.
 
 Every action of the editor is also a command (`cmd:surface.profile`, `cmd:surface.page`, `cmd:surface.pageNext`,
 `cmd:surface.pagePrevious`, `cmd:surface.applyToSelected`, `cmd:surface.followContext`, `cmd:surface.import`,
@@ -159,10 +201,12 @@ In-process requests (headless scripts, tests) count as paired.
 | `surface.hello` | `{protocol: 1, client, name?, token?}` | `{protocol, app, version, paired, enabled, devices: [{id, name, controls: [{id, kind, label}]}]}`; a valid token pairs this connection | no |
 | `surface.pair` | `{client, name}` → new or open request; `{request}` → poll | `{status: "pending", request, code}` / `{status: "approved", token}` (once) / `{status: "denied"}` | no |
 | `surface.icons` | `{names?: [..]}` (all when omitted) | `{name: svg}` | no |
+| `surface.catalog` | — | `{groups: [..], entries: [{key, group, label, icon, value}]}`: every action in categories, labels in the app's language (`lightcraft_surface::catalog`); `key` is stable (`v.light.exposure`, `c.photo.rate.rating-5`, `s.applyToSelected`) | no |
 | `surface.subscribe` | `{device?: "mx-creative-console"}` | `{layout}`; then `surface.layout` events whenever it changes | yes |
 | `surface.unsubscribe` | — | — | yes |
 | `surface.layout` | `{device?}` | the layout now | yes |
-| `surface.input` | `{events: [{control, ticks}` \| `{control, press: true\|false, page?}]}` (at most 256) | `{effects}` | yes |
+| `surface.input` | `{events: [{control, ticks}` \| `{control, press: true\|false, page?}` \| `{action, ticks}` \| `{action, press}]}` (at most 256) | `{effects}` | yes |
+| `surface.watch` | `{targets: ["light.exposure", …]}` (at most 128; after `subscribe`) | — ; the pushed layout then carries `values: {target: {value, position}}` | yes |
 
 Errors: an unpaired connection gets *this surface isn't paired …*; switched off: *control surfaces are switched off*;
 a newer client protocol: *this LightCraft speaks surface protocol 1*. Junk input is refused with an error, never
@@ -192,6 +236,10 @@ context, a toggle — sent at most once per frame, and held back while the turne
 Labels and values come translated and formatted; `icon` names an SVG from `surface.icons`. `keyPages[n-1]` is what a
 keypad with its own page buttons shows on its page *n* (the context's page on every one while a tool page is active);
 such a keypad sends `page` with its presses.
+
+**Actions** (`{action: key}` events) come from a plugin's own list of LightCraft's actions (`surface.catalog`): turning
+a value moves it (one undo step per turn, with the value's dial feel), pressing a value resets it, pressing anything
+else does what a key bound to it does (a modifier holds until the action is released). An unknown key is refused.
 
 **Devices and controls.** `mx-creative-console`: `key.1`–`key.9` (Keypad LCD keys, row by row), `dial`, `roller`,
 `pad.1`–`pad.4` (Dialpad buttons). A dial press is `{control: "dial", press: true}`; it runs `dial.press` if a page
@@ -558,3 +606,4 @@ every dropped action says why).
 | Date | Change | Summary |
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
+| 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |

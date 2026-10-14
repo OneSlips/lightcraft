@@ -85,7 +85,7 @@ filmstrip is visible.
 | `engine.execute {command: "activity.cancel"}` | `{id}` or `{all: true}` | Asks the task (or every cancellable one) to stop at its next file or photo → `{cancelled: n}`; an unknown id (it may have just finished) or a task that can't be cancelled is an error |
 | `ui.render` | `{id?, size?, path?}` | Render a photo (PNG to `path`), `{width, height}` |
 | `app.quit` | — | Close the app |
-| `surface.hello` / `surface.pair` / `surface.icons` / `surface.subscribe` / `surface.unsubscribe` / `surface.layout` / `surface.input` | see [control-surfaces.md](control-surfaces.md#the-surface-protocol) | Control surfaces: pairing (approved in Settings ▸ Controls), a device layout pushed as `surface.layout` events between replies, dial ticks and key presses. Everything but `hello`, `pair` and `icons` needs a paired connection; the control-surface port (Settings ▸ Controls, `7981`) serves only these |
+| `surface.hello` / `surface.pair` / `surface.icons` / `surface.catalog` / `surface.subscribe` / `surface.unsubscribe` / `surface.layout` / `surface.watch` / `surface.input` | see [control-surfaces.md](control-surfaces.md#the-surface-protocol) | Control surfaces: pairing (approved in Settings ▸ Controls), a device layout pushed as `surface.layout` events between replies, dial ticks and key presses. Everything but `hello`, `pair`, `icons` and `catalog` needs a paired connection; the control-surface port (Settings ▸ Controls, `7981`) serves only these |
 
 White balance (`develop.set` with `wb.temp` / `wb.tint`, `develop.wb`, `develop.wbPick`) is in Kelvin and tint on
 raws with colour matrices — in the file (DNG) or measured for the camera model (`lightcraft_raw::spectral`; issue
