@@ -199,11 +199,18 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>,
             }
         }
         Overlay::AllMasks { view, color, opacity } => {
+            // one view of the masks' union: drawn one by one, the black around a later mask (White on Black, Image on
+            // Black) covered the masks drawn before it
             if let Some(planes) = masks {
-                for a in planes {
-                    if (a.width, a.height) == (img.width, img.height) {
-                        mask_view(img, a, view, color, opacity);
+                let fit: Vec<&Plane> = planes.iter().filter(|a| (a.width, a.height) == (img.width, img.height)).collect();
+                if let Some(first) = fit.first() {
+                    let mut union = (*first).clone();
+                    for a in fit.iter().skip(1) {
+                        for (u, v) in union.data.iter_mut().zip(&a.data) {
+                            *u = u.max(*v);
+                        }
                     }
+                    mask_view(img, &union, view, color, opacity);
                 }
             }
         }
@@ -435,7 +442,9 @@ mod tests {
         // a hidden mask is skipped
         s.masks[1].visible = false;
         let img2 = render(&src, &info, &s, &RenderRequest { overlay: o, ..RenderRequest::fit(80, 40) }).image;
-        assert_eq!(img2.data[in_r], plain.data[in_r], "hidden right mask not painted");
+        // (White on Black: outside the visible masks is black, so the hidden one's place is too)
+        assert_eq!(img2.data[in_r], [0, 0, 0, 255], "hidden right mask not painted");
+        assert_ne!(img2.data[in_r], plain.data[in_r]);
         assert_eq!(img2.data[in_l], [255; 4], "visible left mask still painted");
         // parts round trip and a stable, distinct cache key
         let (k, v) = o.to_parts();
