@@ -291,6 +291,11 @@
   every photo of the view again: at about 180,000 photos a batch cost the window a tenth of a second, over and over
   for as long as the import ran. Changing one photo's capture time or crop is quicker too.
 
+### AI Denoise
+- When no AI Denoise model is available, Settings ▸ AI Denoise says so plainly: LightCraft's own
+  model is still being trained, there is nothing to download or install yet, and Luminance and
+  Color under Detail reduce noise meanwhile.
+
 ## 2026-10-15
 
 ### Photo Merge takes each photo once

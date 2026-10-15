@@ -2202,5 +2202,12 @@
   "Import dropped files without review": "Importar arquivos soltos sem revisão",
   "An import is running": "Uma importação está em andamento",
   "An import is running. Drop photos when it has finished": "Uma importação está em andamento. Solte as fotos quando ela terminar",
-  "Finish Lightroom catalog import before adding photos": "Conclua a importação do catálogo do Lightroom antes de adicionar fotos"
+  "Finish Lightroom catalog import before adding photos": "Conclua a importação do catálogo do Lightroom antes de adicionar fotos",
+  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "A redução de ruído com IA precisa de um modelo, e ainda não há nenhum para esta versão. Enquanto isso, Luminância e Cor em Detalhe reduzem o ruído.",
+  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "O modelo próprio de redução de ruído do LightCraft ainda está sendo treinado, então esta versão vem sem ele e ainda não há nada para baixar. Você não precisa procurar nem instalar nada.",
+  "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Enquanto isso, suas fotos raw usam a redução de ruído padrão: Luminância e Cor em Detalhe, no painel Editar. Funciona em todas as fotos.",
+  "No AI Denoise model is available yet": "Ainda não há modelo de redução de ruído com IA",
+  "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Só se você recebeu um modelo de redução de ruído do LightCraft (uma pasta com um arquivo .onnx e denoise-model.json):",
+  "When the model is ready, an update will offer it here as a one-click download.": "Quando o modelo estiver pronto, uma atualização o oferecerá aqui para baixar com um clique.",
+  "Why?": "Por quê?"
 }

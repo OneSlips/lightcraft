@@ -3440,5 +3440,12 @@
   "Import dropped files without review": "Abgelegte Dateien ohne Prüfung importieren",
   "An import is running": "Ein Import läuft",
   "An import is running. Drop photos when it has finished": "Ein Import läuft. Lege die Fotos ab, wenn er fertig ist",
-  "Finish Lightroom catalog import before adding photos": "Schließe den Import des Lightroom-Katalogs ab, bevor du Fotos hinzufügst"
+  "Finish Lightroom catalog import before adding photos": "Schließe den Import des Lightroom-Katalogs ab, bevor du Fotos hinzufügst",
+  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "KI-Entrauschen braucht ein Modell, und für diese Version gibt es noch keins. Bis dahin reduzieren Luminanz und Farbe unter Details das Rauschen.",
+  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "Das eigene Entrauschungsmodell von LightCraft wird noch trainiert, deshalb kommt diese Version ohne eins und es gibt noch nichts herunterzuladen. Du musst nichts suchen oder installieren.",
+  "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Bis dahin nutzen deine Raw-Fotos die normale Rauschreduzierung: Luminanz und Farbe unter Details im Bearbeiten-Bedienfeld. Sie funktioniert bei jedem Foto.",
+  "No AI Denoise model is available yet": "Noch kein Modell für KI-Entrauschen verfügbar",
+  "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Nur wenn du ein LightCraft-Entrauschungsmodell bekommen hast (ein Ordner mit einer .onnx-Datei und denoise-model.json):",
+  "When the model is ready, an update will offer it here as a one-click download.": "Sobald das Modell fertig ist, bietet ein Update es hier zum Download mit einem Klick an.",
+  "Why?": "Warum?"
 }
