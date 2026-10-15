@@ -2,6 +2,11 @@
 
 ## 2026-10-16
 
+### Finding your place
+- **Scroll bars you can see and grab** on the grid and the filmstrip. While the grid scrolls, a label by the bar says where you are ("1,234 / 2,233" and the date).
+- The **filmstrip** shows "1,234 / 2,233" and, along its top edge, a tick for every pick (white) and reject (red) through the shoot.
+- **Resizing the window keeps your place**: the photos at the top of the grid stay at the top.
+
 ### Eye focus strip
 - **On while you import, off in the library**: two switches, one for each side; the eye button on the bottom bar (and Shift+T) switches the one where you are.
 - **Bigger type** under the eye crops, and **big groups wrap** into rows; when they don't all fit, the closed and soft eyes come first.
