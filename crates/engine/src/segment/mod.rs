@@ -321,6 +321,9 @@ pub struct Segmenter {
     /// Downloads of the openly licensed models, by model key.
     #[cfg(feature = "sam")]
     model_downloads: std::collections::HashMap<&'static str, download::Downloader>,
+    /// Models whose missing companions this session already went to fetch.
+    #[cfg(feature = "sam")]
+    topped_up: std::collections::HashSet<&'static str>,
     #[cfg(feature = "sam")]
     results: (std::sync::mpsc::Sender<worker::Outcome>, std::sync::mpsc::Receiver<worker::Outcome>),
     /// Smart masks: recipe batches, the people and concept stores.
@@ -346,6 +349,8 @@ impl Default for Segmenter {
             download: download::Downloader::default(),
             #[cfg(feature = "sam")]
             model_downloads: std::collections::HashMap::new(),
+            #[cfg(feature = "sam")]
+            topped_up: std::collections::HashSet::new(),
             #[cfg(feature = "sam")]
             results: std::sync::mpsc::channel(),
             smart: Default::default(),
@@ -581,7 +586,15 @@ impl Segmenter {
             if mirrors.is_empty() {
                 return Err(lightcraft_segment::fetch::no_mirrors_message());
             }
-            self.download.start(lightcraft_segment::fetch::SAM3_FILES, mirrors, dir, lightcraft_segment::fetch::options(), activity, "SAM 3")
+            self.download.start(
+                lightcraft_segment::fetch::SAM3_FILES,
+                Vec::new(),
+                mirrors,
+                dir,
+                lightcraft_segment::fetch::options(),
+                activity,
+                "SAM 3",
+            )
         }
         #[cfg(not(feature = "sam"))]
         {

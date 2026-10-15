@@ -108,7 +108,19 @@ impl PeopleModel {
 pub struct FaceModel {
     detector: tflite::Model,
     mesh: tflite::Model,
+    /// BlazeFace full range ([`FAR_FILE`]), for the small faces of group photos; optional.
+    far: Option<tflite::Model>,
 }
+
+/// BlazeFace full range, beside the Face Landmarker bundle in its folder (optional: without it,
+/// small faces are looked for with the short-range model on finer windows).
+pub const FAR_FILE: &str = "face_detection_full_range.tflite";
+/// Full-range detections below this are ignored.
+pub const FAR_THRESHOLD: f32 = 0.5;
+/// A face FaceMesh doesn't take counts only when the detector is at least this sure of it.
+pub const FACE_THRESHOLD_NO_MESH: f32 = 0.75;
+/// Long edge of the copy the full-range detector looks at in [`FaceModel::detect_all`].
+pub const FAR_EDGE: usize = 1600;
 
 /// A face with its landmarks (photo pixels).
 #[derive(Clone, Debug)]
@@ -130,7 +142,49 @@ impl FaceModel {
         if detector.input_shapes() != vec![vec![1, b, b, 3]] || mesh.input_shapes() != vec![vec![1, m, m, 3]] {
             return Err(Error::Message(format!("{}: not the Face Landmarker bundle", dir.join(FACE_FILE).display())));
         }
-        Ok(Self { detector, mesh })
+        // the full-range detector is optional: a broken or foreign file is left unused
+        let far = read(dir, FAR_FILE, 8 << 20)
+            .ok()
+            .and_then(|b| tflite::Model::from_bytes(&b).ok())
+            .filter(|m| m.input_shapes() == vec![vec![1, mediapipe::FAR_INPUT, mediapipe::FAR_INPUT, 3]]);
+        Ok(Self { detector, mesh, far })
+    }
+
+    /// Whether the full-range detector is there.
+    pub fn has_far(&self) -> bool {
+        self.far.is_some()
+    }
+
+    /// Small faces: BlazeFace full range on 192-pixel windows of `rgb` (`w × h`) at its own
+    /// scale, overlapping by a quarter (it finds faces from about 8 to 100 pixels there: scale the
+    /// photo so the faces wanted fall in that range). Pixels of `rgb`; empty without the
+    /// full-range model.
+    pub fn detect_far(&self, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Detection>> {
+        let Some(far) = &self.far else { return Ok(Vec::new()) };
+        let n = mediapipe::FAR_INPUT;
+        if w == 0 || h == 0 || rgb.len() < w.saturating_mul(h).saturating_mul(3) {
+            return Ok(Vec::new());
+        }
+        let step = n * 3 / 4;
+        let starts = |len: usize| {
+            let mut v: Vec<usize> = (0..).map(|i| i * step).take_while(|s| s + n < len).collect();
+            v.push(len.saturating_sub(n));
+            v.dedup();
+            v
+        };
+        use rayon::prelude::*;
+        let windows: Vec<(usize, usize)> = starts(h).into_iter().flat_map(|y| starts(w).into_iter().map(move |x| (x, y))).collect();
+        // the windows are small: one each per thread does better than one at a time on all of them
+        let found = windows
+            .par_iter()
+            .map(|&(x, y)| -> Result<Vec<Detection>> {
+                let input = mediapipe::window(rgb, w, h, (x, y, n), n);
+                let out = far.run(&[&input])?;
+                let (Some(reg), Some(cls)) = (out.first(), out.get(1)) else { return Err(Error::Message("BlazeFace gave no output".into())) };
+                Ok(mediapipe::decode_far(reg, cls, FAR_THRESHOLD).into_iter().map(|d| d.from_window(x as f32, y as f32, n as f32)).collect())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(mediapipe::merge_windows(found.into_iter().flatten().collect(), 0.3))
     }
 
     /// The faces in an 8-bit RGB image (`w × h`), left to right, scoring at least [`FACE_THRESHOLD`].
@@ -152,7 +206,21 @@ impl FaceModel {
 
     /// FaceMesh's landmarks for `det` (photo pixels); `None` when it doesn't see a face there.
     pub fn landmarks(&self, rgb: &[u8], w: usize, h: usize, det: &Detection) -> Result<Option<Vec<[f32; 2]>>> {
-        let m = mediapipe::mesh_crop(det);
+        if let Some(l) = self.landmarks_in(rgb, w, h, &mediapipe::mesh_crop(det))? {
+            return Ok(Some(l));
+        }
+        // a face turned away: other framings before giving up
+        for m in mediapipe::mesh_crop_retries(det) {
+            if let Some(l) = self.landmarks_in(rgb, w, h, &m)? {
+                return Ok(Some(l));
+            }
+        }
+        Ok(None)
+    }
+
+    /// FaceMesh on the crop `m` (photo → input) maps out.
+    pub fn landmarks_in(&self, rgb: &[u8], w: usize, h: usize, m: &mediapipe::Affine) -> Result<Option<Vec<[f32; 2]>>> {
+        let m = *m;
         let input = mediapipe::warp(rgb, w, h, &m, mediapipe::MESH_INPUT, 0.0, 1.0);
         let out = self.mesh.run(&[&input])?;
         let (Some(raw), Some(presence)) = (out.first(), out.get(1).and_then(|p| p.first())) else {
@@ -165,9 +233,48 @@ impl FaceModel {
         Ok(mediapipe::landmarks_to_photo(raw, &m))
     }
 
-    /// Faces with landmarks, left to right.
+    /// Every face in an 8-bit RGB image (`w × h`), left to right: [`FaceModel::detect`] for the
+    /// people near the camera and, with the full-range detector, [`FaceModel::detect_far`] for
+    /// the small faces of a group or a couple seen whole (on a copy at most [`FAR_EDGE`] pixels
+    /// long). The same face found by both keeps its more confident detection.
+    pub fn detect_all(&self, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Detection>> {
+        let mut all = self.detect(rgb, w, h)?;
+        if self.far.is_some() && w > 0 && h > 0 {
+            let f = (FAR_EDGE as f32 / w.max(h) as f32).min(1.0);
+            let far = if f < 1.0 {
+                let (sw, sh) = (((w as f32 * f).round() as usize).max(1), ((h as f32 * f).round() as usize).max(1));
+                let small = mediapipe::box_resize(rgb, w, h, sw, sh);
+                let k = 1.0 / f;
+                self.detect_far(&small, sw, sh)?
+                    .into_iter()
+                    .map(|d| Detection {
+                        x0: d.x0 * k,
+                        y0: d.y0 * k,
+                        x1: d.x1 * k,
+                        y1: d.y1 * k,
+                        score: d.score,
+                        keypoints: d.keypoints.map(|p| [p[0] * k, p[1] * k]),
+                    })
+                    .collect()
+            } else {
+                self.detect_far(rgb, w, h)?
+            };
+            all.extend(far);
+        }
+        let mut faces = mediapipe::merge_windows(all, 0.3);
+        faces.sort_by(|a, b| a.center()[0].total_cmp(&b.center()[0]));
+        Ok(faces)
+    }
+
+    /// Faces with landmarks, left to right. A face only the full-range detector found, and only
+    /// half sure of, that FaceMesh doesn't take either is left out (a pattern, not a face).
     pub fn faces(&self, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Face>> {
-        self.detect(rgb, w, h)?.into_iter().map(|d| Ok(Face { landmarks: self.landmarks(rgb, w, h, &d)?, detection: d })).collect()
+        let faces: Vec<Face> = self
+            .detect_all(rgb, w, h)?
+            .into_iter()
+            .map(|d| Ok(Face { landmarks: self.landmarks(rgb, w, h, &d)?, detection: d }))
+            .collect::<Result<_>>()?;
+        Ok(faces.into_iter().filter(|f| f.landmarks.is_some() || f.detection.score >= FACE_THRESHOLD_NO_MESH).collect())
     }
 }
 

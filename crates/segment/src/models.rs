@@ -67,12 +67,34 @@ pub struct ModelInfo {
     /// The licence of its training data is a maintainer decision still to make (tier C in
     /// docs/ai-masks.md): the app says so wherever it offers the model.
     pub licence_pending: bool,
+    /// Extra files from the same publisher under the same licence, fetched from their own
+    /// address with the model (and for an installed model that lacks them). The model works
+    /// without them: they are not part of [`ModelInfo::installed_in`].
+    pub companions: &'static [Companion],
+}
+
+/// An optional file that comes with a model (see [`ModelInfo::companions`]).
+#[derive(Debug)]
+pub struct Companion {
+    pub file: FileSpec<'static>,
+    /// Its exact download address.
+    pub url: &'static str,
 }
 
 impl ModelInfo {
-    /// Bytes to download (the pinned files).
+    /// The companions missing from `dir` (or there with the wrong size).
+    pub fn missing_companions(&self, dir: &Path) -> Vec<&'static Companion> {
+        self.companions
+            .iter()
+            .filter(|c| !matches!((std::fs::metadata(dir.join(c.file.name)), c.file.size), (Ok(m), Some(size)) if m.is_file() && m.len() == size))
+            .collect()
+    }
+}
+
+impl ModelInfo {
+    /// Bytes to download (the pinned files and the companions).
     pub fn size(&self) -> u64 {
-        self.files.iter().filter_map(|f| f.size).sum()
+        self.files.iter().chain(self.companions.iter().map(|c| &c.file)).filter_map(|f| f.size).sum()
     }
 
     /// Whether `dir` holds the model: every file is there, pinned ones with their exact size.
@@ -167,6 +189,7 @@ pub const SUBJECT: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: true,
+    companions: &[],
 };
 
 pub const SCENE: ModelInfo = ModelInfo {
@@ -184,6 +207,7 @@ pub const SCENE: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: true,
+    companions: &[],
 };
 
 pub const SAM2: ModelInfo = ModelInfo {
@@ -201,6 +225,7 @@ pub const SAM2: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: false,
+    companions: &[],
 };
 
 pub const DEPTH: ModelInfo = ModelInfo {
@@ -218,6 +243,7 @@ pub const DEPTH: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: false,
+    companions: &[],
 };
 
 pub const SAM3: ModelInfo = ModelInfo {
@@ -235,6 +261,7 @@ pub const SAM3: ModelInfo = ModelInfo {
     token_env: Some(crate::fetch::TOKEN_ENV),
     open: false,
     licence_pending: false,
+    companions: &[],
 };
 
 /// MediaPipe Selfie Multiclass 256 (float32, version 1).
@@ -269,6 +296,19 @@ pub const PEOPLE: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: false,
+    companions: &[],
+};
+
+/// MediaPipe BlazeFace full range (float32, Apache-2.0, Google): finds the small faces of group
+/// photos that the bundle's short-range detector misses.
+pub const FACE_FAR: Companion = Companion {
+    file: FileSpec {
+        name: "face_detection_full_range.tflite",
+        size: Some(1_083_786),
+        sha256: Some("3698b18f063835bc609069ef052228fbe86d9c9a6dc8dcb7c7c2d69aed2b181b"),
+        max: 1_083_786,
+    },
+    url: "https://storage.googleapis.com/mediapipe-assets/face_detection_full_range.tflite",
 };
 
 pub const FACE: ModelInfo = ModelInfo {
@@ -286,6 +326,7 @@ pub const FACE: ModelInfo = ModelInfo {
     token_env: None,
     open: true,
     licence_pending: false,
+    companions: &[FACE_FAR],
 };
 
 /// Every model the app offers, in the order it lists them (Depth Anything is ported but not

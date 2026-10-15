@@ -117,8 +117,29 @@ fn sigmoid(x: f32) -> f32 {
 /// least `min_score`, in the input's normalized coordinates, after weighted non-maximum
 /// suppression (MediaPipe's, IoU 0.3).
 pub fn decode_blazeface(regressors: &[f32], scores: &[f32], min_score: f32) -> Vec<Detection> {
-    let anchors = blazeface_anchors();
-    let s = BLAZEFACE_INPUT as f32;
+    decode_with(regressors, scores, &blazeface_anchors(), BLAZEFACE_INPUT, min_score)
+}
+
+/// Side of BlazeFace full range's square input.
+pub const FAR_INPUT: usize = 192;
+
+/// BlazeFace full range's 2304 anchor centres (normalized): 48 × 48 cells at stride 4, one anchor
+/// each (MediaPipe's SSD anchor options for this model).
+pub fn far_anchors() -> Vec<[f32; 2]> {
+    let g = FAR_INPUT / 4;
+    (0..g * g).map(|i| [((i % g) as f32 + 0.5) / g as f32, ((i / g) as f32 + 0.5) / g as f32]).collect()
+}
+
+/// The faces in BlazeFace full range's raw outputs (`regressors` 2304 × 16, `scores` 2304 logits),
+/// as [`decode_blazeface`].
+pub fn decode_far(regressors: &[f32], scores: &[f32], min_score: f32) -> Vec<Detection> {
+    decode_with(regressors, scores, &far_anchors(), FAR_INPUT, min_score)
+}
+
+/// SSD decoding shared by both BlazeFace models: box centre and size and six keypoints relative
+/// to each anchor, in input pixels.
+fn decode_with(regressors: &[f32], scores: &[f32], anchors: &[[f32; 2]], input: usize, min_score: f32) -> Vec<Detection> {
+    let s = input as f32;
     let mut raw = Vec::new();
     for (i, a) in anchors.iter().enumerate() {
         let (Some(logit), Some(r)) = (scores.get(i), regressors.get(i * 16..i * 16 + 16)) else { break };
@@ -196,17 +217,71 @@ pub fn face_windows(w: usize, h: usize) -> Vec<(usize, usize, usize)> {
     out
 }
 
+/// `rgb` (`w × h`, 8-bit) box-averaged to `ow × oh` (each output pixel the mean of the input
+/// pixels it covers, so a large reduction doesn't alias).
+pub fn box_resize(rgb: &[u8], w: usize, h: usize, ow: usize, oh: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(ow * oh * 3);
+    if w == 0 || h == 0 || ow == 0 || oh == 0 {
+        return out;
+    }
+    let (sx, sy) = (w as f32 / ow as f32, h as f32 / oh as f32);
+    let span = |i: usize, s: f32, len: usize| {
+        let a = ((i as f32 * s) as usize).min(len - 1);
+        let b = (((i + 1) as f32 * s) as usize).clamp(a + 1, len);
+        a..b
+    };
+    for y in 0..oh {
+        let ys = span(y, sy, h);
+        for x in 0..ow {
+            let xs = span(x, sx, w);
+            let mut acc = [0u32; 3];
+            let mut n = 0u32;
+            for yy in ys.clone() {
+                for p in rgb.get((yy * w + xs.start) * 3..(yy * w + xs.end) * 3).unwrap_or(&[]).as_chunks::<3>().0 {
+                    acc[0] += u32::from(p[0]);
+                    acc[1] += u32::from(p[1]);
+                    acc[2] += u32::from(p[2]);
+                    n += 1;
+                }
+            }
+            let n = n.max(1);
+            out.extend(acc.map(|v| (v / n) as u8));
+        }
+    }
+    out
+}
+
 /// A 2 × 3 affine map (row-major): `[x', y'] = [a·x + b·y + c, d·x + e·y + f]`.
 pub type Affine = [f32; 6];
 
 /// The map from photo pixels to FaceMesh's 256 × 256 input for `det` (photo pixels): the box
 /// enlarged 1.5×, centred, rotated so the eyes are level, as MediaPipe's graph crops it.
 pub fn mesh_crop(det: &Detection) -> Affine {
-    let [cx, cy] = det.center();
+    let [rx, ry] = det.keypoints[0];
+    let [lx, ly] = det.keypoints[1];
+    mesh_crop_with(det.center(), (ly - ry).atan2(lx - rx), 1.5 * det.width().max(det.height()).max(1.0))
+}
+
+/// The other crops FaceMesh is offered when it doesn't take [`mesh_crop`]'s (a face in 3/4 view
+/// or near profile, whose box the full-range detector draws loose or off centre): tighter boxes
+/// (0.8× and 1.1× the box, where the face fills the crop as FaceMesh expects), then a looser one
+/// centred on the eyes, nose and mouth, unrotated.
+pub fn mesh_crop_retries(det: &Detection) -> [Affine; 3] {
+    let side = det.width().max(det.height()).max(1.0);
     let [rx, ry] = det.keypoints[0];
     let [lx, ly] = det.keypoints[1];
     let angle = (ly - ry).atan2(lx - rx);
-    let side = 1.5 * det.width().max(det.height()).max(1.0);
+    let pts = &det.keypoints[..4];
+    let c = [pts.iter().map(|p| p[0]).sum::<f32>() / 4.0, pts.iter().map(|p| p[1]).sum::<f32>() / 4.0];
+    let c = if c.iter().all(|v| v.is_finite()) { c } else { det.center() };
+    [mesh_crop_with(det.center(), angle, 0.8 * side), mesh_crop_with(det.center(), angle, 1.1 * side), mesh_crop_with(c, 0.0, 1.7 * side)]
+}
+
+/// The map from photo pixels to FaceMesh's input for a crop centred on `(cx, cy)`, `side`
+/// pixels, rotated by `angle` (radians) so it comes out level.
+pub fn mesh_crop_with([cx, cy]: [f32; 2], angle: f32, side: f32) -> Affine {
+    let angle = if angle.is_finite() { angle } else { 0.0 };
+    let side = if side.is_finite() { side.max(1.0) } else { 1.0 };
     let s = MESH_INPUT as f32 / side;
     let (sin, cos) = (-angle).sin_cos();
     // rotate by −angle about the centre, scale, move the centre to the crop's centre
@@ -326,6 +401,11 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Photo pixel of cell `(i, j)`'s centre.
+    pub fn centre(&self, i: usize, j: usize) -> [f32; 2] {
+        self.photo(i, j, 0.5, 0.5)
+    }
+
     /// Photo pixel of cell `(i, j)`'s sub-sample `(sx, sy)` (0..1 within the cell).
     fn photo(&self, i: usize, j: usize, sx: f32, sy: f32) -> [f32; 2] {
         let u = (i as f64 + f64::from(sx)) / self.side as f64;
