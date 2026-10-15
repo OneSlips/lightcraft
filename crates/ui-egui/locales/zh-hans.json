@@ -2646,5 +2646,18 @@
   "Dialogs show their own page (OK, Cancel…)": "对话框显示自己的页面（确定、取消…）",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "随 LightCraft 显示的内容切换页面（裁剪、蒙版…）",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ 会请求安装插件：请在那里点按“继续”。之后控制台会自动工作。",
-  "Display": "显示器"
+  "Display": "显示器",
+  "Upright: Vertical": "Upright: 垂直",
+  "Upright: Level": "Upright: 水平",
+  "Next Key Page": "下一键位页",
+  "Previous Key Page": "上一键位页",
+  "Next Dial Page": "下一旋钮页",
+  "Previous Dial Page": "上一旋钮页",
+  "Reset Dial Value": "重置旋钮数值",
+  "Show Unrated": "显示未评级",
+  "Any Label": "任意标签",
+  "Select Unrated": "选择未评级",
+  "Select No Label": "选择无标签",
+  "Reset Straighten": "重置拉直",
+  "No Mask": "无蒙版"
 }

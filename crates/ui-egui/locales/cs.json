@@ -2065,5 +2065,18 @@
   "Select all": "Vybrat vše",
   "Visualize HDR": "Zobrazit rozsah HDR",
   "Generative Fill": "Generativní výplň",
-  "Controls": "Ovladače"
+  "Controls": "Ovladače",
+  "Upright: Vertical": "Upright: Svisle",
+  "Upright: Level": "Upright: Vodorovně",
+  "Next Key Page": "Další stránka kláves",
+  "Previous Key Page": "Předchozí stránka kláves",
+  "Next Dial Page": "Další stránka kolečka",
+  "Previous Dial Page": "Předchozí stránka kolečka",
+  "Reset Dial Value": "Obnovit hodnotu kolečka",
+  "Show Unrated": "Zobrazit bez hodnocení",
+  "Any Label": "Libovolný štítek",
+  "Select Unrated": "Vybrat bez hodnocení",
+  "Select No Label": "Vybrat bez štítku",
+  "Reset Straighten": "Obnovit narovnání",
+  "No Mask": "Žádná maska"
 }

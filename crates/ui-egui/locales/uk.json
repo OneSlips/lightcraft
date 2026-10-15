@@ -2805,5 +2805,18 @@
   "Dialogs show their own page (OK, Cancel…)": "Діалоги показують власну сторінку (OK, Скасувати…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Перемикати сторінки за тим, що показує LightCraft (Кадрування, Маски…)",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ запитає про встановлення: натисніть там «Продовжити». Після цього консоль запрацює сама.",
-  "Display": "Дисплей"
+  "Display": "Дисплей",
+  "Upright: Vertical": "Upright: По вертикалі",
+  "Upright: Level": "Upright: Горизонт",
+  "Next Key Page": "Наступна сторінка клавіш",
+  "Previous Key Page": "Попередня сторінка клавіш",
+  "Next Dial Page": "Наступна сторінка коліщаток",
+  "Previous Dial Page": "Попередня сторінка коліщаток",
+  "Reset Dial Value": "Скинути значення коліщатка",
+  "Show Unrated": "Показати без рейтингу",
+  "Any Label": "Будь-яка мітка",
+  "Select Unrated": "Вибрати без рейтингу",
+  "Select No Label": "Вибрати без мітки",
+  "Reset Straighten": "Скинути вирівнювання",
+  "No Mask": "Без маски"
 }

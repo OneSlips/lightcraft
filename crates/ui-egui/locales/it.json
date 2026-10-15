@@ -1993,5 +1993,18 @@
   "Unnamed Faces": "Volti senza nome",
   "Display": "Schermo",
   "Generative Fill": "Riempimento generativo",
-  "Controls": "Controller"
+  "Controls": "Controller",
+  "Upright: Vertical": "Upright: Verticale",
+  "Upright: Level": "Upright: Livellato",
+  "Next Key Page": "Pagina tasti successiva",
+  "Previous Key Page": "Pagina tasti precedente",
+  "Next Dial Page": "Pagina ghiere successiva",
+  "Previous Dial Page": "Pagina ghiere precedente",
+  "Reset Dial Value": "Ripristina valore ghiera",
+  "Show Unrated": "Mostra senza valutazione",
+  "Any Label": "Qualsiasi etichetta",
+  "Select Unrated": "Seleziona senza valutazione",
+  "Select No Label": "Seleziona senza etichetta",
+  "Reset Straighten": "Ripristina raddrizzamento",
+  "No Mask": "Nessuna maschera"
 }

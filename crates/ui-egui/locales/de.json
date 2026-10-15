@@ -2808,5 +2808,18 @@
   "Dialogs show their own page (OK, Cancel…)": "Dialogfenster zeigen ihre eigene Seite (OK, Abbrechen …)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Seiten mit dem wechseln, was LightCraft zeigt (Freistellen, Maskieren …)",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ fragt nach der Installation: Klicken Sie dort auf Fortfahren. Danach funktioniert die Konsole von selbst.",
-  "Display": "Anzeige"
+  "Display": "Anzeige",
+  "Upright: Vertical": "Upright: Vertikal",
+  "Upright: Level": "Upright: Waagerecht",
+  "Next Key Page": "Nächste Tastenseite",
+  "Previous Key Page": "Vorherige Tastenseite",
+  "Next Dial Page": "Nächste Radseite",
+  "Previous Dial Page": "Vorherige Radseite",
+  "Reset Dial Value": "Radwert zurücksetzen",
+  "Show Unrated": "Unbewertete zeigen",
+  "Any Label": "Beliebige Farbe",
+  "Select Unrated": "Unbewertete auswählen",
+  "Select No Label": "Ohne Farbe auswählen",
+  "Reset Straighten": "Gerade ausrichten zurücksetzen",
+  "No Mask": "Keine Maske"
 }

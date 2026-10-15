@@ -2805,5 +2805,18 @@
   "Dialogs show their own page (OK, Cancel…)": "Les boîtes de dialogue affichent leur propre page (OK, Annuler…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Changer de page selon ce qu’affiche LightCraft (Recadrage, Masquage…)",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ demande d’installer le plugin : cliquez sur Continuer. La console fonctionne ensuite d’elle-même.",
-  "Display": "Affichage"
+  "Display": "Affichage",
+  "Upright: Vertical": "Upright : Vertical",
+  "Upright: Level": "Upright : Niveau",
+  "Next Key Page": "Page de touches suivante",
+  "Previous Key Page": "Page de touches précédente",
+  "Next Dial Page": "Page de molettes suivante",
+  "Previous Dial Page": "Page de molettes précédente",
+  "Reset Dial Value": "Réinitialiser la valeur de la molette",
+  "Show Unrated": "Afficher les non notées",
+  "Any Label": "Toute étiquette",
+  "Select Unrated": "Sélectionner les non notées",
+  "Select No Label": "Sélectionner sans étiquette",
+  "Reset Straighten": "Réinitialiser le redressement",
+  "No Mask": "Aucun masque"
 }

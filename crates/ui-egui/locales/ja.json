@@ -2807,5 +2807,18 @@
   "Dialogs show their own page (OK, Cancel…)": "ダイアログでは専用ページ（OK、キャンセルなど）を表示",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "LightCraft の表示に合わせてページを切り替え（切り抜き、マスクなど）",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ がインストールを確認します。そこで「続行」をクリックすると、コンソールはそのまま使えます。",
-  "Display": "ディスプレイ"
+  "Display": "ディスプレイ",
+  "Upright: Vertical": "Upright: 垂直",
+  "Upright: Level": "Upright: 水平",
+  "Next Key Page": "次のキーページ",
+  "Previous Key Page": "前のキーページ",
+  "Next Dial Page": "次のダイヤルページ",
+  "Previous Dial Page": "前のダイヤルページ",
+  "Reset Dial Value": "ダイヤルの値をリセット",
+  "Show Unrated": "未評価を表示",
+  "Any Label": "すべてのラベル",
+  "Select Unrated": "未評価を選択",
+  "Select No Label": "ラベルなしを選択",
+  "Reset Straighten": "角度補正をリセット",
+  "No Mask": "マスクなし"
 }

@@ -2160,5 +2160,18 @@
   "not added to Apple Photos (cancelled)": "nie dodano do aplikacji Zdjęcia (anulowano)",
   "Display": "Ekran",
   "Generative Fill": "Wypełnienie generatywne",
-  "Controls": "Kontrolery"
+  "Controls": "Kontrolery",
+  "Upright: Vertical": "Upright: Pionowo",
+  "Upright: Level": "Upright: Poziom",
+  "Next Key Page": "Następna strona klawiszy",
+  "Previous Key Page": "Poprzednia strona klawiszy",
+  "Next Dial Page": "Następna strona pokręteł",
+  "Previous Dial Page": "Poprzednia strona pokręteł",
+  "Reset Dial Value": "Resetuj wartość pokrętła",
+  "Show Unrated": "Pokaż bez oceny",
+  "Any Label": "Dowolna etykieta",
+  "Select Unrated": "Zaznacz bez oceny",
+  "Select No Label": "Zaznacz bez etykiety",
+  "Reset Straighten": "Resetuj prostowanie",
+  "No Mask": "Brak maski"
 }

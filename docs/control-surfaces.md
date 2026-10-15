@@ -295,7 +295,7 @@ out, and why. Tuning is kept as it was; LightCraft's slider units differ from Ca
 | Kelvin conversion (`KelvinConvert`) | LightCraft's own Kelvin scale | 🔁 |
 | Curated profiles (Default, Wedding, Portrait, Fashion, Landscape, Real Estate; `…70` Keypad, `…71` Dialpad, `…72` Actions Ring) | built-in profiles (`lightcraft_surface::defaults`): key pages from `70`, dial pages and buttons from `71` (`72` repeats them) | ✅ (the Dialpad's fourth button turns the dial pages; its TactileBridge action is on a key page, except Fashion's *Layer on/off*, which the Brush and Mask tool pages have) |
 | Default Options+ profiles shipped by the plugin | the LightCraft plugin ships one Keypad and one Dialpad profile of generic keys | ✅ (layouts live in LightCraft, so nothing to assign in Options+) |
-| Icon pack (`actionicons` = `actionsymbols` = `customicons`, 336 SVGs) | `assets/surface-icons` (332, kebab-case names) | ✅ (3 Keystone icons held back for the author to confirm; the duplicate `Clarity.min.svg` left out) |
+| Icon pack (`actionicons` = `actionsymbols` = `customicons`, 336 SVGs) | `assets/surface-icons` (335, kebab-case names) | ✅ (the duplicate `Clarity.min.svg` left out; the Keystone icons since 2026-10-16) |
 | Icon map (`CaptureOneIconMap`) | `lightcraft_surface::icons::icon_for` | ✅ |
 | Settings window (`SettingsForm`: Global, Per Adjustment with filter, Bridge, Hardware, OSD, Plugin Colors, Tool Context, Tool Switching tabs) | Settings ▸ Controls | ✅ (the Redeploy Plugin button is gone: changes apply live) |
 | Capture One actions and parameters (`CaptureOneCommand`, `CaptureOneAdjustment`) | LightCraft commands and targets, table below | ✅ / ✕ per action |

@@ -531,7 +531,9 @@ impl Runtime {
                     Some(t) => format!("Dial: {}", target_spec(t).map_or(t.as_str(), |s| s.label)),
                     None => "Dial: page".to_string(),
                 };
-                self.show(Shown::Notice { text: text.clone() }, now_ms);
+                // no readout: putting a value on the dial changes nothing in the photo (the lit key
+                // says it); the readout appears once the dial turns
+                let _ = now_ms;
                 vec![Effect::Changed { notice: Some(text) }]
             }
             Binding::Command { command, params } => {
@@ -697,6 +699,17 @@ mod tests {
         assert_eq!(end, [Effect::End { target: "light.exposure".into(), apply_to_selected: false }]);
         assert!(r.flush(5000.0).is_empty());
         assert!(r.turning().is_none());
+    }
+
+    #[test]
+    fn putting_a_value_on_the_dial_shows_no_readout_turning_does() {
+        let mut r = Runtime::new(settings());
+        r.input(press("key.2"), 0.0);
+        r.input(release("key.2"), 10.0);
+        assert_eq!(r.focus(), Some("light.contrast"));
+        assert!(r.shown(20.0).is_none(), "no readout for picking the value");
+        r.input(turn("dial", 1), 30.0);
+        assert!(matches!(r.shown(40.0), Some((Shown::Value { .. }, _))), "the turn shows it");
     }
 
     #[test]

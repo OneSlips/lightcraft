@@ -2800,5 +2800,18 @@
   "Dialogs show their own page (OK, Cancel…)": "Диалоги показывают свою страницу (OK, Отмена…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Переключать страницы по тому, что показывает LightCraft (Кадрирование, Маски…)",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ запросит установку: нажмите там «Продолжить». После этого консоль заработает сама.",
-  "Display": "Дисплей"
+  "Display": "Дисплей",
+  "Upright: Vertical": "Upright: По вертикали",
+  "Upright: Level": "Upright: Горизонт",
+  "Next Key Page": "Следующая страница клавиш",
+  "Previous Key Page": "Предыдущая страница клавиш",
+  "Next Dial Page": "Следующая страница колёс",
+  "Previous Dial Page": "Предыдущая страница колёс",
+  "Reset Dial Value": "Сбросить значение колеса",
+  "Show Unrated": "Показать без рейтинга",
+  "Any Label": "Любая метка",
+  "Select Unrated": "Выбрать без рейтинга",
+  "Select No Label": "Выбрать без метки",
+  "Reset Straighten": "Сбросить выравнивание",
+  "No Mask": "Без маски"
 }

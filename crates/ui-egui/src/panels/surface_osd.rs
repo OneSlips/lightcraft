@@ -31,7 +31,15 @@ pub fn content(app: &LightcraftApp) -> Option<(String, String, Option<f64>, f64,
             let icon = ls::icons::icon_for(&ls::Binding::value(target));
             (title, v.map(|v| spec.format(v)).unwrap_or_else(|| "—".into()), v.map(|v| spec.position(v)), icon)
         }
-        Shown::Command { label, icon } => (crate::i18n::tr(label).to_string(), String::new(), None, *icon),
+        // a command without a short label of its own names itself by id: show its registry label
+        Shown::Command { label, icon } => {
+            let text = if !label.contains(' ') && label.contains('.') {
+                crate::surface::registry_label(app, label).unwrap_or_else(|| label.clone())
+            } else {
+                crate::i18n::tr(label).to_string()
+            };
+            (text, String::new(), None, *icon)
+        }
         Shown::Notice { text } => (notice_text(text), String::new(), None, None),
     };
     Some((title, value, bar, (now_ms - at) / 1000.0, icon))

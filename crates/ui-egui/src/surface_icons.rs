@@ -142,16 +142,3 @@ mod placement {
         assert!(bad.is_empty(), "{bad:#?}");
     }
 }
-
-#[cfg(test)]
-mod survey {
-    #[test]
-    #[ignore]
-    fn print_icon_boxes() {
-        for n in lightcraft_surface::icons::names() {
-            if let Some((l, t, r, b, w, h)) = super::drawn_box(lightcraft_surface::icons::svg(n).unwrap_or_default()) {
-                println!("DBOX {n} {l} {t} {r} {b} {w} {h}");
-            }
-        }
-    }
-}

@@ -204,10 +204,39 @@ fn split_words(key: &str) -> String {
 /// only repeats the id).
 pub fn command_label(command: &str, params: &Value) -> String {
     let b = Binding::Command { command: command.to_string(), params: params.clone() };
-    if let Some(k) = tb_key(&b) {
-        return tb_label(k).map_or_else(|| split_words(k), str::to_string);
+    // LightCraft's own words: a curated short label, else the command's own label (the host
+    // looks it up; never a TactileBridge / Capture One action name)
+    if let Some(l) = tb_key(&b).and_then(tb_label) {
+        return l.to_string();
     }
+    let stars = |n: u64| if n == 1 { "1 Star".to_string() } else { format!("{n} Stars") };
+    let label_name = |l: &str| split_words(l);
     match command {
+        "library.filter" => match (params.get("rating").and_then(Value::as_u64), params.get("label")) {
+            (Some(0), _) => "Show Unrated".into(),
+            (Some(n), _) => format!("Show {}+", stars(n)),
+            (None, Some(Value::String(l))) => format!("Show {}", label_name(l)),
+            (None, Some(Value::Null)) => "Any Label".into(),
+            _ => command.to_string(),
+        },
+        "library.selectBy" => match (params.get("rating").and_then(Value::as_u64), params.get("label").and_then(Value::as_str)) {
+            (Some(0), _) => "Select Unrated".into(),
+            (Some(n), _) => format!("Select {}", stars(n)),
+            (None, Some("none")) => "Select No Label".into(),
+            (None, Some(l)) => format!("Select {}", label_name(l)),
+            _ => command.to_string(),
+        },
+        "tool.guidedUpright" => "Guided Upright".into(),
+        "develop.resetControl" if params.get("control").and_then(Value::as_str) == Some("crop.angle") => "Reset Straighten".into(),
+        "mask.select" if params.get("id").is_some_and(Value::is_null) => "No Mask".into(),
+        "geometry.upright" => match params.get("mode").and_then(Value::as_str) {
+            Some("vertical") => "Upright: Vertical".into(),
+            Some("level") => "Upright: Level".into(),
+            Some("full") => "Upright: Full".into(),
+            Some("auto") => "Upright: Auto".into(),
+            Some(m) => format!("Upright: {}", split_words(m)),
+            None => "Upright".into(),
+        },
         "tool.done" => "Done".into(),
         "surface.dialogConfirm" => "OK".into(),
         "surface.dialogCancel" => "Cancel".into(),
@@ -249,7 +278,7 @@ mod tests {
         assert!(all.len() > 300, "{}", all.len());
         assert!(all.windows(2).all(|w| w[0] < w[1]), "sorted for binary search");
         assert!(svg("exposure").is_some_and(|s| s.contains("<svg")));
-        assert!(svg("keystone-tool").is_none(), "flagged icons are left out");
+        assert!(svg("keystone-tool").is_some(), "the author confirmed the Keystone icons are their own");
         assert_eq!(icon_for(&Binding::value("light.exposure")), Some("exposure"));
         assert_eq!(icon_for(&Binding::value("mask.exposure")), Some("exposure"));
         assert_eq!(icon_for(&Binding::value("wb.temp")), Some("kelvin"));
@@ -267,7 +296,10 @@ mod tests {
     #[test]
     fn labels() {
         assert_eq!(command_label("photo.rate", &json!({"rating": 5})), "5 Stars");
-        assert_eq!(command_label("photo.rotateLeft", &Value::Null), "Rotate Left");
+        // no curated short label: the command id, for the host to show the command's own label
+        assert_eq!(command_label("photo.rotateLeft", &Value::Null), "photo.rotateLeft");
+        assert_eq!(command_label("geometry.upright", &json!({"mode": "vertical"})), "Upright: Vertical");
+        assert_eq!(command_label("tool.guidedUpright", &Value::Null), "Guided Upright");
         assert_eq!(command_label("mask.add", &json!({"kind": "sky"})), "Sky");
         assert_eq!(command_label("app.whatever", &Value::Null), "app.whatever");
     }

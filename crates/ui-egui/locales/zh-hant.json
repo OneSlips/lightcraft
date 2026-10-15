@@ -2609,5 +2609,18 @@
   "Switch pages with what LightCraft shows (Crop, Masking…)": "隨 LightCraft 顯示的內容切換頁面（裁切、遮色片…）",
   "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ 會要求安裝外掛：請在那裡點按「繼續」。之後控制台會自動運作。",
   "Display": "顯示器",
-  "Faces": "人臉"
+  "Faces": "人臉",
+  "Upright: Vertical": "Upright: 垂直",
+  "Upright: Level": "Upright: 水平",
+  "Next Key Page": "下一按鍵頁",
+  "Previous Key Page": "上一按鍵頁",
+  "Next Dial Page": "下一旋鈕頁",
+  "Previous Dial Page": "上一旋鈕頁",
+  "Reset Dial Value": "重設旋鈕數值",
+  "Show Unrated": "顯示未評等",
+  "Any Label": "任意標籤",
+  "Select Unrated": "選取未評等",
+  "Select No Label": "選取無標籤",
+  "Reset Straighten": "重設拉直",
+  "No Mask": "無遮色片"
 }

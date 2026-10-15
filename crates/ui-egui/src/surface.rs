@@ -398,6 +398,15 @@ pub fn context_key(app: &LightcraftApp) -> String {
     })
 }
 
+/// A command's own label from the registry (UI commands, then engine commands), translated.
+pub fn registry_label(app: &LightcraftApp, command: &str) -> Option<String> {
+    crate::menus::ui_commands()
+        .find(|c| c.0 == command)
+        .map(|c| c.1.to_string())
+        .or_else(|| app.session.commands().into_iter().find(|c| c.id == command).map(|c| c.label.to_string()))
+        .map(|l| crate::i18n::tr(&l).to_string())
+}
+
 // ------------------------------------------------------------------------------------- layout
 
 struct AppHost<'a>(&'a LightcraftApp);
