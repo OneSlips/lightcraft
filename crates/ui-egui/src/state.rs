@@ -1309,6 +1309,12 @@ pub enum Dialog {
     ConfirmDelete {
         count: usize,
     },
+    /// Import ▸ Delete Rejected Files from Disk…: the files go to the Recycle Bin once the count
+    /// is typed (`import.deleteRejectedFiles`).
+    DeleteRejected {
+        count: usize,
+        typed: String,
+    },
     /// Confirm moving photos dropped on a Folders row into that folder on disk
     /// (`photo.moveToFolder`). `name`: the folder's name, as the question says it.
     MovePhotos {

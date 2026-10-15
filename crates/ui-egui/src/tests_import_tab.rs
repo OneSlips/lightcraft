@@ -114,3 +114,24 @@ fn the_big_button_imports_the_picks_and_shows_the_library() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn delete_does_nothing_to_browsed_photos() {
+    let mut h = app();
+    h.settle(SETTLE);
+    h.app.ui.settings.confirm_delete = true;
+    let dir = folder("nodelete", 2);
+    run(&mut h, "library.browse", json!({"path": dir.to_string_lossy()})).unwrap();
+    let vis = h.app.session.visible_cloned();
+    exec(&mut h, "library.select", json!({"ids": [vis[0].0]}));
+    // the Delete key: no confirmation dialog, nothing deleted, the reason told
+    assert!(!crate::menus::confirm_delete(&mut h.app), "no dialog for browsed photos");
+    assert!(run(&mut h, "photo.delete", json!({})).unwrap_err().contains("reject"));
+    assert!(!h.app.session.catalog.photo(vis[0]).unwrap().deleted);
+    // Delete Rejected Files needs rejected photos, then the typed count
+    assert!(run(&mut h, "dialog.deleteRejected", json!({})).is_err());
+    exec(&mut h, "photo.flag", json!({"ids": [vis[0].0], "flag": "reject"}));
+    run(&mut h, "dialog.deleteRejected", json!({})).unwrap();
+    assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::DeleteRejected { count: 1, typed: String::new() }));
+    assert!(dir.join("p0.png").exists(), "nothing happens before the count is typed");
+    let _ = std::fs::remove_dir_all(&dir);
+}

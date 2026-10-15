@@ -260,6 +260,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::ChartProfile { .. } => "Create Camera Profile from Color Chart",
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
+        Dialog::DeleteRejected { .. } => "Delete Rejected Files from Disk",
         Dialog::MovePhotos { .. } => "Move Photos",
         Dialog::LightroomCatalog { .. } => "Lightroom Classic Catalog",
         Dialog::SaveEffect { .. } => "New Effect Preset",
@@ -1238,6 +1239,24 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(what);
                     ui.label(egui::RichText::new(crate::i18n::tr("Masks keep their sliders. Export presets first to keep a copy.")).color(t.text_dim));
                 }
+                Dialog::DeleteRejected { count, typed } => {
+                    let n = *count;
+                    let bin = if cfg!(windows) { "Recycle Bin" } else { "Trash" };
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr_format!("Rejected files to move to the {bin}: {n}", n = n, bin = crate::i18n::tr(bin)))
+                        .font(t.semibold(14.0))
+                        .color(t.text),
+                    );
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr(
+                            "This deletes the files themselves, with their XMP sidecars, not just LightCraft's records. Undo can't bring them back: only the Recycle Bin can, until it is emptied.",
+                        ))
+                        .color(t.caution),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(crate::i18n::tr_format!("Type {n} to confirm:", n = n));
+                    dialog_field(ui, "field:deleteRejectedCount", typed, "");
+                }
                 Dialog::ConfirmDelete { count } => {
                     let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
                     ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
@@ -1383,6 +1402,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
                     Dialog::FaceModel { .. } if !informational => "Install",
                     Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
+                    Dialog::DeleteRejected { .. } => "Move to Recycle Bin",
                     Dialog::SaveEffect { .. } => "Create",
                     Dialog::MovePhotos { .. } => "Move",
                     // (not "Merge": that is photo merging, HDR / panorama, in some languages)
@@ -1415,7 +1435,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                     _ => false,
                 };
+                let typed_ok = match &dlg {
+                    Dialog::DeleteRejected { count, typed } => typed.trim() == count.to_string(),
+                    _ => true,
+                };
                 let can_confirm = !rename_blocked
+                    && typed_ok
                     && (informational
                         || !matches!(
                             &dlg,
@@ -2030,6 +2055,13 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::ChartProfile { opts } => crate::chart_profile::start_build(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
+        Dialog::DeleteRejected { count, typed } => {
+            if typed.trim() == count.to_string() {
+                app.run("import.deleteRejectedFiles", json!({"confirm": count}))
+            } else {
+                Err(crate::i18n::tr("Type the number of files to confirm").to_string())
+            }
+        }
         Dialog::MovePhotos { ids, folder, dont_ask, library, .. } => {
             // another library opened meanwhile (from the menu bar, an agent): these numbers are
             // other photos there
@@ -2412,9 +2444,11 @@ pub enum ConfirmStyle {
 
 pub fn confirm_style(dlg: &Dialog) -> ConfirmStyle {
     match dlg {
-        Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } | Dialog::RemoveFolder { .. } => {
-            ConfirmStyle::Plain
-        }
+        Dialog::ConfirmDelete { .. }
+        | Dialog::DeleteRejected { .. }
+        | Dialog::DeleteKeyword { .. }
+        | Dialog::DeleteEffects { .. }
+        | Dialog::RemoveFolder { .. } => ConfirmStyle::Plain,
         _ if only_shows(dlg) => ConfirmStyle::Plain,
         _ => ConfirmStyle::Primary,
     }

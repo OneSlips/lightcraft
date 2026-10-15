@@ -752,6 +752,11 @@ impl LightcraftApp {
             Err(e) => {
                 log::warn!("{id}: {e}");
                 self.ui.status = e.message.clone();
+                // Delete on photos being browsed (Import): say what to do instead, wherever it came from
+                if e.message.contains(lightcraft_engine::cmd::library::BROWSED_NO_DELETE) {
+                    let now = self.tasks.repaint.as_ref().map(|ctx| ctx.input(|i| i.time)).unwrap_or(self.last_time);
+                    self.ui.toast = Some((i18n::tr(lightcraft_engine::cmd::library::BROWSED_NO_DELETE).to_string(), now + 6.0, None));
+                }
                 // no face model yet: offer it (its terms first) instead of only saying so
                 if id == "faces.detect"
                     && (e.kind == ErrorKind::ModelMissing(AiModel::FaceDetector)

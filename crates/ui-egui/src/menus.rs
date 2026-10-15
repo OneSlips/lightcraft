@@ -156,6 +156,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("import.usePreset", "Use Import Preset", None, ""),
     ("import.configure", "Import Settings", None, ""),
     ("import.saveSettings", "Save Import Preset", None, ""),
+    ("dialog.deleteRejected", "Delete Rejected Files from Disk…", None, "Photo"),
     // {solo?}: true opens just that section (⌥-click on its header); otherwise opens or closes it
     ("section.light", "Light", Some("Cmd+1"), "Window>Edit Sections"),
     ("section.color", "Color", Some("Cmd+2"), "Window>Edit Sections"),
@@ -1250,6 +1251,17 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 app.ui.import_settings.preset_name = name;
             }
             r
+        }
+        "dialog.deleteRejected" => {
+            let n = app.session.rejected_browsed().len();
+            if !crate::import_tab::importing(app) || app.session.source != lightcraft_engine::LibrarySource::Folder {
+                Err(crate::i18n::tr("Delete Rejected Files works in the Import tab, on the folder you are browsing").to_string())
+            } else if n == 0 {
+                Err(crate::i18n::tr("No rejected photos here: reject photos with X first").to_string())
+            } else {
+                app.ui.dialog = Some(crate::state::Dialog::DeleteRejected { count: n, typed: String::new() });
+                Ok(json!({"count": n}))
+            }
         }
         "file.addFiles" => {
             let mut q = p.clone();
@@ -2371,7 +2383,8 @@ pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
     if !app.ui.settings.confirm_delete {
         return false;
     }
-    let count = app.session.selected().len();
+    // browsed photos (Import) are never deleted: the command says so, no dialog first
+    let count = app.session.selected().iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| !p.local)).count();
     if count == 0 {
         return false;
     }
