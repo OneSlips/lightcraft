@@ -146,6 +146,26 @@ fn moving_browsed_photos_moves_their_files_and_records() {
     assert!(!Path::new(&paths[0]).exists(), "moved: the original is gone from the card");
 }
 
+/// Edits and culling while browsing stay in LightCraft: with auto-write on, nothing is written
+/// into the browsed folder until the photos are imported (unless `writeBrowsed` asks for it).
+#[test]
+fn browsing_writes_no_sidecars_until_import() {
+    let (mut s, _root, ids) = browsing("xmp");
+    s.execute("library.xmpPreferences", &json!({"autoWrite": true})).unwrap();
+    let side = |s: &Session, id: PhotoId| crate::sidecar::sidecar_path(&path_of(s, id), Default::default());
+    s.selection = Selection::single(ids[2]);
+    s.execute("photo.rate", &json!({"rating": 3})).unwrap();
+    assert!(!side(&s, ids[2]).exists(), "a browsed photo's culling is not written into the folder");
+    s.execute("library.import", &json!({"paths": [path_of(&s, ids[2])]})).unwrap();
+    s.selection = Selection::single(ids[2]);
+    s.execute("photo.rate", &json!({"rating": 4})).unwrap();
+    assert!(side(&s, ids[2]).exists(), "imported: auto-write writes its sidecar");
+    // asked for: browsed photos too
+    s.execute("library.xmpPreferences", &json!({"writeBrowsed": true})).unwrap();
+    s.selection = Selection::single(ids[0]);
+    s.execute("photo.rate", &json!({"rating": 2})).unwrap();
+    assert!(side(&s, ids[0]).exists());
+}
 
 
 /// `import.targets` counts what the big button would take; `import.run` imports it and queues
