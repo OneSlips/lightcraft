@@ -14,7 +14,7 @@ const BAR_H: f32 = 44.0;
 /// other way ends them.
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let Some(original) = app.session.alternatives.as_ref().map(|a| a.original) else { return };
-    if !app.importing() {
+    if app.session.source != lightcraft_engine::LibrarySource::Folder {
         app.session.alternatives = None;
         return;
     }

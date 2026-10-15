@@ -1,4 +1,4 @@
-//! The left "My Photos" panel: library sources, albums tree, and date groups.
+//! The left "Library" panel: library sources, albums tree, and date groups.
 
 use egui::{Align2, Rect, Sense, pos2, vec2};
 use lightcraft_catalog::{Album, AlbumId, FolderNode, KeywordNode};
@@ -36,7 +36,7 @@ fn note_width(ui: &egui::Ui, w: f32) {
     });
 }
 
-fn row(
+pub(crate) fn row(
     app: &mut LightcraftApp,
     ui: &mut egui::Ui,
     id: &str,
@@ -517,7 +517,7 @@ fn new_keyword(app: &mut LightcraftApp, _ctx: &egui::Context) {
     app.ui.dialog = Some(dialog);
 }
 
-/// The menu of a section's header (`on`) and of the My Photos title (`None`): hide this section,
+/// The menu of a section's header (`on`) and of the Library title (`None`): hide this section,
 /// show or hide any section, and go back to the usual arrangement. Its items are widgets
 /// `sidebarMenu:hide`, `sidebarMenu:section:<id>` and `sidebarMenu:reset`.
 fn sections_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, on: Option<SidebarSection>) {
@@ -593,13 +593,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.spacing_mut().item_spacing.y = 0.0;
         // the title offers the sections' menu too: where hidden sections come back from
         let (hr, title) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::click());
-        crate::widgets::announce(&title, crate::i18n::tr("My Photos"));
+        crate::widgets::announce(&title, crate::i18n::tr("Library"));
         register(ui.ctx(), "sidebarTitle", hr);
         title.context_menu(|ui| sections_menu(app, ui, None));
         // the open library's name under the title, so nobody edits in the wrong one (issue #902)
         let library = crate::panels::settings::open_library_name(app);
         let title_y = if library.is_some() { hr.center().y - 7.0 } else { hr.center().y };
-        ui.painter().text(pos2(hr.left() + 18.0, title_y), Align2::LEFT_CENTER, crate::i18n::tr("My Photos"), t.semibold(15.0), t.text);
+        ui.painter().text(pos2(hr.left() + 18.0, title_y), Align2::LEFT_CENTER, crate::i18n::tr("Library"), t.semibold(15.0), t.text);
         if let Some(name) = library {
             ui.painter().with_clip_rect(hr.shrink2(vec2(18.0, 0.0))).text(
                 pos2(hr.left() + 18.0, hr.center().y + 10.0),
@@ -824,13 +824,21 @@ fn local_now(app: &mut LightcraftApp, ui: &egui::Ui) -> Option<LocalNow> {
     Some(LocalNow { places, current })
 }
 
+/// Local's rows for the Import tab's sources (places, favourites, the folder being browsed,
+/// Browse Folder…).
+pub(crate) fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    if let Some(now) = local_now(app, ui) {
+        local_rows(app, ui, &now);
+    }
+}
+
 /// Local's rows: each place as a folder tree, Browse Folder…, and the way back for hidden places.
 fn local_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, now: &LocalNow) {
     let (local, current) = (&now.places, now.current.as_deref());
     for (i, (name, path)) in local.places.iter().enumerate() {
         let transient = local.browse_root.as_deref() == Some(path.as_str());
         let reveal = local.owner == Some(i);
-        folder_tree(app, ui, path, name, path, 0.0, current, reveal, transient);
+        folder_tree(app, ui, path, name, path, 0.0, current, reveal, transient, Icon::Folder);
     }
     if app.services.pick_folder.is_some() && row(app, ui, "local:browse", Icon::Plus, crate::i18n::tr("Browse Folder…"), None, false, 0.0).clicked()
     {
@@ -1026,7 +1034,7 @@ pub(crate) fn fs_cached<T: Clone + Send + 'static>(ui: &egui::Ui, kind: &'static
 /// tree (Pictures on its own and inside Home): each row opens and closes by itself, and their
 /// triangles have ids of their own, else the copy drawn last takes the other's clicks (#1093).
 #[allow(clippy::too_many_arguments)]
-fn folder_tree(
+pub(crate) fn folder_tree(
     app: &mut LightcraftApp,
     ui: &mut egui::Ui,
     place: &str,
@@ -1036,6 +1044,7 @@ fn folder_tree(
     current: Option<&str>,
     reveal: bool,
     transient: bool,
+    icon: Icon,
 ) {
     let open_id = egui::Id::new(("folder-open", place.to_string(), path.to_string()));
     let sel = current.is_some_and(|c| same_folder(c, path));
@@ -1053,7 +1062,7 @@ fn folder_tree(
     }
     // at the tree's own indent, as in Albums and Folders: the triangle sits in the gutter and the
     // icon lines up with the rows above
-    let resp = row(app, ui, &format!("local:{path}"), Icon::Folder, name, None, sel, indent).on_hover_text(path);
+    let resp = row(app, ui, &format!("local:{path}"), icon, name, None, sel, indent).on_hover_text(path);
     let tr = tree_toggle(ui, &resp, indent, open_id, &mut open, format!("folderToggle:{path}"));
     if !tr.clicked()
         && resp.clicked()
@@ -1066,17 +1075,14 @@ fn folder_tree(
         let library = app.caches.folder_tree(&app.session.catalog);
         let held = library_node_for(&library, path);
         if (transient || indent > 0.0)
-            && ui
-                .button(crate::i18n::tr(if transient { "Keep in Local" } else { "Add to Local" }))
-                .on_hover_text(crate::i18n::tr("List this folder in Local from now on"))
-                .clicked()
+            && ui.button(crate::i18n::tr("Add to Favourites")).on_hover_text(crate::i18n::tr("List this folder under Favourites in Import")).clicked()
         {
             let _ = app.run("local.addRoot", json!({"path": path}));
             ui.close();
         }
         if indent == 0.0
             && ui
-                .button(crate::i18n::tr("Remove from Local"))
+                .button(crate::i18n::tr("Remove from This List"))
                 .on_hover_text(crate::i18n::tr("Hides this shortcut only; the folder and its photos stay as they are"))
                 .clicked()
         {
@@ -1114,7 +1120,7 @@ fn folder_tree(
     });
     if open && indent < 16.0 * 8.0 {
         for (n, p) in subfolders(ui, path) {
-            folder_tree(app, ui, place, &n, &p, indent + 16.0, current, reveal, false);
+            folder_tree(app, ui, place, &n, &p, indent + 16.0, current, reveal, false, Icon::Folder);
         }
     }
 }
@@ -1526,7 +1532,7 @@ fn drop_target(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response
                 if skipped > 0 {
                     msg.push_str(" · ");
                     msg.push_str(&crate::i18n::tr_format!(
-                        "{n} Local photo{} skipped: albums hold library photos (Add to My Photos first)",
+                        "{n} browsed photo{} skipped: albums hold library photos (import them first)",
                         if skipped == 1 { "" } else { "s" },
                         n = skipped
                     ));
@@ -1808,7 +1814,7 @@ fn folder_drop_target(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::R
     let refused = if !n.selectable {
         Some(crate::i18n::tr("This row covers more than one disk: drop on a folder inside it"))
     } else if photos.iter().any(|p| p.local) {
-        Some(crate::i18n::tr("Local photos aren't in the library yet: Add to My Photos first, then move them"))
+        Some(crate::i18n::tr("Browsed photos aren't in the library yet: import them first, then move them"))
     } else {
         None
     };
@@ -2268,7 +2274,7 @@ mod tests {
             let raw = HeadlessView::raw_input(egui::vec2(300.0, 200.0), 1.0, frame as f64 / 60.0, vec![]);
             view.run(raw, |ui| {
                 super::row(&mut app, ui, "all", super::Icon::Photos, "All Photos", None, false, 0.0);
-                super::folder_tree(&mut app, ui, path, "Pictures", path, 0.0, None, false, false);
+                super::folder_tree(&mut app, ui, path, "Pictures", path, 0.0, None, false, false, crate::icons::Icon::Folder);
             });
             widgets = crate::widgets::take_registry(&view.ctx);
         }

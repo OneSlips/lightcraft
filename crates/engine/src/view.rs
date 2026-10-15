@@ -3,7 +3,7 @@
 use lightcraft_catalog::{AlbumId, Catalog, Filter, PhotoId};
 use serde::{Deserialize, Serialize};
 
-/// The "My Photos" source in the left panel.
+/// The "Library" source in the left panel.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "id", rename_all = "camelCase")]
 pub enum LibrarySource {

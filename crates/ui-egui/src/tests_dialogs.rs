@@ -108,7 +108,7 @@ fn delete_rejected_photos_asks_how() {
     h.app.session.execute("photo.flag", &json!({"ids": [ids[0], ids[1]], "flag": "reject"})).unwrap();
     let total = h.app.session.visible_cloned().len();
     crate::menubar::run_item(&mut h.app, "library.deleteRejected", json!({})).unwrap();
-    assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::DeleteRejected { count: 2, recycle: false }));
+    assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::DeleteRejectedPhotos { count: 2, recycle: false }));
     h.step();
     let r = h.request("ui.dialog.confirm", json!({}), T);
     assert_eq!(r["ok"], true, "{r}");

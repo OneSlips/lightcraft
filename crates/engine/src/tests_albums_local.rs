@@ -23,7 +23,7 @@ fn png(p: &Path, seed: u8) {
     std::fs::write(p, b).unwrap();
 }
 
-/// A session browsing a folder of two files, one of them added to My Photos: (session, local, library).
+/// A session browsing a folder of two files, one of them imported into the library: (session, local, library).
 fn browsed(tag: &str) -> (Session, PhotoId, PhotoId) {
     let dir = temp_dir(tag);
     png(&dir.join("a.png"), 1);
@@ -55,7 +55,7 @@ fn a_local_only_selection_is_refused_and_leaves_add_to_album_off() {
         ("album.toggleTarget", json!({})),
     ] {
         let e = s.execute(command, &params).unwrap_err().to_string();
-        assert!(e.contains("Local") && e.contains("Add to My Photos"), "{command}: {e}");
+        assert!(e.contains("browsed") && e.contains("import them first"), "{command}: {e}");
     }
     assert!(s.catalog.album(album).unwrap().photos.is_empty(), "nothing invisible was added");
     assert!(s.catalog.quick_collection().is_none(), "no Quick Collection was made for nothing");
@@ -63,7 +63,7 @@ fn a_local_only_selection_is_refused_and_leaves_add_to_album_off() {
     let r = s.execute("album.create", &json!({"name": "Empty", "addSelected": true})).unwrap();
     assert_eq!(r["skipped"], 1, "{r}");
     assert!(s.catalog.album(AlbumId(r["id"].as_u64().unwrap())).unwrap().photos.is_empty());
-    // once in My Photos the same photo goes in
+    // once imported the same photo goes in
     s.execute("photo.addToLibrary", &json!({"ids": [local.0]})).unwrap();
     assert!(enabled(&s, "album.addPhotos"));
     let r = s.execute("album.addPhotos", &json!({"id": album.0})).unwrap();

@@ -424,11 +424,18 @@ pub fn show(app: &mut crate::LightcraftApp, ui: &mut egui::Ui) {
     style.font = t.font(12.0);
     // Tool and preset panels publish hover previews before the photo consumes them.
     let mut canvas = None;
+    // the Import tab's panels say what they are there
+    let importing = crate::import_tab::importing(app);
+    let import_settings = app.ui.right == crate::state::RightPanel::Import;
     let output = DockArea::new(egui::Id::new("lightcraft-docking")).show_with_limits(
         ui,
         &workspace.layout,
         &style,
-        |panel| crate::i18n::tr(panel.label()).into(),
+        |panel| match panel {
+            Panel::Library if importing => crate::i18n::tr("Import from").into(),
+            Panel::Tools if import_settings => crate::i18n::tr("Import settings").into(),
+            _ => crate::i18n::tr(panel.label()).into(),
+        },
         permissions,
         panel_limits,
         |ui, panel| match panel {
@@ -437,7 +444,12 @@ pub fn show(app: &mut crate::LightcraftApp, ui: &mut egui::Ui) {
             }
             Panel::Library => {
                 crate::widgets::register(ui.ctx(), "panel:left_panel", ui.max_rect());
-                crate::panels::left::show(app, ui);
+                // the Import tab's sources, or the library's sidebar
+                if crate::import_tab::importing(app) {
+                    crate::panels::import_panel::sources(app, ui);
+                } else {
+                    crate::panels::left::show(app, ui);
+                }
             }
             Panel::Tools => {
                 crate::widgets::register(ui.ctx(), "panel:right_panel", ui.max_rect());
@@ -459,7 +471,16 @@ pub fn show(app: &mut crate::LightcraftApp, ui: &mut egui::Ui) {
         };
         crate::panels::compare::prepare(app);
         crate::panels::alternatives::show(app, ui);
+        if app.session.alternatives.is_none() {
+            let importing = crate::import_tab::importing(app);
+            if importing && app.session.source == lightcraft_engine::LibrarySource::Folder {
+                // where you are and the Import button, over the grid and the loupe alike
+                egui::Panel::top("import_bar").frame(egui::Frame::NONE).show(ui, |ui| crate::panels::import_panel::bar(app, ui));
+            }
+        }
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(bg)).show(ui, |ui| match app.ui.view {
+            // nothing chosen to import from yet
+            _ if importing && app.session.source != lightcraft_engine::LibrarySource::Folder => crate::panels::import_panel::choose_source(app, ui),
             crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid => crate::panels::grid::show(app, ui),
             crate::state::ViewMode::Detail => crate::panels::detail::show(app, ui),
             crate::state::ViewMode::Compare => crate::panels::compare::show_compare(app, ui),

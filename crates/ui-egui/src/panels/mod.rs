@@ -16,6 +16,7 @@ pub mod faces;
 pub mod filterbar;
 pub mod genfill;
 pub mod grid;
+pub mod import_panel;
 pub mod keymap;
 pub mod keyword_list;
 pub mod keywording;

@@ -60,6 +60,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("ui.dock", "Arrange Panel", None, ""),
     ("ui.dock.reset", "Reset Panel Layout", None, "Window"),
     ("modelSetup.cancel", "Cancel Pending Photo Action", None, ""),
+    // the two workspace tabs (top right)
+    ("view.importTab", "Import", Some("Cmd+Alt+1"), "View"),
+    ("view.libraryTab", "Library", Some("Cmd+Alt+2"), "View"),
     ("view.photoGrid", "Photo Grid", None, "View"),
     ("view.squareGrid", "Square Grid", None, "View"),
     // G: Photo Grid ↔ Square Grid (from other views: the photo grid)
@@ -81,7 +84,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("compare.makeSelect", "Make Candidate the Select", None, "View"),
     ("view.autoAdvance", "Auto Advance", None, "Photo"),
     ("view.filmstrip", "Filmstrip", Some("/"), "View"),
-    ("view.leftPanel", "My Photos Panel", Some("Cmd+Shift+L"), "View"),
+    ("view.leftPanel", "Library Panel", Some("Cmd+Shift+L"), "View"),
     ("view.beforeAfter", "Compare Before and After", Some("Y"), "View"),
     ("view.beforeAfterSplit", "Before/After Split", Some("Shift+Y"), "View"),
     ("view.beforeAfterTopBottom", "Before/After Top/Bottom", Some("Alt+Y"), "View"),
@@ -145,7 +148,15 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("panel.keywords", "Keywords", Some("K"), "Window"),
     ("panel.versions", "Versions", Some("Shift+V"), "Window"),
     ("panel.activity", "History", None, "Window"),
+    ("panel.import", "Import Settings", None, ""),
     ("panel.close", "Close Panel", None, ""),
+    // the Import tab: its big button {what?: picks|selected|all}, an import preset {name}, saving
+    // the settings as one {name}
+    ("import.start", "Import Now", None, ""),
+    ("import.usePreset", "Use Import Preset", None, ""),
+    ("import.configure", "Import Settings", None, ""),
+    ("import.saveSettings", "Save Import Preset", None, ""),
+    ("dialog.deleteRejected", "Delete Rejected Files from Disk…", None, "Photo"),
     // {solo?}: true opens just that section (⌥-click on its header); otherwise opens or closes it
     ("section.light", "Light", Some("Cmd+1"), "Window>Edit Sections"),
     ("section.color", "Color", Some("Cmd+2"), "Window>Edit Sections"),
@@ -217,6 +228,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("merge.panoramaLast", "Panorama with Last Settings", Some("Ctrl+Shift+M"), "Photo>Photo Merge"),
     ("merge.hdrPanoramaLast", "HDR Panorama with Last Settings", None, "Photo>Photo Merge"),
     ("file.addPhotos", "Import Photos…", Some("Cmd+Shift+I"), "File"),
+    ("file.addFiles", "Import Individual Files…", None, "File"),
     ("file.addFolder", "Import from Folder…", None, "File"),
     ("file.importLightroom", "Import Lightroom Catalog…", None, "File"),
     ("file.addFromDevice", "Import from Device", None, ""),
@@ -1229,6 +1241,46 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             panel(app, &ctx, RightPanel::Versions, "Versions");
             Ok(Value::Null)
         }
+        "panel.import" => {
+            if !crate::import_tab::importing(app) {
+                let _ = crate::import_tab::switch(app, crate::import_tab::Tab::Import);
+            }
+            app.ui.right = RightPanel::Import;
+            Ok(Value::Null)
+        }
+        "view.importTab" => crate::import_tab::switch(app, crate::import_tab::Tab::Import),
+        "view.libraryTab" => crate::import_tab::switch(app, crate::import_tab::Tab::Library),
+        "import.start" => crate::import_tab::start(app, p),
+        "import.configure" => crate::import_tab::configure(app, p),
+        "import.usePreset" => match p.get("name").and_then(Value::as_str) {
+            Some(n) => crate::import_tab::use_preset(app, n),
+            None => Err("missing name".into()),
+        },
+        "import.saveSettings" => {
+            let name = p.get("name").and_then(Value::as_str).unwrap_or("").trim().to_string();
+            let settings = app.ui.import_settings.to_preset();
+            let r = app.session.execute("import.savePreset", &json!({"name": name, "settings": settings})).map_err(|e| e.to_string());
+            if r.is_ok() {
+                app.ui.import_settings.preset_name = name;
+            }
+            r
+        }
+        "dialog.deleteRejected" => {
+            let n = app.session.rejected_browsed().len();
+            if !crate::import_tab::importing(app) || app.session.source != lightcraft_engine::LibrarySource::Folder {
+                Err(crate::i18n::tr("Delete Rejected Files works in the Import tab, on the folder you are browsing").to_string())
+            } else if n == 0 {
+                Err(crate::i18n::tr("No rejected photos here: reject photos with X first").to_string())
+            } else {
+                app.ui.dialog = Some(crate::state::Dialog::DeleteRejected { count: n, typed: String::new() });
+                Ok(json!({"count": n}))
+            }
+        }
+        "file.addFiles" => {
+            let mut q = p.clone();
+            q["pick"] = json!(true);
+            return run_ui_command(app, "file.addPhotos", &q);
+        }
         "panel.activity" => {
             panel(app, &ctx, RightPanel::Activity, "History");
             Ok(Value::Null)
@@ -1598,6 +1650,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             let paths = match p.get("paths").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+                // Import Photos… is the Import tab (pick a drive, card or folder, cull, import);
+                // Import Individual Files… asks for files
+                None if p.get("pick").and_then(Value::as_bool) != Some(true) && app.services.pick_folder.is_some() => {
+                    return Some(crate::import_tab::switch(app, crate::import_tab::Tab::Import));
+                }
                 None => {
                     let req = PickRequest::files(None, crate::i18n::tr("Photos"), lightcraft_engine::import::EXTENSIONS);
                     match crate::pick::ask(app, id, p, "paths", req, |s| s.pick_files.as_mut().map(|f| f())) {
@@ -2339,7 +2396,8 @@ pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
     if !app.ui.settings.confirm_delete {
         return false;
     }
-    let count = app.session.selected().len();
+    // browsed photos (Import) are never deleted: the command says so, no dialog first
+    let count = app.session.selected().iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| !p.local)).count();
     if count == 0 {
         return false;
     }
@@ -2350,6 +2408,10 @@ pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
 /// Photo ▸ Delete Rejected Photos…: ask how (remove, or remove and recycle the files), with the
 /// number of rejects the view has; with none, say so.
 pub fn ask_delete_rejected(app: &mut LightcraftApp) -> Result<Value, String> {
+    // a folder being imported: its rejects' files go (the Import tab's Delete Rejected Files)
+    if app.session.source == lightcraft_engine::LibrarySource::Folder {
+        return run_ui_command(app, "dialog.deleteRejected", &json!({})).unwrap_or_else(|| Err("not available here".to_string()));
+    }
     let count = app.session.rejects_in_view().len();
     if count == 0 {
         if let Some(ctx) = app.tasks.repaint.clone() {
@@ -2357,7 +2419,7 @@ pub fn ask_delete_rejected(app: &mut LightcraftApp) -> Result<Value, String> {
         }
         return Ok(json!({"removed": 0}));
     }
-    app.ui.dialog = Some(Dialog::DeleteRejected { count, recycle: false });
+    app.ui.dialog = Some(Dialog::DeleteRejectedPhotos { count, recycle: false });
     Ok(json!({"asking": count}))
 }
 

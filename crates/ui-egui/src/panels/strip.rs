@@ -30,6 +30,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ui.vertical_centered(|ui| {
                 ui.spacing_mut().item_spacing.y = GAP;
                 let sz = vec2(t.strip_w, BUTTON_H);
+                // the Import tab's settings come first there
+                if crate::import_tab::importing(app) {
+                    if icon_button(
+                        ui,
+                        "importSettings",
+                        Icon::ImportArrow,
+                        sz,
+                        app.ui.right == RightPanel::Import,
+                        true,
+                        crate::i18n::tr("Import settings"),
+                    )
+                    .clicked()
+                    {
+                        let _ = app.run("panel.import", json!({}));
+                    }
+                    separator(ui, &t);
+                }
                 if icon_button(ui, "presets", Icon::Presets, sz, app.ui.presets, has_photo, "Presets (Shift+P)").clicked() {
                     let _ = app.run("panel.presets", json!({}));
                 }

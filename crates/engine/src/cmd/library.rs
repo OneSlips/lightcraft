@@ -7,6 +7,19 @@ use serde_json::{Value, json};
 use super::{CommandSpec, always, bad, bool_or, cmd, has_active, has_library_selection, has_selection, ok, str_param};
 use crate::{LibrarySource, Result, Selection, Session};
 
+/// What Import refuses to delete (DECIDED: no delete in Import): browsed photos are only looked
+/// at, so deleting one could only mean its file, which is final. A mixed selection keeps the
+/// library photos; only browsed ones are refused, with what to do instead.
+pub const BROWSED_NO_DELETE: &str = "Photos you are browsing in Import aren't deleted: reject them (X) instead. To remove rejected files from disk, use Photo > Delete Rejected Files from Disk…";
+
+fn library_only(s: &Session, ids: Vec<PhotoId>, c: &str) -> Result<Vec<PhotoId>> {
+    let kept: Vec<PhotoId> = ids.iter().copied().filter(|id| s.catalog.photo(*id).is_none_or(|p| !p.local)).collect();
+    if kept.is_empty() && !ids.is_empty() {
+        return Err(bad(c, BROWSED_NO_DELETE));
+    }
+    Ok(kept)
+}
+
 fn select_after_deletion(s: &mut Session, before: &[PhotoId]) {
     let at = before.iter().position(|id| Some(*id) == s.selection.active);
     let remaining: std::collections::HashSet<_> = s.visible_cloned().into_iter().collect();
@@ -53,10 +66,13 @@ pub fn import_params(s: &Session, p: &Value) -> Result<ImportRequest> {
         "move" => crate::import::ImportMode::Move,
         other => return Err(bad("library.import", format!("unknown mode `{other}` (add|copy|move)"))),
     };
-    let preset = match str_param(p, "preset").filter(|x| !x.is_empty()) {
-        Some(id) => Some(s.presets.iter().find(|x| x.id == id).cloned().ok_or_else(|| bad("library.import", format!("unknown preset `{id}`")))?),
-        None => None,
-    };
+    // `preset` (one) and `presets` (a stack, applied in order after it)
+    let mut ids: Vec<String> = str_param(p, "preset").filter(|x| !x.is_empty()).map(str::to_string).into_iter().collect();
+    ids.extend(strs(p, "presets").into_iter().filter(|x| !x.is_empty()));
+    let presets = ids
+        .iter()
+        .map(|id| s.presets.iter().find(|x| x.id == *id).cloned().ok_or_else(|| bad("library.import", format!("unknown preset `{id}`"))))
+        .collect::<Result<Vec<_>>>()?;
     let album = p.get("album").and_then(Value::as_u64);
     if let Some(a) = album
         && s.catalog.album(AlbumId(a)).is_none_or(|al| al.folder || al.is_smart())
@@ -101,7 +117,7 @@ pub fn import_params(s: &Session, p: &Value) -> Result<ImportRequest> {
         look,
         on_deleted,
         mode,
-        preset,
+        presets,
         keywords: strs(p, "keywords"),
         destination: str_param(p, "destination").map(str::to_string),
         organize,
@@ -910,13 +926,21 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         // ---- delete / restore
-        cmd!("photo.delete", "Delete Photo", ["Photo"], Some("Delete"), "{ids?} — moves to Recently Deleted", has_selection, |s, p| {
-            let before = s.visible_cloned();
-            let targets = s.targets(p)?;
-            let n = mark_deleted(s, &targets, "Delete")?;
-            select_after_deletion(s, &before);
-            Ok(json!({"changed": n}))
-        }),
+        cmd!(
+            "photo.delete",
+            "Delete Photo",
+            ["Photo"],
+            Some("Delete"),
+            "{ids?} — moves library photos to Recently Deleted (their files stay on disk); browsed photos (Import) are never deleted: reject them instead",
+            has_selection,
+            |s, p| {
+                let before = s.visible_cloned();
+                let targets = library_only(s, s.targets(p)?, "photo.delete")?;
+                let n = mark_deleted(s, &targets, "Delete")?;
+                select_after_deletion(s, &before);
+                Ok(json!({"changed": n}))
+            }
+        ),
         cmd!("photo.restore", "Restore", ["Photo"], None, "{ids?}", has_selection, |s, p| for_targets(s, p, "Restore", |id| Some(Op::SetDeleted {
             id,
             deleted: false
@@ -957,14 +981,22 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"removed": removed, "recycled": recycled}))
             }
         ),
-        cmd!("photo.deletePermanently", "Delete Permanently", ["Photo"], None, "{ids?}", has_selection, |s, p| {
-            let before = s.visible_cloned();
-            let t = s.targets(p)?;
-            let op = s.catalog.delete_photos_permanently_ops(&t);
-            s.commit("Delete Permanently", op)?;
-            select_after_deletion(s, &before);
-            Ok(json!({"deleted": t.len()}))
-        }),
+        cmd!(
+            "photo.deletePermanently",
+            "Delete Permanently",
+            ["Photo"],
+            None,
+            "{ids?} — removes library photos from the library (their files stay on disk); never browsed photos",
+            has_selection,
+            |s, p| {
+                let before = s.visible_cloned();
+                let t = library_only(s, s.targets(p)?, "photo.deletePermanently")?;
+                let op = s.catalog.delete_photos_permanently_ops(&t);
+                s.commit("Delete Permanently", op)?;
+                select_after_deletion(s, &before);
+                Ok(json!({"deleted": t.len()}))
+            }
+        ),
         // ---- metadata
         cmd!(
             "photo.setMeta",
@@ -1571,7 +1603,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Import Photos",
             ["File"],
             Some("Cmd+Shift+I"),
-            "{paths: [file or folder (recursive)], mode?: add|copy|move (add = reference the files in place; copy = into the library's Originals/YYYY/YYYY-MM-DD/; move = as copy, then each original and its XMP sidecars are removed from the source — only after the copy is verified (a hard link on the same volume, else copied, synced and compared byte for byte) and its catalog record is saved; failed, duplicate and unchecked files keep their sources; a taken name gets -1, -2…; undo removes the photos from the library but leaves the files at the destination), destination?: folder for copies / moves, organize?: date (YYYY/YYYY-MM-DD) | month (YYYY/YYYY-MM) | flat | a folder template, e.g. `{date:%Y}/{date:%Y%m%d}` → 2026/20260114 (the template's `/` make the folders, each level expanded with the rename tokens and made a safe folder name: never outside the destination; must be relative, no `..`; a level with missing metadata is `unknown`) — dated by capture time, else the import time, rename?: file-name template for copies, original extension added (tokens: {name} {num} {seq} {seq:N} {date} {date:%Y%m%d} {folder} {camera} {lens} {iso} {rating} {title} {creator} {ext}; photo.renameTokens explains each; blank = keep names), renameStart?: 1, metadataPreset?: name, dng?: bool (copy raws as DNG; copy only), local?: bool (browsing: the photos stay out of the library, like library.browse; not with move), album?: albumId, albumName?: new album, preset?: presetId, keywords?: [..], cameraProfile?: auto (default: each raw's body's own camera profile, else LightCraft's colour) | {all: profileId | builtin} (every raw of that profile's camera) | {perBody: {bodyKey: profileId | builtin}} (bodyKey: the serial, else file:XX from the file names; see import.profilePlan) — a raw whose XMP sidecar sets develop settings or a camera profile keeps them (counted in cameraProfiles.keptFromSidecar); a choice made here is never replaced by a later automatic one, adopt?: [bodyKey] (after the import those bodies adopt the profile chosen for them in perBody: profile.adoptForBody), look?: profileId (one of LightCraft's looks, put on the camera profile), onDeleted?: restore|skip|fresh (a file that is in Recently Deleted: restore (default) = bring the photo back with its edits — relinked to the file when its own is gone, skip = leave it there and say so, fresh = delete the trashed record and import the file as new)} → {imported, duplicates: [{path, existing, reason, existingDeleted?}], restored?: [photoId], failed, warnings?: [{path, code: cameraProfile|uprightGeometry|unmappedXmp, profile?, mode?: off|auto|level|vertical|full|guided|unknown, fields?}], moved?: [{from, to, sidecars?}], kept?: [{path, reason}] (move: sources left in place and why), cameraProfiles?: {profiles: {profileId | builtin: {name, photos, bodies}}, keptFromSidecar}, adopted?: [{body, profile}], album?}",
+            "{paths: [file or folder (recursive)], mode?: add|copy|move (add = reference the files in place; copy = into the library's Originals/YYYY/YYYY-MM-DD/; move = as copy, then each original and its XMP sidecars are removed from the source — only after the copy is verified (a hard link on the same volume, else copied, synced and compared byte for byte) and its catalog record is saved; failed, duplicate and unchecked files keep their sources; a taken name gets -1, -2…; undo removes the photos from the library but leaves the files at the destination), destination?: folder for copies / moves, organize?: date (YYYY/YYYY-MM-DD) | month (YYYY/YYYY-MM) | flat | a folder template, e.g. `{date:%Y}/{date:%Y%m%d}` → 2026/20260114 (the template's `/` make the folders, each level expanded with the rename tokens and made a safe folder name: never outside the destination; must be relative, no `..`; a level with missing metadata is `unknown`) — dated by capture time, else the import time, rename?: file-name template for copies, original extension added (tokens: {name} {num} {seq} {seq:N} {date} {date:%Y%m%d} {folder} {camera} {lens} {iso} {rating} {title} {creator} {ext}; photo.renameTokens explains each; blank = keep names), renameStart?: 1, metadataPreset?: name, dng?: bool (copy raws as DNG; copy only), local?: bool (browsing: the photos stay out of the library, like library.browse; not with move), album?: albumId, albumName?: new album, preset?: presetId, presets?: [presetId] (a stack applied in order, after `preset`: each sets its settings and adds its masks), keywords?: [..], cameraProfile?: auto (default: each raw's body's own camera profile, else LightCraft's colour) | {all: profileId | builtin} (every raw of that profile's camera) | {perBody: {bodyKey: profileId | builtin}} (bodyKey: the serial, else file:XX from the file names; see import.profilePlan) — a raw whose XMP sidecar sets develop settings or a camera profile keeps them (counted in cameraProfiles.keptFromSidecar); a choice made here is never replaced by a later automatic one, adopt?: [bodyKey] (after the import those bodies adopt the profile chosen for them in perBody: profile.adoptForBody), look?: profileId (one of LightCraft's looks, put on the camera profile), onDeleted?: restore|skip|fresh (a file that is in Recently Deleted: restore (default) = bring the photo back with its edits — relinked to the file when its own is gone, skip = leave it there and say so, fresh = delete the trashed record and import the file as new)} → {imported, duplicates: [{path, existing, reason, existingDeleted?}], restored?: [photoId], failed, warnings?: [{path, code: cameraProfile|uprightGeometry|unmappedXmp, profile?, mode?: off|auto|level|vertical|full|guided|unknown, fields?}], moved?: [{from, to, sidecars?}], kept?: [{path, reason}] (move: sources left in place and why), cameraProfiles?: {profiles: {profileId | builtin: {name, photos, bodies}}, keptFromSidecar}, adopted?: [{body, profile}], album?}",
             always,
             |s, p| {
                 let req = import_params(s, p)?;

@@ -15,6 +15,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let frame = egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.divider));
     frame.show(ui, |ui| {
+        // the Import tab's settings need no photo
+        if app.ui.right == RightPanel::Import {
+            crate::widgets::register(ui.ctx(), "panel:importSettings", ui.max_rect());
+            super::import_panel::settings(app, ui);
+            return;
+        }
         // (taken on every pass the panel is drawn; one from earlier than the pass before is forgotten)
         let held = held_offset(ui.ctx());
         let Some(id) = app.session.active() else {
@@ -66,7 +72,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 RightPanel::Keywords => keywords(app, ui, id),
                 RightPanel::Versions => versions(app, ui, id),
                 RightPanel::Activity => activity(app, ui, id),
-                RightPanel::None => {}
+                RightPanel::None | RightPanel::Import => {}
             }
         });
         ui.data_mut(|d| d.insert_temp(egui::Id::new(AREA), scrolled.id));

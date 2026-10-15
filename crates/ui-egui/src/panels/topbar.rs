@@ -60,9 +60,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(egui::Margin { left, right: 12, top: 0, bottom: 0 }))
         .show(ui, |ui| {
             let full = ui.max_rect();
-            // room for the filter icon and the seven icons on the right
+            // room for the filter icon, the seven icons and the workspace tabs on the right
             // (the field is centred, so each icon on the right takes its width from both sides)
-            let mut sw = 640.0f32.min(full.width() - 620.0).max(190.0);
+            let mut sw = 640.0f32.min(full.width() - 620.0 - 2.0 * TABS_W).max(190.0);
             if !app.native_menu {
                 // leave room for the in-window menus left of the (centred) search field
                 let menus_right = full.left() + 140.0 + crate::menubar::bar_width(ui) + 24.0;
@@ -75,7 +75,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                if icon_button(ui, "sidebar", Icon::Sidebar, vec2(30.0, 30.0), app.ui.left_panel, true, crate::i18n::tr("Show/hide My Photos panel"))
+                if icon_button(ui, "sidebar", Icon::Sidebar, vec2(30.0, 30.0), app.ui.left_panel, true, crate::i18n::tr("Show/hide Library panel"))
                     .clicked()
                 {
                     let _ = app.run("view.leftPanel", json!({}));
@@ -194,6 +194,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if resp.clicked() {
                 let _ = app.run("view.appearance", json!({}));
             }
+            workspace_tabs(app, ui, pos2(r.left() - 14.0, full.center().y));
             resp.context_menu(|ui| {
                 let settings = ui.button(crate::i18n::tr("Appearance Settings…"));
                 register(ui.ctx(), "menu:appearanceSettings", settings.rect);
@@ -220,6 +221,55 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             });
             let _ = Align2::CENTER_CENTER;
         });
+}
+
+/// The width the workspace tabs take.
+const TABS_W: f32 = 176.0;
+
+/// The two workspace tabs, Import and Library, ending at `right_center` (its x is their right
+/// edge): which one is on show at a glance, one click to the other.
+fn workspace_tabs(app: &mut LightcraftApp, ui: &mut egui::Ui, right_center: egui::Pos2) {
+    let t = Tokens::get(ui.ctx());
+    let outer = Rect::from_min_size(pos2(right_center.x - TABS_W, right_center.y - 14.0), vec2(TABS_W, 28.0));
+    register(ui.ctx(), "tabs:workspace", outer);
+    ui.painter().rect(outer, 6.0, t.field, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    let half = (TABS_W - 4.0) / 2.0;
+    let importing = crate::import_tab::importing(app);
+    for (i, (key, label, icon, on, cmd)) in
+        [("import", "Import", Icon::ImportArrow, importing, "view.importTab"), ("library", "Library", Icon::Photos, !importing, "view.libraryTab")]
+            .into_iter()
+            .enumerate()
+    {
+        let r = Rect::from_min_size(pos2(outer.left() + 2.0 + i as f32 * half, outer.top() + 2.0), vec2(half, 24.0));
+        let resp = ui.interact(r, egui::Id::new(("workspace-tab", key)), Sense::click());
+        crate::widgets::announce_selected(&resp, crate::i18n::tr(label).to_string(), on);
+        register(ui.ctx(), format!("tab:{key}"), r);
+        let fill = if on {
+            t.accent
+        } else if resp.hovered() {
+            t.hover
+        } else {
+            egui::Color32::TRANSPARENT
+        };
+        ui.painter().rect_filled(r, 5.0, fill);
+        let colour = if on { t.canvas } else { t.text_label };
+        let g = ui.painter().layout_no_wrap(crate::i18n::tr(label).to_string(), t.semibold(12.5), colour);
+        let w = 16.0 + 6.0 + g.size().x;
+        let x0 = r.center().x - w / 2.0;
+        paint(ui.painter(), Rect::from_min_size(pos2(x0, r.center().y - 8.0), vec2(16.0, 16.0)), icon, colour);
+        ui.painter().galley(pos2(x0 + 22.0, r.center().y - g.size().y / 2.0), g, colour);
+        let tip = if key == "import" {
+            crate::i18n::tr("Import: browse a drive, card or folder, cull, and import (Ctrl+Alt+1)")
+        } else {
+            crate::i18n::tr("Library: everything you imported, to edit and export (Ctrl+Alt+2)")
+        };
+        if resp.on_hover_text(tip).clicked()
+            && !on
+            && let Err(e) = app.run(cmd, json!({}))
+        {
+            app.toast_error(ui.ctx(), e);
+        }
+    }
 }
 
 /// The appearance button's icon and the mode's name for its tooltip.

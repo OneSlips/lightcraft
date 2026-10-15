@@ -52,6 +52,10 @@ pub struct XmpPrefs {
     /// Write the sidecar after every change to a photo's metadata or develop settings.
     pub auto_write: bool,
     pub naming: SidecarNaming,
+    /// Auto-write also for photos only browsed (Import tab, not imported yet). Off by default:
+    /// culling and edits made while browsing stay in LightCraft and nothing is written into the
+    /// folder (a client's card or archive) until the photos are imported.
+    pub write_browsed: bool,
 }
 
 /// The sidecar path for an original, by naming convention.
@@ -728,8 +732,9 @@ impl Session {
             return;
         }
         let owners = StemOwners::among(&self.catalog, &ids);
+        let browsed_too = self.xmp.write_browsed;
         for id in ids {
-            if self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none()) {
+            if self.catalog.photo(id).is_some_and(|p| file_path(p).is_some() && p.copy_of.is_none() && (browsed_too || !p.local)) {
                 match self.save_sidecar_with(id, &owners) {
                     Ok(_) => {
                         self.unsaved_sidecars.remove(&id);

@@ -50,7 +50,7 @@ fn local_folder_header_text_and_controls_do_not_overlap() {
                         let raw = HeadlessView::raw_input(vec2(width, 300.0), scale, frame as f64 / 60.0, vec![]);
                         let mut out = ctx.run_ui(raw, |ui| {
                             egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
-                                header = super::folder_header(&mut app, ui, &browse, &[], local_n, &counted);
+                                header = super::folder_header(&mut app, ui, &browse, &counted);
                                 let (grid, _) = ui.allocate_exact_size(vec2(ui.available_width(), 100.0), egui::Sense::hover());
                                 assert!(grid.top() >= header.bottom(), "wrapped controls must reserve space above the grid");
                             });
@@ -66,7 +66,8 @@ fn local_folder_header_text_and_controls_do_not_overlap() {
                     assert!(header.left() >= 0.0 && header.right() <= width, "header must not expand past the centre pane: {header:?}");
                     let check = widgets.iter().find(|(id, _)| id == "check:includeSubfolders").unwrap().1;
                     assert!(widgets.iter().any(|(id, _)| id.starts_with("crumb:")));
-                    assert_eq!(widgets.iter().any(|(id, _)| id == "button:addToLibrary"), local_n > 0);
+                    // importing is the Import tab's bar now (its big button), never this header
+                    assert!(!widgets.iter().any(|(id, _)| id == "button:addToLibrary"), "{local_n}");
                     for (id, rect) in &widgets {
                         assert!(header.contains_rect(*rect), "{locale:?} {width} {scale}: {id} outside header: {rect:?}");
                         if id.starts_with("crumb:") {
