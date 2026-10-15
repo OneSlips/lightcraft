@@ -933,6 +933,10 @@ pub struct UiState {
     pub local_browse_root: Option<String>,
     /// Culling: after a rating, flag or colour-label key, move to the next photo.
     pub auto_advance: bool,
+    /// Caps Lock is on, as last seen from a letter key: it turns Auto Advance on while it lasts
+    /// (see [`crate::shortcuts::caps_lock_from`]).
+    #[serde(skip)]
+    pub caps_lock: bool,
     /// Full-screen preview (F): the photo alone on black, no chrome.
     pub fullscreen: bool,
     /// Lights Out (Shift+L): not saved, every launch starts with the lights on.
@@ -1489,6 +1493,7 @@ impl Default for UiState {
             visualize_spots: false,
             spots_threshold: 50.0,
             auto_advance: false,
+            caps_lock: false,
             fullscreen: false,
             lights_out: LightsOut::On,
             slideshow: None,

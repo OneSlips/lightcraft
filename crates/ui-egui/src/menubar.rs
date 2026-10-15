@@ -863,7 +863,7 @@ pub fn run_item(app: &mut LightcraftApp, id: &str, params: Value) -> Result<Valu
         return Ok(Value::Null);
     }
     let r = app.run(id, params);
-    if culling_cmd && r.is_ok() && app.ui.auto_advance {
+    if culling_cmd && r.is_ok() && app.auto_advance_on() {
         crate::panels::compare::advance(app);
     }
     r
