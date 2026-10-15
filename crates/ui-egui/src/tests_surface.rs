@@ -485,3 +485,58 @@ fn an_installed_logi_plugin_works_with_no_setup_and_settings_show_the_edited_pag
     crate::surface_plugin::auto_setup(&mut h.app);
     assert!(!h.app.surface.settings().enabled, "off stays off");
 }
+
+#[test]
+fn white_balance_on_several_photos_moves_each_from_its_own_value() {
+    // the console's dial with Apply to Selected on photos whose white balance differs: each is
+    // moved by the turn on its own scale (as Quick Develop does), never given the active
+    // photo's Kelvin; Tint and the other values the same way; one undo step
+    let mut h = demo();
+    open_photo(&mut h);
+    let ids: Vec<u64> = h.app.session.visible_cloned().iter().take(3).map(|p| p.0).collect();
+    let wb = |h: &Headless, id: u64| {
+        let d = h.app.session.develop_of(lightcraft_catalog::PhotoId(id)).unwrap();
+        (d.wb.temp, d.wb.tint, d.light.contrast)
+    };
+    // different white balances (and one left As Shot)
+    for (id, temp, tint) in [(ids[1], 4200.0, 12.0), (ids[2], 9000.0, -20.0)] {
+        let r =
+            h.request("engine.execute", json!({"command": "develop.set", "params": {"ids": [id], "values": {"wb.temp": temp, "wb.tint": tint}}}), T);
+        assert_eq!(r["ok"], true, "{r}");
+    }
+    assert_eq!(h.request("engine.execute", json!({"command": "library.select", "params": {"ids": ids}}), T)["ok"], true);
+    h.settle(T);
+    assert_eq!(h.request("engine.execute", json!({"command": "surface.applyToSelected", "params": {"on": true}}), T)["ok"], true);
+    let before: Vec<_> = ids.iter().map(|i| wb(&h, *i)).collect();
+    let (s, _rx) = sink();
+    for (action, ticks) in [("v.wb.temp", 6), ("v.wb.tint", 4), ("v.light.contrast", 5)] {
+        let r = request_on(&mut h, 0, &s, "surface.input", json!({"events": [{"action": action, "ticks": ticks}]}));
+        assert_eq!(r["ok"], true, "{r}");
+        // live: the other photos move during the turn, not after it
+        for _ in 0..3 {
+            h.step();
+        }
+        if action == "v.wb.temp" {
+            assert!(wb(&h, ids[1]).0 > before[1].0, "photo 2 follows the dial while it turns");
+            assert!(h.app.session.interaction.is_some(), "still the same gesture");
+        }
+        finish_gesture(&mut h);
+    }
+    let after: Vec<_> = ids.iter().map(|i| wb(&h, *i)).collect();
+    // the two Custom photos keep their difference: moved by the same amount, not set to one value
+    let d1 = (after[1].0 - before[1].0, after[1].1 - before[1].1, after[1].2 - before[1].2);
+    let d2 = (after[2].0 - before[2].0, after[2].1 - before[2].1, after[2].2 - before[2].2);
+    assert!(d1.0 > 0.0 && (d1.0 - d2.0).abs() < 1e-6, "temp moved by the same amount: {d1:?} {d2:?}");
+    assert!(d1.1 > 0.0 && (d1.1 - d2.1).abs() < 1e-6, "tint too: {d1:?} {d2:?}");
+    assert!(d1.2 > 0.0 && (d1.2 - d2.2).abs() < 1e-6, "contrast too: {d1:?} {d2:?}");
+    assert!((after[1].0 - after[2].0).abs() > 4000.0, "not copied from one photo: {after:?}");
+    // the active photo moved too
+    assert!(after[0] != before[0]);
+    // one undo step per turn: three undos put everything back
+    for _ in 0..3 {
+        assert_eq!(h.request("engine.execute", json!({"command": "edit.undo"}), T)["ok"], true);
+    }
+    let back: Vec<_> = ids.iter().map(|i| wb(&h, *i)).collect();
+    assert_eq!(back[1], before[1]);
+    assert_eq!(back[2], before[2]);
+}

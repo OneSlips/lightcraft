@@ -198,6 +198,9 @@ pub struct Interaction {
     pub label: String,
     pub photo: PhotoId,
     pub original: Arc<DevelopSettings>,
+    /// Other photos edited live along with the active one (a multi-photo edit: each nudged from
+    /// its own value as it goes), with their settings before. They join the same undo step.
+    pub others: Vec<(PhotoId, Arc<DevelopSettings>)>,
 }
 
 /// The most photos an edit may touch for the view to follow it photo by photo; a larger edit is worked out whole.
@@ -1009,18 +1012,29 @@ impl Session {
     }
 
     pub fn begin_interaction(&mut self, label: &str) -> Result<()> {
+        self.begin_interaction_with(label, &[])
+    }
+
+    /// Begin an interaction that also edits `others` live (`develop.adjust` nudges each from its
+    /// own value as the active photo moves; the end commits all of them as one undo step).
+    pub fn begin_interaction_with(&mut self, label: &str, others: &[PhotoId]) -> Result<()> {
         if self.interaction.is_some() {
             self.end_interaction()?;
         }
         let id = self.active().ok_or_else(|| EngineError::Other("no active photo".into()))?;
         let original = self.develop_of(id).unwrap_or_default();
-        self.interaction = Some(Interaction { label: label.into(), photo: id, original });
+        let mut seen = std::collections::HashSet::new();
+        let others = others.iter().filter(|x| **x != id && seen.insert(**x)).filter_map(|x| self.develop_of(*x).map(|d| (*x, d))).collect();
+        self.interaction = Some(Interaction { label: label.into(), photo: id, original, others });
         Ok(())
     }
 
     /// Commit the interaction as one undo step (no-op if nothing changed).
     pub fn end_interaction(&mut self) -> Result<()> {
         let Some(i) = self.interaction.take() else { return Ok(()) };
+        if !i.others.is_empty() {
+            return self.end_multi_interaction(i);
+        }
         let Some(cur) = self.develop_of(i.photo) else { return Ok(()) };
         if *cur == *i.original {
             return Ok(());
@@ -1030,8 +1044,47 @@ impl Session {
         self.set_develop(i.photo, (*cur).clone(), &i.label)
     }
 
+    /// The end of a multi-photo interaction: every photo it changed, in one undo step (Auto Sync
+    /// doesn't run on top: the other photos were edited along already).
+    fn end_multi_interaction(&mut self, i: Interaction) -> Result<()> {
+        let mut all = vec![(i.photo, i.original.clone())];
+        all.extend(i.others.iter().cloned());
+        let mut ops = Vec::new();
+        for (id, original) in all {
+            let Some(cur) = self.develop_of(id) else { continue };
+            if *cur == *original {
+                continue;
+            }
+            self.apply_silent(Op::SetDevelop { id, settings: original.clone(), label: i.label.clone(), edited: None })?;
+            let mut settings = (*cur).clone();
+            lightcraft_develop::presets::settle_provisional(&original, &mut settings);
+            if let Some(op) = self.develop_op(id, settings, &i.label) {
+                ops.push(op);
+            }
+        }
+        match ops.len() {
+            0 => Ok(()),
+            1 => self.commit(&i.label, ops.remove(0)),
+            _ => self.commit(&i.label, Op::Batch { ops }),
+        }
+    }
+
+    /// The photos a running interaction edits along with the active one.
+    pub fn interaction_others(&self) -> Vec<PhotoId> {
+        self.interaction.as_ref().map(|i| i.others.iter().map(|(id, _)| *id).collect()).unwrap_or_default()
+    }
+
+    /// Set a photo's settings without an undo step while an interaction edits it along.
+    pub fn set_develop_silent(&mut self, id: PhotoId, settings: DevelopSettings, label: &str) -> Result<()> {
+        let now = (self.clock)();
+        self.apply_silent(Op::SetDevelop { id, settings: Arc::new(settings), label: label.into(), edited: Some(now) })
+    }
+
     pub fn cancel_interaction(&mut self) -> Result<()> {
         if let Some(i) = self.interaction.take() {
+            for (id, original) in i.others {
+                self.apply_silent(Op::SetDevelop { id, settings: original, label: i.label.clone(), edited: None })?;
+            }
             self.apply_silent(Op::SetDevelop { id: i.photo, settings: i.original, label: i.label, edited: None })?;
         }
         Ok(())

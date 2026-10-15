@@ -274,21 +274,27 @@ fn begin(app: &mut LightcraftApp, target: &str) {
     }
     let Some(photo) = app.session.active() else { return };
     let label = label_of(target);
-    if app.run("develop.beginInteraction", json!({"label": label})).is_ok() {
+    // Several photos edited at once (Apply to Selected, or the app's Auto Sync): LightCraft's own
+    // live multi-photo edit, every selected photo moving with each tick from its own value (white
+    // balance on its own scale), all in the gesture's one undo step
+    let ids: Vec<u64> = if spec.kind == TargetKind::Develop
+        && (app.surface.settings().apply_to_selected || app.session.auto_sync)
+        && app.session.selection.ids.len() > 1
+        && app.session.selection.ids.contains(&photo)
+    {
+        app.session.selection.ids.iter().map(|x| x.0).collect()
+    } else {
+        Vec::new()
+    };
+    if app.run("develop.beginInteraction", json!({"label": label, "ids": ids})).is_ok() {
         app.surface.gesture = Some((photo, label));
     }
 }
 
-fn end(app: &mut LightcraftApp, apply_to_selected: bool) {
+fn end(app: &mut LightcraftApp, _apply_to_selected: bool) {
     if ours(app) {
-        // Apply to Selected: the end of the gesture carries the change to every selected photo,
-        // in the same undo step (the session's Auto Sync does exactly that)
-        let before = app.session.auto_sync;
-        if apply_to_selected {
-            app.session.auto_sync = true;
-        }
+        // the other selected photos were edited along live (see begin): the end commits them all
         let _ = app.run("develop.endInteraction", json!({}));
-        app.session.auto_sync = before;
     }
     app.surface.gesture = None;
 }
