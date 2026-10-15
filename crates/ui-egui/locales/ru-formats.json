@@ -362,5 +362,6 @@
   "Move {n} photo{} to “{}”": "Переместить в «{1}» фото: {n}{0:.0}",
   "Move {n} photo{} to “{}”?": "Переместить в «{1}» фото: {n}{0:.0}?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "В «{1}» перемещено фото: {n}{0:.0}. Правка → Отменить вернёт их.",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Перемещено фото: {n} в «Недавно удалённые». Файлы остаются на диске; «Отменить» вернёт их.",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Отклонено {n}: {closed} с закрытыми глазами, {blurry} с размытыми глазами"
 }
