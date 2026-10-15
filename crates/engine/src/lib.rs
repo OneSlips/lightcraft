@@ -75,6 +75,7 @@ pub mod presets_smart;
 pub mod print;
 pub mod print_color;
 pub mod print_pdf;
+pub mod profile_manager;
 pub mod profile_refs;
 pub mod proof;
 pub mod rename;

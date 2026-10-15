@@ -361,5 +361,13 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Opraveno {}: {} známých pro fotoaparát {}, {} nalezených v této fotografii",
   "{} spot(s) from Remove Dust (outlined in amber)": "Body z odstranění prachu: {} (jantarově obtažené)",
   "{} with eyes closed": "Se zavřenýma očima: {}",
-  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu"
+  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
+  "Delete “{name}” and its file?": "Smazat „{name}“ i jeho soubor?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Smazat „{name}“ i jeho soubor? Používá ho {n} fotografií v této knihovně; u profilů fotoaparátu se vrátí barvy fotoaparátu LightCraftu.",
+  "Imported {n} profiles": "Importováno profilů: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Importováno profilů: {n}; nepodařilo se přečíst: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Odebrat „{name}“ z LightCraftu na tomto počítači? Obnovit vestavěné vzhledy ho vrátí.",
+  "Restore Built-in Looks ({n})": "Obnovit vestavěné vzhledy ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Vaše profily, předvolby ({presets}), předvolby místních úprav ({effects}), nastavení importu a výchozí profily těl jsou uloženy ve složce nastavení LightCraftu, takže je má každá knihovna.",
+  "{n} photos here": "{n} fotografií zde"
 }

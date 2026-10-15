@@ -361,5 +361,13 @@
   "Already in “{}”": "Déjà dans « {} »",
   "Move {n} photo{} to “{}”": "Déplacer {n} photo{} vers « {} »",
   "Move {n} photo{} to “{}”?": "Déplacer {n} photo{} vers « {} » ?",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place.",
+  "Delete “{name}” and its file?": "Supprimer « {name} » et son fichier ?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Supprimer « {name} » et son fichier ? {n} photos d’ici l’utilisent ; les profils d’appareil reviennent aux couleurs d’appareil de LightCraft.",
+  "Imported {n} profiles": "{n} profils importés",
+  "Imported {n} profiles; {failed} couldn't be read": "{n} profils importés ; {failed} n’ont pas pu être lus",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Retirer « {name} » de LightCraft sur cet ordinateur ? Restaurer les rendus intégrés le ramène.",
+  "Restore Built-in Looks ({n})": "Restaurer les rendus intégrés ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Vos profils, paramètres prédéfinis ({presets}), paramètres de retouche locale ({effects}), réglages d’importation et profils par défaut des boîtiers sont conservés dans le dossier des réglages de LightCraft : toutes les bibliothèques les ont.",
+  "{n} photos here": "{n} photos ici"
 }

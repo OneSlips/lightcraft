@@ -361,5 +361,13 @@
   "Already in “{}”": "Уже в «{}»",
   "Move {n} photo{} to “{}”": "Перемістити до «{1}» фото: {n}{0:.0}",
   "Move {n} photo{} to “{}”?": "Перемістити до «{1}» фото: {n}{0:.0}?",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "До «{1}» переміщено фото: {n}{0:.0}. Редагування → Скасувати поверне їх."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "До «{1}» переміщено фото: {n}{0:.0}. Редагування → Скасувати поверне їх.",
+  "Delete “{name}” and its file?": "Видалити «{name}» і його файл?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Видалити «{name}» і його файл? Його використовують {n} фото тут; для профілів камер повернуться кольори камери LightCraft.",
+  "Imported {n} profiles": "Імпортовано профілів: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Імпортовано профілів: {n}; не вдалося прочитати: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Прибрати «{name}» з LightCraft на цьому комп’ютері? Його поверне «Відновити вбудовані стилі».",
+  "Restore Built-in Looks ({n})": "Відновити вбудовані стилі ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Ваші профілі, пресети ({presets}), пресети локальної корекції ({effects}), налаштування імпорту та профілі корпусів зберігаються в теці налаштувань LightCraft, тож вони є в кожній бібліотеці.",
+  "{n} photos here": "{n} фото тут"
 }

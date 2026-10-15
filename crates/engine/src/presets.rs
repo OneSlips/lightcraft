@@ -522,15 +522,20 @@ pub fn profile(id: &str) -> Option<&'static ProfileInfo> {
 pub const RECENT_PROFILES: usize = 5;
 
 impl Session {
-    /// A profile by id, looking up built-in profiles first and imported LUT profiles second.
+    /// A profile by id (name, group), looking up built-in profiles first and imported LUT and
+    /// camera profiles second; with the name and group the user gave it in the Profile Manager.
     pub fn profile_info(&self, id: &str) -> Option<(&str, &str)> {
-        if let Some(p) = profile(id) {
-            return Some((p.name, p.group));
-        }
-        if let Some(p) = self.lut_profiles.iter().find(|p| p.id == id) {
-            return Some((p.name.as_str(), p.group.as_str()));
-        }
-        self.dcp_profiles.iter().find(|p| p.id == id).map(|p| (p.name.as_str(), crate::cmd::dcp_profiles::DCP_GROUP))
+        let (name, group) = if let Some(p) = profile(id) {
+            (p.name, p.group)
+        } else if let Some(p) = self.lut_profiles.iter().find(|p| p.id == id) {
+            (p.name.as_str(), p.group.as_str())
+        } else {
+            self.dcp_profiles.iter().find(|p| p.id == id).map(|p| (p.name.as_str(), crate::cmd::dcp_profiles::DCP_GROUP))?
+        };
+        let st = &self.profile_state;
+        let name = st.names.get(id).map(String::as_str).filter(|n| !n.trim().is_empty()).unwrap_or(name);
+        let group = st.groups.get(id).map(String::as_str).filter(|g| !g.trim().is_empty()).unwrap_or(group);
+        Some((name, group))
     }
 
     /// The imported profiles as (id, name, group): LUT profiles, then camera profiles (`.dcp`).
@@ -547,36 +552,33 @@ impl Session {
         self.profile_recent.truncate(RECENT_PROFILES);
     }
 
-    /// The profile menu: favourites, recent, then every group (`profiles.menu`).
+    /// The profile menu: favourites, recent, then every group (`profiles.menu`), without the
+    /// profiles hidden or removed in the Profile Manager.
     pub fn profile_menu(&self) -> Value {
-        let item =
-            |p: &ProfileInfo| json!({"id": p.id, "name": p.name, "group": p.group, "favorite": self.profile_favorites.iter().any(|f| f == p.id)});
-        let imported = self.imported_profiles();
-        let imported_item = |(id, name, group): &(String, String, String)| {
-            let mut v = json!({"id": id, "name": name, "group": group, "favorite": self.profile_favorites.contains(id), "imported": true});
-            if let Some(d) = self.dcp_profiles.iter().find(|d| &d.id == id) {
+        let shown = self.shown_profiles();
+        let item = |p: &crate::profile_manager::ProfileItem| {
+            let mut v = json!({"id": p.id, "name": p.name, "group": p.group, "favorite": p.favorite});
+            if p.kind != crate::profile_manager::ProfileKind::Builtin {
+                v["imported"] = json!(true);
+            }
+            if let Some(d) = self.dcp_profiles.iter().find(|d| d.id == p.id) {
                 v["cameraModel"] = json!(d.camera_model);
             }
             v
         };
-        let lut_item = |id: &str| imported.iter().find(|p| p.0 == id).map(imported_item);
-        let list = |ids: &[String]| ids.iter().filter_map(|id| profile(id).map(item).or_else(|| lut_item(id))).collect::<Vec<_>>();
-        let mut groups: Vec<Value> = profile_groups()
+        let list = |ids: &[String]| ids.iter().filter_map(|id| shown.iter().find(|p| &p.id == id).map(item)).collect::<Vec<_>>();
+        let groups: Vec<Value> = Session::profile_group_order(&shown)
             .into_iter()
-            .map(|g| json!({"name": g, "profiles": PROFILES.iter().filter(|p| p.group == g).map(item).collect::<Vec<_>>()}))
+            .map(|g| {
+                let members: Vec<&crate::profile_manager::ProfileItem> = shown.iter().filter(|p| p.group == g).collect();
+                let imported = members.iter().all(|p| p.kind != crate::profile_manager::ProfileKind::Builtin);
+                let mut v = json!({"name": g, "profiles": members.iter().map(|p| item(p)).collect::<Vec<_>>()});
+                if imported {
+                    v["imported"] = json!(true);
+                }
+                v
+            })
             .collect();
-        // imported LUT profiles by their groups, then camera profiles
-        let mut lut_groups: Vec<&str> = self.lut_profiles.iter().map(|p| p.group.as_str()).collect();
-        lut_groups.sort_unstable();
-        lut_groups.dedup();
-        if !self.dcp_profiles.is_empty() {
-            lut_groups.push(crate::cmd::dcp_profiles::DCP_GROUP);
-        }
-        lut_groups.dedup();
-        for g in lut_groups {
-            let profiles: Vec<Value> = imported.iter().filter(|p| p.2 == g).map(imported_item).collect();
-            groups.push(json!({"name": g, "profiles": profiles, "imported": true}));
-        }
         json!({
             "favorites": list(&self.profile_favorites),
             "recent": list(&self.profile_recent),

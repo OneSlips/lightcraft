@@ -361,5 +361,13 @@
   "Renames {n} face{} across the library. The files are not changed.": "Renomeia {n} rosto{} na biblioteca. Os arquivos não são alterados.",
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "“{to}” já é uma pessoa. Combiná-las deixa uma só; Desfazer as separa de novo.",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "{what} mesclagem adicionada em {mp}: o tamanho completo, {full}, precisa de mais memória do que este computador tem",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what} mesclagem adicionada em {mp}, o maior tamanho possível para um panorama (tamanho completo: {full})"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what} mesclagem adicionada em {mp}, o maior tamanho possível para um panorama (tamanho completo: {full})",
+  "Delete “{name}” and its file?": "Excluir “{name}” e seu arquivo?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Excluir “{name}” e seu arquivo? {n} fotos daqui o usam; perfis de câmera voltam à cor de câmera do LightCraft.",
+  "Imported {n} profiles": "{n} perfis importados",
+  "Imported {n} profiles; {failed} couldn't be read": "{n} perfis importados; {failed} não puderam ser lidos",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Remover “{name}” do LightCraft neste computador? Restaurar visuais integrados o traz de volta.",
+  "Restore Built-in Looks ({n})": "Restaurar visuais integrados ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Seus perfis, predefinições ({presets}), predefinições de ajuste local ({effects}), configurações de importação e padrões por corpo ficam na pasta de configurações do LightCraft, então todas as bibliotecas os têm.",
+  "{n} photos here": "{n} fotos aqui"
 }

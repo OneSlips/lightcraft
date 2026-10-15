@@ -13,6 +13,20 @@
 - Want one library to keep its own? Settings ▸ Profiles ▸ **Store presets and profiles with this
   library instead**.
 
+### Profile Manager
+- **Settings ▸ Profiles** (or **Manage…** in the profile browser, **Manage Profiles…** in the
+  profile menu) lists every profile: LightCraft's built-in looks, your LUTs and your camera
+  profiles.
+- **Hide** a profile to take it out of the menus and the browser (one click shows it again), or
+  **Delete** it: your own files are deleted after asking, a built-in look is taken off this
+  computer and **Restore Built-in Looks** brings it back. Photos that use a hidden or deleted
+  built-in look keep it.
+- **Rename**, move to a **group** (or a new one), **move up or down**, star as a favourite.
+- **Import Profiles…** and **Import Folder…**, or drop `.dcp`, `.cube`, folders and `.zip` packs
+  on the window.
+- **Camera Bodies**: choose the camera profile each body's raws get (…71, …74), also one of your
+  own profiles made for the whole camera model, and apply it to the photos in view.
+
 ## 2026-10-15
 
 ### Settings window

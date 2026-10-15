@@ -205,13 +205,24 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(query "presets.list", "List Presets", [], None, "{}", always, |s, _| {
             Ok(Value::Array(s.presets.iter().map(|p| json!({"id": p.id, "name": p.name, "group": p.group, "favorite": p.favorite, "builtin": p.builtin})).collect()))
         }),
-        cmd!(query "profiles.list", "List Profiles", [], None, "{} — every profile (built-in, then imported LUTs marked `imported`) with its group and favourite flag", always, |s, _| {
-            let favorite = |id: &str| s.profile_favorites.iter().any(|f| f == id);
-            let builtin = crate::presets::PROFILES.iter().map(|p| json!({"id": p.id, "name": p.name, "group": p.group, "favorite": favorite(p.id)}));
-            // imported LUT profiles too (#618), marked as in `profiles.menu`
-            let imported =
-                s.lut_profiles.iter().map(|p| json!({"id": p.id, "name": p.name, "group": p.group, "favorite": favorite(&p.id), "imported": true}));
-            Ok(Value::Array(builtin.chain(imported).collect()))
+        cmd!(query "profiles.list", "List Profiles", [], None, "{all?: bool} — the profiles the menus offer (built-in, then imported marked `imported`) with group and favourite flag; `all` adds those hidden in the Profile Manager (marked `hidden`)", always, |s, p| {
+            let all = p.get("all").and_then(Value::as_bool) == Some(true);
+            let items = if all { s.all_profiles() } else { s.shown_profiles() };
+            Ok(Value::Array(
+                items
+                    .into_iter()
+                    .map(|p| {
+                        let mut v = json!({"id": p.id, "name": p.name, "group": p.group, "favorite": p.favorite});
+                        if p.kind != crate::profile_manager::ProfileKind::Builtin {
+                            v["imported"] = json!(true);
+                        }
+                        if p.hidden {
+                            v["hidden"] = json!(true);
+                        }
+                        v
+                    })
+                    .collect(),
+            ))
         }),
         cmd!(query "profiles.menu", "Profile Menu", [], None, "{} — favourites, recent (newest first) and groups", always, |s, _| Ok(s.profile_menu())),
         cmd!(query "history.list", "List History", [], None, "{id?} — returns {history: labels oldest first, cursor: index of the step the settings are at (later steps can be returned to), versions}", has_active, |s, p| {

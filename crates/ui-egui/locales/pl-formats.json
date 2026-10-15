@@ -361,5 +361,13 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Poprawiono {}: {} znanych dla aparatu {}, {} znalezionych na tym zdjęciu",
   "{} spot(s) from Remove Dust (outlined in amber)": "Punkty z usuwania kurzu: {} (z bursztynowym obrysem)",
   "{} with eyes closed": "Z zamkniętymi oczami: {}",
-  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu"
+  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu",
+  "Delete “{name}” and its file?": "Usunąć „{name}” i jego plik?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Usunąć „{name}” i jego plik? Używa go tu {n} zdjęć; profile aparatu wrócą do kolorów aparatu LightCraft.",
+  "Imported {n} profiles": "Zaimportowano profile: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Zaimportowano profile: {n}; nie udało się odczytać: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Usunąć „{name}” z LightCraft na tym komputerze? Przywróć wbudowane wyglądy go przywróci.",
+  "Restore Built-in Looks ({n})": "Przywróć wbudowane wyglądy ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Twoje profile, ustawienia predefiniowane ({presets}), ustawienia korekt lokalnych ({effects}), ustawienia importu i domyślne dla korpusów są w folderze ustawień LightCraft, więc ma je każda biblioteka.",
+  "{n} photos here": "{n} zdjęć tutaj"
 }

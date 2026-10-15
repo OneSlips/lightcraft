@@ -361,5 +361,13 @@
   "Renames {n} face{} across the library. The files are not changed.": "ライブラリ全体で{n}件の顔の名前を変更します。ファイルは変更されません。{:.0}",
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "「{to}」はすでに別の人物です。まとめると1人になり、元に戻すと再び分かれます。",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "{what}合成を{mp}で追加しました：フルサイズ（{full}）にはこのコンピューターのメモリが足りません",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what}合成を{mp}で追加しました。パノラマの最大サイズです（フルサイズ：{full}）"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what}合成を{mp}で追加しました。パノラマの最大サイズです（フルサイズ：{full}）",
+  "Delete “{name}” and its file?": "「{name}」とそのファイルを削除しますか？",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "「{name}」とそのファイルを削除しますか？ここでは {n} 枚の写真が使用しています。カメラプロファイルは LightCraft のカメラカラーに戻ります。",
+  "Imported {n} profiles": "{n} 個のプロファイルを読み込みました",
+  "Imported {n} profiles; {failed} couldn't be read": "{n} 個のプロファイルを読み込みました。{failed} 個は読み取れませんでした",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "このコンピューターの LightCraft から「{name}」を外しますか？「内蔵ルックを復元」で戻せます。",
+  "Restore Built-in Looks ({n})": "内蔵ルックを復元（{n}）",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "プロファイル、プリセット（{presets}）、部分補正プリセット（{effects}）、読み込み設定、ボディの既定は LightCraft の設定フォルダーに保存されるので、どのライブラリでも使えます。",
+  "{n} photos here": "ここに {n} 枚"
 }

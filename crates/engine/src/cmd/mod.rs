@@ -168,6 +168,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(mask_effects::specs());
         v.extend(dcp_profiles::specs());
         v.extend(dcp_profiles::body_specs());
+        v.extend(crate::profile_manager::specs());
         v.extend(store::specs());
         v.extend(cull::specs());
         v.extend(convert::specs());

@@ -361,5 +361,13 @@
   "Key from the environment variable {}": "Chiave dalla variabile d'ambiente {}",
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
-  "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}"
+  "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
+  "Delete “{name}” and its file?": "Eliminare «{name}» e il suo file?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Eliminare «{name}» e il suo file? Lo usano {n} foto qui; i profili fotocamera tornano ai colori fotocamera di LightCraft.",
+  "Imported {n} profiles": "{n} profili importati",
+  "Imported {n} profiles; {failed} couldn't be read": "{n} profili importati; {failed} non leggibili",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Togliere «{name}» da LightCraft su questo computer? Ripristina aspetti integrati lo riporta.",
+  "Restore Built-in Looks ({n})": "Ripristina aspetti integrati ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "I tuoi profili, predefiniti ({presets}), predefiniti di regolazione locale ({effects}), impostazioni di importazione e predefiniti per corpo sono nella cartella delle impostazioni di LightCraft, quindi ogni libreria li ha.",
+  "{n} photos here": "{n} foto qui"
 }

@@ -490,7 +490,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 /// The profile dropdown: Favorites, Recent, one submenu per group, then favourite toggle and
 /// Browse….
 fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
-    use lightcraft_engine::presets::{PROFILES, profile_groups};
     let t = Tokens::get(ui.ctx());
     ui.set_min_width(200.0);
     let cur = d.profile.id.as_str();
@@ -520,23 +519,24 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
         }
         ui.separator();
     }
-    for g in profile_groups() {
+    // groups as the Profile Manager orders them, without the hidden profiles
+    let shown = app.session.shown_profiles();
+    let group_names = lightcraft_engine::Session::profile_group_order(&shown);
+    let builtin_groups: Vec<String> =
+        group_names.iter().filter(|g| shown.iter().filter(|p| &p.group == *g).all(|p| p.builtin_group())).cloned().collect();
+    for g in &builtin_groups {
         let r = crate::widgets::menu_button(ui, crate::i18n::tr(g), |ui| {
             ui.set_min_width(170.0);
-            for p in PROFILES.iter().filter(|p| p.group == g) {
-                item(ui, "group", p.id, p.name, &mut pick);
+            for p in shown.iter().filter(|p| &p.group == g) {
+                item(ui, "group", &p.id, &p.name, &mut pick);
             }
         });
         register(ui.ctx(), format!("profileMenu:groupMenu:{g}"), r.response.rect);
     }
-    // imported profile groups: LUT folders, then camera profiles
-    let imported = app.session.imported_profiles();
-    let mut lut_groups: Vec<String> = Vec::new();
-    for (_, _, g) in &imported {
-        if !lut_groups.contains(g) {
-            lut_groups.push(g.clone());
-        }
-    }
+    // imported profile groups (and groups of the user's own): LUT folders, then camera profiles
+    let imported: Vec<(String, String, String)> =
+        shown.iter().filter(|p| !builtin_groups.contains(&p.group)).map(|p| (p.id.clone(), p.name.clone(), p.group.clone())).collect();
+    let lut_groups: Vec<String> = group_names.iter().filter(|g| !builtin_groups.contains(g)).cloned().collect();
     let photo = app.session.active();
     let mut action: Option<(&'static str, Value)> = None;
     for g in &lut_groups {
@@ -574,6 +574,11 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
     register(ui.ctx(), "profileMenu:browse", r.rect);
     if r.clicked() {
         let _ = app.run("panel.profiles", json!({}));
+    }
+    let r = ui.button(crate::i18n::tr("Manage Profiles…"));
+    register(ui.ctx(), "profileMenu:manage", r.rect);
+    if r.clicked() {
+        let _ = app.run("app.settings", json!({"tab": "profiles"}));
     }
     // resting on a profile previews it in the loupe
     if let Some(hovered_id) = &pick.1

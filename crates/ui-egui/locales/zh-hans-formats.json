@@ -361,5 +361,13 @@
   "Renames {n} face{} across the library. The files are not changed.": "在整个图库中重命名 {n} 张面孔。不会改动文件。{:.0}",
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "“{to}”已经是另一个人。合并后成为一个人；撤销会再把他们分开。",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "已添加 {what} 合并（{mp}）：完整尺寸（{full}）所需的内存超出了这台电脑的内存",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已添加 {what} 合并（{mp}），这是全景图的最大尺寸（完整尺寸：{full}）"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已添加 {what} 合并（{mp}），这是全景图的最大尺寸（完整尺寸：{full}）",
+  "Delete “{name}” and its file?": "删除“{name}”及其文件？",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "删除“{name}”及其文件？此处有 {n} 张照片在使用它；相机配置文件将恢复为 LightCraft 的相机颜色。",
+  "Imported {n} profiles": "已导入 {n} 个配置文件",
+  "Imported {n} profiles; {failed} couldn't be read": "已导入 {n} 个配置文件；{failed} 个无法读取",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "在此电脑上从 LightCraft 中移除“{name}”？“恢复内置风格”可找回。",
+  "Restore Built-in Looks ({n})": "恢复内置风格（{n}）",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "你的配置文件、预设（{presets}）、局部调整预设（{effects}）、导入设置和机身默认值保存在 LightCraft 的设置文件夹中，因此每个图库都有。",
+  "{n} photos here": "此处 {n} 张照片"
 }
