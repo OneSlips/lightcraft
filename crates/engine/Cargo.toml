@@ -30,6 +30,7 @@ lightcraft-lensdb = { workspace = true }
 lightcraft-faces = { workspace = true }
 miniz_oxide = { workspace = true }
 lightcraft-merge = { workspace = true }
+lightcraft-genfill = { workspace = true }
 lightcraft-geocode = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
@@ -45,6 +46,7 @@ lightcraft-segment = { workspace = true, optional = true }
 # model downloads run natively only (the web build fetches no models)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 lightcraft-fetch = { workspace = true }
+lightcraft-genfill = { workspace = true, features = ["cloud"] }
 
 [features]
 # AI masks with SAM 3 (Object / Describe). Off for the web and CLI builds.
@@ -53,6 +55,8 @@ denoise = ["dep:lightcraft-denoise", "lightcraft-denoise/runtime", "lightcraft-g
 rawnind-model = ["denoise", "lightcraft-denoise/rawnind-model", "lightcraft-denoise-core/rawnind-model"]
 
 [dev-dependencies]
+# genfill_check example: the mock provider fills with content-aware fill
+lightcraft-inpaint = { workspace = true }
 # HDR JPEG XL tests read the file's colour encoding
 jxl-oxide = { workspace = true }
 # Lossless synthetic HEIC files (the import test; decoded when the codecs' `heif` feature is on).

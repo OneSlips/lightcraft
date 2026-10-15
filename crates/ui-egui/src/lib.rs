@@ -438,6 +438,8 @@ impl LightcraftApp {
     pub fn new(mut session: Session, services: Services) -> Self {
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
+        // generative fills run on their own thread; frames apply them
+        session.genfill.background = true;
         Self {
             session,
             ui: UiState::default(),
@@ -1391,6 +1393,7 @@ impl LightcraftApp {
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
         self.ai_mask_detail(&ctx);
+        crate::panels::genfill::frame(self, &ctx);
         self.place_names_outcome(&ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black

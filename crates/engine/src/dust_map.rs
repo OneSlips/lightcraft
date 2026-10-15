@@ -140,6 +140,7 @@ fn make_spot(img: &Rgb32f, x: f64, y: f64, radius: f64, auto: AutoSpot) -> Spot 
         opacity: 100.0,
         source_offset: offset.map(|o| Point::new(f64::from(o.0) / w, f64::from(o.1) / h)),
         auto: Some(auto),
+        generated: None,
     }
 }
 

@@ -26,6 +26,7 @@ pub const TABS: &[(&str, &str)] = &[
     ("interface", "Interface"),
     ("faces", "Faces"),
     ("denoise", "AI Denoise"),
+    ("genfill", "Generative Fill"),
 ];
 
 /// Thumbnail cache sizes offered (MB).
@@ -54,6 +55,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
         "interface" => interface_tab(app, ui, &t),
         "faces" => super::faces::settings_tab(app, ui, &t),
         "denoise" => super::denoise::settings_tab(app, ui, &t),
+        "genfill" => super::genfill::settings_tab(app, ui, &t),
         _ => general_tab(app, ui, &t),
     }
 }

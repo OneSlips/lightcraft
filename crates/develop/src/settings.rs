@@ -1117,6 +1117,46 @@ pub enum SpotMode {
     /// Even out (flat-field): the spot keeps its own pixels and is lifted by the smooth gain that brings its tone to
     /// its surroundings' (divides by the estimated transmission of a sensor dust shadow). No source.
     Flat,
+    /// Generative: the spot is filled by a cloud image model the user chose (their own API key),
+    /// stored as a patch of the photo's own pixels ([`GenFill`]). Until it is generated (or when
+    /// its patch file is missing) it renders like [`SpotMode::Fill`].
+    Generate,
+}
+
+/// A generative fill: which patches a [`SpotMode::Generate`] spot shows. The pixels are never in the
+/// settings (or XMP): they are files in the library's `genfill` folder, named by the photo and `id`
+/// (`docs/generative-fill.md`); these settings only refer to them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GenFill {
+    /// Id of this generation (16 hex digits): its variations are the files `<id>-<n>.lcpatch`.
+    pub id: String,
+    /// How many variations were generated, and which one (0-based) the spot shows.
+    pub variants: u32,
+    pub variant: u32,
+    /// The provider that made them (`openai`, `stability`, …) and the prompt, if any.
+    pub provider: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub prompt: String,
+    /// [`Spot::stroke_key`] of the stroke they were made for: once the spot is moved or resized the
+    /// patch no longer fits and the spot renders as a content-aware fill until generated again.
+    pub stroke: u64,
+    /// Generation resolution relative to the photo's own pixels: 1 = native, below 1 = upscaled
+    /// (a softer patch; the panel says so).
+    pub scale: f64,
+}
+
+impl GenFill {
+    /// The name of the patch file of variation `variant` (without the folder).
+    pub fn file_name(&self, variant: u32) -> String {
+        format!("{}-{variant}.lcpatch", self.id)
+    }
+
+    /// Whether `id` is a generation id this build writes (16 lower-case hex digits): anything else
+    /// is never turned into a file name.
+    pub fn valid_id(id: &str) -> bool {
+        id.len() == 16 && id.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1134,11 +1174,48 @@ pub struct Spot {
     /// Added by an automatic finder (Remove Dust), not drawn by hand; `None` once the user moves or resizes it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto: Option<AutoSpot>,
+    /// The generated patches of a [`SpotMode::Generate`] spot (none until generated).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generated: Option<GenFill>,
 }
 
 impl Default for Spot {
     fn default() -> Self {
-        Self { mode: SpotMode::Remove, points: Vec::new(), size: 0.02, feather: 50.0, opacity: 100.0, source_offset: None, auto: None }
+        Self {
+            mode: SpotMode::Remove,
+            points: Vec::new(),
+            size: 0.02,
+            feather: 50.0,
+            opacity: 100.0,
+            source_offset: None,
+            auto: None,
+            generated: None,
+        }
+    }
+}
+
+impl Spot {
+    /// A stable fingerprint of the stroke (points and size; FNV-1a over their bits, the same in
+    /// every build): a generated patch is shown only while the stroke is the one it was made for.
+    pub fn stroke_key(&self) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut eat = |v: f64| {
+            for b in v.to_bits().to_le_bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        };
+        for p in &self.points {
+            eat(p.x);
+            eat(p.y);
+        }
+        eat(self.size);
+        h
+    }
+
+    /// The generated patch this spot shows: its [`GenFill`] while it fits the stroke.
+    pub fn shown_gen(&self) -> Option<&GenFill> {
+        self.generated.as_ref().filter(|g| self.mode == SpotMode::Generate && g.stroke == self.stroke_key() && GenFill::valid_id(&g.id))
     }
 }
 

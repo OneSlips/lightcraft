@@ -648,6 +648,8 @@ fn load_bytes_now(
                 mattes,
                 local_tone,
                 pixels: Some(pixels),
+                generated: None,
+                avoid: None,
             },
         ));
     }

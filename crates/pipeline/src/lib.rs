@@ -29,6 +29,7 @@ pub mod colorops;
 pub mod cull;
 pub mod dust;
 pub mod finish;
+pub mod genpatch;
 pub mod geometry;
 pub mod grain;
 pub mod local;
@@ -96,6 +97,11 @@ pub struct SourceInfo {
     pub local_tone: Option<Arc<local_tone::LocalTone>>,
     /// Raw sources: what was done about hot, dead and stuck pixels before demosaic (`None`: not a raw).
     pub pixels: Option<PixelRepair>,
+    /// The photo's generative fill patches ([`genpatch`]), read from the library by the engine.
+    pub generated: Option<genpatch::GenStore>,
+    /// Areas content-aware fill never copies from (faces): `[x0, y0, x1, y1]` normalized to the
+    /// EXIF-oriented source.
+    pub avoid: Option<Arc<Vec<[f64; 4]>>>,
 }
 
 /// Hot, dead and stuck pixels corrected on a raw's mosaic while it was decoded.
@@ -131,6 +137,8 @@ impl Default for SourceInfo {
             mattes: None,
             local_tone: None,
             pixels: None,
+            generated: None,
+            avoid: None,
         }
     }
 }
@@ -473,6 +481,9 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         local_tone::enabled(info, s),
         src_long,
     ));
+    // a generated patch whose file appears (or goes) changes the image
+    let shown: Vec<bool> = genpatch::shown(&s.spots, info.generated.as_ref()).iter().map(Option::is_some).collect();
+    let pre_nr_key = hash_of((pre_nr_key, shown, format!("{:?}", info.avoid)));
     let nr_key = hash_of((pre_nr_key, [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits)));
     let lin_key = match skin::key(s) {
         Some(k) => hash_of((nr_key, k)),
@@ -508,11 +519,20 @@ pub fn lin_needs_cpu(s: &DevelopSettings, info: &SourceInfo) -> bool {
 /// scene-linear stage, in place.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
+    // generated patches are source pixels: before anything else touches them
+    let patches = genpatch::shown(&s.spots, info.generated.as_ref());
+    for (sp, layer) in s.spots.iter().zip(&patches) {
+        if let (Some(g), Some(layer)) = (sp.shown_gen(), layer) {
+            genpatch::apply_layer(img, layer, &p.frame, genpatch::seed_of(&g.id, g.variant));
+        }
+    }
     // (before the white balance: the gain's input is the as-shot development, as in the file)
     local_tone::apply(img, info, p);
     local::white_balance(img, info, s);
     optics::defringe(img, s, p.px_per_long / optics::DEFRINGE_REF_LONG);
-    spots::apply(img, &s.spots, &p.frame, p.px_per_long);
+    let skip: Vec<bool> = patches.iter().map(Option::is_some).collect();
+    let avoid = genpatch::avoid_boxes(info.avoid.as_deref().map_or(&[][..], Vec::as_slice), &p.frame, img.width, img.height);
+    spots::apply_skipping(img, &s.spots, &p.frame, p.px_per_long, &skip, &avoid);
     redeye::apply(img, &p.eyes);
 }
 

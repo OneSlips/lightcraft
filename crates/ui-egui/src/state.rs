@@ -692,6 +692,9 @@ pub struct UiState {
     pub remove_opacity: f32,
     /// Find Blemishes also looks on the body's skin (shoulders, arms, back).
     pub blemish_body: bool,
+    /// Generative fill choices of the Remove panel (provider, prompt, variations; not saved).
+    #[serde(skip)]
+    pub genfill: crate::panels::genfill::GenfillUi,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
@@ -1044,6 +1047,14 @@ pub enum Dialog {
     DeleteEffects {
         names: Vec<String>,
     },
+    /// Before a generative fill provider is used for the first time: what is uploaded (the crop,
+    /// shown), the provider's data policy and the cost; OK agrees and generates spot `index`.
+    GenfillConsent {
+        provider: String,
+        index: usize,
+        prompt: String,
+        variations: u32,
+    },
     /// Confirm moving photos to Recently Deleted.
     ConfirmDelete {
         count: usize,
@@ -1190,6 +1201,7 @@ impl Default for UiState {
             remove_feather: 50.0,
             remove_opacity: 100.0,
             blemish_body: false,
+            genfill: Default::default(),
             point_color: 0,
             point_color_visualize: false,
             hdr_visualize: false,

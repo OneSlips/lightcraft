@@ -345,7 +345,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     header(ui, "Remove");
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            for (label, tool) in [("Remove", "remove"), ("Content-Aware", "fill"), ("Heal", "heal"), ("Clone", "clone")] {
+            for (label, tool) in [("Remove", "remove"), ("Content-Aware", "fill"), ("Generative", "generate"), ("Heal", "heal"), ("Clone", "clone")] {
                 if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).clicked() {
                     app.ui.tool = tool.into();
                 }
@@ -421,6 +421,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             lightcraft_develop::SpotMode::Remove => "Remove",
             lightcraft_develop::SpotMode::Fill => "Content-Aware",
             lightcraft_develop::SpotMode::Flat => "Even Out",
+            lightcraft_develop::SpotMode::Generate => "Generative",
         };
         super::edit::sub_title(ui, &crate::i18n::tr_format!("{mode} spot {} of {}", i + 1, d.spots.len(), mode = crate::i18n::tr(mode)));
     }
@@ -454,10 +455,38 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             super::edit::apply_slider_out(app, &spec, out, |app, v| app.run("spot.update", json!({key: v / scale})));
         }
     }
+    // generative fill: for a generative spot, or with the Generative tool
+    let generative = sel.as_ref().is_some_and(|(_, sp)| sp.mode == lightcraft_develop::SpotMode::Generate);
+    if generative || (sel.is_none() && app.ui.tool == "generate") {
+        divider(ui);
+        padded(ui, |ui| super::genfill::remove_section(app, ui, sel.clone().filter(|_| generative)));
+    }
+    // a mask (an Object selection, a brushed area) can become a spot
+    if let Some(mid) = app.session.active_mask.filter(|m| d.masks.iter().any(|x| x.id == *m)) {
+        padded(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if text_button(ui, "spotFromMaskFill", crate::i18n::tr("Fill Selected Mask"), false)
+                    .on_hover_text(crate::i18n::tr(
+                        "Remove what the selected mask covers (an Object selection made with a click, a brushed area) with a content-aware fill",
+                    ))
+                    .clicked()
+                {
+                    let _ = app.run("spot.fromMask", json!({"mask": mid, "mode": "fill"}));
+                }
+                if text_button(ui, "spotFromMaskGenerate", crate::i18n::tr("Generate into Selected Mask"), false).clicked() {
+                    let _ = app.run("spot.fromMask", json!({"mask": mid, "mode": "generate"}));
+                }
+            });
+        });
+    }
     if sel.is_some() {
         padded(ui, |ui| {
             ui.horizontal(|ui| {
-                if text_button(ui, "spotRefresh", crate::i18n::tr("Refresh Source (/)"), false).clicked() {
+                // (Fill and Generative spots have no source)
+                let sourced = sel
+                    .as_ref()
+                    .is_some_and(|(_, sp)| !matches!(sp.mode, lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Generate));
+                if sourced && text_button(ui, "spotRefresh", crate::i18n::tr("Refresh Source (/)"), false).clicked() {
                     let _ = app.run("spot.refreshSource", json!({}));
                 }
                 if text_button(ui, "spotDelete", crate::i18n::tr("Delete (⌫)"), false).clicked() {

@@ -69,6 +69,7 @@ pub(crate) fn add_blemishes_with(s: &mut Session, id: PhotoId, found: &SkinFound
             opacity: 100.0,
             source_offset: None,
             auto: None,
+            generated: None,
         };
         spot.source_offset = pick_source(s, id, &dd, &spot, None);
         dd.spots.push(spot);

@@ -31,6 +31,7 @@ use lightcraft_raster::Rgb32f;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod backend;
+
 #[cfg(not(target_arch = "wasm32"))]
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
@@ -560,7 +561,9 @@ fn run(
         let s = &*lightcraft_pipeline::settings_for(s, req);
         // content-aware Fill and Even Out spots (`spots::fill_box`, `spots::flat_gain`) have no GPU
         // kernel: the CPU renders the photo
-        if s.spots.iter().any(|sp| matches!(sp.mode, lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Flat)) {
+        if s.spots.iter().any(|sp| {
+            matches!(sp.mode, lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Flat | lightcraft_develop::SpotMode::Generate)
+        }) {
             return Err(Fallback::NotTried);
         }
         // in flight until this returns; not tried once the process is ending (issue #620)

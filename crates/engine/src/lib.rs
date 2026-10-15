@@ -41,6 +41,7 @@ mod faces_index;
 mod faces_worker;
 pub mod files;
 pub mod fonts;
+pub mod genfill;
 pub mod guard;
 pub mod import;
 mod import_move;
@@ -309,6 +310,8 @@ pub struct Session {
     /// Background tasks in flight (imports, exports, preview builds…), for the activity stack and
     /// `activity.list` / `activity.cancel`.
     pub activity: activity::Activity,
+    /// Generative fill: keys, consent, the running generation, the patch cache ([`genfill`]).
+    pub genfill: genfill::GenfillState,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
     /// The camera sensor map build or batch Remove Dust running in the background, or the last one.
@@ -415,6 +418,7 @@ impl Session {
             import_probes: Default::default(),
             folder_changes: None,
             activity: Default::default(),
+            genfill: Default::default(),
             preview_build: None,
             sensor_job: None,
             import_defaults: import::ImportDefaults::default(),
@@ -1098,6 +1102,8 @@ mod tests_filesystem_history;
 mod tests_folders;
 #[cfg(test)]
 mod tests_forget_local;
+#[cfg(test)]
+mod tests_genfill;
 #[cfg(test)]
 mod tests_history_cursor;
 #[cfg(test)]

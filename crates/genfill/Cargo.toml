@@ -1,0 +1,25 @@
+[package]
+name = "lightcraft-genfill"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generative fill: patches of the photo's own pixels (file format, compositing, matched sensor noise), the invertible send/receive transform, and (feature `cloud`) bring-your-own-key provider clients with a local mock server (L1)"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# provider clients over HTTPS (lightcraft-fetch), API keys, the mock server; native only
+cloud = ["dep:lightcraft-fetch", "dep:png"]
+
+[dependencies]
+lightcraft-color = { workspace = true }
+lightcraft-raster = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+miniz_oxide = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+lightcraft-fetch = { workspace = true, optional = true }
+png = { workspace = true, optional = true }

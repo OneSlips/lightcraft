@@ -268,6 +268,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::SamModel { .. } if sam_by_hand(&app.session.segmenter) => "Install the SAM 3 Model",
         Dialog::SamModel { .. } => "Download the SAM 3 Model?",
         Dialog::AiModel { .. } => "Download an AI Model?",
+        Dialog::GenfillConsent { .. } => "Send a Crop for Generative Fill?",
         Dialog::About => "About LightCraft",
         Dialog::Shortcuts => "Keyboard Shortcuts",
     }
@@ -1014,6 +1015,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 Dialog::Settings { tab } => crate::panels::settings::body(app, ui, tab),
                 Dialog::SamModel { error, .. } => sam_model_body(app, ui, error.as_deref()),
                 Dialog::AiModel { model, error, .. } => ai_model_body(app, ui, model, error.as_deref()),
+                Dialog::GenfillConsent { provider, index, prompt, variations } => crate::panels::genfill::consent_body(app, ui, provider, *index, prompt, *variations),
                 Dialog::KeywordTag {
                     editing,
                     name,
@@ -1309,6 +1311,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::AiModel { .. } if ai.is_some_and(|(installed, running, _)| installed || running) => "",
                     Dialog::AiModel { error, .. } if error.is_some() || ai.is_some_and(|(_, _, failed)| failed) => "Try Again",
                     Dialog::AiModel { .. } => "Download",
+                    Dialog::GenfillConsent { .. } => "Agree and Generate",
                     _ if informational => "Close",
                     _ => "OK",
                 };
@@ -1697,6 +1700,10 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
                 app.ui.view = crate::state::ViewMode::PhotoGrid;
             }
             Ok(serde_json::Value::Null)
+        }
+        Dialog::GenfillConsent { provider, index, prompt, variations } => {
+            app.run("genfill.consent", json!({"provider": provider, "accept": true}))?;
+            app.run("spot.generate", json!({"index": index, "provider": provider, "prompt": prompt, "variations": variations}))
         }
         Dialog::AiModel { model, then, .. } => {
             if app.session.segmenter.model_installed(model) {

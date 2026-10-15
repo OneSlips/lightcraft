@@ -3128,6 +3128,8 @@ dependencies = [
  "lightcraft-codecs",
  "lightcraft-denoise",
  "lightcraft-engine",
+ "lightcraft-genfill",
+ "lightcraft-inpaint",
  "lightcraft-mcp",
  "lightcraft-merge",
  "lightcraft-raster",
@@ -3235,10 +3237,12 @@ dependencies = [
  "lightcraft-develop",
  "lightcraft-faces",
  "lightcraft-fetch",
+ "lightcraft-genfill",
  "lightcraft-geocode",
  "lightcraft-geom",
  "lightcraft-gpu",
  "lightcraft-heif",
+ "lightcraft-inpaint",
  "lightcraft-lensdb",
  "lightcraft-merge",
  "lightcraft-meta",
@@ -3282,6 +3286,19 @@ dependencies = [
  "rustls-rustcrypto",
  "sha2",
  "webpki-roots",
+]
+
+[[package]]
+name = "lightcraft-genfill"
+version = "0.8.0"
+dependencies = [
+ "lightcraft-color",
+ "lightcraft-fetch",
+ "lightcraft-raster",
+ "miniz_oxide 0.8.9",
+ "png",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3330,6 +3347,7 @@ dependencies = [
 name = "lightcraft-inpaint"
 version = "0.8.0"
 dependencies = [
+ "png",
  "rayon",
 ]
 
@@ -3388,6 +3406,7 @@ dependencies = [
  "image",
  "lightcraft-color",
  "lightcraft-develop",
+ "lightcraft-genfill",
  "lightcraft-geom",
  "lightcraft-inpaint",
  "lightcraft-raster",
