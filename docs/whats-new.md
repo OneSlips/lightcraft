@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Culling with Caps Lock
+- **Caps Lock turns Auto Advance on**: with it on, every pick, reject, rating or label moves to the next photo, as in Lightroom. Photo ▸ Auto Advance still switches it on for good.
+
 ### Colour labels
 - **Pressing a colour key again takes the label off**, as does choosing the photo's own label in the menu or on the bottom bar's colour chips. Photo ▸ Set Color Label ▸ **No Label** clears it too.
 
