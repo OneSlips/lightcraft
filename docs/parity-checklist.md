@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (catalog import: persistent result, offline Local promotion and library-switch dismissal; integration batch 35: KEYC-SELECTONLYACTIVE, Select Only Active Photo ⌘⇧D; LR-BEHAV-AUTOSAVE, damaged snapshots repaired on open; LR-EDIT-OPTICS-PROFILE, Nikon Z 6II / Z 8 / Z f in-file distortion; LRC-LIB-CATALOG-IMPORT, WAL-only catalogs open; LR-EXP-DIM, enlargements stop at 512 MP; LR-IMP-CAMERA-COVERAGE, Canon EOS RP CR3 verified; model folder retry) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (LR-EDIT-EFFECTS-GRAIN: film grain as clumps of irregular particles; catalog import: persistent result, offline Local promotion and library-switch dismissal; integration batch 35: KEYC-SELECTONLYACTIVE, Select Only Active Photo ⌘⇧D; LR-BEHAV-AUTOSAVE, damaged snapshots repaired on open; LR-EDIT-OPTICS-PROFILE, Nikon Z 6II / Z 8 / Z f in-file distortion; LRC-LIB-CATALOG-IMPORT, WAL-only catalogs open; LR-EXP-DIM, enlargements stop at 512 MP; LR-IMP-CAMERA-COVERAGE, Canon EOS RP CR3 verified; model folder retry) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -202,7 +202,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-EDIT-EFFECTS-CLARITY | Clarity | P0 | ✅ | `ctl:effects.clarity` | |
 | LR-EDIT-EFFECTS-DEHAZE | Dehaze | P0 | ✅ | `ctl:effects.dehaze` | |
 | LR-EDIT-EFFECTS-VIGNETTE | Post-crop vignette | P0 | ✅ | `ctl:vignette.*`, `crates/pipeline/src/finish.rs`, `crates/ui-egui/src/panels/edit.rs` | style picker (Highlight / Color / Paint) in the Effects section |
-| LR-EDIT-EFFECTS-GRAIN | Grain | P1 | ✅ | `ctl:grain.*` | |
+| LR-EDIT-EFFECTS-GRAIN | Grain | P1 | ✅ | `ctl:grain.*`, `crates/pipeline/src/grain.rs`, `docs/grain.md` | particles rendered per pixel (own implementation of the Boolean model of Newson et al. 2017, extended to clumps of irregular grains); resolution independent (a small render ≈ the export downscaled, tested). Beyond Lightroom: Size Variation, Shape (Roughness), Clumping, Color (dye layers), Response and Seed sliders. Look not yet compared with Lightroom renders; CPU export cost ≈ 0.9 s per 24 MP (GPU ≈ 0.1 s) |
 | LR-EDIT-DETAIL-SHARPEN | Sharpening | P0 | ✅ | `ctl:detail.sharpenAmount`, `ctl:detail.sharpenRadius`, `ctl:detail.sharpenDetail`, `ctl:detail.sharpenMasking` | no Alt-drag mask preview |
 | LR-EDIT-DETAIL-NR | Luminance noise reduction | P0 | ✅ | `ctl:detail.nrLuminance`, `ctl:detail.nrDetail`, `ctl:detail.nrContrast` | |
 | LR-EDIT-DETAIL-CNR | Colour noise reduction | P0 | ✅ | `ctl:detail.nrColor`, `ctl:detail.nrColorDetail`, `ctl:detail.nrColorSmoothness` | |
@@ -790,6 +790,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-11 | minor | LR-EDIT-EFFECTS-GRAIN: grain redrawn as clumps of irregular particles with Size Variation, Shape, Clumping and Seed controls. Earlier: Size range narrowed (old 0–20), Roughness reshapes grains instead of reshuffling them. Earlier the same day: stays ✅ with a note: the value-noise grain was replaced by a Boolean-model film grain (resolution independent, Color and Response sliders), see `docs/grain.md` |
 | 2026-10-13 | patch | LR-VIEW-COMPARE, LRC-LIB-COMPARE: ⌘/Ctrl- and Shift-clicks on the filmstrip in Compare change the selection as in the grid; the two photos shown stay selected and the active photo is unchanged (#187); statuses unchanged |
 | 2026-10-13 | minor | KEYC-SELECTONLYACTIVE: Edit → Select Only Active Photo (⌘⇧D) lands as a new row; status 🟡 (headless-tested, native macOS menu path unverified) |
 | 2026-10-13 | patch | LRC-LIB-CATALOG-IMPORT: a catalog whose tables are all still in its `-wal` file (main file schema format 0) opens instead of failing as an unsupported schema format; status unchanged |
