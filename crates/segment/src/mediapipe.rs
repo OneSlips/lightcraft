@@ -277,6 +277,25 @@ pub fn mesh_crop_retries(det: &Detection) -> [Affine; 3] {
     [mesh_crop_with(det.center(), angle, 0.8 * side), mesh_crop_with(det.center(), angle, 1.1 * side), mesh_crop_with(c, 0.0, 1.7 * side)]
 }
 
+/// The crop for a second FaceMesh pass from the first pass's landmarks (as MediaPipe's tracking
+/// does from one frame to the next): the landmarks' bounding box, enlarged 1.5×, levelled on the
+/// eyes' outer corners (33, 263). A detector box drawn loose or off centre (a face turned up or
+/// away) gives a first fit that is roughly right; the second, on a crop framed by the face
+/// itself, lands the eyes. `None` for landmarks that make no box.
+pub fn mesh_crop_from_landmarks(lm: &[[f32; 2]]) -> Option<Affine> {
+    let pts: Vec<[f32; 2]> = lm.iter().copied().filter(|p| p.iter().all(|v| v.is_finite())).collect();
+    if pts.len() < MESH_POINTS {
+        return None;
+    }
+    let b = bbox(&pts, 0.0);
+    let (bw, bh) = (b[2] - b[0], b[3] - b[1]);
+    if !(bw > 1.0 && bh > 1.0) {
+        return None;
+    }
+    let (r, l) = (*lm.get(33)?, *lm.get(263)?);
+    Some(mesh_crop_with([(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0], (l[1] - r[1]).atan2(l[0] - r[0]), 1.5 * bw.max(bh)))
+}
+
 /// The map from photo pixels to FaceMesh's input for a crop centred on `(cx, cy)`, `side`
 /// pixels, rotated by `angle` (radians) so it comes out level.
 pub fn mesh_crop_with([cx, cy]: [f32; 2], angle: f32, side: f32) -> Affine {
@@ -766,6 +785,31 @@ mod tests {
         let back = ap(&inv, ap(&m, [133.0, 177.0]));
         assert!((back[0] - 133.0).abs() < 1e-3 && (back[1] - 177.0).abs() < 1e-3);
         assert!(invert(&[0.0; 6]).is_none());
+    }
+
+    /// The second pass's crop: centred on the landmarks' box, 1.5 times its long side, levelled
+    /// on the eyes' outer corners; junk landmarks give none, and the retries are real crops.
+    #[test]
+    fn crops_from_landmarks_and_retries() {
+        let mut lm = vec![[150.0f32, 150.0]; MESH_POINTS];
+        lm[0] = [100.0, 120.0];
+        lm[1] = [200.0, 180.0];
+        lm[33] = [120.0, 130.0];
+        lm[263] = [180.0, 130.0];
+        let m = mesh_crop_from_landmarks(&lm).unwrap();
+        let ap = |p: [f32; 2]| [m[0] * p[0] + m[1] * p[1] + m[2], m[3] * p[0] + m[4] * p[1] + m[5]];
+        let c = ap([150.0, 150.0]);
+        assert!((c[0] - 128.0).abs() < 1e-3 && (c[1] - 128.0).abs() < 1e-3, "{c:?}");
+        // 100 pixels wide → a 150-pixel crop
+        let (a, b) = (ap([100.0, 150.0]), ap([200.0, 150.0]));
+        assert!(((b[0] - a[0]) - 256.0 / 1.5).abs() < 1e-2, "{a:?} {b:?}");
+        assert!(mesh_crop_from_landmarks(&lm[..10]).is_none());
+        assert!(mesh_crop_from_landmarks(&vec![[f32::NAN, 0.0]; MESH_POINTS]).is_none());
+        assert!(mesh_crop_from_landmarks(&vec![[5.0, 5.0]; MESH_POINTS]).is_none());
+        let det = Detection { x0: 100.0, y0: 100.0, x1: 200.0, y1: 200.0, score: 1.0, keypoints: [[f32::NAN, 0.0]; 6] };
+        for m in mesh_crop_retries(&det) {
+            assert!(m.iter().all(|v| v.is_finite()) && invert(&m).is_some());
+        }
     }
 
     #[test]

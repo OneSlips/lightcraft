@@ -207,16 +207,20 @@ impl FaceModel {
 
     /// FaceMesh's landmarks for `det` (photo pixels); `None` when it doesn't see a face there.
     pub fn landmarks(&self, rgb: &[u8], w: usize, h: usize, det: &Detection) -> Result<Option<Vec<[f32; 2]>>> {
-        if let Some(l) = self.landmarks_in(rgb, w, h, &mediapipe::mesh_crop(det))? {
-            return Ok(Some(l));
-        }
+        let mut first = self.landmarks_in(rgb, w, h, &mediapipe::mesh_crop(det))?;
         // a face turned away: other framings before giving up
         for m in mediapipe::mesh_crop_retries(det) {
-            if let Some(l) = self.landmarks_in(rgb, w, h, &m)? {
-                return Ok(Some(l));
+            if first.is_some() {
+                break;
             }
+            first = self.landmarks_in(rgb, w, h, &m)?;
         }
-        Ok(None)
+        let Some(first) = first else { return Ok(None) };
+        // a second pass on the crop the face itself frames (the detector's box can be loose)
+        match mediapipe::mesh_crop_from_landmarks(&first) {
+            Some(m) => Ok(Some(self.landmarks_in(rgb, w, h, &m)?.unwrap_or(first))),
+            None => Ok(Some(first)),
+        }
     }
 
     /// FaceMesh on the crop `m` (photo → input) maps out.
