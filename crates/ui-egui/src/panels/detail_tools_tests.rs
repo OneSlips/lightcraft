@@ -111,3 +111,24 @@ fn the_live_auto_mask_stroke_goes_out_throttled() {
     assert!(!live_due(Some((1.0, 10)), 10, 5.0), "nothing new");
     assert!(live_due(Some((1.0, 10)), 11, f64::NAN), "a broken clock never stalls it");
 }
+
+#[test]
+fn a_painted_spot_has_one_outline_not_a_ring_per_dab() {
+    // two dabs far apart: two whole circles
+    let arcs = union_arcs(&[pos2(0.0, 0.0), pos2(100.0, 0.0)], 10.0);
+    assert_eq!(arcs.len(), 2);
+    // a stroke of 200 samples along a line: its outline is two long sides and two round ends, and
+    // no point of it lies inside the painted area
+    let line: Vec<Pos2> = (0..200).map(|i| pos2(i as f32, 0.0)).collect();
+    let arcs = union_arcs(&line, 10.0);
+    let points: usize = arcs.iter().map(Vec::len).sum();
+    assert!(points < 1200, "{points} outline points for 200 samples");
+    for q in arcs.iter().flatten() {
+        let inside = line.iter().filter(|c| c.distance(*q) < 9.0).count();
+        assert_eq!(inside, 0, "{q:?} is inside the stroke");
+    }
+    // hostile input draws nothing and never panics
+    assert!(union_arcs(&[pos2(f32::NAN, 0.0)], 10.0).is_empty());
+    assert!(union_arcs(&line, f32::INFINITY).is_empty());
+    assert!(union_arcs(&line, 0.0).is_empty());
+}

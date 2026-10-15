@@ -33,6 +33,10 @@
   The picked colours show as swatches by the Pick button.
 - **Luminance Range has a Pick button too**: click the photo to select the tones round the one
   there, or drag over an area to select its tones; ⇧ widens the range.
+- **Remove spots no longer hide what they fix**: a painted spot has one thin outline round the
+  whole painted area (and one round its source), instead of a ring for every dab; while painting
+  you see only that outline, not a white fill. Hover a spot to see its outline and both pins, and
+  drag either pin to move the area or choose another source.
 
 ## 2026-10-15
 

@@ -3023,10 +3023,14 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     }
     // (spot, is source, screen centre, radius) of everything that can be grabbed
     let mut grips: Vec<(usize, bool, Pos2, f32)> = Vec::new();
+    // the spot under the pointer (its painted area or its source): it shows thin, with both pins
+    let hot =
+        resp.hover_pos().filter(|_| !painting && matches!(mode, ToolOverlay::Auto | ToolOverlay::Always)).and_then(|h| spot_at(d, map, long, h));
     for (i, s) in d.spots.iter().enumerate() {
         let r = (s.size * long) as f32;
         let sel = Some(i) == active;
-        if !mode.shows(sel, live) {
+        let hot = hot == Some(i);
+        if !mode.shows(sel, live) && !hot {
             continue;
         }
         let p = &pins;
@@ -3037,21 +3041,26 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
                 let alpha = if sel || app.ui.visualize_spots { 255 } else { 190 };
                 if a.confirmed { Color32::from_rgba_unmultiplied(255, 166, 0, alpha) } else { Color32::from_rgba_unmultiplied(255, 228, 92, alpha) }
             }
-            None => Color32::from_white_alpha(if sel { 230 } else { 150 }),
+            None => Color32::from_white_alpha(if sel || hot { 230 } else { 150 }),
         };
-        let width = if sel || (s.auto.is_some() && app.ui.visualize_spots) { 2.0 } else { 1.0 };
-        for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(width, col));
-        }
+        let width = if s.auto.is_some() && app.ui.visualize_spots { 2.0 } else { 1.0 };
+        // one outline round the whole painted area (never a ring per dab, which hides the result)
+        let target: Vec<Pos2> = s.points.iter().map(|q| map.screen(*q)).collect();
+        union_outline(p, &target, r, Stroke::new(width, col));
         let Some(&t) = s.points.first() else { continue };
         let tq = map.screen(t);
-        if let Some(o) = s.source_offset.filter(|_| sel) {
+        // the source (where the pixels come from): its outline, an arrow to the target, its pin
+        if let Some(o) = s.source_offset.filter(|_| sel || hot) {
             let sq = map.screen(Point::new(t.x + o.x, t.y + o.y));
-            for q in &s.points {
-                p.circle_stroke(map.screen(Point::new(q.x + o.x, q.y + o.y)), r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+            let source: Vec<Pos2> = s.points.iter().map(|q| map.screen(Point::new(q.x + o.x, q.y + o.y))).collect();
+            union_outline(p, &source, r, Stroke::new(1.0, Color32::from_white_alpha(150)));
+            let v = tq - sq;
+            if v.length() > 2.0 * r + 12.0 {
+                let dir = v.normalized();
+                p.arrow(sq + dir * r, v - dir * 2.0 * r, Stroke::new(1.0, Color32::from_white_alpha(170)));
             }
-            let dir = (tq - sq).normalized();
-            p.arrow(sq + dir * r, (tq - sq) - dir * (2.0 * r).min((tq - sq).length()), Stroke::new(1.0, Color32::from_white_alpha(200)));
+            p.circle_filled(sq, 5.0, Color32::from_black_alpha(110));
+            p.circle_stroke(sq, 5.0, Stroke::new(1.5, Color32::WHITE));
             register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(sq, vec2(14.0, 14.0)));
             grips.push((i, true, sq, r));
         }
@@ -3131,10 +3140,10 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             _ => app.gesture = Some(Gesture::Spot { points: vec![n] }),
         }
     }
+    // the spot being painted: its outline only, so what it covers stays visible
     if let Some(Gesture::Spot { points }) = &app.gesture {
-        for q in points {
-            p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
-        }
+        let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+        union_outline(&p, &screen, r, Stroke::new(1.0, Color32::from_white_alpha(220)));
     }
     if (resp.drag_stopped() || resp.clicked())
         && let Some(Gesture::Spot { points }) = app.gesture.take()
@@ -3152,6 +3161,63 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity}),
         );
     }
+}
+
+/// The spot whose painted area (or, for the selected one, source) is under `h`: the last drawn
+/// first, as it is on top.
+fn spot_at(d: &DevelopSettings, map: &CanvasMap, long: f64, h: Pos2) -> Option<usize> {
+    d.spots.iter().enumerate().rev().find_map(|(i, s)| {
+        let r = ((s.size * long) as f32).max(4.0);
+        let o = s.source_offset.unwrap_or(Point::new(0.0, 0.0));
+        let inside = s.points.iter().any(|q| map.screen(*q).distance(h) <= r)
+            || (s.source_offset.is_some() && s.points.iter().any(|q| map.screen(Point::new(q.x + o.x, q.y + o.y)).distance(h) <= r));
+        inside.then_some(i)
+    })
+}
+
+/// The outline of the union of circles of radius `r` round `centres` (a painted stroke), drawn
+/// thin ([`union_arcs`]).
+pub(crate) fn union_outline(p: &egui::Painter, centres: &[Pos2], r: f32, stroke: Stroke) {
+    for arc in union_arcs(centres, r) {
+        p.add(egui::Shape::line(arc, stroke));
+    }
+}
+
+/// The outline of the union of circles of radius `r` round `centres`: each circle's arcs that no
+/// other circle covers. Centres closer than a quarter radius to the last one kept are skipped (a
+/// stroke records many), and each circle is only tested against its neighbours.
+pub(crate) fn union_arcs(centres: &[Pos2], r: f32) -> Vec<Vec<Pos2>> {
+    let mut out = Vec::new();
+    if !(r.is_finite() && r > 0.5) {
+        return out;
+    }
+    let mut kept: Vec<Pos2> = Vec::with_capacity(centres.len().min(4096));
+    for c in centres.iter().filter(|c| c.x.is_finite() && c.y.is_finite()) {
+        if kept.last().is_none_or(|l| l.distance(*c) >= r * 0.25) && kept.len() < 4096 {
+            kept.push(*c);
+        }
+    }
+    const N: usize = 40;
+    let ring: Vec<egui::Vec2> = (0..=N).map(|k| egui::Vec2::angled(k as f32 / N as f32 * std::f32::consts::TAU) * r).collect();
+    for (i, c) in kept.iter().enumerate() {
+        let near: Vec<Pos2> = kept.iter().enumerate().filter(|(j, o)| *j != i && o.distance(*c) < 2.0 * r).map(|(_, o)| *o).collect();
+        let open = |q: Pos2| near.iter().all(|o| o.distance(q) >= r - 0.5);
+        let mut run: Vec<Pos2> = Vec::new();
+        for v in &ring {
+            let q = *c + *v;
+            if open(q) {
+                run.push(q);
+            } else if run.len() > 1 {
+                out.push(std::mem::take(&mut run));
+            } else {
+                run.clear();
+            }
+        }
+        if run.len() > 1 {
+            out.push(run);
+        }
+    }
+    out
 }
 
 /// Keyboard stand-ins for the Remove tool: each spot's target and source (an arrow press moves

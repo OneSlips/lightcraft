@@ -234,3 +234,16 @@ fn auto_mask_strokes_show_live_and_undo_in_one_step() {
     exec(&mut h, "edit.undo", json!({}));
     assert!(strokes(&h).is_empty(), "one undo removes the whole stroke");
 }
+
+/// A Remove spot painted with many dabs has one outline on the photo, not a ring per dab, and its
+/// source pin shows on hover so both pins can be moved.
+#[test]
+fn a_painted_spot_shows_one_outline_and_both_pins() {
+    let mut h = detail("panel.remove");
+    let path: Vec<[f64; 2]> = (0..60).map(|i| [0.2 + i as f64 * 0.005, 0.5]).collect();
+    exec(&mut h, "spot.add", json!({"mode": "heal", "points": path, "size": 0.02}));
+    exec(&mut h, "spot.select", json!({"index": 0}));
+    pointer(&mut h, json!([{"kind": "move", "x": 0.3, "y": 0.5}]));
+    assert_eq!(widgets(&h, "spotPin:"), vec!["spotPin:0".to_string()]);
+    assert_eq!(widgets(&h, "spotSource:"), vec!["spotSource:0".to_string()], "the source pin to move it");
+}
