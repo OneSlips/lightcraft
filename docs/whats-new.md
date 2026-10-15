@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Colour labels
+- **Pressing a colour key again takes the label off**, as does choosing the photo's own label in the menu or on the bottom bar's colour chips. Photo ▸ Set Color Label ▸ **No Label** clears it too.
+
 ### Culling: flags you can see
 - **One flag everywhere.** Picked is a solid white flag, rejected a red flag with a cross, unflagged an empty outline: the same on thumbnails, in the filmstrip, on the bottom bar, in the filters and the menus.
 - **Ratings, flags and labels under the thumbnails**, big enough to read at a glance, in the grid and the filmstrip (Settings ▸ Interface ▸ Grid; on). Rejects are no longer greyed out.
