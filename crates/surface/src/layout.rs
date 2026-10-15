@@ -34,6 +34,10 @@ pub struct KeyView {
     pub value: Option<String>,
     /// Lit: the dial moves this key's value, the modifier is held, the toggle is on.
     pub active: bool,
+    /// How it is lit: `focus` (its value is on the dial), `held` (a modifier or a momentary
+    /// command while its key is down), `on` (a mode or toggle that is on); none when not lit.
+    /// Surfaces draw focus and the other two differently.
+    pub state: Option<&'static str>,
 }
 
 /// One encoder.
@@ -91,24 +95,25 @@ pub const DEVICE_KEY_PAGES: usize = 3;
 
 fn key_view(r: &Runtime, host: &dyn Host, control: &str, binding: Option<Binding>) -> KeyView {
     let show = r.settings().look.show_values;
-    let (label, icon, value, active) = match &binding {
-        None => (String::new(), None, None, false),
+    let (label, icon, value, state) = match &binding {
+        None => (String::new(), None, None, None),
         Some(b) => {
             let value = match b {
                 Binding::Value { target } if show => target_spec(target).and_then(|s| host.value(target).map(|v| s.format(v))),
                 _ => None,
             };
-            let active = match b {
-                Binding::Value { target } => r.focus() == Some(target.as_str()),
-                Binding::Modifier { .. } => r.held_on(control).is_some(),
-                Binding::ApplyToSelected => r.settings().apply_to_selected,
-                Binding::FollowContext => r.settings().follow_context,
-                _ => host.state(b).unwrap_or(false),
+            let state = match b {
+                Binding::Value { target } => (r.focus() == Some(target.as_str())).then_some("focus"),
+                Binding::Modifier { .. } => r.held_on(control).is_some().then_some("held"),
+                Binding::Command { command, .. } if crate::runtime::MOMENTARY.contains(&command.as_str()) => r.momentary_on(control).then_some("held"),
+                Binding::ApplyToSelected => r.settings().apply_to_selected.then_some("on"),
+                Binding::FollowContext => r.settings().follow_context.then_some("on"),
+                _ => host.state(b).unwrap_or(false).then_some("on"),
             };
-            (host.label(b), crate::icons::icon_for(b), value, active)
+            (host.label(b), crate::icons::icon_for(b), value, state)
         }
     };
-    KeyView { control: control.to_string(), binding, label, icon, value, active }
+    KeyView { control: control.to_string(), binding, label, icon, value, active: state.is_some(), state }
 }
 
 /// The layout of `device` now.

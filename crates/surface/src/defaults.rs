@@ -143,10 +143,11 @@ pub fn tool_pages() -> Vec<(Page, &'static [&'static str])> {
                 both,
                 [
                     ("key.1", cmd("mask.invert")),
-                    ("key.2", cmdp("tool.brush", json!({"op": "subtract"}))),
+                    ("key.2", cmd("brush.erase")),
                     ("key.3", cmdp("tool.brush", json!({"new": true}))),
-                    ("key.4", cmd("surface.maskPrevious")),
-                    ("key.5", cmd("surface.maskNext")),
+                    // size and feather on keys too: one hand changes them while the other paints
+                    ("key.4", val("ui.brushSize")),
+                    ("key.5", val("ui.brushFeather")),
                     ("key.6", cmd("mask.visible")),
                     ("key.7", val("ui.brushFlow")),
                     ("key.8", cmd("edit.undo")),
@@ -270,7 +271,7 @@ pub fn profiles() -> Vec<Profile> {
     };
     w.pages.push(keys(
         "Cull",
-        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "MoveToTrash"],
+        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "ColorTagNone"],
     ));
     w.pages.push(keys(
         "Edit",
@@ -292,7 +293,7 @@ pub fn profiles() -> Vec<Profile> {
     };
     po.pages.push(keys(
         "Cull",
-        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "MoveToTrash"],
+        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "ColorTagNone"],
     ));
     po.pages.push(keys(
         "Tone",
@@ -324,7 +325,7 @@ pub fn profiles() -> Vec<Profile> {
     };
     f.pages.push(keys(
         "Cull",
-        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "Delete"],
+        ["PreviousImage", "NextImage", "ToggleBeforeAfter", "Rate1Star", "Rate3Stars", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "ColorTagNone"],
     ));
     f.pages.push(keys(
         "Retouch",
@@ -390,7 +391,7 @@ pub fn profiles() -> Vec<Profile> {
     };
     r.pages.push(keys(
         "Navigate",
-        ["PreviousImage", "NextImage", "ZoomToFit", "ToggleBeforeAfter", "Rate1Star", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "MoveToTrash"],
+        ["PreviousImage", "NextImage", "ZoomToFit", "ToggleBeforeAfter", "Rate1Star", "Rate5Stars", "ColorTagGreen", "ColorTagRed", "ColorTagNone"],
     ));
     r.pages.push(keys(
         "Correct",

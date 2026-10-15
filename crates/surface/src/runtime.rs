@@ -84,8 +84,24 @@ enum Learn {
     Got(String),
 }
 
+/// Commands a key runs only while it is held (pressed: `{on: true}`, released: `{on: false}`):
+/// the brush's Erase works like holding Alt.
+pub const MOMENTARY: &[&str] = &["brush.erase"];
+
+/// Commands that destroy or discard something: a console key runs them only after being held
+/// for [`HOLD_MS`] (a quick press shows "Hold to …" instead), so a stray press never deletes.
+pub const HOLD_TO_RUN: &[&str] =
+    &["photo.delete", "photo.deletePermanently", "history.clear", "mask.deleteAll", "develop.reset", "version.delete", "preset.delete"];
+
+/// How long a destructive key must be held (ms).
+pub const HOLD_MS: f64 = 700.0;
+
 pub struct Runtime {
     settings: SurfaceSettings,
+    /// Momentary commands running while their key is held: (control, command, params).
+    momentary: Vec<(String, String, Value)>,
+    /// A destructive key waiting to be held long enough: (control, binding, pressed at ms, label).
+    armed: Option<(String, Binding, f64)>,
     context: String,
     /// The current page of each group.
     pages: BTreeMap<PageGroup, String>,
@@ -110,6 +126,8 @@ impl Runtime {
     pub fn new(settings: SurfaceSettings) -> Runtime {
         let mut r = Runtime {
             settings,
+            momentary: Vec::new(),
+            armed: None,
             context: "default".into(),
             pages: BTreeMap::new(),
             context_pages: BTreeMap::new(),
@@ -426,14 +444,31 @@ impl Runtime {
             Input::Turn { control, ticks } => self.turn(&control, ticks, now_ms),
             Input::Press { control, page } => self.press(&control, page, now_ms),
             Input::Release { control } => {
+                let mut out = Vec::new();
+                // a destructive key let go too soon: say how to use it, run nothing
+                if let Some((c, b, start)) = self.armed.take() {
+                    if c == control {
+                        let text = format!("Hold the key: {}", b.describe());
+                        self.show(Shown::Notice { text: text.clone() }, now_ms);
+                        out.push(Effect::Changed { notice: Some(text) });
+                    } else {
+                        self.armed = Some((c, b, start));
+                    }
+                }
+                // a momentary command ends with its key
+                if let Some(i) = self.momentary.iter().position(|(c, _, _)| *c == control) {
+                    let (_, command, params) = self.momentary.remove(i);
+                    out.push(Effect::Command { command, params: with_on(&params, false) });
+                    self.revision += 1;
+                    out.push(Effect::Changed { notice: None });
+                }
                 let before = self.held.len();
                 self.held.retain(|(c, _)| *c != control);
                 if self.held.len() != before {
                     self.revision += 1;
-                    vec![Effect::Changed { notice: None }]
-                } else {
-                    Vec::new()
+                    out.push(Effect::Changed { notice: None });
                 }
+                out
             }
         }
     }
@@ -536,6 +571,21 @@ impl Runtime {
                 let _ = now_ms;
                 vec![Effect::Changed { notice: Some(text) }]
             }
+            Binding::Command { command, params } if MOMENTARY.contains(&command.as_str()) => {
+                // held: on now, off at the release (no readout: the key itself lights up)
+                let mut out = self.interrupt();
+                self.momentary.retain(|(c, _, _)| c != control);
+                self.momentary.push((control.to_string(), command.clone(), params.clone()));
+                self.revision += 1;
+                out.push(Effect::Command { command: command.clone(), params: with_on(params, true) });
+                out.push(Effect::Changed { notice: None });
+                out
+            }
+            Binding::Command { command, .. } if HOLD_TO_RUN.contains(&command.as_str()) && control != "command" => {
+                // destructive: armed now, run by flush once held long enough
+                self.armed = Some((control.to_string(), b.clone(), now_ms));
+                Vec::new()
+            }
             Binding::Command { command, params } => {
                 self.show(Shown::Command { label: b.describe(), icon: crate::icons::icon_for(b) }, now_ms);
                 // a command may change the photo: what the dial did so far goes to this one first
@@ -609,6 +659,15 @@ impl Runtime {
             }
             self.last_flush_ms = now_ms;
         }
+        // a destructive key held long enough: run it now (once)
+        if self.armed.as_ref().is_some_and(|(_, _, start)| now_ms - start >= HOLD_MS || now_ms < *start)
+            && let Some((_, b, _)) = self.armed.take()
+            && let Binding::Command { command, params } = &b
+        {
+            self.show(Shown::Command { label: b.describe(), icon: crate::icons::icon_for(&b) }, now_ms);
+            out.extend(self.interrupt());
+            out.push(Effect::Command { command: command.clone(), params: params.clone() });
+        }
         let idle = f64::from(self.settings.transport.gesture_end_ms);
         if self.pending.is_empty() && self.gesture.as_ref().is_some_and(|g| now_ms - g.last_input_ms >= idle) {
             out.extend(self.finish_gesture());
@@ -618,6 +677,16 @@ impl Runtime {
 
     /// End any gesture now, applying what is pending (the active photo changed, the app took
     /// over the edit, the surface went away).
+    /// A momentary command (see [`MOMENTARY`]) is running on `control`: its key is held.
+    pub fn momentary_on(&self, control: &str) -> bool {
+        self.momentary.iter().any(|(c, _, _)| c == control)
+    }
+
+    /// A destructive key is being held, waiting to run (see [`HOLD_TO_RUN`]).
+    pub fn arming(&self) -> bool {
+        self.armed.is_some()
+    }
+
     pub fn interrupt(&mut self) -> Vec<Effect> {
         let mut out: Vec<Effect> = std::mem::take(&mut self.pending)
             .into_iter()
@@ -631,13 +700,20 @@ impl Runtime {
 
     /// Does anything still need frames (pending movement, an open gesture, a fading readout)?
     pub fn busy(&self, now_ms: f64) -> bool {
-        !self.pending.is_empty() || self.gesture.is_some() || self.shown(now_ms).is_some()
+        !self.pending.is_empty() || self.gesture.is_some() || self.shown(now_ms).is_some() || self.armed.is_some()
     }
 
     /// The modifier held on a control, if any (keys show it lit).
     pub fn held_on(&self, control: &str) -> Option<Modifier> {
         self.held.iter().find(|(c, _)| c == control).map(|(_, m)| *m)
     }
+}
+
+/// `params` with `on` set (an object; anything else becomes `{on}`).
+fn with_on(params: &Value, on: bool) -> Value {
+    let mut m = params.as_object().cloned().unwrap_or_default();
+    m.insert("on".into(), Value::Bool(on));
+    Value::Object(m)
 }
 
 #[cfg(test)]
@@ -699,6 +775,35 @@ mod tests {
         assert_eq!(end, [Effect::End { target: "light.exposure".into(), apply_to_selected: false }]);
         assert!(r.flush(5000.0).is_empty());
         assert!(r.turning().is_none());
+    }
+
+    #[test]
+    fn erase_works_while_held_and_delete_needs_a_hold() {
+        let mut s = settings();
+        let p = s.profiles.get_mut(0).unwrap();
+        p.base.insert("key.7".into(), Binding::command("brush.erase"));
+        p.base.insert("key.8".into(), Binding::command("photo.delete"));
+        let mut r = Runtime::new(s);
+        // Erase: on while the key is down, off when it comes up
+        let e = r.input(press("key.7"), 0.0);
+        assert!(e.contains(&Effect::Command { command: "brush.erase".into(), params: serde_json::json!({"on": true}) }), "{e:?}");
+        assert!(r.momentary_on("key.7"));
+        let e = r.input(release("key.7"), 300.0);
+        assert!(e.contains(&Effect::Command { command: "brush.erase".into(), params: serde_json::json!({"on": false}) }), "{e:?}");
+        assert!(!r.momentary_on("key.7"));
+        // Delete: a quick press runs nothing and says to hold
+        assert!(r.input(press("key.8"), 1000.0).is_empty());
+        assert!(r.flush(1200.0).iter().all(|e| !matches!(e, Effect::Command { .. })));
+        let e = r.input(release("key.8"), 1300.0);
+        assert!(e.iter().all(|e| !matches!(e, Effect::Command { .. })), "{e:?}");
+        assert!(matches!(r.shown(1310.0), Some((Shown::Notice { .. }, _))), "Hold to Delete");
+        // held long enough: it runs, once
+        r.input(press("key.8"), 2000.0);
+        assert!(r.busy(2100.0), "frames keep coming while it is held");
+        let e = r.flush(2000.0 + HOLD_MS + 1.0);
+        assert!(e.contains(&Effect::Command { command: "photo.delete".into(), params: Value::Null }), "{e:?}");
+        assert!(r.flush(4000.0).iter().all(|e| !matches!(e, Effect::Command { .. })));
+        assert!(r.input(release("key.8"), 4100.0).iter().all(|e| !matches!(e, Effect::Command { .. })));
     }
 
     #[test]

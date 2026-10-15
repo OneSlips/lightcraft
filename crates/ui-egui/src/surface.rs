@@ -451,6 +451,8 @@ impl Host for AppHost<'_> {
             "panel.remove" => app.ui.right == RightPanel::Remove,
             "panel.masking" => app.ui.right == RightPanel::Masking,
             "panel.edit" => app.ui.right == RightPanel::Edit,
+            // New Brush and Add / Subtract are one-shot: never lit; the plain brush is a mode
+            "tool.brush" if params.get("new").is_some() || params.get("op").is_some() => return None,
             "tool.brush" => app.ui.tool == "brush",
             "tool.linear" => app.ui.tool == "linear",
             "tool.radial" => app.ui.tool == "radial",
