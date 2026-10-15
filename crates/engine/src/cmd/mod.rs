@@ -13,6 +13,7 @@ pub(crate) mod convert;
 mod cull;
 pub mod curves;
 pub mod dcp_profiles;
+mod delete_rejected;
 pub(crate) mod denoise;
 mod develop;
 mod edit;
@@ -182,6 +183,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(before::specs());
         v.extend(browse::specs());
         v.extend(import_tab::specs());
+        v.extend(delete_rejected::specs());
         v.extend(missing::specs());
         v.extend(recheck::specs());
         v.extend(sync::specs());

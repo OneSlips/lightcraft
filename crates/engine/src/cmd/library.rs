@@ -7,6 +7,19 @@ use serde_json::{Value, json};
 use super::{CommandSpec, always, bad, bool_or, cmd, has_active, has_library_selection, has_selection, ok, str_param};
 use crate::{LibrarySource, Result, Selection, Session};
 
+/// What Import refuses to delete (DECIDED: no delete in Import): browsed photos are only looked
+/// at, so deleting one could only mean its file, which is final. A mixed selection keeps the
+/// library photos; only browsed ones are refused, with what to do instead.
+pub const BROWSED_NO_DELETE: &str = "Photos you are browsing in Import aren't deleted: reject them (X) instead. To remove rejected files from disk, use Photo > Delete Rejected Files from Disk…";
+
+fn library_only(s: &Session, ids: Vec<PhotoId>, c: &str) -> Result<Vec<PhotoId>> {
+    let kept: Vec<PhotoId> = ids.iter().copied().filter(|id| s.catalog.photo(*id).is_none_or(|p| !p.local)).collect();
+    if kept.is_empty() && !ids.is_empty() {
+        return Err(bad(c, BROWSED_NO_DELETE));
+    }
+    Ok(kept)
+}
+
 fn select_after_deletion(s: &mut Session, before: &[PhotoId]) {
     let at = before.iter().position(|id| Some(*id) == s.selection.active);
     let remaining: std::collections::HashSet<_> = s.visible_cloned().into_iter().collect();
@@ -896,13 +909,21 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         // ---- delete / restore
-        cmd!("photo.delete", "Delete Photo", ["Photo"], Some("Delete"), "{ids?} — moves to Recently Deleted", has_selection, |s, p| {
-            let before = s.visible_cloned();
-            let targets = s.targets(p)?;
-            let n = mark_deleted(s, &targets, "Delete")?;
-            select_after_deletion(s, &before);
-            Ok(json!({"changed": n}))
-        }),
+        cmd!(
+            "photo.delete",
+            "Delete Photo",
+            ["Photo"],
+            Some("Delete"),
+            "{ids?} — moves library photos to Recently Deleted (their files stay on disk); browsed photos (Import) are never deleted: reject them instead",
+            has_selection,
+            |s, p| {
+                let before = s.visible_cloned();
+                let targets = library_only(s, s.targets(p)?, "photo.delete")?;
+                let n = mark_deleted(s, &targets, "Delete")?;
+                select_after_deletion(s, &before);
+                Ok(json!({"changed": n}))
+            }
+        ),
         cmd!("photo.restore", "Restore", ["Photo"], None, "{ids?}", has_selection, |s, p| for_targets(s, p, "Restore", |id| Some(Op::SetDeleted {
             id,
             deleted: false
@@ -925,14 +946,22 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"deleted": ids.len()}))
             }
         ),
-        cmd!("photo.deletePermanently", "Delete Permanently", ["Photo"], None, "{ids?}", has_selection, |s, p| {
-            let before = s.visible_cloned();
-            let t = s.targets(p)?;
-            let op = s.catalog.delete_photos_permanently_ops(&t);
-            s.commit("Delete Permanently", op)?;
-            select_after_deletion(s, &before);
-            Ok(json!({"deleted": t.len()}))
-        }),
+        cmd!(
+            "photo.deletePermanently",
+            "Delete Permanently",
+            ["Photo"],
+            None,
+            "{ids?} — removes library photos from the library (their files stay on disk); never browsed photos",
+            has_selection,
+            |s, p| {
+                let before = s.visible_cloned();
+                let t = library_only(s, s.targets(p)?, "photo.deletePermanently")?;
+                let op = s.catalog.delete_photos_permanently_ops(&t);
+                s.commit("Delete Permanently", op)?;
+                select_after_deletion(s, &before);
+                Ok(json!({"deleted": t.len()}))
+            }
+        ),
         // ---- metadata
         cmd!(
             "photo.setMeta",

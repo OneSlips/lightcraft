@@ -167,6 +167,31 @@ fn browsing_writes_no_sidecars_until_import() {
     assert!(side(&s, ids[0]).exists());
 }
 
+/// No delete in Import: Delete on a browsed photo is refused with what to do instead, and Delete
+/// Rejected Files from Disk needs the count repeated.
+#[test]
+fn browsed_photos_are_never_deleted_and_rejected_files_need_the_count() {
+    let (mut s, _root, ids) = browsing("nodelete");
+    s.selection = Selection::single(ids[0]);
+    let e = s.execute("photo.delete", &json!({})).unwrap_err().to_string();
+    assert!(e.contains("reject"), "{e}");
+    assert!(!s.catalog.photo(ids[0]).unwrap().deleted, "nothing went to Recently Deleted");
+    let e = s.execute("photo.deletePermanently", &json!({"ids": [ids[1].0]})).unwrap_err().to_string();
+    assert!(e.contains("reject"), "{e}");
+    assert!(s.catalog.photo(ids[1]).is_some());
+    // one rejected photo (b): the wrong count is refused, nothing on disk changes
+    let file = path_of(&s, ids[1]);
+    let e = s.execute("import.deleteRejectedFiles", &json!({"confirm": 2})).unwrap_err().to_string();
+    assert!(e.contains('1'), "{e}");
+    let e = s.execute("import.deleteRejectedFiles", &json!({})).unwrap_err().to_string();
+    assert!(e.contains("confirm"), "{e}");
+    assert!(Path::new(&file).exists());
+    // a library photo is never touched by it
+    s.execute("library.import", &json!({"paths": [file]})).unwrap();
+    let r = s.execute("import.deleteRejectedFiles", &json!({"confirm": 0})).unwrap();
+    assert_eq!(r["deleted"], 0, "{r}");
+    assert!(Path::new(&file).exists());
+}
 
 /// `import.targets` counts what the big button would take; `import.run` imports it and queues
 /// the finishing.
