@@ -2804,5 +2804,6 @@
   "Playback": "Lecture",
   "Dialogs show their own page (OK, Cancel…)": "Les boîtes de dialogue affichent leur propre page (OK, Annuler…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Changer de page selon ce qu’affiche LightCraft (Recadrage, Masquage…)",
-  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ demande d’installer le plugin : cliquez sur Continuer. La console fonctionne ensuite d’elle-même."
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ demande d’installer le plugin : cliquez sur Continuer. La console fonctionne ensuite d’elle-même.",
+  "Display": "Affichage"
 }

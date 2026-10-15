@@ -2806,5 +2806,6 @@
   "Reading focus points": "フォーカスポイントを読み込み中",
   "Dialogs show their own page (OK, Cancel…)": "ダイアログでは専用ページ（OK、キャンセルなど）を表示",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "LightCraft の表示に合わせてページを切り替え（切り抜き、マスクなど）",
-  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ がインストールを確認します。そこで「続行」をクリックすると、コンソールはそのまま使えます。"
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ がインストールを確認します。そこで「続行」をクリックすると、コンソールはそのまま使えます。",
+  "Display": "ディスプレイ"
 }

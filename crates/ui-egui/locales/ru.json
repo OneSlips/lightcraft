@@ -2799,5 +2799,6 @@
   "Playback": "Воспроизведение",
   "Dialogs show their own page (OK, Cancel…)": "Диалоги показывают свою страницу (OK, Отмена…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Переключать страницы по тому, что показывает LightCraft (Кадрирование, Маски…)",
-  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ запросит установку: нажмите там «Продолжить». После этого консоль заработает сама."
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ запросит установку: нажмите там «Продолжить». После этого консоль заработает сама.",
+  "Display": "Дисплей"
 }

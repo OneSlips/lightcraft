@@ -2,6 +2,19 @@
 
 ## 2026-10-15
 
+### Settings window
+- **Settings keeps its size.** Switching tabs no longer makes the window grow, shrink or jump:
+  a long tab scrolls inside it. Drag its edge or corner to make it the size you like; LightCraft
+  remembers that size, and the tab you used last, for the next time.
+- **One row of tabs** across the top, the chosen one underlined. When the window is too narrow
+  for all of them (or the names are long, as in Russian), the rest are under **More** at the
+  end of the row; they never wrap onto a second row.
+- **Ctrl+Tab** and **Ctrl+Shift+Tab** (or Ctrl+Page Down / Page Up) go to the next or previous
+  tab; with a tab focused, the left and right arrow keys move between tabs.
+- Every tab lines up the same way: section titles with a thin rule under them, names of settings
+  in one column and their controls beside them. Long names wrap in their column, and rows of
+  buttons wrap instead of running off the edge.
+
 ### Masking panel
 - The **mask overlay** shows only while it helps: for a mask you have just made, while you paint or
   draw, and while the pointer rests on a mask's name or pin. Adjust the mask and you see its effect;

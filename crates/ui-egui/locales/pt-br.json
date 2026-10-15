@@ -2646,5 +2646,6 @@
   "Playback": "Reprodução",
   "Dialogs show their own page (OK, Cancel…)": "Os diálogos mostram a própria página (OK, Cancelar…)",
   "Switch pages with what LightCraft shows (Crop, Masking…)": "Trocar de página conforme o que o LightCraft mostra (Corte, Máscaras…)",
-  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "O Logi Options+ pede para instalar o plugin: clique em Continuar lá. Depois o console funciona sozinho."
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "O Logi Options+ pede para instalar o plugin: clique em Continuar lá. Depois o console funciona sozinho.",
+  "Display": "Tela"
 }
