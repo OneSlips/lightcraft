@@ -872,6 +872,27 @@ impl LightcraftApp {
         }
     }
 
+    /// Whether the photos shown are a folder being browsed to cull and import (the Import side), not
+    /// the library's.
+    pub fn importing(&self) -> bool {
+        self.session.source == lightcraft_engine::LibrarySource::Folder
+    }
+
+    /// Whether the eye focus strip shows here: it has its own switch while importing (on at first:
+    /// culling) and in the library (off at first: editing).
+    pub fn eye_focus_on(&self) -> bool {
+        if self.importing() { self.ui.eye_focus_import } else { self.ui.eye_focus }
+    }
+
+    /// Switch the eye focus strip on or off where the user is (importing or the library).
+    pub fn set_eye_focus(&mut self, on: bool) {
+        if self.importing() {
+            self.ui.eye_focus_import = on;
+        } else {
+            self.ui.eye_focus = on;
+        }
+    }
+
     pub fn toast(&mut self, ctx: &egui::Context, text: impl Into<String>) {
         self.toast_for(ctx, text, TOAST_SECONDS);
     }

@@ -833,7 +833,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
     }
     // each person's sharper eye at 100 %, found for this photo and the next ones (never waited for)
-    if app.ui.eye_focus {
+    if app.eye_focus_on() {
         let ids = app.session.visible_cloned();
         let upcoming = ids.iter().position(|p| *p == id).map(|i| app.look_ahead.targets(&ids, i)).unwrap_or_default();
         crate::eye_strip::show(app, ui, canvas, id, &upcoming);

@@ -835,8 +835,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(json!({"on": app.ui.shot_info}))
         }
         "view.eyeFocus" => {
-            app.ui.eye_focus = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.eye_focus);
-            Ok(json!({"on": app.ui.eye_focus}))
+            let on = p.get("on").and_then(Value::as_bool).unwrap_or(!app.eye_focus_on());
+            app.set_eye_focus(on);
+            Ok(json!({"on": on, "where": if app.importing() { "import" } else { "library" }}))
         }
         "view.leftPanel" => {
             app.ui.left_panel = !app.ui.left_panel;

@@ -673,8 +673,11 @@ pub struct UiState {
     /// ISO, focal length and lens, size in pixels.
     pub shot_info: bool,
     /// The eye focus strip across the top of the loupe (`view.eyeFocus`): each person's sharper
-    /// eye at 100 %, with how sharp it is.
+    /// eye at 100 %, with how sharp it is. On and off apart while importing (browsing a folder to
+    /// cull it: on at first) and in the library (off at first); see `LightcraftApp::eye_focus_on`.
+    #[serde(rename = "eyeFocusLibrary")]
     pub eye_focus: bool,
+    pub eye_focus_import: bool,
     pub zoom: Zoom,
     /// Pan offset of the loupe when zoomed (image-normalized centre).
     pub pan: (f32, f32),
@@ -1389,6 +1392,7 @@ impl Default for UiState {
             film_height: FILM_HEIGHT.default,
             shot_info: true,
             eye_focus: false,
+            eye_focus_import: true,
             zoom: Zoom::Fit,
             pan: (0.5, 0.5),
             click_zoom: 100,

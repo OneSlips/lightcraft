@@ -19,6 +19,15 @@ use crate::widgets::register;
 
 /// Results kept (a few crops each: about 50 kB a photo).
 const KEEP: usize = 64;
+/// The strip's type sizes (points): the verdict under each crop and the notes beside them, read at
+/// a glance from culling distance rather than fine print.
+const LABEL_PT: f32 = 13.5;
+const NOTE_PT: f32 = 13.0;
+/// Height of the verdict line under each crop.
+const LABEL_H: f32 = 20.0;
+/// The smallest a crop is drawn (points wide) before the group wraps into another row.
+const MIN_THUMB_W: f32 = 96.0;
+
 /// Photos after the one on screen whose eyes are found ahead.
 pub const AHEAD: usize = 3;
 
@@ -174,6 +183,35 @@ pub fn fit_thumbs(n: usize, w: f32, h: f32, gap: f32, width: f32) -> (f32, f32) 
     if need <= width { (w, h) } else { (w * s, h * s) }
 }
 
+/// How the strip lays out `n` crops: `cols` across, each `w × h`, and how many are `shown`.
+#[derive(Debug, PartialEq)]
+pub struct StripGrid {
+    pub cols: usize,
+    pub w: f32,
+    pub h: f32,
+    pub shown: usize,
+}
+
+/// Lay out `n` crops of `w × h` (points, at 100 %) with `gap` between them and a `label_h` line
+/// under each, in `width` × `max_h`: one row while each crop can stay [`MIN_THUMB_W`] wide, else
+/// rows of crops that size, as many rows as fit (a group of a hundred people still shows the people
+/// to look at; the rest are counted).
+pub fn strip_grid(n: usize, w: f32, h: f32, gap: f32, label_h: f32, width: f32, max_h: f32) -> StripGrid {
+    if n == 0 || !(w > 0.0 && h > 0.0 && width.is_finite() && max_h.is_finite()) {
+        return StripGrid { cols: n.max(1), w: w.max(0.0), h: h.max(0.0), shown: n };
+    }
+    let (fw, fh) = fit_thumbs(n, w, h, gap, width);
+    if fw >= MIN_THUMB_W.min(w) {
+        return StripGrid { cols: n, w: fw, h: fh, shown: n };
+    }
+    let tw = MIN_THUMB_W.min(w);
+    let th = h * tw / w;
+    let cols = (((width - gap) / (tw + gap)).floor().max(1.0)) as usize;
+    let rows_fit = (((max_h - gap * 0.5) / (th + label_h + gap)).floor().max(1.0)) as usize;
+    let shown = n.min(cols.saturating_mul(rows_fit));
+    StripGrid { cols, w: tw, h: th, shown }
+}
+
 /// Draw the strip across the top of `canvas` for photo `id` (`upcoming`: the photos likely next).
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, id: PhotoId, upcoming: &[PhotoId]) {
     let t = Tokens::get(ui.ctx());
@@ -238,10 +276,7 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     let Some((_, tex)) = app.eye_strip.textures.clone() else { return };
     let ppp = ui.ctx().pixels_per_point().max(0.5);
     let n = report.eyes.len();
-    let (gap, label_h) = (8.0, 15.0);
-    // one photo pixel per screen pixel, unless that doesn't fit
-    let (w, h) =
-        fit_thumbs(n, lightcraft_engine::eyes::CROP_W as f32 / ppp, lightcraft_engine::eyes::CROP_H as f32 / ppp, gap, canvas.width() - 24.0);
+    let (gap, label_h) = (8.0, LABEL_H);
     // what the thumbnails don't show, beside them inside the band
     let mut notes = Vec::new();
     if report.blinks() > 0 {
@@ -250,20 +285,46 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     if report.no_eyes > 0 {
         notes.push(crate::i18n::tr_format!("+{} turned away", report.no_eyes));
     }
-    let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout_no_wrap(n, t.font(10.5), Color32::from_gray(215))).collect();
+    // a big group wraps into rows of smaller crops; past what fits, the people to look at come
+    // first and the rest are counted
+    let notes_room = if notes.is_empty() { 0.0 } else { 180.0 };
+    let grid = strip_grid(
+        n,
+        lightcraft_engine::eyes::CROP_W as f32 / ppp,
+        lightcraft_engine::eyes::CROP_H as f32 / ppp,
+        gap,
+        label_h,
+        canvas.width() - 24.0 - notes_room,
+        canvas.height() * 0.45,
+    );
+    let (w, h) = (grid.w, grid.h);
+    let mut order: Vec<usize> = (0..n).collect();
+    if grid.shown < n {
+        order.sort_by_key(|i| report.eyes.get(*i).map_or(1, |e| u8::from(e.good())));
+        notes.push(crate::i18n::tr_format!("+{} more, all sharp and open", n - grid.shown));
+        order.truncate(grid.shown);
+    }
+    let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout_no_wrap(n, t.font(NOTE_PT), Color32::from_gray(225))).collect();
     let notes_w = notes.iter().map(|g| g.size().x).fold(0.0f32, f32::max);
-    let band_w = n as f32 * w + (n as f32 + 1.0) * gap + if notes.is_empty() { 0.0 } else { notes_w + gap };
-    let band = Rect::from_min_size(pos2(canvas.center().x - band_w / 2.0, canvas.top() + 6.0), vec2(band_w, h + label_h + gap * 1.5));
+    let cols = grid.cols.max(1);
+    let rows = order.len().div_ceil(cols).max(1);
+    let thumbs_w = cols.min(order.len().max(1)) as f32 * (w + gap) + gap;
+    let band_w = thumbs_w + if notes.is_empty() { 0.0 } else { notes_w + gap };
+    let band_h = rows as f32 * (h + label_h + gap) + gap * 0.5;
+    let band = Rect::from_min_size(pos2(canvas.center().x - band_w / 2.0, canvas.top() + 6.0), vec2(band_w, band_h));
     let p = ui.painter_at(canvas);
     p.rect_filled(band, 8.0, Color32::from_black_alpha(175));
     register(ui.ctx(), "eyes:strip", band);
     let lines = notes.len() as f32;
     for (k, g) in notes.into_iter().enumerate() {
-        let y = band.center().y - (lines - 1.0) * 8.0 + k as f32 * 16.0 - g.size().y / 2.0;
-        p.galley(pos2(band.right() - gap - notes_w, y), g, Color32::from_gray(215));
+        let y = band.top() + gap + (h + label_h) / 2.0 - (lines - 1.0) * 10.0 + k as f32 * 20.0 - g.size().y / 2.0;
+        p.galley(pos2(band.right() - gap - notes_w, y), g, Color32::from_gray(225));
     }
-    for (i, (e, tx)) in report.eyes.iter().zip(&tex).enumerate() {
-        let r = Rect::from_min_size(pos2(band.left() + gap + i as f32 * (w + gap), band.top() + gap), vec2(w, h));
+    for (slot, i) in order.into_iter().enumerate() {
+        let (Some(e), Some(tx)) = (report.eyes.get(i), tex.get(i)) else { continue };
+        let (col, row) = (slot % cols, slot / cols);
+        let r =
+            Rect::from_min_size(pos2(band.left() + gap + col as f32 * (w + gap), band.top() + gap + row as f32 * (h + label_h + gap)), vec2(w, h));
         // the crop is shown whole (smaller at the picture's edges: centred in its place)
         let [cw, ch] = tx.size();
         let s = (w / (cw as f32 / ppp)).min(h / (ch as f32 / ppp)).min(1.0);
@@ -274,24 +335,24 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
         p.circle_filled(pos2(r.right() - 7.0, r.top() + 7.0), 4.5, c);
         p.circle_stroke(pos2(r.right() - 7.0, r.top() + 7.0), 4.5, Stroke::new(1.0, Color32::from_black_alpha(160)));
         p.text(
-            pos2(r.center().x, r.bottom() + 9.0),
+            pos2(r.center().x, r.bottom() + label_h / 2.0 + 1.0),
             Align2::CENTER_CENTER,
             format!("{} {:.0}", focus_word(e.focus), e.sharpness),
-            t.font(10.5),
-            Color32::from_gray(220),
+            t.font(LABEL_PT),
+            Color32::from_gray(230),
         );
         // closed or half closed: a marker of its own, apart from the sharpness colour
         if let Some(word) = lids_word(e.lids) {
-            let g = p.layout_no_wrap(word.to_string(), t.semibold(9.5), Color32::WHITE);
-            let pill = Rect::from_min_size(pos2(r.left() + 3.0, r.bottom() - 17.0), vec2(g.size().x + 26.0, 14.0));
+            let g = p.layout_no_wrap(word.to_string(), t.semibold(11.5), Color32::WHITE);
+            let pill = Rect::from_min_size(pos2(r.left() + 3.0, r.bottom() - 21.0), vec2(g.size().x + 28.0, 18.0));
             let fill = if e.lids == Lids::Closed {
                 Color32::from_rgba_unmultiplied(120, 40, 160, 230)
             } else {
                 Color32::from_rgba_unmultiplied(90, 60, 140, 210)
             };
             p.rect_filled(pill, 7.0, fill);
-            closed_eye_icon(&p, pos2(pill.left() + 10.0, pill.center().y), 11.0, Color32::WHITE);
-            p.galley(pos2(pill.left() + 19.0, pill.center().y - g.size().y / 2.0), g, Color32::WHITE);
+            closed_eye_icon(&p, pos2(pill.left() + 11.0, pill.center().y), 13.0, Color32::WHITE);
+            p.galley(pos2(pill.left() + 21.0, pill.center().y - g.size().y / 2.0), g, Color32::WHITE);
             register(ui.ctx(), format!("eyes:closed:{i}"), pill);
         }
         // the person's verdict: sharp and open is a keeper
@@ -331,6 +392,37 @@ mod tests {
         assert_eq!(fit_thumbs(0, 160.0, 100.0, 8.0, 10.0), (160.0, 100.0));
         let (w, _) = fit_thumbs(4, 160.0, 100.0, 8.0, f32::NAN);
         assert_eq!(w, 160.0);
+    }
+
+    /// A big group wraps into rows of readable crops; past what fits, the rest are counted.
+    #[test]
+    fn a_big_group_wraps_and_is_capped_to_the_room() {
+        let one = strip_grid(4, 160.0, 100.0, 8.0, LABEL_H, 1400.0, 400.0);
+        assert_eq!((one.cols, one.shown, one.w), (4, 4, 160.0));
+        let big = strip_grid(100, 160.0, 100.0, 8.0, LABEL_H, 1200.0, 400.0);
+        assert!(big.w >= MIN_THUMB_W - 0.01 && big.cols > 4, "{big:?}");
+        let rows = big.shown.div_ceil(big.cols);
+        assert!(rows >= 2 && rows as f32 * (big.h + LABEL_H + 8.0) <= 400.0 + 8.0, "{big:?}");
+        assert!(big.shown < 100);
+        let junk = strip_grid(30, 160.0, 100.0, 8.0, LABEL_H, f32::NAN, 10.0);
+        assert_eq!(junk.shown, 30);
+        let narrow = strip_grid(30, 160.0, 100.0, 8.0, LABEL_H, 50.0, 10.0);
+        assert!(narrow.cols >= 1 && narrow.shown >= 1);
+    }
+
+    /// The strip has its own switch while importing (on at first: culling) and in the library
+    /// (off at first: editing); the button and Shift+T switch the one where the user is.
+    #[test]
+    fn the_strip_is_on_while_importing_and_off_in_the_library_until_switched() {
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), crate::Services::default());
+        assert!(!app.importing() && !app.eye_focus_on(), "off in the library at first");
+        app.session.source = lightcraft_engine::LibrarySource::Folder;
+        assert!(app.importing() && app.eye_focus_on(), "on while importing at first");
+        assert_eq!(app.run("view.eyeFocus", serde_json::json!({})).unwrap()["on"], false);
+        assert!(!app.ui.eye_focus_import);
+        app.session.source = lightcraft_engine::LibrarySource::All;
+        assert_eq!(app.run("view.eyeFocus", serde_json::json!({})).unwrap()["on"], true);
+        assert!(app.ui.eye_focus && !app.ui.eye_focus_import, "each side keeps its own");
     }
 
     #[test]
