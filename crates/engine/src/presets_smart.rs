@@ -25,6 +25,13 @@ fn mask(name: &str, components: Value, adjust: Value) -> Value {
     json!({"id": 1, "name": name, "visible": true, "invert": false, "components": components, "adjust": adjust})
 }
 
+/// [`mask`] with Refine Edges (the edges snap to the photo's: a sleeve or a veil, not a blur).
+fn refined(name: &str, components: Value, adjust: Value, refine: f64) -> Value {
+    let mut m = mask(name, components, adjust);
+    m["refine"] = json!(refine);
+    m
+}
+
 /// OkLab samples of suit blues (navy, royal, steel, grey-blue) for a colour range.
 fn suit_blues() -> Value {
     json!([
@@ -58,13 +65,14 @@ pub fn smart() -> Vec<Preset> {
         p(
             "recoverBlueSuit",
             "Recover Blue Suit",
-            json!([mask(
+            json!([refined(
                 "Recover Blue Suit",
                 json!([
                     {"op": "add", "shape": {"kind": "people", "person": 0, "parts": ["Clothes"], "who": {"role": "Groom"}}},
                     {"op": "intersect", "shape": {"kind": "colorRange", "samples": suit_blues(), "refine": 50.0}}
                 ]),
                 json!({"saturation": 30.0, "exposure": 0.1, "shadows": 10.0, "amount": 100.0}),
+                50.0,
             )]),
         ),
         p(
@@ -80,13 +88,14 @@ pub fn smart() -> Vec<Preset> {
         p(
             "brightenDress",
             "Brighten Dress",
-            json!([mask(
+            json!([refined(
                 "Brighten Dress",
                 json!([
                     {"op": "add", "shape": {"kind": "people", "person": 0, "parts": ["Clothes"], "who": {"role": "Bride"}}},
                     {"op": "intersect", "shape": {"kind": "luminanceRange", "lo": 0.55, "hi": 1.0, "lo_feather": 0.12, "hi_feather": 0.05}}
                 ]),
                 json!({"exposure": 0.3, "whites": 10.0, "shadows": 15.0, "temp": -5.0, "saturation": -10.0, "amount": 100.0}),
+                50.0,
             )]),
         ),
         p(
