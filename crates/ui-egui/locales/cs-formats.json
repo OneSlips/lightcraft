@@ -362,5 +362,6 @@
   "{} spot(s) from Remove Dust (outlined in amber)": "Body z odstranění prachu: {} (jantarově obtažené)",
   "{} with eyes closed": "Se zavřenýma očima: {}",
   "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
-  "+{} more, all sharp and open": "+{} dalších, všichni ostří a s otevřenýma očima"
+  "+{} more, all sharp and open": "+{} dalších, všichni ostří a s otevřenýma očima",
+  " · {n} selected": " · vybráno: {n}"
 }

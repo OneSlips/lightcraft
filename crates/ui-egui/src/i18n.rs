@@ -315,6 +315,21 @@ pub fn date_group_label(key: &str, short: bool) -> String {
 
 /// A capture time for display in the UI language (English: "March 30, 2022 at 10:11:11 PM");
 /// the metadata itself is never rewritten, and a value that doesn't parse is shown as it is.
+/// A count with its thousands grouped ("2,233"; a no-break space outside English), for counts
+/// read at a glance (the culling counts, where the view is in a shoot).
+pub fn group_digits(n: usize) -> String {
+    let sep = if language() == Locale::En { ',' } else { '\u{a0}' };
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(sep);
+        }
+        out.push(c);
+    }
+    out
+}
+
 pub fn display_time(iso: &str) -> String {
     if language() == Locale::En || lightcraft_catalog::dates::normalize_iso(iso).is_none() {
         return lightcraft_catalog::dates::display_time(iso);
@@ -515,6 +530,14 @@ mod tests {
             }
         });
         set_language(Locale::En);
+    }
+
+    #[test]
+    fn counts_group_their_thousands() {
+        assert_eq!(group_digits(0), "0");
+        assert_eq!(group_digits(999), "999");
+        assert_eq!(group_digits(1234), "1,234");
+        assert_eq!(group_digits(2_233_000), "2,233,000");
     }
 
     #[test]

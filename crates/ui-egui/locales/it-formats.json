@@ -362,5 +362,6 @@
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
   "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
-  "+{} more, all sharp and open": "+{} altri, tutti nitidi e con gli occhi aperti"
+  "+{} more, all sharp and open": "+{} altri, tutti nitidi e con gli occhi aperti",
+  " · {n} selected": " · {n} selezionate"
 }

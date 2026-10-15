@@ -243,13 +243,37 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let scroll_rect = ui.available_rect_before_wrap();
     crate::widgets::register(ui.ctx(), "grid:scroll", scroll_rect);
     let wheel = wheel_step(ui, egui::Id::new("grid-wheel"), scroll_rect, scroll_rect.height(), false);
-    egui::ScrollArea::vertical().id_salt("grid-scroll").auto_shrink([false, false]).show_viewport(ui, |ui, viewport| {
+    // a new width or thumbnail size lays the photos out anew: the photo at the top stays at the top
+    // (without this the same scroll offset lands somewhere else in the shoot)
+    let anchor_id = egui::Id::new("grid-anchor");
+    let kept: Option<GridAnchor> = ui.data(|d| d.get_temp(anchor_id));
+    let reanchor = kept.filter(|a| a.layout != (lay_key.1, lay_key.2, lay_key.3, lay_key.4) && scroll_to.is_none()).and_then(|a| {
+        let i = ids.iter().position(|x| *x == a.photo)?;
+        let cell = lay.cells.get(i)?;
+        Some((cell.top() - a.offset).max(0.0))
+    });
+    let mut area_scroll = egui::ScrollArea::vertical().id_salt("grid-scroll").auto_shrink([false, false]);
+    if let Some(y) = reanchor {
+        area_scroll = area_scroll.vertical_scroll_offset(y);
+    }
+    let mut first_seen: Option<GridAnchor> = None;
+    let mut viewport_seen = Rect::NOTHING;
+    visible_scroll_bar(ui);
+    area_scroll.show_viewport(ui, |ui, viewport| {
         if wheel != egui::Vec2::ZERO {
             ui.scroll_with_delta_animation(wheel, egui::style::ScrollAnimation::none());
         }
+        viewport_seen = viewport;
         let (area, _) = ui.allocate_exact_size(vec2(ui.available_width(), total_h), Sense::hover());
         let origin = area.min;
         app.grid_scroll = Some(viewport.top());
+        // the photo at the top of the view, for the next layout
+        let top_row = rows_between(&lay.rows, viewport.top(), viewport.bottom()).first();
+        if let Some(row) = top_row
+            && let (Some(&id), Some(cell)) = (ids.get(row.start), lay.cells.get(row.start))
+        {
+            first_seen = Some(GridAnchor { layout: (lay_key.1, lay_key.2, lay_key.3, lay_key.4), photo: id, offset: cell.top() - viewport.top() });
+        }
         if let Some(r) = scroll_to {
             ui.scroll_to_rect(r.translate(origin.to_vec2()), None);
         }
@@ -295,9 +319,76 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             group_header(app, ui, run, &ids, hr, true);
         }
     });
+    if let Some(a) = first_seen {
+        ui.data_mut(|d| d.insert_temp(anchor_id, a));
+    }
+    // where the view is in the shoot: "1,234 / 2,233" by the scroll bar while it is dragged or the
+    // view scrolls
+    scroll_position_label(app, ui, scroll_rect, viewport_seen, total_h, &ids, &lay);
     app.caches.grid_stats.cells_visited += visited;
     app.renderer.evict_thumbs(&visible_ids, 600);
     let _ = (Color32::BLACK, StrokeKind::Inside, Stroke::NONE);
+}
+
+/// The layout a grid position was taken in (width, thumbnail size, footer, square) and the photo
+/// at the top of the view with how far below the view's top it was.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GridAnchor {
+    layout: (u32, u32, u32, bool),
+    photo: PhotoId,
+    offset: f32,
+}
+
+/// A scroll bar that can be seen and grabbed: solid, 12 points wide (egui's default floats, thin,
+/// over the photos and fades out).
+pub(crate) fn visible_scroll_bar(ui: &mut egui::Ui) {
+    let s = &mut ui.style_mut().spacing.scroll;
+    *s = egui::style::ScrollStyle::solid();
+    s.bar_width = 12.0;
+    s.handle_min_length = 36.0;
+    s.bar_inner_margin = 2.0;
+    s.dormant_background_opacity = 0.35;
+    s.dormant_handle_opacity = 0.7;
+    s.active_background_opacity = 0.5;
+    s.active_handle_opacity = 1.0;
+    s.interact_background_opacity = 0.6;
+    s.interact_handle_opacity = 1.0;
+}
+
+/// While the grid scrolls (or its bar is dragged): a label by the bar saying where the view is in
+/// the shoot ("1,234 / 2,233" and the date of the photos there).
+fn scroll_position_label(app: &mut LightcraftApp, ui: &mut egui::Ui, area: Rect, viewport: Rect, total_h: f32, ids: &[PhotoId], lay: &GridLayout) {
+    if !viewport.is_positive() || total_h <= viewport.height() {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let moving_id = egui::Id::new("grid-scroll-moving");
+    let now = ui.input(|i| i.time);
+    let last_top: Option<(f32, f64)> = ui.data(|d| d.get_temp(moving_id));
+    let moved = last_top.is_none_or(|(y, _)| (y - viewport.top()).abs() > 0.5);
+    let since = if moved { now } else { last_top.map_or(now, |(_, at)| at) };
+    ui.data_mut(|d| d.insert_temp(moving_id, (viewport.top(), since)));
+    let dragging = ui.input(|i| i.pointer.primary_down())
+        && ui.input(|i| i.pointer.press_origin()).is_some_and(|p| p.x > area.right() - 16.0 && area.contains(p));
+    if last_top.is_none() || (now - since > 0.9 && !dragging) {
+        return;
+    }
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+    let Some(row) = rows_between(&lay.rows, viewport.center().y, viewport.bottom()).first() else { return };
+    let Some(id) = ids.get(row.start) else { return };
+    let mut text = format!("{} / {}", crate::i18n::group_digits(row.start + 1), crate::i18n::group_digits(ids.len()));
+    if let Some(date) = app.session.catalog.photo(*id).and_then(|p| p.captured.clone()) {
+        text.push_str(" · ");
+        text.push_str(&crate::i18n::display_time(&date));
+    }
+    let frac = (viewport.top() / (total_h - viewport.height()).max(1.0)).clamp(0.0, 1.0);
+    let y = area.top() + 18.0 + frac * (area.height() - 36.0);
+    let g = ui.painter().layout_no_wrap(text, t.semibold(12.5), Color32::WHITE);
+    let r = Rect::from_min_size(pos2(area.right() - 22.0 - g.size().x - 16.0, y - (g.size().y + 8.0) / 2.0), g.size() + vec2(16.0, 8.0));
+    let p = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("grid-scroll-label")));
+    p.rect_filled(r, 6.0, Color32::from_black_alpha(200));
+    p.galley(r.min + vec2(8.0, 4.0), g, Color32::WHITE);
+    register(ui.ctx(), "grid:scrollPosition", r);
 }
 
 /// Should a scrolling photo strip (`key`: the grid, the filmstrip) bring the active photo into

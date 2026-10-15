@@ -2944,6 +2944,45 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
+/// Where the filmstrip is in the shoot: along its top edge a tick per pick (white) and reject
+/// (red) through the whole view, and at its right "1,234 / 2,233" (with the selection's size).
+fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[PhotoId], active: Option<PhotoId>) {
+    let t = Tokens::get(ui.ctx());
+    let n = ids.len();
+    if n == 0 {
+        return;
+    }
+    let band = Rect::from_min_size(r.min, vec2(r.width(), 4.0));
+    let p = ui.painter();
+    for (i, id) in ids.iter().enumerate() {
+        let colour = match app.session.catalog.photo(*id).map(|ph| ph.flag) {
+            Some(lightcraft_catalog::Flag::Pick) => Color32::from_gray(235),
+            Some(lightcraft_catalog::Flag::Reject) => t.reject,
+            _ => continue,
+        };
+        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
+        p.line_segment([pos2(x, band.top()), pos2(x, band.bottom())], Stroke::new(1.0, colour));
+    }
+    let at = active.and_then(|a| ids.iter().position(|x| *x == a));
+    if let Some(i) = at {
+        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
+        p.rect_filled(Rect::from_center_size(pos2(x, band.center().y), vec2(3.0, 6.0)), 1.0, t.accent);
+    }
+    let mut text = match at {
+        Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(n)),
+        None => crate::i18n::group_digits(n),
+    };
+    let sel = app.session.selection.ids.len();
+    if sel > 1 {
+        text.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(sel)));
+    }
+    let g = p.layout_no_wrap(text, t.semibold(11.5), Color32::WHITE);
+    let pill = Rect::from_min_size(pos2(r.right() - g.size().x - 22.0, r.top() + 7.0), g.size() + vec2(14.0, 4.0));
+    p.rect_filled(pill, 4.0, Color32::from_black_alpha(190));
+    p.galley(pill.min + vec2(7.0, 2.0), g, Color32::WHITE);
+    register(ui.ctx(), "filmstrip:position", pill);
+}
+
 /// Width of a filmstrip cell for a strip `height` points high (the shape of its original
 /// 120 × 142 cells).
 pub(crate) fn film_cell_width(height: f32) -> f32 {
@@ -3003,11 +3042,13 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     // a wheel notch scrolls a third of its width; see `grid::wheel_step`
     register(ui.ctx(), "filmstrip", child.max_rect());
     let wheel = super::grid::wheel_step(&child, egui::Id::new("film-wheel"), child.max_rect(), child.max_rect().width(), true);
+    // a bar that can be seen and grabbed, as in the grid
+    super::grid::visible_scroll_bar(&mut child);
     egui::ScrollArea::horizontal().id_salt("filmstrip").auto_shrink([false, false]).show_viewport(&mut child, |ui, vp| {
         if wheel != egui::Vec2::ZERO {
             ui.scroll_with_delta_animation(wheel, egui::style::ScrollAnimation::none());
         }
-        let (area, _) = ui.allocate_exact_size(vec2(ids.len() as f32 * cell_w, r.height() - 16.0), Sense::hover());
+        let (area, _) = ui.allocate_exact_size(vec2(ids.len() as f32 * cell_w, (ui.available_height() - 2.0).max(40.0)), Sense::hover());
         app.film_scroll = Some(vp.left());
         for (i, id) in ids.iter().enumerate() {
             let cr = Rect::from_min_size(pos2(area.left() + i as f32 * cell_w, area.top()), vec2(cell_w, area.height()));
@@ -3103,6 +3144,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             resp.context_menu(|ui| super::grid::context_menu(app, ui, *id));
         }
     });
+    film_overview(app, ui, r, &ids, active);
 }
 
 /// Rating, flag and edited badges along a filmstrip thumbnail's bottom edge (Settings → Interface).
