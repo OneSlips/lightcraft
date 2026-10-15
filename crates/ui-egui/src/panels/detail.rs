@@ -72,6 +72,15 @@ pub enum Gesture {
         at: Point,
         acc: f32,
     },
+    /// Colour / Luminance Range: an area being dragged from `a` (normalized) to sample.
+    RangeArea {
+        a: Point,
+    },
+    /// Colour Range: pin `index` of component `comp` being dragged to another place.
+    ColorPin {
+        comp: usize,
+        index: usize,
+    },
 }
 
 /// Screen ↔ normalized-image mapping for the displayed frame.
@@ -2676,10 +2685,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     // Colour Range "Pick": the Masking panel owns the loupe's clicks (general_interaction
     // never runs while it is open), so the eyedropper is handled here too.
     if app.ui.tool == "colorRange" {
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        }
-        color_range_pick(app, ui, resp, map);
+        super::range_pick::color_tool(app, ui, resp, map, d, p);
+        return;
+    }
+    // the Luminance Range picker
+    if app.ui.tool == "lumRange" {
+        super::range_pick::luminance_tool(app, ui, resp, map, p);
         return;
     }
     // the selected mask's Point Color eyedropper: a click samples the colour there

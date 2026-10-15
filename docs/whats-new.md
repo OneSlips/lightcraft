@@ -27,6 +27,12 @@
   stroke is still one undo step.
 - The **brush cursor has a small crosshair at its centre**: that is where Auto Mask samples the
   colour and texture to follow, so you can aim it.
+- **Color Range picks like Lightroom Classic**: click to pick a colour, **⇧-click to add more** (up
+  to five), **⌥-click to remove** one, or **drag over an area** to pick its main colours at once.
+  Each picked place has a pin (a dashed box for an area) that you can drag to pick somewhere else.
+  The picked colours show as swatches by the Pick button.
+- **Luminance Range has a Pick button too**: click the photo to select the tones round the one
+  there, or drag over an area to select its tones; ⇧ widens the range.
 
 ## 2026-10-15
 

@@ -1261,7 +1261,7 @@ fn mask_alpha(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &m
                     p.push(ev.to_bits());
                     Some(2)
                 }
-                MaskShape::ColorRange { samples, refine } => {
+                MaskShape::ColorRange { samples, refine, .. } => {
                     let tol = lightcraft_pipeline::masks::color_range_tolerance(*refine);
                     p.extend([tol.to_bits(), ev.exp2().to_bits(), samples.len() as u32]);
                     aux.extend(samples.iter().flat_map(|s| s.map(|v| v as f32)));

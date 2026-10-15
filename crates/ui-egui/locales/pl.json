@@ -2178,5 +2178,8 @@
   "Remembered…": "Zapamiętane…",
   "Landscape…": "Krajobraz…",
   "Overlay always on: O turns it off": "Nakładka zawsze włączona: O ją wyłącza",
-  "Overlay on · O": "Nakładka włączona · O"
+  "Overlay on · O": "Nakładka włączona · O",
+  "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Kliknij lub przeciągnij po zdjęciu, aby pobrać kolory; ⇧ dodaje kolejne (do 5), ⌥-klik usuwa jeden, przeciągnij pinezkę, aby ją przesunąć",
+  "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Kliknij zdjęcie, aby pobrać jego ton, lub przeciągnij po obszarze, aby pobrać jego tony; ⇧ poszerza zakres",
+  "No colour picked": "Nie pobrano koloru"
 }

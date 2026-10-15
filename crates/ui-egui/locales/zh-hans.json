@@ -2664,5 +2664,8 @@
   "Remembered…": "已记住…",
   "Landscape…": "风景…",
   "Overlay always on: O turns it off": "叠加层始终显示：按 O 关闭",
-  "Overlay on · O": "叠加层已开 · O"
+  "Overlay on · O": "叠加层已开 · O",
+  "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "单击或在照片上拖动以取色；⇧ 添加更多（最多 5 个），⌥-单击移除一个，拖动图钉可移动它",
+  "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "单击照片以选取该处的亮度，或拖过一个区域以选取其亮度范围；⇧ 扩大范围",
+  "No colour picked": "未取色"
 }
