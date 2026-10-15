@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Show Alternatives
+- When a pick doesn't work out while you edit, Photo ▸ **Show Alternatives** (or right-click) shows the frames shot around it, straight from its folder, imported or not. Select one or more and **Import Selected**: they join the library **with the same edit**, and you are back where you were.
+
 ### Delete Rejected Photos
 - Photo ▸ **Delete Rejected Photos…** takes all the rejects of the view in one go. It asks: remove them from the library (Edit ▸ Undo brings them back), or remove them and **move the files to the Recycle Bin**, with their XMP sidecars.
 
