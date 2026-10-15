@@ -614,8 +614,9 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let faces: Vec<Face> = match &face {
                 Some(dir) => {
                     ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
+                    // a face FaceMesh can't fit (3/4 view, small) stays when the class map sees a face there
                     cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
-                        m.faces(&i.rgb, i.w, i.h)
+                        m.faces_confirmed(&i.rgb, i.w, i.h, map)
                     })?
                     .clone()
                 }
@@ -694,9 +695,11 @@ fn skin(
     ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
     cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
     ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
-    let faces: Vec<Face> =
-        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
-            .clone();
+    let seen = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
+    let faces: Vec<Face> = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+        m.faces_confirmed(&i.rgb, i.w, i.h, seen)
+    })?
+    .clone();
     let map = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
     let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
     let parts: Vec<String> = match area {
@@ -757,7 +760,10 @@ fn person_instances(
     });
     job.dir = keep;
     match out {
-        Ok(people) => Some(lightcraft_segment::people::Instances { side: SAM2_MASK_SIDE, people }),
+        Ok(people) => {
+            let seeds: Vec<[f32; 2]> = faces.iter().map(&centre).map(|(x, y, _)| [x, y]).collect();
+            Some(lightcraft_segment::people::Instances::new(SAM2_MASK_SIDE, people, &seeds))
+        }
         Err(e) => {
             log::warn!("people: no silhouettes from SAM 2.1 ({e})");
             None
@@ -838,14 +844,17 @@ fn found_faces(
     people: Option<&std::path::Path>,
     sam2: Option<PathBuf>,
 ) -> Result<Vec<FoundFace>, String> {
-    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
-    let faces =
-        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
-            .clone();
+    // the class map first: it confirms faces FaceMesh can't fit (see `faces_confirmed`)
     if let Some(dir) = people {
         ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
         cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
     }
+    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    let seen = people.and(state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m));
+    let faces = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+        m.faces_confirmed(&i.rgb, i.w, i.h, seen)
+    })?
+    .clone();
     let emb = sam2_embedding(state, shared, job, sam2, !faces.is_empty());
     let map = people.and(state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m));
     let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;

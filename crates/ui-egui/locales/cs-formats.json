@@ -385,6 +385,7 @@
   "Photos ready: {n}. AI masks, retouch and previews are done.": "Připravené fotky: {n}. AI masky, retuš a náhledy jsou hotové.",
   "Photos ready: {n}. AI masks and retouch are done.": "Připravené fotky: {n}. AI masky a retuš jsou hotové.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Přeskočené procházené fotky: {n}{:.0}; alba obsahují fotky z knihovny (nejprve je importujte)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odmítnuto {n}: {closed} se zavřenýma očima, {blurry} s rozmazanýma očima",
   "+{} more, all sharp and open": "+{} dalších, všichni ostří a s otevřenýma očima",
   " · {n} selected": " · vybráno: {n}",
   "{} label": "Štítek {}",

@@ -920,6 +920,27 @@ impl LightcraftApp {
         }
     }
 
+    /// Reject Closed and Blurry Eyes (Assisted Culling) running in the background: when it ends,
+    /// its rejects are flagged in one undo step and its summary shown.
+    fn eye_cull_pump(&mut self, ctx: &egui::Context) {
+        let Ok(v) = self.session.execute("photo.rejectEyesPump", &serde_json::json!({})) else { return };
+        if v["done"] != true {
+            return;
+        }
+        let n = |k: &str| v[k].as_u64().unwrap_or(0);
+        let text = if n("rejected") == 0 {
+            crate::i18n::tr("No closed or blurry eyes to reject").to_string()
+        } else {
+            crate::i18n::tr_format!(
+                "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes",
+                n = n("rejected"),
+                closed = n("closedEyes"),
+                blurry = n("blurryEyes")
+            )
+        };
+        self.toast_for(ctx, text, 6.0);
+    }
+
     pub fn toast(&mut self, ctx: &egui::Context, text: impl Into<String>) {
         self.toast_for(ctx, text, TOAST_SECONDS);
     }
@@ -1307,6 +1328,7 @@ impl LightcraftApp {
         self.save_status(ctx);
         self.slideshow_tick(ctx);
         panels::faces::pump(self, ctx);
+        self.eye_cull_pump(ctx);
         // back from an external editor: pick up the files it saved
         let focused = ctx.input(|i| i.focused);
         if focused && !self.ui.was_focused && !self.ui.external_edits.is_empty() {
@@ -1397,6 +1419,7 @@ impl LightcraftApp {
         panels::right::dust_pump(self, ctx);
         model_setup::pump(self, ctx);
         panels::faces::pump(self, ctx);
+        self.eye_cull_pump(ctx);
         focus_scan::pump(self, ctx);
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);

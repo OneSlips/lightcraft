@@ -39,6 +39,36 @@
 - **One flag everywhere.** Picked is a solid white flag, rejected a red flag with a cross, unflagged an empty outline: the same on thumbnails, in the filmstrip, on the bottom bar, in the filters and the menus.
 - **Ratings, flags and labels under the thumbnails**, big enough to read at a glance, in the grid and the filmstrip (Settings ▸ Interface ▸ Grid; on). Rejects are no longer greyed out.
 
+
+### People masks
+- **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, and has no
+  more square holes in a lace dress.
+- People are found on ordinary couple shots where the faces are small, and each person's mask stays
+  on their own outline. Clothes and people edges follow the photo's own edges more closely.
+
+### Canon focus points
+- **Show Focus Point** and **Zoom to Focus Point** work with Canon raws (CR3 and CR2): the box the
+  camera focused with, including the face it tracked. Photos already in your library get it in the
+  background.
+- Without a recorded point, Space zooms to the main subject's sharpest open eye instead of the
+  middle of the photo.
+
+### Assisted Culling by the eyes
+- **Assisted Culling** can reject photos where a main subject has closed or blurry eyes (two new
+  boxes in the dialog). It runs in the background, leaves picked photos alone, and says what it
+  rejected; one Undo puts them back.
+
+### Faces and eyes while culling
+- **Groups**: the eye strip now finds the small faces of big groups (a second, long-range face
+  finder): about 62 of 65 people on a 45-megapixel family group, where it found none before. The
+  strip takes up to 120 people.
+- **Fair sharpness**: an eye is measured at a scale that follows its size and compared with the
+  sharpest eye in the photo, so a wide-open 85 mm portrait of five people in focus reads green, not
+  red. Missed focus stays red.
+- **Closed eyes on faces turned away** (a kiss on the cheek, a 3/4 view) are marked Closed; a closed
+  eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
+- **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
+  frame.
 ### Import and Library tabs
 - **Two tabs at the top right: Import and Library.** You always know where you are: Import is a
   folder or card you are looking at (nothing is in your library yet), Library is everything you

@@ -385,6 +385,7 @@
   "Photos ready: {n}. AI masks, retouch and previews are done.": "Готово фото: {n}. ИИ-маски, ретушь и превью готовы.",
   "Photos ready: {n}. AI masks and retouch are done.": "Готово фото: {n}. ИИ-маски и ретушь готовы.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Пропущено просматриваемых фото: {n}{0:.0} — альбомы содержат фото библиотеки (сначала импортируйте их)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Отклонено {n}: {closed} с закрытыми глазами, {blurry} с размытыми глазами",
   "+{} more, all sharp and open": "ещё {}, все резкие и с открытыми глазами",
   " · {n} selected": " · выбрано: {n}",
   "{} label": "Метка «{}»",

@@ -385,6 +385,7 @@
   "Photos ready: {n}. AI masks, retouch and previews are done.": "已就绪的照片：{n}。AI 蒙版、修饰和预览已完成。",
   "Photos ready: {n}. AI masks and retouch are done.": "已就绪的照片：{n}。AI 蒙版和修饰已完成。",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "已跳过浏览中的照片：{n}{0:.0}（相册存放图库照片，请先导入）",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "已拒绝 {n} 张：{closed} 张闭眼，{blurry} 张眼睛模糊",
   "+{} more, all sharp and open": "另有 {} 人，都清晰且睁眼",
   " · {n} selected": " · 已选 {n} 张",
   "{} label": "{}标签",

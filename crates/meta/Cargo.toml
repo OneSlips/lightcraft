@@ -16,4 +16,6 @@ quick-xml = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+# tests record why they skip (`cargo xtask ci` lists the skips)
+lightcraft-testkit = { workspace = true }
 serde_json = { workspace = true }

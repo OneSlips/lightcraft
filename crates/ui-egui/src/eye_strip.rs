@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use egui::{Align2, Color32, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_catalog::PhotoId;
-use lightcraft_engine::eyes::{EyeReport, EyeScanner, Focus, Lids};
+use lightcraft_engine::eyes::{EyeReport, EyeScanner, Focus, Lids, Verdict};
 
 use crate::LightcraftApp;
 use crate::theme::Tokens;
@@ -62,6 +62,11 @@ pub enum Shown {
 }
 
 impl EyeStrip {
+    /// The finished report for an eye job's key, when there is one.
+    pub fn report(&self, key: u64) -> Option<Arc<EyeReport>> {
+        self.results.get(&key).and_then(|(r, _)| r.as_ref().ok()).cloned()
+    }
+
     /// The state for `ui.inspect`.
     pub fn to_json(&self, key: Option<u64>) -> serde_json::Value {
         let r = key.and_then(|k| self.results.get(&k)).map(|(r, _)| r);
@@ -72,7 +77,7 @@ impl EyeStrip {
             "ms": r.and_then(|r| r.as_ref().ok()).map(|r| r.ms),
             "eyes": r.and_then(|r| r.as_ref().ok()).map(|r| r.eyes.iter().map(|e| serde_json::json!({
                 "center": e.center, "sharpness": e.sharpness, "focus": e.focus, "bothEyes": e.both_eyes,
-                "lids": e.lids, "openness": e.openness, "good": e.good(),
+                "lids": e.lids, "openness": e.openness, "good": e.good(), "verdict": e.verdict(), "relative": e.relative,
             })).collect::<Vec<_>>()),
             "blinks": r.and_then(|r| r.as_ref().ok()).map(|r| r.blinks()),
             "cached": self.results.len(),
@@ -139,12 +144,23 @@ pub fn focus_colour(f: Focus) -> Color32 {
     }
 }
 
+/// A person's frame colour: the worse of lids and focus (closed is red however sharp), grey when
+/// no eye shows (sunglasses).
+pub fn verdict_colour(v: Verdict) -> Color32 {
+    match v {
+        Verdict::Sharp => focus_colour(Focus::Sharp),
+        Verdict::Soft | Verdict::HalfClosed => focus_colour(Focus::Soft),
+        Verdict::Blurry | Verdict::Closed => focus_colour(Focus::Blurry),
+        Verdict::NotVisible => Color32::from_gray(150),
+    }
+}
+
 /// The closed-eye marker's word, `None` for an open eye (or one whose lids couldn't be measured).
 fn lids_word(l: Lids) -> Option<&'static str> {
     match l {
         Lids::Closed => Some(crate::i18n::tr("Closed")),
         Lids::Half => Some(crate::i18n::tr("Half closed")),
-        Lids::Open | Lids::Unknown => None,
+        Lids::Open | Lids::Unknown | Lids::Hidden => None,
     }
 }
 
@@ -330,14 +346,18 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
         let s = (w / (cw as f32 / ppp)).min(h / (ch as f32 / ppp)).min(1.0);
         let img = Rect::from_center_size(r.center(), vec2(cw as f32 / ppp * s, ch as f32 / ppp * s));
         p.image(tx.id(), img, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-        let c = focus_colour(e.focus);
+        let c = verdict_colour(e.verdict());
         p.rect_stroke(r, 3.0, Stroke::new(2.0, c), StrokeKind::Outside);
         p.circle_filled(pos2(r.right() - 7.0, r.top() + 7.0), 4.5, c);
         p.circle_stroke(pos2(r.right() - 7.0, r.top() + 7.0), 4.5, Stroke::new(1.0, Color32::from_black_alpha(160)));
         p.text(
             pos2(r.center().x, r.bottom() + label_h / 2.0 + 1.0),
             Align2::CENTER_CENTER,
-            format!("{} {:.0}", focus_word(e.focus), e.sharpness),
+            if e.lids == Lids::Hidden {
+                crate::i18n::tr("Eyes not visible").to_string()
+            } else {
+                format!("{} {:.0}", focus_word(e.focus), e.sharpness)
+            },
             t.font(LABEL_PT),
             Color32::from_gray(230),
         );
@@ -440,7 +460,15 @@ mod tests {
         assert_eq!(s.shown(1), Shown::Pending);
         for k in 0..(KEEP as u64 + 10) {
             s.tick += 1;
-            let r = EyeReport { photo: PhotoId(k), eyes: Vec::new(), faces: (k % 2) as usize, no_eyes: (k % 2) as usize, size: (1, 1), ms: 0.0 };
+            let r = EyeReport {
+                photo: PhotoId(k),
+                eyes: Vec::new(),
+                faces: (k % 2) as usize,
+                no_eyes: (k % 2) as usize,
+                size: (1, 1),
+                ms: 0.0,
+                boxes: Vec::new(),
+            };
             s.results.insert(k, (Ok(Arc::new(r)), s.tick));
         }
         s.trim();

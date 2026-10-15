@@ -385,6 +385,7 @@
   "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos prontas: {n}. Máscaras de IA, retoque e pré-visualizações concluídos.",
   "Photos ready: {n}. AI masks and retouch are done.": "Fotos prontas: {n}. Máscaras de IA e retoque concluídos.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Fotos navegadas ignoradas: {n}{0:.0} — os álbuns contêm fotos da biblioteca (importe-as primeiro)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} rejeitadas: {closed} com olhos fechados, {blurry} com olhos desfocados",
   "+{} more, all sharp and open": "+{} a mais, todos nítidos e de olhos abertos",
   " · {n} selected": " · {n} selecionadas",
   "{} label": "Rótulo {}",

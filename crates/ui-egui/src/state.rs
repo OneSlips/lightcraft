@@ -1199,10 +1199,12 @@ pub enum Dialog {
     /// Help ▸ What's New.
     WhatsNew,
     /// Photo ▸ Assisted Culling: reject photos below this focus score (0 = none), pick the best
-    /// of each burst.
+    /// of each burst, reject photos where a main subject's eyes are closed or blurry.
     Cull {
         reject_below: f32,
         pick_best: bool,
+        closed_eyes: bool,
+        blurry_eyes: bool,
     },
     /// Help ▸ System Info: (label, value) rows.
     DenoiseModel {

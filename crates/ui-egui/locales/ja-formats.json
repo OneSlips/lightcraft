@@ -385,6 +385,7 @@
   "Photos ready: {n}. AI masks, retouch and previews are done.": "準備完了の写真：{n}。AI マスク、レタッチ、プレビューが完了しました。",
   "Photos ready: {n}. AI masks and retouch are done.": "準備完了の写真：{n}。AI マスクとレタッチが完了しました。",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "閲覧中の写真をスキップ：{n}{0:.0}（アルバムにはライブラリの写真が入ります。先に読み込んでください）",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} 枚を却下：目を閉じた写真 {closed}、目がぼけた写真 {blurry}",
   "+{} more, all sharp and open": "ほか{}人（すべてシャープで目が開いています）",
   " · {n} selected": " · {n}枚選択",
   "{} label": "{}ラベル",
