@@ -927,6 +927,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+    // the overlay switched on to stay (O) overrides showing it only when useful: say so on the photo
+    if right == RightPanel::Masking && app.ui.mask_overlay && !adjusting(app) && !fullscreen {
+        overlay_on_hint(ui, canvas, app.ui.mask_overlay_color);
+    }
     // drawn and hit-tested above the loupe and its tools: clicks on it pan
     let nav = navigator(app, ui, canvas, img_rect, id);
     // what is on screen isn't the render on its way (a stand-in, the last render after an edit,
@@ -976,6 +980,20 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.separator();
         super::grid::context_menu(app, ui, id);
     });
+}
+
+/// "Overlay on · O" at the canvas' bottom left, a swatch of the overlay's colour before it: the
+/// mask overlay was switched on to stay (widget `canvas:overlayOn`).
+fn overlay_on_hint(ui: &egui::Ui, canvas: Rect, color: [u8; 3]) {
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(canvas);
+    let g = p.layout_no_wrap(crate::i18n::tr("Overlay on · O").to_string(), t.font(12.0), Color32::WHITE);
+    let bg = Rect::from_min_size(pos2(canvas.left() + 10.0, canvas.bottom() - 18.0 - g.size().y), g.size() + vec2(30.0, 8.0));
+    p.rect_filled(bg, bg.height() / 2.0, Color32::from_black_alpha(150));
+    let [r, gg, b] = color;
+    p.circle_filled(pos2(bg.left() + 12.0, bg.center().y), 4.5, Color32::from_rgb(r, gg, b));
+    p.galley(pos2(bg.left() + 22.0, bg.top() + 4.0), g, Color32::WHITE);
+    register(ui.ctx(), "canvas:overlayOn", bg);
 }
 
 /// The info overlay at the canvas' top left (`view.infoOverlay`): file name with the capture date
@@ -1598,6 +1616,23 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
     }
 }
 
+/// Whether a slider or a dial is adjusting the photo right now. Then the mask overlay, the pins and
+/// the tool graphics (masks, spots, crop guides) hide so the effect itself can be judged, even an
+/// overlay switched on with O; they come back as they were when the adjusting stops (the user's
+/// standard behaviour). Sliders that shape the tool's own graphics (a range's Refine, a spot's
+/// Size, the crop angle, a transform with its fine grid) keep them.
+pub(crate) fn adjusting(app: &LightcraftApp) -> bool {
+    let slider = app.ui.dragging_control.as_deref().is_some_and(|c| !shapes_graphics(c));
+    slider || app.surface.adjusting()
+}
+
+/// Slider ids that change what the tool graphics show rather than the photo's look.
+fn shapes_graphics(id: &str) -> bool {
+    matches!(id, "refine" | "smoothness" | "edge" | "feather" | "ui.removeSize" | "ui.removeFeather" | "crop.angle")
+        || id.starts_with("geometry.")
+        || id.starts_with("crop.")
+}
+
 /// Mask tools that set a mask on the photo: the overlay shows while one is in use.
 const MASK_TOOLS: [&str; 6] = ["brush", "linear", "radial", "colorRange", "object", "lumRange"];
 
@@ -1632,16 +1667,19 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     if app.ui.fullscreen {
         return Overlay::None;
     }
+    // a slider or dial at work: the effect shows, not the overlay (it returns afterwards)
+    let shown = !adjusting(app);
     // Show every visible mask's region at once (Ctrl+Shift+O / Cmd+Shift+O), ahead of the selected-mask overlay
     // so the shortcut is not shadowed by the always-on single-mask overlay.
-    if app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
+    if shown && app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
         return Overlay::AllMasks {
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
             opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
-    if app.ui.right == RightPanel::Masking
+    if shown
+        && app.ui.right == RightPanel::Masking
         && let Some(m) = overlay_mask(app, d)
         && !m.components.is_empty()
     {
@@ -1652,7 +1690,7 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
             opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
-    if app.ui.right == RightPanel::Remove && app.ui.visualize_spots {
+    if shown && app.ui.right == RightPanel::Remove && app.ui.visualize_spots {
         return Overlay::Spots(app.ui.spots_threshold.clamp(0.0, 100.0).round() as u8);
     }
     let edit = app.ui.right == RightPanel::Edit;
@@ -1788,7 +1826,11 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         p.add(outside_crop_mesh(map.rect, &quad, Color32::from_black_alpha(150)));
     }
     p.add(egui::Shape::closed_line(pts.clone(), Stroke::new(1.0, Color32::WHITE)));
-    // overlay guides
+    // overlay guides and handles (hidden while a slider or dial adjusts the photo)
+    let mut p = p.clone();
+    if adjusting(app) {
+        p.set_invisible();
+    }
     let lerp = |a: Pos2, b: Pos2, t: f32| a + (b - a) * t;
     let guide = Stroke::new(0.8, Color32::from_white_alpha(150));
     // (u, v) across / down the (rotated) crop frame
@@ -2289,7 +2331,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let long = (map.rect.width().max(map.rect.height())) as f64;
     let active = app.session.active_mask;
     let clip = app.canvas_rect.unwrap_or(map.rect);
-    let p = &ui.painter_at(clip);
+    let mut painter = ui.painter_at(clip);
+    // a slider or dial at work: no lines, handles or pins over the effect
+    if adjusting(app) {
+        painter.set_invisible();
+    }
+    let p = &painter;
     // (mask, component, handle, screen position) of everything that can be grabbed
     let mut grips: Vec<(u32, usize, u8, Pos2)> = Vec::new();
     // pins follow Show Pins and the Tool Overlay mode (Shift+H); Auto hides them while brushing
@@ -2685,7 +2732,11 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     let (mode, live) = (app.ui.tool_overlay, pins_live(app, resp, map));
     // Auto also hides them while a new spot is painted
     let painting = mode == ToolOverlay::Auto && matches!(app.gesture, Some(Gesture::Spot { .. }));
-    let p = ui.painter_at(app.canvas_rect.unwrap_or(map.rect));
+    let mut p = ui.painter_at(app.canvas_rect.unwrap_or(map.rect));
+    // a slider or dial at work: the spots' outlines and pins hide over the result
+    if adjusting(app) {
+        p.set_invisible();
+    }
     let mut pins = p.clone();
     if painting {
         pins.set_invisible();
@@ -2886,7 +2937,10 @@ fn eye_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response
     let o = map.screen(Point::new(0.0, 0.0));
     let (sx, sy) = (map.screen(Point::new(1.0, 0.0)).distance(o), map.screen(Point::new(0.0, 1.0)).distance(o));
     let per_long = sx.max(sy);
-    let p = ui.painter();
+    let mut p = ui.painter().clone();
+    if adjusting(app) {
+        p.set_invisible();
+    }
     for (i, e) in d.red_eye.iter().enumerate() {
         let c = map.screen(e.center);
         let r = vec2(e.rx as f32 * per_long, e.ry as f32 * per_long);

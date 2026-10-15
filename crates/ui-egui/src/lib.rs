@@ -708,11 +708,8 @@ impl LightcraftApp {
             // a preset's masks come with their adjustments: show the effect, not an overlay
             self.ui.mask_overlay = false;
         }
-        if r.is_ok() && id == "mask.adjust" {
-            // Judge local adjustments on the photo, without the selection overlay obscuring them.
-            // Keep it hidden after release; O / the overlay eye can show it again.
-            self.ui.mask_overlay = false;
-        }
+        // (a mask's sliders don't switch the overlay off: it hides while they move and comes back
+        // as it was, see `panels::detail::adjusting`)
         if r.is_ok() {
             // These commands finish synchronously, so their completion would otherwise
             // be invisible once the activity stack is gone. Never show success on error.

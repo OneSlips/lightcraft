@@ -61,6 +61,58 @@ fn widgets(h: &Headless, prefix: &str) -> Vec<String> {
     v
 }
 
+/// The user's standard: while a slider (or a dial) adjusts, the overlay, pins and tool graphics
+/// hide, even an overlay switched on with O; afterwards they are back as they were.
+#[test]
+fn overlays_hide_while_adjusting_and_come_back_as_they_were() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.5, 0.5], "rx": 0.2, "ry": 0.2}));
+    exec(&mut h, "view.maskOverlay", json!({"show": true}));
+    assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }));
+    // a slider held: an effect slider hides everything…
+    h.app.ui.dragging_control = Some("exposure".into());
+    assert!(crate::panels::detail::adjusting(&h.app));
+    assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None, "the effect shows, not the overlay");
+    h.step();
+    assert!(widgets(&h, "canvas:overlayOn").is_empty(), "no overlay hint while adjusting");
+    // …one that shapes the mask (a range's Refine, a radial's Feather) keeps it
+    h.app.ui.dragging_control = Some("feather".into());
+    assert!(!crate::panels::detail::adjusting(&h.app));
+    // released: the overlay switched on with O is back
+    h.app.ui.dragging_control = None;
+    assert!(h.app.ui.mask_overlay);
+    assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }));
+    h.step();
+    assert_eq!(widgets(&h, "canvas:overlayOn"), vec!["canvas:overlayOn".to_string()], "the canvas says the overlay is on (O)");
+    // the same in the Remove tool: Visualize Spots hides while adjusting
+    exec(&mut h, "panel.remove", json!({}));
+    h.app.ui.visualize_spots = true;
+    assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Spots(_)));
+    h.app.ui.dragging_control = Some("light.exposure".into());
+    assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None);
+    h.app.ui.dragging_control = None;
+}
+
+/// Choosing how the overlay looks in its settings doesn't switch it on for good (that left it
+/// "stuck on"); ⇧O, cycling the look from the keyboard, still shows it; the pop-up has an explicit
+/// on / off switch.
+#[test]
+fn the_overlay_look_menu_does_not_latch_the_overlay_on() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.5, 0.5]}));
+    assert!(!h.app.ui.mask_overlay);
+    exec(&mut h, "view.maskOverlayMode", json!({"mode": "whiteOnBlack", "show": false}));
+    assert!(!h.app.ui.mask_overlay, "picking a look leaves the overlay as it was");
+    exec(&mut h, "view.maskOverlayMode", json!({}));
+    assert!(h.app.ui.mask_overlay, "⇧O cycles the look and shows it");
+    // the settings pop-up's switch
+    exec(&mut h, "view.maskOverlay", json!({"show": false}));
+    click(&mut h, "icon:maskOverlaySettings");
+    h.step();
+    click(&mut h, "check:maskOverlayOn");
+    assert!(h.app.ui.mask_overlay, "the pop-up's Show overlay switch turns it on");
+}
+
 /// Every kind of mask Create New Mask offers is in Add, Subtract and Intersect too, in the same
 /// order (Radial, then Subtract Background, was missing).
 #[test]

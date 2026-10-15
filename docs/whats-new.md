@@ -7,6 +7,13 @@
   order and with the same icons: also Background, People, Remembered, Landscape and Color. A Radial
   minus the Background is two clicks. People, Remembered and Landscape open their picker under the
   mask they combine with. The mask tiles have their own icons now.
+- **While you move a slider or turn a dial, the overlay, pins and tool lines step aside** so you
+  see the effect itself, even an overlay you switched on with **O**; let go and they come back as
+  they were. The same for Remove spots, the crop guides and the red-eye circles.
+- The **overlay button** has its own icon (a frame with a tinted area, no longer the Masking tool's)
+  and lights up in the overlay's colour while the overlay is switched on to stay; the photo then
+  says "Overlay on · O". Its settings menu has a **Show overlay** switch, and choosing how the
+  overlay looks there no longer switches it on for good.
 
 ## 2026-10-15
 

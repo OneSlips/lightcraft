@@ -27,10 +27,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let settings = icon_button(ui, "maskOverlaySettings", Icon::Dots, vec2(22.0, 22.0), false, true, "Overlay settings");
             egui::Popup::menu(&settings).show(|ui| overlay_settings(app, ui));
-            let shown = selected_overlay_shown(app, d);
-            if icon_button(ui, "maskOverlay", Icon::Mask, vec2(22.0, 22.0), shown, true, "Show overlay (O)").clicked() {
-                let _ = app.run("view.maskOverlay", json!({}));
-            }
+            overlay_button(app, ui);
             let all = app.ui.mask_overlay_all;
             if icon_button(ui, "maskOverlayAll", Icon::Stack, vec2(22.0, 22.0), all, true, "Show all overlays").clicked() {
                 app.ui.mask_overlay_all = !all;
@@ -130,11 +127,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
     }
 }
 
-/// Whether the selected mask's overlay is on screen (the overlay button shows pressed).
-fn selected_overlay_shown(app: &LightcraftApp, d: &DevelopSettings) -> bool {
-    match app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid)) {
-        Some(m) => crate::panels::detail::overlay_shown(app, m),
-        None => app.ui.mask_overlay,
+/// The overlay button (O): its own icon (a frame with a tinted area, not the Masking tool's), lit
+/// in the overlay's colour while the overlay is switched on to stay, which overrides showing it
+/// only when useful; the tooltip says which state it is in.
+fn overlay_button(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    let on = app.ui.mask_overlay;
+    let tip = if on { "Overlay always on: O turns it off" } else { "Show overlay (O)" };
+    let b = icon_button(ui, "maskOverlay", Icon::Overlay, vec2(22.0, 22.0), on, true, tip);
+    if on {
+        // lit: the tinted area in the overlay's own colour, and a ring round the button
+        let [r, g, bl] = app.ui.mask_overlay_color;
+        let c = egui::Color32::from_rgb(r, g, bl);
+        let glyph = Rect::from_center_size(b.rect.center(), vec2(13.6, 13.6));
+        ui.painter().circle_filled(glyph.center() + vec2(0.7, 0.35), 3.4, c.gamma_multiply(0.85));
+        ui.painter().rect_stroke(b.rect.shrink(0.5), 4.0, Stroke::new(1.0, c), egui::StrokeKind::Inside);
+    }
+    if b.clicked() {
+        let _ = app.run("view.maskOverlay", json!({}));
     }
 }
 
@@ -240,12 +249,22 @@ fn overlay_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     ui.set_min_width(200.0);
     ui.label(egui::RichText::new(crate::i18n::tr("Overlay")).font(t.semibold(12.5)));
+    // on: the overlay stays (O); off: it shows only when useful (a new mask, a mask tool, the
+    // pointer on a mask's row or pin)
+    let mut on = app.ui.mask_overlay;
+    let r = ui.checkbox(&mut on, crate::i18n::tr("Show overlay (O)"));
+    register(ui.ctx(), "check:maskOverlayOn", r.rect);
+    if r.changed() {
+        let _ = app.run("view.maskOverlay", json!({"show": on}));
+    }
+    ui.separator();
     let view = MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default();
     for v in MaskView::ALL {
         let r = ui.selectable_label(v == view, crate::i18n::tr(v.label()));
         register(ui.ctx(), format!("maskOverlayMode:{}", v.name()), r.rect);
         if r.clicked() {
-            let _ = app.run("view.maskOverlayMode", json!({"mode": v.name()}));
+            // choosing how it looks doesn't switch the overlay on for good (only ⇧O does)
+            let _ = app.run("view.maskOverlayMode", json!({"mode": v.name(), "show": false}));
         }
     }
     if matches!(view, MaskView::Color | MaskView::ColorOnBw) {

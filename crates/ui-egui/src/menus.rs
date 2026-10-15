@@ -1050,7 +1050,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 None => cur.next(),
             };
             app.ui.mask_overlay_mode = next.name().into();
-            app.ui.mask_overlay = true;
+            // ⇧O shows the overlay in its new look; the settings pop-up's choice (`show: false`)
+            // leaves it as it was
+            if p.get("show").and_then(Value::as_bool) != Some(false) {
+                app.ui.mask_overlay = true;
+            }
             app.toast(&ctx, next.label());
             Ok(json!({"mode": next.name()}))
         }
