@@ -1137,7 +1137,6 @@
   "ONNX model": "Model ONNX",
   "Object": "Objekt",
   "Object Mask": "Maska objektu",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Masky Objekt a Popsat používají SAM 3, segmentační model společnosti Meta. Není součástí LightCraft a vše ostatní funguje i bez něj.",
   "October 2026": "Říjen 2026",
   "Off": "Vypnuto",
   "Offset X": "Posun X",
@@ -1735,7 +1734,6 @@
   "Th": "Čt",
   "That includes the photos in the folders inside it.": "Zahrnuje i fotografie v podsložkách.",
   "That key can't be used as a shortcut": "Tuto klávesu nelze použít jako zkratku",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "Model SAM 3 je nainstalovaný: masky Objekt a Popsat jsou připravené.",
   "The denoise model is installed and in use: the AI Denoise Amount slider under Detail now works": "Model pro redukci šumu je nainstalovaný a používá se: posuvník Míra redukce šumu pomocí AI v Detailu nyní funguje",
   "The download didn't work:": "Stažení se nezdařilo:",
   "The first time, macOS asks whether LightCraft may control Photos.": "Při prvním použití se macOS zeptá, zda LightCraft smí ovládat Photos.",
@@ -1755,7 +1753,6 @@
   "They move to Recently Deleted and can be restored; no file on disk is touched.": "Přesunou se do nedávno odstraněných a lze je obnovit; soubory na disku se nemění.",
   "Thirds": "Třetiny",
   "This Computer": "Tento počítač",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Toto sestavení zatím neumí model stáhnout. Pro ruční instalaci vložte model.safetensors, vocab.json a merges.txt z facebook/sam3 společnosti Meta do složky výše: Objekt a Popsat budou fungovat, jakmile tam soubory budou.",
   "This build cannot run denoise models.": "Toto sestavení neumí spouštět modely pro redukci šumu.",
   "This build cannot run recognition models: they can be added and chosen, not used.": "Toto sestavení neumí spouštět modely rozpoznávání: lze je přidat a vybrat, ale nelze je použít.",
   "This build has nowhere to keep denoise models, so AI Denoise is not available. (The desktop app has.)": "Toto sestavení nemá kam ukládat modely pro redukci šumu, takže redukce šumu pomocí AI není dostupná. (Desktopová aplikace tuto možnost má.)",
@@ -2093,5 +2090,9 @@
   "Finding the remembered object…": "Hledám zapamatovaný předmět…",
   "Finding the sky…": "Hledám oblohu…",
   "Finding the subject…": "Hledám objekt zájmu…",
-  "Selecting the object…": "Vybírám předmět…"
+  "Selecting the object…": "Vybírám předmět…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 je volitelný doplněk: segmentační model společnosti Meta. Masky Objekt a Popsat fungují i bez něj, s otevřeně licencovanými modely; je-li nainstalovaný, použijí ho.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "Model SAM 3 je nainstalovaný: masky Objekt a Popsat ho používají.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Tato verze model stáhnout nedokáže. Chcete-li ho nainstalovat ručně, vložte soubory model.safetensors, vocab.json a merges.txt z Meta facebook/sam3 do výše uvedené složky: Objekt a Popsat ho použijí, jakmile tam budou.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Tento model AI není součástí LightCraft a vše ostatní funguje i bez něj. Popsat používá také SAM 2.1, model pro Objekt: Stáhnout získá oba."
 }

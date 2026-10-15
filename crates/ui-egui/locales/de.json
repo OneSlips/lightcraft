@@ -1107,7 +1107,6 @@
   "OK": "OK",
   "Object": "Objekt",
   "Object Mask": "Objektmaske",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Objekt- und Beschreibungsmasken verwenden SAM 3, das Segmentierungsmodell von Meta. Es ist kein Bestandteil von LightCraft; alle anderen Funktionen arbeiten auch ohne dieses Modell.",
   "October 2026": "Oktober 2026",
   "Off": "Aus",
   "Offset X": "Versatz X",
@@ -1668,7 +1667,6 @@
   "Texture": "Struktur",
   "That includes the photos in the folders inside it.": "Das schließt die Fotos in den enthaltenen Unterordnern ein.",
   "That key can't be used as a shortcut": "Diese Taste kann nicht als Tastenkürzel verwendet werden",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "Das SAM-3-Modell ist installiert: Objekt- und Beschreibungsmaske sind verfügbar.",
   "The catalog has a format version (issue #102). Opening a library from an older LightCraft upgrades it; a library": "Der Katalog hat eine Formatversion (Issue #102). Bibliotheken älterer LightCraft-Versionen werden beim Öffnen aktualisiert; eine Bibliothek",
   "The control port (`--control`) closes a connection as soon as it receives anything that isn't a JSON request": "Der Steuerport (`--control`) schließt eine Verbindung, sobald er etwas anderes als eine JSON-Anfrage erhält",
   "The download didn't work:": "Der Download ist fehlgeschlagen:",
@@ -1984,7 +1982,6 @@
   "Only": "Nur diese",
   "How to install the model": "So installierst du das Modell",
   "Install the SAM 3 Model": "SAM-3-Modell installieren",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Diese Version kann das Modell noch nicht herunterladen. Zum Installieren von Hand lege model.safetensors, vocab.json und merges.txt aus Metas facebook/sam3 in den obigen Ordner: Objekt und Beschreiben funktionieren, sobald sie dort liegen.",
   "Open Log Folder": "Protokollordner öffnen",
   "Reading photos…": "Fotos werden gelesen…",
   "Adding photos…": "Fotos werden hinzugefügt…",
@@ -2838,5 +2835,9 @@
   "Finding the remembered object…": "Suche das gemerkte Objekt…",
   "Finding the sky…": "Suche den Himmel…",
   "Finding the subject…": "Suche das Motiv…",
-  "Selecting the object…": "Wähle das Objekt aus…"
+  "Selecting the object…": "Wähle das Objekt aus…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 ist eine optionale Ergänzung: das Segmentierungsmodell von Meta. Objekt- und Beschreibungsmasken funktionieren auch ohne es, mit offen lizenzierten Modellen; ist es installiert, nutzen sie es.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "Das SAM-3-Modell ist installiert: Objekt- und Beschreibungsmasken nutzen es.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Dieser Build kann das Modell nicht herunterladen. Zur manuellen Installation model.safetensors, vocab.json und merges.txt aus Metas facebook/sam3 in den Ordner oben legen: Objekt und Beschreiben nutzen es, sobald sie dort liegen.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Dieses KI-Modell ist kein Bestandteil von LightCraft; alles andere funktioniert auch ohne es. Beschreiben nutzt außerdem SAM 2.1, das Objekt-Modell: Herunterladen holt beide."
 }

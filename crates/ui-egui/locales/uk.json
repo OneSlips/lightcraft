@@ -969,7 +969,6 @@
   "Not Now": "Не зараз",
   "Nudge Develop Value": "Змінити значення обробки на крок",
   "Object Mask": "Маска об’єкта",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Маски «Об’єкт» і «Описати» використовують SAM 3, модель сегментації Meta. Вона не є частиною LightCraft, а решта функцій працює без неї.",
   "October 2026": "Жовтень 2026",
   "Only": "Лише",
   "Optimize Library": "Оптимізувати бібліотеку",
@@ -1587,7 +1586,6 @@
   "Teal & Orange": "Бірюза й оранжевий",
   "Temp": "Температура",
   "That key can't be used as a shortcut": "Цю клавішу не можна використовувати як скорочення",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "Модель SAM 3 встановлено: маски «Об’єкт» і «Описати» готові.",
   "The download didn't work:": "Завантаження не вдалося:",
   "The number at the end of the original name (IMG_0042 → 0042)": "Число в кінці початкової назви (IMG_0042 → 0042)",
   "The original extension is always added; {ext} only puts it inside the name as well.": "Початкове розширення завжди додається; {ext} лише вставляє його також усередину назви.",
@@ -1821,7 +1819,6 @@
   "繁體中文（台灣）": "繁體中文（台灣）",
   "How to install the model": "Як установити модель",
   "Install the SAM 3 Model": "Установити модель SAM 3",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Ця збірка ще не може завантажити модель. Щоб установити її вручну, покладіть model.safetensors, vocab.json і merges.txt із facebook/sam3 від Meta до теки вище: «Об’єкт» і «Описати» працюватимуть одразу після цього.",
   "Open Log Folder": "Відкрити теку журналів",
   "Back to this person": "Повернутися до цієї особи",
   "AI Denoise": "ШІ: усунення шуму",
@@ -2835,5 +2832,9 @@
   "Finding the remembered object…": "Шукаю запам’ятований об’єкт…",
   "Finding the sky…": "Шукаю небо…",
   "Finding the subject…": "Шукаю об’єкт зйомки…",
-  "Selecting the object…": "Виділяю об’єкт…"
+  "Selecting the object…": "Виділяю об’єкт…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 — необов’язкове доповнення: модель сегментації Meta. Маски «Об’єкт» і «Опис» працюють і без неї, на відкрито ліцензованих моделях; якщо її встановлено, вони використовують її.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "Модель SAM 3 встановлено: маски «Об’єкт» і «Опис» використовують її.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Ця збірка не може завантажити модель. Щоб установити її вручну, покладіть model.safetensors, vocab.json і merges.txt з facebook/sam3 від Meta в теку вище: «Об’єкт» і «Опис» використають її, щойно файли там з’являться.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Ця модель ШІ не входить до LightCraft, і все інше працює без неї. «Опис» також використовує SAM 2.1, модель «Об’єкта»: «Завантажити» отримає обидві."
 }

@@ -742,7 +742,6 @@
   "Not Now": "後で",
   "Nudge Develop Value": "現像の値を微調整",
   "Object Mask": "オブジェクトマスク",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "オブジェクトマスクと説明マスクには、Metaのセグメンテーションモデル SAM 3 を使います。SAM 3 はLightCraftの一部ではなく、ほかの機能はすべてなしで動作します",
   "October 2026": "2026年10月",
   "Only": "次のみ：",
   "Optimize Library": "ライブラリを最適化",
@@ -1509,7 +1508,6 @@
   "Text": "文字",
   "Texture": "テクスチャ",
   "That key can't be used as a shortcut": "そのキーはショートカットに使えません",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "SAM 3モデルはインストール済みです。オブジェクトマスクと説明マスクを使用できます",
   "The download didn't work:": "ダウンロードに失敗しました：",
   "The number at the end of the original name (IMG_0042 → 0042)": "元の名前の末尾の番号（IMG_0042 → 0042）",
   "The original extension is always added; {ext} only puts it inside the name as well.": "元の拡張子は常に付きます。{ext} は名前の中にも拡張子を入れる場合に使います",
@@ -1800,7 +1798,6 @@
   "繁體中文（台灣）": "繁體中文（台灣）",
   "How to install the model": "モデルのインストール方法",
   "Install the SAM 3 Model": "SAM 3モデルのインストール",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "このビルドではまだモデルをダウンロードできません。手動でインストールするには、Meta の facebook/sam3 の model.safetensors、vocab.json、merges.txt を上のフォルダに置いてください。置いた時点で「オブジェクト」と「説明で選択」が使えるようになります。",
   "Open Log Folder": "ログフォルダーを開く",
   "Reading photos…": "写真を確認中…",
   "Adding photos…": "写真を追加中…",
@@ -2837,5 +2834,9 @@
   "Finding the remembered object…": "記憶したものを探しています…",
   "Finding the sky…": "空を探しています…",
   "Finding the subject…": "被写体を探しています…",
-  "Selecting the object…": "オブジェクトを選択しています…"
+  "Selecting the object…": "オブジェクトを選択しています…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 は任意の追加モデル（Meta のセグメンテーションモデル）です。オブジェクトと説明マスクはこれがなくてもオープンライセンスのモデルで動作し、インストールされていればこれを使います。",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "SAM 3 モデルはインストール済みです。オブジェクトと説明マスクがこれを使います。",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "このビルドではモデルをダウンロードできません。手動でインストールするには、Meta の facebook/sam3 から model.safetensors、vocab.json、merges.txt を上のフォルダーに置いてください。置けばすぐにオブジェクトと説明がこれを使います。",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "この AI モデルは LightCraft の一部ではなく、ほかの機能はすべてこれなしで動作します。説明はオブジェクトのモデル SAM 2.1 も使います。ダウンロードで両方を取得します。"
 }

@@ -1680,9 +1680,16 @@ fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error:
         ui.label(crate::i18n::tr("The model is installed: these AI masks are ready."));
         return;
     }
-    ui.label(crate::i18n::tr(
-        "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.",
-    ));
+    if model == "describe" {
+        // (a typed description has no simpler method to fall back on)
+        ui.label(crate::i18n::tr(
+            "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.",
+        ));
+    } else {
+        ui.label(crate::i18n::tr(
+            "This AI model isn't part of LightCraft, and everything else works without it: until it is installed, this mask is made by a simpler, approximate method.",
+        ));
+    }
     let mb = |b: u64| b as f64 / 1e6;
     let dir = m.dir.clone().unwrap_or_default();
     ui.label(crate::i18n::tr_format!("A one-time download of about {mb} MB, saved in {dir}", mb = format!("{:.0}", mb(m.size_bytes)), dir = dir));
@@ -1734,12 +1741,12 @@ fn sam_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, error: Option<&str
     let seg = &app.session.segmenter;
     let d = seg.download_status();
     if seg.installed() {
-        ui.label(crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks are ready."));
+        ui.label(crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks use it."));
         return;
     }
     let gb = |b: u64| b as f64 / 1e9;
     ui.label(crate::i18n::tr(
-        "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.",
+        "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.",
     ));
     let dir = seg.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
     ui.label(format!("{} {:.1} GB, {} {dir}", crate::i18n::tr("A one-time download of about"), gb(MODEL_BYTES), crate::i18n::tr("saved in")));
@@ -1777,7 +1784,7 @@ fn sam_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, error: Option<&str
         let dir = seg.dir.clone();
         ui.label(
             egui::RichText::new(crate::i18n::tr(
-                "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.",
+                "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.",
             ))
             .color(t.text_dim),
         );
@@ -1853,6 +1860,16 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             let r = app.run("ai.models.download", json!({"id": model, "acknowledged": true}));
             if r.is_ok() && !app.ui.ai_downloading.contains(model) {
                 app.ui.ai_downloading.push(model.clone());
+            }
+            // Describe needs two open models (the finder and SAM 2.1): one click gets both
+            if r.is_ok() && then.as_ref().is_some_and(|(kind, _)| kind == "prompt") {
+                for other in app.session.segmenter.describe_needs().into_iter().filter(|k| *k != model.as_str()) {
+                    if app.run("ai.models.download", json!({"id": other, "acknowledged": true})).is_ok()
+                        && !app.ui.ai_downloading.iter().any(|k| k == other)
+                    {
+                        app.ui.ai_downloading.push(other.to_string());
+                    }
+                }
             }
             r
         }

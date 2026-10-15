@@ -1379,7 +1379,6 @@
   "Text direction": "Направление текста",
   "Texture": "Текстура",
   "That key can't be used as a shortcut": "Эту клавишу нельзя использовать как сочетание",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "Модель SAM 3 установлена: маски «Объект» и «Описать» готовы.",
   "The download didn't work:": "Загрузка не удалась:",
   "The original files, unchanged, each with an XMP sidecar holding its edits.": "Исходные файлы без изменений, у каждого — XMP-файл с его правками.",
   "The photo has these settings": "У фото есть эти настройки",
@@ -1387,7 +1386,6 @@
   "Theme": "Тема",
   "They can be restored from Recently Deleted until it is emptied.": "Их можно восстановить из «Недавно удалённых», пока этот раздел не очищен.",
   "Thirds": "Правило третей",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Эта сборка пока не может загрузить модель. Чтобы установить её вручную, положите model.safetensors, vocab.json и merges.txt из facebook/sam3 от Meta в папку выше: «Объект» и «Описать» заработают сразу после этого.",
   "This folder is not available (drive disconnected?). Smart previews are not built or used until it is back or you choose another folder.": "Эта папка недоступна (диск отключён?). Смарт-просмотры не создаются и не используются, пока она не появится снова или вы не выберете другую папку.",
   "This person wasn't found in this photo.": "Этот человек на фото не найден.",
   "This photo can't be opened": "Это фото не удаётся открыть",
@@ -2061,7 +2059,6 @@
   "No named people yet": "Людей с именами пока нет",
   "Not Now": "Не сейчас",
   "Object Mask": "Маска объекта",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Маски «Объект» и «Описать» используют SAM 3 — модель сегментации от Meta. Она не входит в LightCraft, а остальные функции работают без неё.",
   "October 2026": "Октябрь 2026",
   "Only": "Только",
   "Original extension without the dot": "Исходное расширение без точки",
@@ -2830,5 +2827,9 @@
   "Finding the remembered object…": "Ищу запомненный объект…",
   "Finding the sky…": "Ищу небо…",
   "Finding the subject…": "Ищу объект съёмки…",
-  "Selecting the object…": "Выделяю объект…"
+  "Selecting the object…": "Выделяю объект…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 — необязательное дополнение: модель сегментации Meta. Маски «Объект» и «Описание» работают и без неё, на открыто лицензированных моделях; если она установлена, они используют её.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "Модель SAM 3 установлена: маски «Объект» и «Описание» используют её.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Эта сборка не может скачать модель. Чтобы установить её вручную, положите model.safetensors, vocab.json и merges.txt из facebook/sam3 от Meta в папку выше: «Объект» и «Описание» используют её, как только файлы там окажутся.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Эта модель ИИ не входит в LightCraft, и всё остальное работает без неё. «Описание» также использует SAM 2.1, модель «Объекта»: «Скачать» загрузит обе."
 }

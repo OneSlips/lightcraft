@@ -702,7 +702,6 @@
   "No skin was found in this photo.": "未在這張照片中找到皮膚。",
   "Not Now": "以後再說",
   "Object Mask": "物件遮色片",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "物件遮色片與描述遮色片使用 Meta 的分割模型 SAM 3。它不屬於 LightCraft，其他所有功能不需要它也能使用。",
   "October 2026": "2026年10月",
   "Only": "僅限",
   "Original extension without the dot": "不含點的原始副檔名",
@@ -1605,7 +1604,6 @@
   "Text direction": "文字方向",
   "Texture": "紋理",
   "That key can't be used as a shortcut": "該按鍵無法用作快速鍵",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "SAM 3 模型已安裝：物件遮色片與描述遮色片已可使用。",
   "The download didn't work:": "下載失敗：",
   "The number at the end of the original name (IMG_0042 → 0042)": "原始名稱結尾的數字（IMG_0042 → 0042）",
   "The original extension is always added; {ext} only puts it inside the name as well.": "一律會加上原始副檔名；{ext} 只是另外將它放進名稱中。",
@@ -1828,7 +1826,6 @@
   "That includes the photos in the folders inside it.": "其中資料夾裡的照片也包含在內。",
   "How to install the model": "如何安裝模型",
   "Install the SAM 3 Model": "安裝 SAM 3 模型",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "此版本尚無法下載模型。如需手動安裝，請將 Meta 的 facebook/sam3 中的 model.safetensors、vocab.json 和 merges.txt 放入上方的資料夾：放入後即可使用「物件」與「描述」。",
   "Open Log Folder": "開啟記錄資料夾",
   "Reading photos…": "正在讀取照片…",
   "Adding photos…": "正在新增照片…",
@@ -2639,5 +2636,9 @@
   "Finding the remembered object…": "正在尋找記住的物件…",
   "Finding the sky…": "正在尋找天空…",
   "Finding the subject…": "正在尋找主體…",
-  "Selecting the object…": "正在選取物件…"
+  "Selecting the object…": "正在選取物件…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 是選用的附加模型：Meta 的分割模型。沒有它，「物件」和「描述」遮色片也能用開放授權的模型運作；安裝後則會使用它。",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "SAM 3 模型已安裝：「物件」和「描述」遮色片會使用它。",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "此版本無法下載該模型。如需手動安裝，請將 Meta 的 facebook/sam3 中的 model.safetensors、vocab.json 和 merges.txt 放入上方的資料夾：放好後「物件」和「描述」即會使用它。",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "此 AI 模型不屬於 LightCraft，其他功能不需要它也能運作。「描述」還會用到「物件」的模型 SAM 2.1：下載會同時取得兩者。"
 }

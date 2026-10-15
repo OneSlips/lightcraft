@@ -1667,7 +1667,7 @@ fn sam_download_ended(download: &lightcraft_engine::segment::DownloadStatus) -> 
             Some((crate::i18n::tr("SAM 3 download stopped: it resumes where it left off next time.").to_string(), false))
         }
         Some(e) => Some((crate::i18n::tr_format!("The SAM 3 download failed: {e}", e = e), true)),
-        None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks are ready.").to_string(), true)),
+        None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks use it.").to_string(), true)),
         None => None,
     }
 }

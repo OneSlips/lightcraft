@@ -1114,7 +1114,6 @@
   "OK": "Aceptar",
   "Object": "Objeto",
   "Object Mask": "Máscara de objeto",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Las máscaras Objeto y Describir usan SAM 3, el modelo de segmentación de Meta. No forma parte de LightCraft y todo lo demás funciona sin él.",
   "October 2026": "Octubre de 2026",
   "Off": "Desactivado",
   "Offset X": "Desplazamiento X",
@@ -1680,7 +1679,6 @@
   "Texture": "Textura",
   "That includes the photos in the folders inside it.": "Esto incluye las fotos de las carpetas que contiene.",
   "That key can't be used as a shortcut": "Esa tecla no se puede usar como método abreviado",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "El modelo SAM 3 está instalado: las máscaras Objeto y Describir están listas.",
   "The download didn't work:": "La descarga no funcionó:",
   "The number at the end of the original name (IMG_0042 → 0042)": "El número al final del nombre original (IMG_0042 → 0042)",
   "The original extension is always added; {ext} only puts it inside the name as well.": "La extensión original siempre se añade; {ext} solo la incluye también dentro del nombre.",
@@ -1692,7 +1690,6 @@
   "They move to Recently Deleted and can be restored; no file on disk is touched.": "Pasan a Eliminadas recientemente y se pueden restaurar; no se toca ningún archivo del disco.",
   "Thirds": "Tercios",
   "This Computer": "Este equipo",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Esta versión aún no puede descargar el modelo. Para instalarlo a mano, poner model.safetensors, vocab.json y merges.txt de facebook/sam3 (Meta) en la carpeta de arriba: Objeto y Describir funcionan en cuanto estén allí.",
   "This folder is not available (drive disconnected?). Smart previews are not built or used until it is back or you choose another folder.": "Esta carpeta no está disponible (¿unidad desconectada?). Las vistas previas inteligentes no se generan ni se usan hasta que vuelva a estar disponible o se elija otra carpeta.",
   "This person wasn't found in this photo.": "No se encontró a esta persona en la foto.",
   "This photo can't be opened": "No se puede abrir esta foto",
@@ -2837,5 +2834,9 @@
   "Finding the remembered object…": "Buscando el objeto recordado…",
   "Finding the sky…": "Buscando el cielo…",
   "Finding the subject…": "Buscando el sujeto…",
-  "Selecting the object…": "Seleccionando el objeto…"
+  "Selecting the object…": "Seleccionando el objeto…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 es un extra opcional: el modelo de segmentación de Meta. Las máscaras Objeto y Describir funcionan sin él, con modelos de licencia abierta; si está instalado, lo usan.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "El modelo SAM 3 está instalado: las máscaras Objeto y Describir lo usan.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Esta versión no puede descargar el modelo. Para instalarlo a mano, pon model.safetensors, vocab.json y merges.txt de facebook/sam3 de Meta en la carpeta de arriba: Objeto y Describir lo usan en cuanto estén ahí.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Este modelo de IA no forma parte de LightCraft y todo lo demás funciona sin él. Describir también usa SAM 2.1, el modelo de Objeto: Descargar obtiene los dos."
 }

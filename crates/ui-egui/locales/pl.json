@@ -1438,7 +1438,6 @@
   "Texture": "Tekstura",
   "That includes the photos in the folders inside it.": "Dotyczy to również zdjęć w znajdujących się wewnątrz folderach.",
   "That key can't be used as a shortcut": "Tego klawisza nie można użyć jako skrótu",
-  "The SAM 3 model is installed: Object and Describe masks are ready.": "Model SAM 3 jest zainstalowany: maski Obiekt i Opis są gotowe.",
   "The download didn't work:": "Pobieranie nie powiodło się:",
   "The number at the end of the original name (IMG_0042 → 0042)": "Liczba na końcu oryginalnej nazwy (IMG_0042 → 0042)",
   "The original extension is always added; {ext} only puts it inside the name as well.": "Oryginalne rozszerzenie jest zawsze dodawane; {ext} umieszcza je również wewnątrz nazwy.",
@@ -1923,7 +1922,6 @@
   "Move: the files are moved to the folder below; each original (and its XMP sidecar) is removed from the source only after its copy is verified. Duplicates and files that fail stay where they are.": "Przenieś: pliki są przenoszone do folderu poniżej; oryginał (wraz z plikiem XMP) jest usuwany ze źródła dopiero po weryfikacji kopii. Duplikaty i pliki z błędami pozostają na miejscu.",
   "Nikon NEFs start from a colour and tone look fitted to the camera's own JPEG, as Sony ARWs do, instead of a muted,": "Pliki Nikon NEF otrzymują wstępne kolory i tonalność dopasowane do JPEG z aparatu, podobnie jak Sony ARW, zamiast wyblakłego,",
   "Nikon splits into two differently compressed halves still use the preview for now.)": "Pliki Nikon podzielone na dwie części o różnych rodzajach kompresji nadal korzystają na razie z podglądu).",
-  "Object and Describe masks use SAM 3, Meta's segmentation model. It isn't part of LightCraft, and everything else works without it.": "Maski Obiekt i Opis korzystają z modelu segmentacji SAM 3 firmy Meta. Nie jest on częścią LightCraft; wszystkie pozostałe funkcje działają bez niego.",
   "Panasonic and Leica raws (RW2, RWL and the older RAW files, DMC-LX1 to DC-S1R II) develop from the raw data in": "Pliki RAW Panasonic i Leica (RW2, RWL i starsze RAW, od DMC-LX1 do DC-S1R II) są wywoływane z danych RAW w",
   "Photo menu. The filmstrip has the photo context menu too. Adding a file again that is in Recently Deleted no": "menu Zdjęcie. Pasek zdjęć ma także menu kontekstowe. Ponowne dodanie pliku znajdującego się w Ostatnio usuniętych nie",
   "Photo ▸ Edit in External Editor (⇧⌘E) renders a 16-bit TIFF copy, stacks it with the original and opens it here (an app name on macOS, a program path elsewhere).": "Zdjęcie → Edytuj w edytorze zewnętrznym (⇧⌘E) tworzy 16-bitową kopię TIFF, grupuje ją z oryginałem i otwiera w wybranym programie (nazwa aplikacji w macOS, ścieżka programu w pozostałych systemach).",
@@ -2038,7 +2036,6 @@
   "written by a newer LightCraft), LightCraft says so and why, and offers Try Again, Choose Another Library…, Continue": "zapisana przez nowszą wersję LightCraft), LightCraft wyjaśnia przyczynę i proponuje Spróbuj ponownie, Wybierz inną bibliotekę… lub Kontynuuj",
   "日本語": "日本語",
   "繁體中文（台灣）": "繁體中文（台灣）",
-  "This build can't download the model yet. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe work as soon as they are there.": "Ta wersja programu nie może jeszcze pobrać modelu. Aby zainstalować go ręcznie, umieść pliki model.safetensors, vocab.json i merges.txt od Meta (facebook/sam3) w powyższym folderze: funkcje Obiekt i Opis zadziałają, gdy pliki się tam znajdą.",
   "denoiseModel.accept": "denoiseModel.accept",
   "Add Face Model…": "Dodaj model twarzy…",
   "Add to Apple Photos": "Dodaj do aplikacji Zdjęcia",
@@ -2188,5 +2185,9 @@
   "Finding the remembered object…": "Szukam zapamiętanego obiektu…",
   "Finding the sky…": "Szukam nieba…",
   "Finding the subject…": "Szukam obiektu głównego…",
-  "Selecting the object…": "Zaznaczam obiekt…"
+  "Selecting the object…": "Zaznaczam obiekt…",
+  "SAM 3 is an optional extra: Meta's segmentation model. Object and Describe masks work without it, on openly licensed models; with it installed, they use it.": "SAM 3 to opcjonalny dodatek: model segmentacji firmy Meta. Maski Obiekt i Opisz działają bez niego, na modelach z otwartą licencją; gdy jest zainstalowany, używają go.",
+  "The SAM 3 model is installed: Object and Describe masks use it.": "Model SAM 3 jest zainstalowany: maski Obiekt i Opisz go używają.",
+  "This build can't download the model. To install it by hand, put model.safetensors, vocab.json and merges.txt from Meta's facebook/sam3 in the folder above: Object and Describe use it as soon as they are there.": "Ta wersja nie może pobrać modelu. Aby zainstalować go ręcznie, umieść model.safetensors, vocab.json i merges.txt z facebook/sam3 firmy Meta w folderze powyżej: Obiekt i Opisz użyją go, gdy tylko tam będą.",
+  "This AI model isn't part of LightCraft, and everything else works without it. Describe also uses SAM 2.1, the Object model: Download gets both.": "Ten model AI nie jest częścią LightCraft i wszystko inne działa bez niego. Opisz używa też SAM 2.1, modelu Obiektu: Pobierz pobiera oba."
 }

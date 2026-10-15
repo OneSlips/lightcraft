@@ -485,20 +485,24 @@ pub(crate) fn component_row_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, mas
     }
 }
 
-/// Whether the SAM 3 model is missing in a build that could use it: then the download is
-/// offered (with `then` to start afterwards) instead of starting an AI mask.
+/// Whether an AI model Object or Describe needs is missing in a build that could use it: then
+/// its download is offered (with `then` to start afterwards) instead of starting the mask. Both
+/// run on openly licensed models (Object on SAM 2.1, Describe on OWLv2 and SAM 2.1); SAM 3 is an
+/// optional extra, offered only when there is no folder for the open models.
 fn needs_model(app: &mut LightcraftApp, kind: &str, op: &str) -> bool {
     let seg = &app.session.segmenter;
     let sam3 = seg.remote_endpoint().is_some() || seg.installed();
     if !lightcraft_engine::segment::Segmenter::AVAILABLE || sam3 {
         return false;
     }
-    // Object runs on SAM 2.1 (open) when SAM 3 isn't there; Describe needs SAM 3
-    if kind == "object" && seg.models_root.is_some() {
-        if seg.model_installed("sam2") {
-            return false;
-        }
-        app.offer_ai_model("sam2", Some((kind, op)));
+    if seg.models_root.is_some() {
+        let missing = match kind {
+            "object" => (!seg.model_installed("sam2")).then_some("sam2"),
+            // the finder first, then SAM 2.1 (each download offers the next when it is done)
+            _ => seg.describe_needs().first().copied(),
+        };
+        let Some(model) = missing else { return false };
+        app.offer_ai_model(model, Some((kind, op)));
         return true;
     }
     if seg.dir.is_some() {
