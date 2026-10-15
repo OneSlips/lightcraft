@@ -90,6 +90,8 @@ mod tests_library_problem;
 #[cfg(test)]
 mod tests_lights_out;
 #[cfg(test)]
+mod tests_mask_local;
+#[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
 mod tests_masking_layout;

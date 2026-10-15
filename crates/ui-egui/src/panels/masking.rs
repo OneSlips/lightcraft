@@ -421,6 +421,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     };
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
+    // the mask's own Curve and Point Color
+    super::mask_local::sections(app, ui, id, &m);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
 }

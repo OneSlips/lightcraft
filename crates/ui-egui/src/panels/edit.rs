@@ -4,7 +4,7 @@
 use egui::epaint::{Mesh, Vertex};
 use egui::{Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, pos2, vec2};
 use lightcraft_catalog::PhotoId;
-use lightcraft_develop::{ControlSpec, DevelopSettings, Section, Track, WbMode, controls};
+use lightcraft_develop::{ControlSpec, DevelopSettings, Section, ToneCurve, Track, WbMode, controls};
 use lightcraft_geom::Point;
 use lightcraft_raster::Histogram;
 use serde_json::{Value, json};
@@ -841,8 +841,77 @@ fn draw_curve_histogram(p: &egui::Painter, r: Rect, h: &lightcraft_raster::Histo
     p.add(mesh);
 }
 
+/// Whose curve a curve editor edits: the photo's (Tone Curve) or a mask's (its Curve section).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum CurveTarget {
+    Global,
+    Mask(u32),
+}
+
+impl CurveTarget {
+    /// The channel shown (`parametric`, `master`, `red`, `green`, `blue`).
+    fn channel(self, app: &LightcraftApp) -> String {
+        match self {
+            CurveTarget::Global => app.ui.curve_channel.clone(),
+            // a mask's curve has no parametric part (as in Lightroom)
+            CurveTarget::Mask(_) if !["master", "red", "green", "blue"].contains(&app.ui.mask_curve_channel.as_str()) => "master".into(),
+            CurveTarget::Mask(_) => app.ui.mask_curve_channel.clone(),
+        }
+    }
+
+    fn set_channel(self, app: &mut LightcraftApp, ch: &str) {
+        match self {
+            CurveTarget::Global => app.ui.curve_channel = ch.into(),
+            CurveTarget::Mask(_) => app.ui.mask_curve_channel = ch.into(),
+        }
+    }
+
+    /// Prefix of the widget names the control channel addresses (`curve`, `curveChannel:red`…).
+    fn widget(self) -> &'static str {
+        match self {
+            CurveTarget::Global => "curve",
+            CurveTarget::Mask(_) => "maskCurve",
+        }
+    }
+
+    /// Straighten channel `ch` (`all`: every channel).
+    fn reset(self, app: &mut LightcraftApp, ch: &str) {
+        let _ = match self {
+            CurveTarget::Global => app.run("curve.reset", json!({"channel": ch})),
+            CurveTarget::Mask(id) if ch == "all" => app.run("mask.curve", json!({"id": id, "reset": true})),
+            CurveTarget::Mask(id) => app.run("mask.curve", json!({"id": id, "channel": ch, "reset": true})),
+        };
+    }
+
+    fn set_points(self, app: &mut LightcraftApp, ch: &str, points: &[[f64; 2]]) {
+        let _ = match self {
+            CurveTarget::Global => app.run("develop.curve", json!({"channel": ch, "points": points})),
+            CurveTarget::Mask(id) => app.run("mask.curve", json!({"id": id, "channel": ch, "points": points})),
+        };
+    }
+}
+
 fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings) {
+    if curve_graph(app, ui, id, &d.curve, CurveTarget::Global) {
+        // the parametric curve: its region sliders
+        curve_footer(app, ui, d);
+        for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
+            control(app, ui, d, c, true);
+        }
+        control(app, ui, d, "curve.refineSaturation", true);
+        return;
+    }
+    curve_footer(app, ui, d);
+    control(app, ui, d, "curve.refineSaturation", true);
+}
+
+/// The curve graph with its channel selector for `target`'s `curve_settings`: drag, add and delete
+/// points, double-click a channel to straighten it. True when it shows the parametric curve (Global
+/// only: the caller adds its sliders).
+pub(crate) fn curve_graph(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, curve_settings: &ToneCurve, target: CurveTarget) -> bool {
     let t = Tokens::get(ui.ctx());
+    let wname = target.widget();
+    let current = target.channel(app);
     // channel selector
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 4 }).show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -853,9 +922,12 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                 ("green", hex("#33bb55")),
                 ("blue", hex("#3377ee")),
             ] {
+                if ch == "parametric" && target != CurveTarget::Global {
+                    continue;
+                }
                 let (r, resp) = ui.allocate_exact_size(vec2(24.0, 24.0), Sense::click());
-                register(ui.ctx(), format!("curveChannel:{ch}"), r);
-                let sel = app.ui.curve_channel == ch;
+                register(ui.ctx(), format!("{wname}Channel:{ch}"), r);
+                let sel = current == ch;
                 if ch == "parametric" {
                     paint(ui.painter(), r.shrink(4.0), Icon::Curve, if sel { t.text } else { t.icon });
                 } else {
@@ -876,25 +948,27 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                 };
                 let resp = resp.on_hover_text(crate::i18n::tr_format!("{name} — double-click to reset it", name = name));
                 if resp.double_clicked() {
-                    app.ui.curve_channel = ch.into();
-                    let _ = app.run("curve.reset", json!({"channel": ch}));
+                    target.set_channel(app, ch);
+                    target.reset(app, ch);
                 } else if resp.clicked() {
-                    app.ui.curve_channel = ch.into();
+                    target.set_channel(app, ch);
                 }
             }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
-            });
+            if target == CurveTarget::Global {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    tat_button(app, ui, "tat:curve", "Targeted adjustment: drag up/down on the photo to adjust the curve there");
+                });
+            }
         });
     });
-    let ch = app.ui.curve_channel.clone();
+    let ch = target.channel(app);
     let w = ui.available_width();
     let side = (w - 48.0).max(80.0);
     let (outer, _) = ui.allocate_exact_size(vec2(w, side + 12.0), Sense::hover());
     let r = Rect::from_min_size(pos2(outer.left() + 24.0, outer.top() + 6.0), vec2(side, side));
-    let resp = ui.interact(r, egui::Id::new(("curve", &ch)), Sense::click_and_drag());
-    register(ui.ctx(), "curve", r);
-    resp.context_menu(|ui| curve_reset_menu(app, ui, &ch));
+    let resp = ui.interact(r, egui::Id::new((wname, target, &ch)), Sense::click_and_drag());
+    register(ui.ctx(), wname, r);
+    resp.context_menu(|ui| curve_reset_menu(app, ui, &ch, target));
     let p = ui.painter();
     p.rect_filled(r, 2.0, t.canvas);
     if let Some(hist) = preview_histogram(app, id) {
@@ -916,7 +990,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
     let from_screen = |q: Pos2| (((q.x - r.left()) / r.width()).clamp(0.0, 1.0) as f64, ((r.bottom() - q.y) / r.height()).clamp(0.0, 1.0) as f64);
     if ch == "parametric" {
         // draw the effective parametric curve by sampling the pipeline's region curve approximation
-        let c = &d.curve;
+        let c = curve_settings;
         let regions = [
             (0.0, c.split_shadows / 100.0, c.shadows),
             (c.split_shadows / 100.0, c.split_mid / 100.0, c.darks),
@@ -936,23 +1010,18 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             })
             .collect();
         p.add(egui::Shape::line(pts, Stroke::new(2.0, Color32::from_gray(220))));
-        curve_footer(app, ui, d);
-        for c in ["curve.highlights", "curve.lights", "curve.darks", "curve.shadows"] {
-            control(app, ui, d, c, true);
-        }
-        control(app, ui, d, "curve.refineSaturation", true);
-        return;
+        return true;
     }
-    let pts_of = |d: &DevelopSettings| -> Vec<Point> {
+    let pts_of = |c: &ToneCurve| -> Vec<Point> {
         let v = match ch.as_str() {
-            "red" => &d.curve.red,
-            "green" => &d.curve.green,
-            "blue" => &d.curve.blue,
-            _ => &d.curve.master,
+            "red" => &c.red,
+            "green" => &c.green,
+            "blue" => &c.blue,
+            _ => &c.master,
         };
         if v.is_empty() { vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)] } else { v.clone() }
     };
-    let pts = pts_of(d);
+    let pts = pts_of(curve_settings);
     let curve = lightcraft_color::spline::MonotoneCurve::new(&pts.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
     let color = match ch.as_str() {
         "red" => hex("#dd3333"),
@@ -964,7 +1033,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
     p.add(egui::Shape::line(line, Stroke::new(2.0, color)));
     // interaction: drag a point (both axes, between its neighbours; ⌥ = fine), drag empty space to add and
     // drag a new point, click empty space to add, double-click a point to delete it
-    let drag_id = egui::Id::new(("curve-drag", &ch));
+    let drag_id = egui::Id::new(("curve-drag", target, &ch));
     // the point being dragged (stored as `Option<usize>` so a stale value can be cleared)
     let mut dragging: Option<usize> = ui.data(|dd| dd.get_temp::<Option<usize>>(drag_id)).flatten();
     let nearest = |q: Pos2| pts.iter().enumerate().map(|(i, p)| (i, to_screen(p.x, p.y).distance(q))).min_by(|a, b| a.1.total_cmp(&b.1));
@@ -1008,7 +1077,8 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
     {
         // pick the point under the press, not where the pointer is once the drag threshold passed
-        let _ = app.run("develop.beginInteraction", json!({"label": "Tone Curve"}));
+        let label = if target == CurveTarget::Global { "Tone Curve" } else { "Mask Curve" };
+        let _ = app.run("develop.beginInteraction", json!({"label": label}));
         match nearest(q) {
             Some((i, dist)) if dist < 10.0 => dragging = Some(i),
             _ => {
@@ -1059,16 +1129,14 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
     }
     if let Some(v) = new_pts {
         let arr: Vec<[f64; 2]> = v.iter().map(|p| [p.x, p.y]).collect();
-        let _ = app.run("develop.curve", json!({"channel": ch, "points": arr}));
+        target.set_points(app, &ch, &arr);
     }
     if resp.drag_stopped() {
         dragging = None;
         let _ = app.run("develop.endInteraction", json!({}));
     }
     ui.data_mut(|dd| dd.insert_temp(drag_id, dragging));
-    curve_footer(app, ui, d);
-    control(app, ui, d, "curve.refineSaturation", true);
-    let _ = id;
+    false
 }
 
 /// The row under the curve graph: point-curve presets and reset every curve.
@@ -1140,22 +1208,23 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
 }
 
 /// Right-click menu of the curve graph.
-fn curve_reset_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, ch: &str) {
+fn curve_reset_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, ch: &str, target: CurveTarget) {
     let label = if ch == "parametric" {
         crate::i18n::tr("Reset Parametric Curve").to_string()
     } else {
         crate::i18n::tr_format!("Reset {} Channel", crate::i18n::tr(channel_label(ch)))
     };
+    let wname = target.widget();
     let r = ui.button(label);
-    register(ui.ctx(), "curveMenu:resetChannel", r.rect);
+    register(ui.ctx(), format!("{wname}Menu:resetChannel"), r.rect);
     if r.clicked() {
-        let _ = app.run("curve.reset", json!({"channel": ch}));
+        target.reset(app, ch);
         ui.close();
     }
     let r = ui.button(crate::i18n::tr("Reset All Curves"));
-    register(ui.ctx(), "curveMenu:resetAll", r.rect);
+    register(ui.ctx(), format!("{wname}Menu:resetAll"), r.rect);
     if r.clicked() {
-        let _ = app.run("curve.reset", json!({"channel": "all"}));
+        target.reset(app, "all");
         ui.close();
     }
 }
@@ -1255,7 +1324,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
 // ------------------------------------------------------------------------------ point color
 
 /// Display colour of an OkLCh sample (lightness, chroma, hue in degrees).
-fn oklch_color(l: f64, c: f64, h_deg: f64) -> Color32 {
+pub(crate) fn oklch_color(l: f64, c: f64, h_deg: f64) -> Color32 {
     use lightcraft_color::perceptual::{lch_to_lab, oklab_to_2020};
     let lin = oklab_to_2020(lch_to_lab([l as f32, c as f32, (h_deg as f32).to_radians()]));
     let s = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).apply_f32(lin);

@@ -704,6 +704,12 @@ pub struct UiState {
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
     pub point_color_visualize: bool,
+    /// Selected channel of a mask's Curve ("master", "red", "green", "blue").
+    pub mask_curve_channel: String,
+    /// Selected sample of a mask's Point Color.
+    pub mask_point_color: usize,
+    /// A mask's sections (Curve, Point Color) the user folded shut.
+    pub mask_sections_closed: Vec<String>,
     /// Light panel "Visualize HDR": grey below SDR white, colour bands above (HDR edits).
     pub hdr_visualize: bool,
     /// Red Eye panel: selected correction, and whether new ones are pet eyes.
@@ -1166,6 +1172,9 @@ impl Default for UiState {
             remove_opacity: 100.0,
             point_color: 0,
             point_color_visualize: false,
+            mask_curve_channel: "master".into(),
+            mask_point_color: 0,
+            mask_sections_closed: Vec::new(),
             hdr_visualize: false,
             eye: 0,
             eye_pet: false,

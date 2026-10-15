@@ -1924,6 +1924,22 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         color_range_pick(app, ui, resp, map);
         return;
     }
+    // the selected mask's Point Color eyedropper: a click samples the colour there
+    if app.ui.tool == super::mask_local::PICK_TOOL {
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        if resp.clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            let n = map.norm(q);
+            if let Ok(r) = app.run("mask.pickPointColor", json!({"x": n.x, "y": n.y})) {
+                app.ui.mask_point_color = r["index"].as_u64().unwrap_or(0) as usize;
+            }
+            app.ui.tool.clear();
+        }
+        return;
+    }
     // Object tool: a click includes what's under it, ⌥-click leaves it out
     if app.ui.tool == "object" {
         if resp.hovered() {
