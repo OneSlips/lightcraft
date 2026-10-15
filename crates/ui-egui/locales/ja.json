@@ -2042,5 +2042,10 @@
   "Recover Blue Suit": "青いスーツを取り戻す",
   "Bring Sky Down": "空を抑える",
   "Brighten Dress": "ドレスを明るく",
-  "Darken Background": "背景を暗く"
+  "Darken Background": "背景を暗く",
+  "Overlay settings": "オーバーレイ設定",
+  "The mask's effect on / off": "マスクの効果のオン / オフ",
+  "Drag on the photo to draw the gradient": "写真上でドラッグして段階フィルターを描きます",
+  "Drag on the photo to draw the ellipse (a click places one)": "写真上でドラッグして楕円を描きます（クリックで1つ配置）",
+  "Paint on the photo": "写真上でペイントします"
 }

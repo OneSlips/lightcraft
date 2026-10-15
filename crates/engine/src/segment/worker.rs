@@ -571,7 +571,7 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let logits = if background { invert(logits) } else { logits };
             Ok(Some(SegMask::from_logits(SCENE_SIDE, &logits)))
         }
-        AutoModel::People { people, face, scene } => {
+        AutoModel::People { people, face, scene, sam2 } => {
             let map = match &people {
                 Some(dir) => {
                     ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
@@ -618,17 +618,28 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 };
                 let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
                 match pick_face(&faces, *rect, known, map, input, emb.as_ref()) {
-                    Some(i) => req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1),
+                    Some(i) => {
+                        log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
+                        req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
+                    }
                     None => return Ok(None),
                 }
             }
+            // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
+            // others' left out), so what touches them — an arm round the bride — stays the other's
+            let instances = match (&sam2, req.person) {
+                (Some(dir), n) if n > 0 && faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
+                _ => None,
+            };
             let map = match &people {
                 Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
                 None => None,
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
             let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
-            let Some(g) = people_mask(&req, &input.rgb, input.w, input.h, map, &faces) else { return Ok(None) };
+            let Some(g) = lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref()) else {
+                return Ok(None);
+            };
             if skin && face.is_none() {
                 state.note = Some("Skin includes eyes, brows and mouth: the MediaPipe faces model, which finds them, isn't installed.".into());
             } else if skin && g.faces_without_features > 0 {
@@ -650,6 +661,57 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let found = lightcraft_segment::concept::find(m, enc, examples, &input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
             log::info!("remembered object: best likeness {:.3}", found.as_ref().map_or(f32::NAN, |f| f.score));
             Ok(found.map(|f| SegMask::from_logits(f.mask_side, &f.logits)))
+        }
+    }
+}
+
+/// Everyone's silhouette (SAM 2.1, for each face: clicks on it and down its body, the other faces
+/// left out), so where people overlap a pixel goes to whoever's silhouette claims it most; `None`
+/// (with a log line) when SAM 2.1 can't give them.
+fn person_instances(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    dir: &std::path::Path,
+    faces: &[Face],
+) -> Option<lightcraft_segment::people::Instances> {
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h))?;
+    let (w, h) = (input.0.max(1) as f32, input.1.max(1) as f32);
+    let centre = |f: &Face| {
+        let d = &f.detection;
+        (((d.x0 + d.x1) / 2.0 / w).clamp(0.0, 1.0), ((d.y0 + d.y1) / 2.0 / h).clamp(0.0, 1.0), ((d.y1 - d.y0) / h).max(0.0))
+    };
+    let keep = std::mem::replace(&mut job.dir, dir.to_path_buf());
+    let out = sam2_on_input(state, shared, job).and_then(|(m, enc, _)| {
+        let mut people = Vec::with_capacity(faces.len());
+        for (k, f) in faces.iter().enumerate() {
+            let (cx, cy, fh) = centre(f);
+            // their face, chest and middle (below the frame: left out)
+            let mut clicks: Vec<lightcraft_segment::Click> = [0.0, 1.6, 3.2]
+                .iter()
+                .map(|d| cy + d * fh)
+                .filter(|y| *y < 0.98)
+                .map(|y| lightcraft_segment::Click { x: cx, y, positive: true })
+                .collect();
+            for (j, o) in faces.iter().enumerate() {
+                if j != k {
+                    let (ox, oy, _) = centre(o);
+                    clicks.push(lightcraft_segment::Click { x: ox, y: oy, positive: false });
+                }
+            }
+            let p = m.segment_clicks_with(enc, &clicks, false).map_err(|e| e.to_string())?;
+            let share = p.logits.iter().filter(|l| **l > -1.0).count() as f32 / p.logits.len().max(1) as f32;
+            log::info!("people: person {} of {}: silhouette {:.0}% of the photo", k + 1, faces.len(), share * 100.0);
+            people.push(p.logits);
+        }
+        Ok(people)
+    });
+    job.dir = keep;
+    match out {
+        Ok(people) => Some(lightcraft_segment::people::Instances { side: SAM2_MASK_SIDE, people }),
+        Err(e) => {
+            log::warn!("people: no silhouettes from SAM 2.1 ({e})");
+            None
         }
     }
 }

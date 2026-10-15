@@ -85,7 +85,7 @@ fn another_preset_in_between_makes_the_masks_the_photographers() {
     assert_eq!(s.develop_of(s.active().unwrap()).unwrap().light.contrast, 25.0, "the look's settings are set");
     apply(&mut s, &sky);
     let m = masks(&s);
-    assert_eq!(m.iter().filter(|m| m.name == "Sky").count(), 2, "P, Q, P: P's masks are added again");
+    assert_eq!(m.iter().filter(|m| m.name == "Bring sky down").count(), 2, "P, Q, P: P's masks are added again (named after it)");
     assert_eq!(m.iter().filter(|m| m.preset.is_some()).count(), 1, "only the latest application is provisional");
     let ids: std::collections::HashSet<u32> = m.iter().map(|m| m.id).collect();
     assert_eq!(ids.len(), m.len(), "ids stay unique");
@@ -229,11 +229,11 @@ fn forgetting_deletes_the_face_data() {
     let mut s = Session::new();
     s.open_library(&dir, true).unwrap();
     let id = s.active().or_else(|| s.catalog.photos().next().map(|p| p.id)).unwrap();
-    s.execute("people.setRole", &json!({"role": "Bride", "person": "Sam", "scope": {"ids": [id.0]}})).unwrap();
+    s.execute("people.setRole", &json!({"role": "Bride", "person": "Alex", "scope": {"ids": [id.0]}})).unwrap();
     assert!(dir.join("people.json").exists());
     std::fs::write(dir.join("face-embeddings-test.bin"), b"LCFE").unwrap();
     std::fs::write(dir.join("face-scanned.bin"), b"LCFS").unwrap();
-    let r = s.execute("people.forget", &json!({"person": "sam"})).unwrap();
+    let r = s.execute("people.forget", &json!({"person": "alex"})).unwrap();
     assert_eq!(r["forgotten"], true);
     let r = s.execute("people.forgetAll", &json!({})).unwrap();
     assert!(r["deleted"].as_array().unwrap().iter().any(|f| f == "face-embeddings-test.bin"), "{r}");

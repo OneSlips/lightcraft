@@ -147,7 +147,10 @@ fn masking_contents_fit_the_right_panel_at_any_width() {
             let what = format!("width {width}, mask selected {selected}, tool {tool:?}");
             assert_eq!(widget(&h, "panel:right_panel").width(), width, "{what}");
             if selected {
-                assert!(h.app.widgets.iter().any(|(id, _)| id == "button:maskInvert"), "{what}: no mask actions");
+                assert!(
+                    h.app.widgets.iter().any(|(id, _)| id == "icon:maskInvert") && h.app.widgets.iter().any(|(id, _)| id == "button:maskAddComp"),
+                    "{what}: no mask actions"
+                );
             }
             assert_inside_right_panel(&h, &what);
         }

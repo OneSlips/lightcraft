@@ -1,4 +1,4 @@
-//! Who is who, for masks and presets: per-shoot roles ("Bride" is Sam in this folder) and the
+//! Who is who, for masks and presets: per-shoot roles ("Bride" is Alex in this folder) and the
 //! appearance examples that recognise a named person on other photos. Kept in the library as
 //! `people.json` — local only: never written to sidecars, XMP, exports or the network. The faces'
 //! names themselves stay where upstream keeps them (the photos' Face regions).
@@ -270,21 +270,21 @@ mod tests {
     #[test]
     fn roles_resolve_per_shoot_most_specific_first() {
         let mut s = PeopleStore::default();
-        s.set_role("Bride", "Sam", Scope::Folder("W:/Weddings/2026-09-27 Alex and Sam".into())).unwrap();
+        s.set_role("Bride", "Alex", Scope::Folder("W:/Weddings/2026-09-27 Sam and Alex".into())).unwrap();
         s.set_role("Bride", "Chloe", Scope::Folder("W:\\Weddings\\2025-09-04 Chloe".into())).unwrap();
         s.set_role("Groom", "Jack", Scope::Dates { from: "2025-09-04".into(), to: "2025-09-04".into() }).unwrap();
-        let sam = ctx("W:/Weddings/2026-09-27 Alex and Sam/RAWs", "2026-09-27T10:00");
-        assert_eq!(s.role_for("bride", &sam), Some("Sam"));
+        let alex = ctx("W:/Weddings/2026-09-27 Sam and Alex/RAWs", "2026-09-27T10:00");
+        assert_eq!(s.role_for("bride", &alex), Some("Alex"));
         let chloe = ctx("W:/Weddings/2025-09-04 Chloe/RAWs", "2025-09-04T12:00:00");
         assert_eq!(s.role_for("Bride", &chloe), Some("Chloe"));
         assert_eq!(s.role_for("Groom", &chloe), Some("Jack"));
-        assert_eq!(s.role_for("Groom", &sam), None);
+        assert_eq!(s.role_for("Groom", &alex), None);
         // a folder whose name merely starts the same isn't inside
         assert_eq!(s.role_for("Bride", &ctx("W:/Weddings/2025-09-04 Chloe and Johnathon", "")), None);
         // an explicit photo binding beats the folder
-        s.set_role("Bride", "Alex", Scope::Photos(vec![7])).unwrap();
-        assert_eq!(s.role_for("Bride", &sam), Some("Alex"));
-        assert_eq!(s.roles_for(&chloe), vec![("Bride".into(), "Alex".into()), ("Groom".into(), "Jack".into())]);
+        s.set_role("Bride", "Sam", Scope::Photos(vec![7])).unwrap();
+        assert_eq!(s.role_for("Bride", &alex), Some("Sam"));
+        assert_eq!(s.roles_for(&chloe), vec![("Bride".into(), "Sam".into()), ("Groom".into(), "Jack".into())]);
         assert_eq!(s.clear_role("bride", None), 3);
         assert!(s.set_role(" ", "x", Scope::Album(1)).is_err());
     }
@@ -295,11 +295,11 @@ mod tests {
         let ex = |photo, x: f64| Example { photo, rect: [x, 0.1, x + 0.1, 0.2], signature: Value::Null };
         s.add_example("Jack", ex(1, 0.1));
         s.add_example("Jack", ex(2, 0.1));
-        s.add_example("Sam", ex(1, 0.5));
+        s.add_example("Alex", ex(1, 0.5));
         // the same face named again moves to the new name
-        s.add_example("Robin", ex(1, 0.5));
-        assert!(s.person("Sam").is_none());
-        s.rename("Robin", "Jack");
+        s.add_example("Alexa", ex(1, 0.5));
+        assert!(s.person("Alex").is_none());
+        s.rename("Alexa", "Jack");
         assert_eq!(s.person("jack").map(|p| p.examples.len()), Some(3));
         s.set_role("Groom", "Jack", Scope::Album(1)).unwrap();
         s.forget_photos(&[2]);

@@ -199,7 +199,9 @@ pub enum AutoModel {
     /// MediaPipe: Selfie Multiclass for the person, skin, hair and clothes; Face Landmarker for face
     /// parts and for telling people apart. A subject without BiRefNet: the people, else EoMT's most
     /// confident thing (`scene`).
-    People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf> },
+    /// `sam2`: SAM 2.1 to cut one person out of a group (their whole silhouette, so an arm around
+    /// them stays the other person's), when installed.
+    People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf>, sam2: Option<PathBuf> },
     /// SAM 2.1 for a remembered object.
     Concept(PathBuf),
 }
@@ -471,7 +473,7 @@ impl Segmenter {
                     Err(e) => e,
                 };
                 if let Some(people) = ok("people") {
-                    return Ok(AutoModel::People { people: Some(people), face: None, scene: ok("scene") });
+                    return Ok(AutoModel::People { people: Some(people), face: None, scene: ok("scene"), sam2: None });
                 }
                 ok("scene").map(AutoModel::Scene).ok_or(e)
             }
@@ -509,7 +511,13 @@ impl Segmenter {
                         }
                         Err(e)
                     }
-                    (people, face) => Ok(AutoModel::People { people: people.and_then(Result::ok), face: face.and_then(Result::ok), scene: None }),
+                    (people, face) => Ok(AutoModel::People {
+                        people: people.and_then(Result::ok),
+                        face: face.and_then(Result::ok),
+                        scene: None,
+                        // one person of several: their silhouette from SAM 2.1
+                        sam2: if *person > 0 || who.is_some() { ok("sam2") } else { None },
+                    }),
                 }
             }
         }

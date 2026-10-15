@@ -47,6 +47,7 @@ fn click(h: &mut Headless, id: &str) {
 
 fn brush_at(h: &mut Headless, x: f64, y: f64) {
     pointer(h, json!([{"kind": "down", "x": x, "y": y}, {"kind": "up", "x": x, "y": y}]));
+    h.step();
 }
 
 /// Evaluate the real composite, with a deterministic embedded sky matte (no AI model required).
@@ -80,7 +81,7 @@ fn subtract_brush_removes_sky_coverage_and_add_restores_it() {
     exec(&mut h, "mask.add", json!({"kind": "sky"}));
     let r = h.request("ui.set", json!({"brushSize": 0.15, "brushFeather": 0.0, "brushFlow": 100.0}), T);
     assert_eq!(r["ok"], true, "{r}");
-    click(&mut h, "button:maskMinus:1");
+    click(&mut h, "button:maskSubComp");
     click(&mut h, "maskComp:subtract:brush");
     brush_at(&mut h, 0.5, 0.5);
     assert!(mask_coverage(&h, 0, 50, 50) < 0.01, "Subtract > Brush must remove sky coverage");
@@ -101,7 +102,7 @@ fn subtract_brush_removes_sky_coverage_and_add_restores_it() {
     h.app.ui.brush_erase = true;
     brush_at(&mut h, 0.5, 0.5);
     assert!(mask_coverage(&h, 0, 50, 50) > 0.99);
-    click(&mut h, "button:maskPlus:1");
+    click(&mut h, "button:maskAddComp");
     click(&mut h, "maskComp:add:brush");
     brush_at(&mut h, 0.25, 0.5);
     assert!(mask_coverage(&h, 0, 25, 50) > 0.99, "Add must be composed after Subtract");
@@ -117,12 +118,15 @@ fn new_brush_starts_a_separate_mask_in_paint_mode() {
     h.app.ui.brush_erase = true;
     h.app.ui.mask_overlay = false;
     click(&mut h, "maskNew:brush");
-    assert_eq!(h.app.session.active_mask, Some(2));
+    // armed: nothing is made until the photo is painted
+    assert_eq!(develop(&h).masks.len(), 1);
     assert!(!h.app.ui.brush_erase);
-    assert!(h.app.ui.mask_overlay);
     let r = h.request("ui.set", json!({"brushSize": 0.15, "brushFeather": 0.0, "brushFlow": 100.0}), T);
     assert_eq!(r["ok"], true, "{r}");
     brush_at(&mut h, 0.5, 0.5);
+    assert_eq!(h.app.session.active_mask, Some(2));
+    let d = develop(&h);
+    assert!(crate::panels::detail::overlay_shown(&h.app, &d.masks[1]), "painting shows the overlay");
     assert!(mask_coverage(&h, 1, 50, 50) > 0.99);
     h.app.ui.brush_erase = true;
     brush_at(&mut h, 0.5, 0.5);
@@ -138,19 +142,21 @@ fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
     use lightcraft_pipeline::Overlay;
     let mut h = detail("panel.masking");
     exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
-    assert!(h.app.ui.mask_overlay);
+    // a fresh mask (no adjustment yet) shows its overlay by itself
+    assert!(matches!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }));
 
     // Changing the shape needs the overlay; changing the image needs an unobscured preview.
     exec(&mut h, "mask.refine", json!({"value": 10.0}));
-    assert!(h.app.ui.mask_overlay);
+    assert!(matches!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }));
     // The dock header pushes this adjustment below the initial viewport. Exercise the
     // actual visible slider rather than sending a synthetic click outside its clipped body.
     let panel = h.app.widgets.iter().find(|(id, _)| id == "panel:right_panel").unwrap().1;
     let slider = h.app.widgets.iter().find(|(id, _)| id == "slider:exposure").unwrap().1;
-    assert!(!panel.contains_rect(slider), "exposure initially needs scrolling: {slider:?} in {panel:?}");
-    h.request("ui.move", json!({"x": panel.center().x, "y": panel.center().y}), T);
-    h.request("ui.scroll", json!({"dy": -160.0}), T);
-    h.settle(SETTLE);
+    if !panel.contains_rect(slider) {
+        h.request("ui.move", json!({"x": panel.center().x, "y": panel.center().y}), T);
+        h.request("ui.scroll", json!({"dy": -160.0}), T);
+        h.settle(SETTLE);
+    }
     let slider = h.app.widgets.iter().find(|(id, _)| id == "slider:exposure").unwrap().1;
     assert!(panel.contains_rect(slider), "exposure is visible before clicking: {slider:?} in {panel:?}");
     let r = h.request("ui.clickWidget", json!({"id": "slider:exposure", "fx": 0.7}), T);

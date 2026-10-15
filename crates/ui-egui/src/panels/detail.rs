@@ -1235,6 +1235,33 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
     }
 }
 
+/// Mask tools that set a mask on the photo: the overlay shows while one is in use.
+const MASK_TOOLS: [&str; 6] = ["brush", "linear", "radial", "colorRange", "object", "lumRange"];
+
+/// The mask the overlay shows, if any (as Lightroom Classic): the one whose row or pin the pointer
+/// is on; else the selected mask when the overlay is on (O), when it is fresh (no adjustment yet,
+/// unless O hid it) or while a mask tool is in use. A preset's or an adjusted mask never shows by
+/// itself, so the effect can be judged.
+pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> Option<&'a lightcraft_develop::Mask> {
+    if let Some(m) = app.ui.mask_hover.or(app.ui.mask_hover_prev).and_then(|id| d.masks.iter().find(|m| m.id == id)) {
+        return Some(m);
+    }
+    let m = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))?;
+    overlay_shown(app, m).then_some(m)
+}
+
+/// Whether the selected mask `m`'s overlay shows (without hovering).
+pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
+    if app.ui.mask_overlay {
+        return true;
+    }
+    if app.ui.mask_overlay_hidden == Some(m.id) {
+        return false;
+    }
+    let fresh = m.adjust == lightcraft_develop::LocalAdjustments::default() && m.preset.is_none();
+    fresh || MASK_TOOLS.contains(&app.ui.tool.as_str())
+}
+
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
 /// Visualize Spots).
 pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcraft_pipeline::Overlay {
@@ -1248,19 +1275,18 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
         return Overlay::AllMasks {
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
-            opacity: app.ui.mask_overlay_opacity.clamp(0.0, 100.0).round() as u8,
+            opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
     if app.ui.right == RightPanel::Masking
-        && app.ui.mask_overlay
-        && let Some(m) = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))
+        && let Some(m) = overlay_mask(app, d)
         && !m.components.is_empty()
     {
         return Overlay::Mask {
             id: m.id.min(u16::MAX as u32) as u16,
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
-            opacity: app.ui.mask_overlay_opacity.clamp(0.0, 100.0).round() as u8,
+            opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
     if app.ui.right == RightPanel::Remove && app.ui.visualize_spots {
@@ -1769,6 +1795,13 @@ fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &Canvas
                 }
                 MaskShape::Radial { center, rx: new_rx, ry: new_ry, angle, feather, invert }
             }
+            // drawing a new ellipse: both radii follow the pointer
+            9 => {
+                let l = frame_long_norm(map);
+                let rx = ((at.x - center.x) / l.0).abs().max(0.01);
+                let ry = ((at.y - center.y) / l.1).abs().max(0.01);
+                MaskShape::Radial { center, rx, ry, angle, feather, invert }
+            }
             5 => {
                 let l = frame_long_norm(map);
                 let dx = (at.x - center.x) / l.0;
@@ -1894,6 +1927,67 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 grips.push((m.id, ci, 0, q));
             }
         }
+    }
+    // a mask tool armed in the panel: the first click or drag here makes its mask
+    if app.ui.mask_new.as_ref().is_some_and(|(k, _)| *k != app.ui.tool) {
+        app.ui.mask_new = None;
+    }
+    if let Some((kind, op)) = app.ui.mask_new.clone()
+        && (resp.drag_started() || resp.clicked())
+        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+    {
+        let n0 = map.norm(q);
+        let drag = resp.drag_started();
+        let params = match kind.as_str() {
+            "linear" if drag => Some(json!({"kind": "linear", "start": n0, "end": n0})),
+            "radial" if drag => Some(json!({"kind": "radial", "center": n0, "rx": 0.01, "ry": 0.01})),
+            "radial" => Some(json!({"kind": "radial", "center": n0})),
+            "brush" | "colorRange" | "object" => Some(json!({"kind": kind})),
+            _ => None,
+        };
+        if let Some(mut params) = params {
+            let shaped = matches!(kind.as_str(), "linear" | "radial") && drag;
+            if shaped {
+                let _ = app.run("develop.beginInteraction", json!({"label": "New Mask"}));
+            }
+            let r = if op == "new" {
+                app.run("mask.add", params)
+            } else {
+                params["op"] = json!(op);
+                app.run("mask.addComponent", params)
+            };
+            match r {
+                Ok(_) => {
+                    app.ui.mask_new = None;
+                    if shaped {
+                        // drawing: the new gradient's end (or the ellipse's size) follows the pointer
+                        let made = app.session.active().and_then(|id| app.session.develop_of(id)).and_then(|d| {
+                            let m = d.masks.iter().find(|m| Some(m.id) == app.session.active_mask)?;
+                            let k = m.components.len().checked_sub(1)?;
+                            Some((m.id, k, m.components.get(k)?.shape.clone()))
+                        });
+                        if let Some((mask, comp, original_shape)) = made {
+                            let handle = if kind == "linear" { 2 } else { 9 };
+                            app.gesture = Some(Gesture::MaskHandle { mask, comp, handle, original_shape });
+                        }
+                        return;
+                    }
+                }
+                Err(e) => {
+                    if shaped {
+                        let _ = app.run("develop.endInteraction", json!({}));
+                    }
+                    app.toast(ui.ctx(), e);
+                    return;
+                }
+            }
+        }
+    }
+    // the pointer on a pin shows that mask's overlay (as Lightroom Classic)
+    if let Some(h) = resp.hover_pos()
+        && let Some((mid, ..)) = grips.iter().find(|(_, _, handle, q)| *handle == 0 && q.distance(h) < 9.0)
+    {
+        app.ui.mask_hover = Some(*mid);
     }
     // Object selections (SAM 3) of the selected mask: each click, green to include, red to exclude
     // (clicks still on their way to the model included)

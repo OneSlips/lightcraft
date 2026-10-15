@@ -2232,5 +2232,10 @@
   "Recover Blue Suit": "Вернуть синий костюм",
   "Bring Sky Down": "Приглушить небо",
   "Brighten Dress": "Осветлить платье",
-  "Darken Background": "Затемнить фон"
+  "Darken Background": "Затемнить фон",
+  "Overlay settings": "Настройки наложения",
+  "The mask's effect on / off": "Действие маски вкл. / выкл.",
+  "Drag on the photo to draw the gradient": "Протяните по фото, чтобы нарисовать градиент",
+  "Drag on the photo to draw the ellipse (a click places one)": "Протяните по фото, чтобы нарисовать эллипс (щелчок ставит готовый)",
+  "Paint on the photo": "Рисуйте по фото"
 }

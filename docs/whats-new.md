@@ -1,5 +1,24 @@
 # What's new in LightCraft
 
+## 2026-10-15
+
+### Masking panel
+- The **mask overlay** shows only while it helps: for a mask you have just made, while you paint or
+  draw, and while the pointer rests on a mask's name or pin. Adjust the mask and you see its effect;
+  presets never leave the overlay on. **O** shows or hides it; its colour and opacity are in the
+  small menu by the Masks title.
+- Masks are a **tree with thumbnails**: each mask, and under the selected one its parts, with Add,
+  Subtract, Intersect and Invert. The **eye** switches a mask's effect on and off; the **bin**
+  deletes it. **Amount** (the strength of the mask's effect) is the first slider.
+- **Tools wait for the photo**: Brush, Linear, Radial, Color and Object make their mask with your
+  first stroke, drag or click on the photo; clicking the tool again puts it away. No more empty
+  masks.
+- Masks are **named after where they come from**: the preset ("Sun Kissed"), the person ("Groom
+  Jamie - Clothes"), or what they select ("Radial Gradient − Linear Gradient"). Rename one and your
+  name stays.
+- **Brighten Dress** and the other People masks for one person follow that person's outline, so an
+  arm around the bride or the groom's cuff on her waist stays out, and their edges follow the dress.
+
 ## 2026-10-14
 
 ### Smart AI-mask presets

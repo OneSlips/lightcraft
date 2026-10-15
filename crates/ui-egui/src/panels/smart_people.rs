@@ -26,6 +26,21 @@ pub fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let Some((mut person, mut parts)) = app.ui.people_pick.clone() else { return };
     let t = Tokens::get(ui.ctx());
     ui.add_space(6.0);
+    // the picker's title, with a button that folds it away (as the People tile does)
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr("People")).font(t.semibold(12.5)).color(t.text_label));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if crate::widgets::icon_button(ui, "maskPeople:close", crate::icons::Icon::ChevronDown, egui::vec2(20.0, 20.0), false, true, "Close")
+                .clicked()
+            {
+                app.ui.people_pick = None;
+                app.ui.people_face = None;
+            }
+        });
+    });
+    if app.ui.people_pick.is_none() {
+        return;
+    }
     let Some(photo) = app.session.active() else { return };
     let faces: Option<Result<Option<Vec<Value>>, String>> =
         if lightcraft_engine::segment::Segmenter::AVAILABLE { Some(app.session.faces_here(photo)) } else { None };
@@ -185,7 +200,7 @@ fn naming(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: lightcraft_catalog:
     ui.horizontal(|ui| {
         ui.add_sized(vec2(50.0, 18.0), egui::Label::new(crate::i18n::tr("Name")));
         let mut name = app.ui.people_name.clone();
-        TextField::singleline("maskPeople:name", &mut name).hint(crate::i18n::tr("Sam")).width(field).show(ui);
+        TextField::singleline("maskPeople:name", &mut name).hint(crate::i18n::tr("Name")).width(field).show(ui);
         app.ui.people_name = name;
     });
     ui.horizontal(|ui| {
@@ -354,7 +369,7 @@ pub fn roles_window(app: &mut LightcraftApp, ctx: &egui::Context) {
             TextField::singleline("rolesWindow:role", &mut role).hint(crate::i18n::tr("Bride")).width(110.0).show(ui);
             app.ui.people_role = role;
             let mut name = app.ui.people_name.clone();
-            TextField::singleline("rolesWindow:person", &mut name).hint(crate::i18n::tr("Sam")).width(130.0).show(ui);
+            TextField::singleline("rolesWindow:person", &mut name).hint(crate::i18n::tr("Name")).width(130.0).show(ui);
             app.ui.people_name = name;
             let can = !app.ui.people_role.trim().is_empty() && !app.ui.people_name.trim().is_empty();
             let b = ui.add_enabled(can, egui::Button::new(crate::i18n::tr("Set Role")));

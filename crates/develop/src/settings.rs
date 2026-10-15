@@ -1009,7 +1009,7 @@ pub enum MaskShape {
     People {
         person: u32,
         parts: Vec<String>,
-        /// Who it is about by name or role ("Sam", the Bride of this shoot), resolved on each
+        /// Who it is about by name or role ("Alex", the Bride of this shoot), resolved on each
         /// photo when the mask is computed; `None`: by `person` (position).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         who: Option<crate::recipe::Who>,

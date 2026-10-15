@@ -249,7 +249,16 @@ impl Preset {
             m.preset = None;
         }
         let mut next = s.masks.iter().chain(&out.masks).map(|m| m.id).max().unwrap_or(0);
+        // named after the preset: "Sun Kissed", or "Dress + Portrait - Clothes" for one of several
+        let short = crate::recipe::short_preset_name(&self.name);
+        let several = masks.len() > 1;
         for mut m in masks {
+            let own = if crate::recipe::generic_name(&m.name) { crate::recipe::content_name(&m) } else { m.name.trim().to_string() };
+            m.name = match (short.is_empty(), several) {
+                (true, _) => own,
+                (false, true) => format!("{short} - {own}"),
+                (false, false) => short.clone(),
+            };
             next = next.saturating_add(1);
             m.id = next;
             m.preset = Some(self.id.clone());
