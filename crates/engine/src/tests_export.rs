@@ -969,6 +969,10 @@ fn same_folder_as_original_exports_next_to_each_photo() {
     let written: Vec<&str> = files.iter().map(|f| f["path"].as_str().unwrap()).collect();
     let mut want = vec![a.join("Exports/IMG_1.jpg").to_string_lossy().to_string(), b.join("Exports/IMG_1.jpg").to_string_lossy().to_string()];
     let mut got: Vec<String> = written.iter().map(|p| p.to_string()).collect();
+    // (separator-blind: on Windows the folder part has `\` and the subfolder part `/`)
+    for p in want.iter_mut().chain(got.iter_mut()) {
+        *p = p.replace('\\', "/");
+    }
     want.sort();
     got.sort();
     assert_eq!(got, want);
