@@ -2865,5 +2865,12 @@
   "Restore and Open": "Відновити й відкрити",
   "Restore makes a new library folder from this backup, beside the current one, and opens it. Nothing is overwritten: the current library stays as it is.": "Відновлення створює з цієї копії нову теку бібліотеки поряд із поточною й відкриває її. Нічого не перезаписується: поточна бібліотека лишається як є.",
   "Restore…": "Відновити…",
-  "Use the Library's Backups Folder": "Використати теку Backups у бібліотеці"
+  "Use the Library's Backups Folder": "Використати теку Backups у бібліотеці",
+  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "Для ШІ-шумозаглушення потрібна модель, а для цієї версії її поки немає. Поки що шум зменшують «Яскравість» і «Колір» у розділі «Деталізація».",
+  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "Власна модель шумозаглушення LightCraft ще навчається, тому в цій версії її немає і завантажувати поки нічого. Нічого шукати чи встановлювати не потрібно.",
+  "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Поки що ваші raw-фото використовують звичайне шумозаглушення: «Яскравість» і «Колір» у розділі «Деталізація» панелі «Редагування». Воно працює на будь-якому фото.",
+  "No AI Denoise model is available yet": "Моделі ШІ-шумозаглушення поки немає",
+  "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Лише якщо вам дали модель шумозаглушення LightCraft (теку з файлом .onnx і denoise-model.json):",
+  "When the model is ready, an update will offer it here as a one-click download.": "Коли модель буде готова, оновлення запропонує завантажити її тут одним клацанням.",
+  "Why?": "Чому?"
 }

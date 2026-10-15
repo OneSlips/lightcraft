@@ -2868,5 +2868,12 @@
   "Restore and Open": "Wiederherstellen und öffnen",
   "Restore makes a new library folder from this backup, beside the current one, and opens it. Nothing is overwritten: the current library stays as it is.": "Wiederherstellen legt aus diesem Backup einen neuen Bibliotheksordner neben der aktuellen an und öffnet ihn. Nichts wird überschrieben: Die aktuelle Bibliothek bleibt, wie sie ist.",
   "Restore…": "Wiederherstellen…",
-  "Use the Library's Backups Folder": "Backups-Ordner der Bibliothek verwenden"
+  "Use the Library's Backups Folder": "Backups-Ordner der Bibliothek verwenden",
+  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "KI-Entrauschen braucht ein Modell, und für diese Version gibt es noch keins. Bis dahin reduzieren Luminanz und Farbe unter Details das Rauschen.",
+  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "Das eigene Entrauschungsmodell von LightCraft wird noch trainiert, deshalb kommt diese Version ohne eins und es gibt noch nichts herunterzuladen. Du musst nichts suchen oder installieren.",
+  "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Bis dahin nutzen deine Raw-Fotos die normale Rauschreduzierung: Luminanz und Farbe unter Details im Bearbeiten-Bedienfeld. Sie funktioniert bei jedem Foto.",
+  "No AI Denoise model is available yet": "Noch kein Modell für KI-Entrauschen verfügbar",
+  "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Nur wenn du ein LightCraft-Entrauschungsmodell bekommen hast (ein Ordner mit einer .onnx-Datei und denoise-model.json):",
+  "When the model is ready, an update will offer it here as a one-click download.": "Sobald das Modell fertig ist, bietet ein Update es hier zum Download mit einem Klick an.",
+  "Why?": "Warum?"
 }

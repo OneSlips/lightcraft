@@ -2706,5 +2706,12 @@
   "Restore and Open": "恢复并打开",
   "Restore makes a new library folder from this backup, beside the current one, and opens it. Nothing is overwritten: the current library stays as it is.": "恢复会用此备份在当前图库旁新建一个图库文件夹并打开它。不会覆盖任何内容：当前图库保持不变。",
   "Restore…": "恢复…",
-  "Use the Library's Backups Folder": "使用图库的 Backups 文件夹"
+  "Use the Library's Backups Folder": "使用图库的 Backups 文件夹",
+  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "AI 降噪需要模型，而此版本还没有可用的模型。在此之前，可以用“细节”中的“明亮度”和“颜色”降噪。",
+  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "LightCraft 自己的降噪模型仍在训练中，因此此版本不附带模型，目前也没有可下载的内容。你无需查找或安装任何东西。",
+  "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "在此之前，你的 RAW 照片使用标准降噪：编辑面板“细节”中的“明亮度”和“颜色”。它适用于每张照片。",
+  "No AI Denoise model is available yet": "暂无可用的 AI 降噪模型",
+  "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "仅当你拿到了 LightCraft 降噪模型（含 .onnx 文件和 denoise-model.json 的文件夹）时：",
+  "When the model is ready, an update will offer it here as a one-click download.": "模型就绪后，更新会在这里提供一键下载。",
+  "Why?": "为什么？"
 }

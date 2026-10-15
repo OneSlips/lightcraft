@@ -36,6 +36,11 @@
 - A backup holds the catalog, the library's settings and LightCraft's settings with your presets
   and profiles. Never the photos or the thumbnail cache, so it takes well under a second.
 
+### AI Denoise
+- When no AI Denoise model is available, Settings ▸ AI Denoise says so plainly: LightCraft's own
+  model is still being trained, there is nothing to download or install yet, and Luminance and
+  Color under Detail reduce noise meanwhile.
+
 ## 2026-10-15
 
 ### Settings window
