@@ -110,10 +110,10 @@ pub fn switch(app: &mut LightcraftApp, tab: Tab) -> Result<Value, String> {
             // the sources are where an import starts
             app.ui.left_panel = true;
             app.ui.right = crate::state::RightPanel::Import;
-            if let Some(b) = app.session.browse.clone() {
-                if std::path::Path::new(&b.path).is_dir() {
-                    let _ = crate::import::browse(app, &b.path, Some(b.subfolders));
-                }
+            if let Some(b) = app.session.browse.clone()
+                && std::path::Path::new(&b.path).is_dir()
+            {
+                let _ = crate::import::browse(app, &b.path, Some(b.subfolders));
             }
         }
         Tab::Library => {

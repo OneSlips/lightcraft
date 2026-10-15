@@ -49,7 +49,7 @@ fn browsing(tag: &str) -> (Session, PathBuf, Vec<PhotoId>) {
         png(&card.join(n), i as u8 * 40);
     }
     let mut s = Session::new().with_fs();
-    s.open_library(&root.join("lib"), false).unwrap();
+    s.open_library(root.join("lib"), false).unwrap();
     presets(&mut s);
     s.execute("library.browse", &json!({"path": card.to_string_lossy()})).unwrap();
     let mut ids: Vec<(String, PhotoId)> = s.catalog.photos().filter(|p| p.local).map(|p| (p.file_name.clone(), p.id)).collect();
@@ -236,7 +236,7 @@ fn an_unfinished_finishing_queue_resumes_after_a_restart() {
     s.persist().unwrap();
     drop(s);
     let mut s = Session::new().with_fs();
-    s.open_library(&root.join("lib"), false).unwrap();
+    s.open_library(root.join("lib"), false).unwrap();
     assert!(s.finish_pending.as_ref().is_some_and(|p| p.ids.len() == 3 && p.previews == "standard"), "the plan was kept");
     s.finishing_tick();
     assert!(s.finishing.is_some() || s.finishing_note.is_some(), "resumed");
@@ -245,7 +245,7 @@ fn an_unfinished_finishing_queue_resumes_after_a_restart() {
     assert_eq!(r["running"], false, "{r}");
     drop(s);
     let mut s = Session::new().with_fs();
-    s.open_library(&root.join("lib"), false).unwrap();
+    s.open_library(root.join("lib"), false).unwrap();
     assert!(s.finish_pending.is_none(), "nothing left to resume");
 }
 
@@ -259,7 +259,7 @@ fn import_presets_are_saved_with_the_library() {
     assert!(s.execute("import.savePreset", &json!({"name": " ", "settings": {}})).is_err());
     drop(s);
     let mut s = Session::new().with_fs();
-    s.open_library(&root.join("lib"), false).unwrap();
+    s.open_library(root.join("lib"), false).unwrap();
     let list = s.execute("import.presets", &json!({})).unwrap();
     assert_eq!(list[0]["settings"]["mode"], "add", "{list}");
     s.execute("import.deletePreset", &json!({"name": "WEDDING"})).unwrap();
