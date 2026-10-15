@@ -614,8 +614,9 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let faces: Vec<Face> = match &face {
                 Some(dir) => {
                     ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
+                    // a face FaceMesh can't fit (3/4 view, small) stays when the class map sees a face there
                     cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
-                        m.faces(&i.rgb, i.w, i.h)
+                        m.faces_confirmed(&i.rgb, i.w, i.h, map)
                     })?
                     .clone()
                 }
@@ -694,9 +695,11 @@ fn skin(
     ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
     cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
     ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
-    let faces: Vec<Face> =
-        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
-            .clone();
+    let seen = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
+    let faces: Vec<Face> = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+        m.faces_confirmed(&i.rgb, i.w, i.h, seen)
+    })?
+    .clone();
     let map = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
     let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
     let parts: Vec<String> = match area {

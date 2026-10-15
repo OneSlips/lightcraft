@@ -274,12 +274,23 @@ impl FaceModel {
     /// Faces with landmarks, left to right. A face only the full-range detector found, and only
     /// half sure of, that FaceMesh doesn't take either is left out (a pattern, not a face).
     pub fn faces(&self, rgb: &[u8], w: usize, h: usize) -> Result<Vec<Face>> {
+        self.faces_confirmed(rgb, w, h, None)
+    }
+
+    /// [`FaceModel::faces`], also keeping a face FaceMesh doesn't take (a 3/4 view, a small face)
+    /// when the class map `seen` (of the same image) has face skin or hair at its centre.
+    pub fn faces_confirmed(&self, rgb: &[u8], w: usize, h: usize, seen: Option<&PeopleMap>) -> Result<Vec<Face>> {
         let faces: Vec<Face> = self
             .detect_all(rgb, w, h)?
             .into_iter()
             .map(|d| Ok(Face { landmarks: self.landmarks(rgb, w, h, &d)?, detection: d }))
             .collect::<Result<_>>()?;
-        Ok(faces.into_iter().filter(|f| f.landmarks.is_some() || f.detection.score >= FACE_THRESHOLD_NO_MESH).collect())
+        let (fw, fh) = (w.max(1) as f32, h.max(1) as f32);
+        let face_there = |d: &Detection| {
+            let [cx, cy] = d.center();
+            seen.is_some_and(|m| m.at(&[1, 3], cx / fw, cy / fh) >= 0.5)
+        };
+        Ok(faces.into_iter().filter(|f| f.landmarks.is_some() || f.detection.score >= FACE_THRESHOLD_NO_MESH || face_there(&f.detection)).collect())
     }
 }
 
