@@ -56,8 +56,10 @@ fn a_long_profile_name_leaves_the_edit_panel_its_width() {
     let dropdown = rect("dropdown:profile");
     let browse = rect("icon:profileBrowser");
     assert!(dropdown.right() <= browse.left(), "the profile menu {dropdown:?} runs into Browse Profiles {browse:?}");
-    let name = texts.iter().find(|t| t.galley.job.text == LONG_NAME).unwrap();
-    assert!(name.galley.elided, "a name wider than the row is cut short");
+    // (the look's name is cut short with … before it is laid out, or by the galley)
+    let cut = |t: &str| t == LONG_NAME || t.strip_suffix('…').is_some_and(|head| LONG_NAME.starts_with(head));
+    let name = texts.iter().find(|t| cut(&t.galley.job.text)).unwrap();
+    assert!(name.galley.elided || name.galley.job.text != LONG_NAME, "a name wider than the row is cut short");
     assert!(name.visual_bounding_rect().right() <= dropdown.right(), "the name leaves its menu");
     // every slider drawn, from the profile's Amount down
     rect("sliderValue:profile.amount");
