@@ -1,5 +1,14 @@
 # What's new in LightCraft
 
+## 2026-10-16
+
+### Loupedeck+
+- The **Loupedeck+** works with LightCraft through the same plugin as the MX Creative Console.
+  With no setup each knob and button does what its label says. Settings ▸ Controls ▸ Loupedeck+
+  shows every control and lets you change it, and **imports your own Loupedeck profile**: the
+  profiles on this computer are listed, one click each. Only the layout comes over; the report
+  lists what didn't (macros, presets LightCraft doesn't have).
+
 ## 2026-10-15
 
 ### Settings window
