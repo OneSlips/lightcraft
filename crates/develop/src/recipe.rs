@@ -3,7 +3,7 @@
 //! ([`Mask::strip_ai`]); each photo computes its own when the mask is applied. Two additions make
 //! recipes say more than "the sky":
 //!
-//! - [`Who`]: People by name ("Sam") or by role in the shoot ("Bride"), resolved per photo;
+//! - [`Who`]: People by name ("Alex") or by role in the shoot ("Bride"), resolved per photo;
 //! - [`Anchor`]: a gradient placed relative to a selection's box ("from the bottom of the
 //!   couple"), resolved into the component's shape on each photo.
 //!
@@ -18,7 +18,7 @@ use crate::{Mask, MaskShape};
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Who {
-    /// A person by name, the same across the catalog ("Sam").
+    /// A person by name, the same across the catalog ("Alex").
     Name(String),
     /// A role in the shoot ("Bride", "Groom"): the person tagged with it where the photo is.
     Role(String),
@@ -32,7 +32,7 @@ impl Who {
         }
     }
 
-    /// For a mask's name: "Bride", "Sam".
+    /// For a mask's name: "Bride", "Alex".
     pub fn label(&self) -> String {
         self.text().trim().to_string()
     }
@@ -149,6 +149,91 @@ impl MaskShape {
         }
         s
     }
+}
+
+/// A component's kind in words ("Sky", "Linear Gradient", "Groom - Clothes, Hair").
+pub fn shape_name(shape: &MaskShape) -> String {
+    match shape {
+        MaskShape::Brush { .. } => "Brush".into(),
+        MaskShape::Linear { .. } => "Linear Gradient".into(),
+        MaskShape::Radial { .. } => "Radial Gradient".into(),
+        MaskShape::ColorRange { .. } => "Color Range".into(),
+        MaskShape::LuminanceRange { .. } => "Luminance Range".into(),
+        MaskShape::DepthRange { .. } => "Depth Range".into(),
+        MaskShape::Subject { .. } => "Subject".into(),
+        MaskShape::Sky { .. } => "Sky".into(),
+        MaskShape::Background { .. } => "Background".into(),
+        MaskShape::Object { .. } => "Object".into(),
+        MaskShape::Prompt { text, .. } => format!("“{}”", text.trim()),
+        MaskShape::Landscape { class, .. } => {
+            let c = match class.as_str() {
+                "naturalGround" => "Natural Ground",
+                "artificialGround" => "Artificial Ground",
+                "sky" => "Sky",
+                "water" => "Water",
+                "vegetation" => "Vegetation",
+                "mountains" => "Mountains",
+                "architecture" => "Architecture",
+                other => other,
+            };
+            c.to_string()
+        }
+        MaskShape::Concept { name, .. } => name.trim().to_string(),
+        MaskShape::People { person, parts, who, .. } => {
+            let who = match who {
+                Some(w) => w.label(),
+                None if *person > 0 => format!("Person {person}"),
+                None => "People".into(),
+            };
+            let parts: Vec<&str> = parts
+                .iter()
+                .map(String::as_str)
+                .filter(|p| !matches!(p.to_ascii_lowercase().as_str(), "person" | "entire person" | "entireperson"))
+                .collect();
+            if parts.is_empty() { who } else { format!("{who} - {}", parts.join(", ")) }
+        }
+    }
+}
+
+/// A mask's name from what it selects: its first component, then the others with their operation
+/// ("Background − Linear Gradient").
+pub fn content_name(m: &Mask) -> String {
+    let mut out = String::new();
+    for (k, c) in m.components.iter().enumerate() {
+        let n = shape_name(&c.shape);
+        let inv = if c.invert { " (inverted)" } else { "" };
+        if k == 0 {
+            out.push_str(&format!("{n}{inv}"));
+        } else {
+            let op = match c.op {
+                crate::MaskOp::Add => "+",
+                crate::MaskOp::Subtract => "−",
+                crate::MaskOp::Intersect => "∩",
+            };
+            out.push_str(&format!(" {op} {n}{inv}"));
+        }
+        if out.chars().count() > 80 {
+            break;
+        }
+    }
+    if out.is_empty() { "Mask".into() } else { out }
+}
+
+/// Whether `name` is a placeholder ("Mask 3", "Mask") that an automatic name may replace.
+pub fn generic_name(name: &str) -> bool {
+    let n = name.trim();
+    n.is_empty() || n == "Mask" || n.strip_prefix("Mask ").is_some_and(|d| !d.is_empty() && d.chars().all(|c| c.is_ascii_digit()))
+}
+
+/// A preset's name without a leading catalogue code and trailing filler ("P10 Sun Kissed" → "Sun
+/// Kissed", "P5 Enhance Portrait......" → "Enhance Portrait").
+pub fn short_preset_name(name: &str) -> String {
+    let n = name.trim().trim_end_matches(['.', ' ', '…']);
+    let mut words = n.split_whitespace();
+    let first = words.next().unwrap_or_default();
+    let code = first.len() <= 5 && first.chars().any(|c| c.is_ascii_digit()) && first.chars().all(|c| c.is_ascii_alphanumeric());
+    let rest: Vec<&str> = words.collect();
+    if code && !rest.is_empty() { rest.join(" ") } else { n.to_string() }
 }
 
 impl Mask {

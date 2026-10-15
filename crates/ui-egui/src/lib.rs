@@ -19,6 +19,7 @@ pub mod icons;
 pub mod import;
 pub mod lightroom_import;
 pub mod links;
+pub mod mask_thumbs;
 pub mod menu_level;
 pub mod menubar;
 pub mod menus;
@@ -89,6 +90,8 @@ mod tests_labels;
 mod tests_library_problem;
 #[cfg(test)]
 mod tests_lights_out;
+#[cfg(test)]
+mod tests_mask_panel;
 #[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
@@ -530,6 +533,10 @@ impl LightcraftApp {
                     .and_then(|photo| self.session.develop_of(photo))
                     .map(|d| d.crop.aspect.map_or(serde_json::json!("free"), |(w, h)| serde_json::json!([w as f64 / 100.0, h as f64 / 100.0])))
             };
+        }
+        if r.is_ok() && matches!(id, "preset.apply" | "develop.paste" | "develop.sync") {
+            // a preset's masks come with their adjustments: show the effect, not an overlay
+            self.ui.mask_overlay = false;
         }
         if r.is_ok() && id == "mask.adjust" {
             // Judge local adjustments on the photo, without the selection overlay obscuring them.
@@ -1344,6 +1351,8 @@ impl LightcraftApp {
         self.library_changed(&ctx);
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
+        // (and the mask row or pin under the pointer: the overlay shows that mask)
+        self.ui.mask_hover_prev = self.ui.mask_hover.take();
         self.ai_mask_detail(&ctx);
         self.place_names_outcome(&ctx);
         if self.ui.fullscreen {

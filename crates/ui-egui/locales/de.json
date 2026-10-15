@@ -2199,5 +2199,10 @@
   "Recover Blue Suit": "Blauen Anzug zurückholen",
   "Bring Sky Down": "Himmel abdunkeln",
   "Brighten Dress": "Kleid aufhellen",
-  "Darken Background": "Hintergrund abdunkeln"
+  "Darken Background": "Hintergrund abdunkeln",
+  "Overlay settings": "Überlagerungseinstellungen",
+  "The mask's effect on / off": "Wirkung der Maske ein / aus",
+  "Drag on the photo to draw the gradient": "Auf dem Foto ziehen, um den Verlauf zu zeichnen",
+  "Drag on the photo to draw the ellipse (a click places one)": "Auf dem Foto ziehen, um die Ellipse zu zeichnen (ein Klick setzt eine)",
+  "Paint on the photo": "Auf dem Foto malen"
 }

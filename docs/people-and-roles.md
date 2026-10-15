@@ -6,11 +6,11 @@ and what, where that knowledge is kept, and how to delete it.
 
 ## Names and roles
 
-- **A name** is a person across your whole catalog: Sam, Jack. Names are the same names the
+- **A name** is a person across your whole catalog: Alex, Jack. Names are the same names the
   People view shows: the name on a face region of a photo, whether it was read from XMP, named in
   the People view or named in the Masking panel.
 - **A role** belongs to one shoot: the Bride, the Groom, the Best Man, the Mother of the Bride… The
-  Bride in one wedding folder is Sam; in another she is Chloe. A role applies within a **scope**:
+  Bride in one wedding folder is Alex; in another she is Chloe. A role applies within a **scope**:
   - a folder (the default: the photo's folder and its sub-folders);
   - an album;
   - a date range;
@@ -20,12 +20,12 @@ and what, where that knowledge is kept, and how to delete it.
   then dates.
 
 A preset that says "the Groom's clothes" finds, on each photo, whoever is the Groom in that photo's
-shoot. A mask that says "Sam's hair" finds Sam.
+shoot. A mask that says "Alex's hair" finds Alex.
 
 ### In the app
 
 - **Masking panel ▸ People.** The picker shows the faces found on the photo as thumbnails, each
-  with its name and role, or a suggestion ("Sam?") for an unnamed face that looks like someone
+  with its name and role, or a suggestion ("Alex?") for an unnamed face that looks like someone
   you named.
   - Click a face to choose that person.
   - Type a **Name** and optionally a **Role** (chips offer Bride, Groom and the other usual roles,

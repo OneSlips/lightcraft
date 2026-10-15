@@ -5,7 +5,7 @@ select and how, never the pixels a model found on the photo the preset was made 
 preset computes the selection again on each photo. The mask can select:
 
 - the sky, the subject or the background;
-- the Bride's clothes or Sam's hair;
+- the Bride's clothes or Alex's hair;
 - the wedding dress you taught LightCraft to recognise;
 - an area bounded by a gradient that starts at the couple's feet.
 
@@ -101,7 +101,7 @@ Moving off restores the view exactly.
 | Landscape class | water, vegetation… | `{"kind": "landscape", "class": "water"}` |
 | People, everyone or by position | Lightroom's "Person 1 - Face Skin" | `{"kind": "people", "person": 0, "parts": ["Face Skin"]}` |
 | People **by role** | the Groom's suit | `{"kind": "people", "parts": ["Clothes"], "who": {"role": "Groom"}}` |
-| People **by name** | Sam's hair | `"who": {"name": "Sam"}` |
+| People **by name** | Alex's hair | `"who": {"name": "Alex"}` |
 | A **remembered object** | the wedding dress | `{"kind": "concept", "name": "Wedding dress"}` |
 | Gradients | linear, radial | normalised coordinates |
 | A gradient **relative to a selection** | from the bottom of the couple | `"anchor": {"to": "people", "shape": {"kind": "linear", …}}` |
@@ -139,13 +139,33 @@ are not asset files).
 | Preset | Mask | Adjustments |
 |---|---|---|
 | **Sun Kissed** | Background, minus a linear gradient anchored to the people (from their feet up to half their height) | warmer (+18), a little brighter, colour 40° at 25, softer highlights, less dehaze: golden-hour backlight behind the couple |
-| **Recover Blue Suit** | the Groom's clothes ∩ a colour range of suit blues (navy, royal, steel, grey-blue) | Saturation +30, a little brighter, open shadows: brings back the blue most wedding looks mute |
+| **Recover Blue Suit** | the Groom's clothes ∩ a colour range of suit blues (navy, royal, steel, grey-blue), Refine Edges 50 | Saturation +30, a little brighter, open shadows: brings back the blue most wedding looks mute |
 | **Bring Sky Down** | Sky | Exposure −0.6, Highlights −35, Dehaze +12 |
-| **Brighten Dress** | the Bride's clothes ∩ the bright luminances | Exposure +0.3, Whites +10, Shadows +15, slightly cooler and cleaner |
+| **Brighten Dress** | the Bride's clothes ∩ the bright luminances, Refine Edges 50 | Exposure +0.3, Whites +10, Shadows +15, slightly cooler and cleaner |
 | **Darken Background** | Background | Exposure −0.5, Clarity −10, Saturation −10 |
 
 Recover Blue Suit and Brighten Dress need a Groom and a Bride in the shoot. Set them with the People
 picker's **Roles…** or with `people.setRole`. Without one, they apply to everyone's clothes.
+
+**One person among several.** When a mask is about one person (by name, role or face) and there is
+more than one face, SAM 2.1 (when installed) cuts out everyone's silhouette, clicked on each face and
+down each body with the other faces left out. Where people overlap, a pixel belongs to whoever's
+silhouette claims it most strongly; where no silhouette reaches, the nearest face decides, as
+before. So the groom's arm around the bride, or his cuff at her waist, stays his. Measured on four
+wedding photos: the bride's dress no longer stops at a line halfway between the two faces, and the
+groom's cuff is out (a faint trace remains on one photo where it touches the dress).
+
+## Mask names
+
+A mask is named after where it comes from:
+
+- a preset's mask: the preset's short name ("P10 Sun Kissed" gives "Sun Kissed"); a preset with
+  several masks names each "Preset - its own name" ("Dress + Portrait - Dress");
+- a person: "Person 1 - Clothes", or with a name or role "Groom Jamie - Clothes, Hair";
+- anything else: what it selects ("Sky", "Radial Gradient − Linear Gradient").
+
+The name follows the mask's parts until you rename it; renaming it to nothing brings the automatic
+name back.
 
 ## Lightroom presets with AI masks
 

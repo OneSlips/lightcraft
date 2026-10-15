@@ -2040,5 +2040,10 @@
   "Recover Blue Suit": "找回藍色西裝",
   "Bring Sky Down": "壓暗天空",
   "Brighten Dress": "提亮婚紗",
-  "Darken Background": "壓暗背景"
+  "Darken Background": "壓暗背景",
+  "Overlay settings": "疊加設定",
+  "The mask's effect on / off": "遮罩效果開 / 關",
+  "Drag on the photo to draw the gradient": "在相片上拖曳以繪製漸層",
+  "Drag on the photo to draw the ellipse (a click places one)": "在相片上拖曳以繪製橢圓（按一下即放置一個）",
+  "Paint on the photo": "在相片上繪製"
 }

@@ -2038,5 +2038,10 @@
   "Recover Blue Suit": "Retrouver le costume bleu",
   "Bring Sky Down": "Assombrir le ciel",
   "Brighten Dress": "Éclaircir la robe",
-  "Darken Background": "Assombrir l’arrière-plan"
+  "Darken Background": "Assombrir l’arrière-plan",
+  "Overlay settings": "Réglages de la superposition",
+  "The mask's effect on / off": "Effet du masque activé / désactivé",
+  "Drag on the photo to draw the gradient": "Faites glisser sur la photo pour tracer le dégradé",
+  "Drag on the photo to draw the ellipse (a click places one)": "Faites glisser sur la photo pour tracer l'ellipse (un clic en place une)",
+  "Paint on the photo": "Peignez sur la photo"
 }

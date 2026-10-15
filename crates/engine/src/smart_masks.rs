@@ -264,6 +264,35 @@ impl Session {
         Resolved::Person { rect, known }
     }
 
+    /// The automatic name of mask `m` on photo `id`: what it selects, People with their role and
+    /// the name it has in this shoot ("Groom Jamie - Clothes, Hair").
+    pub fn auto_mask_name(&mut self, id: PhotoId, m: &lightcraft_develop::Mask) -> String {
+        let mut m = m.clone();
+        let ctx = self.photo_context(id);
+        for c in &mut m.components {
+            if let MaskShape::People { who: Some(Who::Role(r)), .. } = &mut c.shape
+                && let Some(n) = self.people_store().role_for(r, &ctx).map(str::to_string)
+            {
+                *r = format!("{} {n}", r.trim());
+            }
+        }
+        lightcraft_develop::recipe::content_name(&m)
+    }
+
+    /// Give the masks of `after` that still carry an automatic name (a placeholder, or the name
+    /// they had automatically in `before`) the name of what they select now.
+    pub(crate) fn refresh_mask_names(&mut self, id: PhotoId, before: &[lightcraft_develop::Mask], after: &mut [lightcraft_develop::Mask]) {
+        for m in after.iter_mut() {
+            let was = before.iter().find(|b| b.id == m.id).map(|b| self.auto_mask_name(id, b));
+            if lightcraft_develop::recipe::generic_name(&m.name) || was.as_deref() == Some(m.name.as_str()) {
+                if m.components.is_empty() {
+                    continue;
+                }
+                m.name = self.auto_mask_name(id, m);
+            }
+        }
+    }
+
     /// Change photo `id`'s settings as the completion of the step that is already in the history
     /// (no undo step of its own): saved, and undone with that step.
     pub(crate) fn amend_develop(&mut self, id: PhotoId, settings: DevelopSettings) {

@@ -582,7 +582,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Role",
             [],
             None,
-            "{role: \"Bride\", person: \"Sam\", id?, scope?: \"folder\" (the photo's folder, default) | {folder} | {album} | {from, to} (dates) | {ids}} — who has the role in this shoot; masks and presets saying \"Bride\" find that person → {role, person, scope}",
+            "{role: \"Bride\", person: \"Alex\", id?, scope?: \"folder\" (the photo's folder, default) | {folder} | {album} | {from, to} (dates) | {ids}} — who has the role in this shoot; masks and presets saying \"Bride\" find that person → {role, person, scope}",
             always,
             |s, p| {
                 let c = "people.setRole";
