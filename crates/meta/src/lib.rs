@@ -16,6 +16,7 @@ pub mod cr3;
 mod datetime;
 mod exif;
 pub mod focus;
+mod focus_canon;
 mod focus_read;
 mod gpx;
 mod iptc;
@@ -282,6 +283,10 @@ impl Metadata {
 pub fn extract(bytes: &[u8]) -> Metadata {
     let e = embedded(bytes);
     let mut m = e.exif.as_deref().map(read_exif).unwrap_or_default();
+    // a CR3 keeps its maker note in a block of its own (`CMT3`), apart from the Exif merged above
+    if m.focus.is_none() && cr3::is_cr3(bytes) {
+        m.focus = focus::cr3_focus(bytes, m.make.as_deref(), m.orientation);
+    }
     if let Some(i) = e.iptc.as_deref() {
         m.fill_missing(&parse_iptc(i));
     }

@@ -2,6 +2,13 @@
 
 ## 2026-10-16
 
+### Canon focus points
+- **Show Focus Point** and **Zoom to Focus Point** work with Canon raws (CR3 and CR2): the box the
+  camera focused with, including the face it tracked. Photos already in your library get it in the
+  background.
+- Without a recorded point, Space zooms to the main subject's sharpest open eye instead of the
+  middle of the photo.
+
 ### Assisted Culling by the eyes
 - **Assisted Culling** can reject photos where a main subject has closed or blurry eyes (two new
   boxes in the dialog). It runs in the background, leaves picked photos alone, and says what it

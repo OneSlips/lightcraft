@@ -3440,6 +3440,7 @@ name = "lightcraft-meta"
 version = "0.8.0"
 dependencies = [
  "lightcraft-geom",
+ "lightcraft-testkit",
  "lightcraft-tiff",
  "proptest",
  "quick-xml 0.38.4",

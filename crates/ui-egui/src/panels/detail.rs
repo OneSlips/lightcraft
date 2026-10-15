@@ -280,8 +280,14 @@ pub(crate) fn focus_box(photo: &lightcraft_catalog::Photo) -> Option<lightcraft_
 
 /// Where Toggle Zoom centres the view on the photo's focus point (`app.ui.pan`), if it has one in frame.
 pub(crate) fn focus_pan(app: &LightcraftApp, id: PhotoId) -> Option<(f32, f32)> {
-    let r = focus_box(app.session.catalog.photo(id)?)?;
-    Some((((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32))
+    if let Some(r) = focus_box(app.session.catalog.photo(id)?) {
+        return Some((((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32));
+    }
+    // no point recorded: the main subject's sharpest open eye, else the largest face (when the
+    // eye finder has looked at the photo)
+    let key = app.session.eye_job(id)?.key;
+    let [x, y] = app.eye_strip.report(key)?.zoom_target()?;
+    Some((x, y))
 }
 
 /// Draw the camera's focus box over a photo drawn in `img` (View ▸ Show Focus Point): green corner
