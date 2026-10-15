@@ -457,11 +457,22 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
         "The Loupedeck+ works through the LightCraft plugin. Every knob and button does what its label says until you set it here, or bring over your own Loupedeck profile (only the layout comes along).",
     );
     ui.horizontal_wrapped(|ui| {
-        for (i, (name, path)) in crate::surface::loupedeck_profiles().into_iter().enumerate() {
-            let r = ui.button(crate::i18n::tr_format!("Import “{name}”", name = name.clone()));
-            register(ui.ctx(), format!("button:surfaceImportLoupedeck-{i}"), r.rect);
-            if r.on_hover_text(path.to_string_lossy()).clicked() {
-                let r = app_run_import(app, &path.to_string_lossy());
+        // Loupedeck's own profiles on this computer, the last changed first: pick one, Import
+        let found = crate::surface::loupedeck_profiles();
+        if !found.is_empty() {
+            let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
+            ui.label(RichText::new(tr("Loupedeck profile")).color(t.text_label));
+            let r = egui::ComboBox::from_id_salt("surfaceLoupedeckProfile").selected_text(found[pick].0.clone()).width(240.0).show_ui(ui, |ui| {
+                for (i, (name, path)) in found.iter().enumerate() {
+                    if ui.selectable_label(i == pick, name).on_hover_text(path.to_string_lossy()).clicked() {
+                        pick = i;
+                    }
+                }
+            });
+            register(ui.ctx(), "combo:surfaceLoupedeckProfile", r.response.rect);
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("surfaceLoupedeckPick"), pick));
+            if button(ui, "surfaceImportLoupedeck", "Import") {
+                let r = app_run_import(app, &found[pick].1.to_string_lossy());
                 report(app, r);
                 app.surface.editor.device = "loupedeck-plus".into();
             }

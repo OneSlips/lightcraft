@@ -2833,5 +2833,6 @@
   "P1–P8 (Hue)": "P1–P8 (tono)",
   "P1–P8 (Sat)": "P1–P8 (saturación)",
   "P1–P8 (Lum)": "P1–P8 (luminancia)",
-  "P1–P8 (B&W)": "P1–P8 (B/N)"
+  "P1–P8 (B&W)": "P1–P8 (B/N)",
+  "Loupedeck profile": "Perfil de Loupedeck"
 }

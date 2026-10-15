@@ -1061,8 +1061,9 @@ pub fn tactilebridge_settings_path() -> Option<std::path::PathBuf> {
     }
 }
 
-/// Loupedeck's profiles for the Loupedeck+ on this computer, as its own software keeps them:
-/// (the profile's name, its `ProfileInfo.json`). Read only.
+/// Loupedeck's profiles for the Loupedeck+ made for the photo editor whose actions LightCraft
+/// maps (Loupedeck keeps them under `@_lightroom`), as its software keeps them on this computer:
+/// (the profile's name, its `ProfileInfo.json`), newest first. Read only.
 pub fn loupedeck_profiles() -> Vec<(String, std::path::PathBuf)> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -1071,6 +1072,9 @@ pub fn loupedeck_profiles() -> Vec<(String, std::path::PathBuf)> {
         for device in ["Loupedeck15", "Loupedeck10"] {
             let Ok(apps) = std::fs::read_dir(base.join("Loupedeck").join("Applications").join(device)) else { continue };
             for app in apps.flatten().take(200) {
+                if !app.file_name().to_string_lossy().to_ascii_lowercase().contains("lightroom") {
+                    continue;
+                }
                 let Ok(profiles) = std::fs::read_dir(app.path().join("Profiles")) else { continue };
                 for prof in profiles.flatten().take(200) {
                     let file = prof.path().join("ProfileInfo.json");
@@ -1081,15 +1085,17 @@ pub fn loupedeck_profiles() -> Vec<(String, std::path::PathBuf)> {
                     let Ok(text) = std::fs::read_to_string(&file) else { continue };
                     let Ok(v) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { continue };
                     let name = v.get("displayName").and_then(Value::as_str).unwrap_or("Loupedeck").to_string();
-                    out.push((name, file));
+                    let changed = v.get("lastModifiedTimeUtc").and_then(Value::as_str).unwrap_or_default().to_string();
+                    out.push((changed, name, file));
                     if out.len() >= 50 {
-                        return out;
+                        break;
                     }
                 }
             }
         }
-        out.sort();
-        out
+        // the one changed last (the user's own) first
+        out.sort_by(|a, b| b.0.cmp(&a.0));
+        out.into_iter().map(|(_, n, f)| (n, f)).collect()
     }
     #[cfg(target_arch = "wasm32")]
     {

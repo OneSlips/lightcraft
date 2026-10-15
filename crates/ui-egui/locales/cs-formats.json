@@ -362,6 +362,5 @@
   "{} spot(s) from Remove Dust (outlined in amber)": "Body z odstranění prachu: {} (jantarově obtažené)",
   "{} with eyes closed": "Se zavřenýma očima: {}",
   "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
-  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Přesunuto {n} fotografií do Nedávno smazaných. Soubory zůstávají na disku; Zpět je vrátí.",
-  "Import “{name}”": "Importovat „{name}“"
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Přesunuto {n} fotografií do Nedávno smazaných. Soubory zůstávají na disku; Zpět je vrátí."
 }
