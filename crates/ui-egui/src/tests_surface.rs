@@ -540,3 +540,55 @@ fn white_balance_on_several_photos_moves_each_from_its_own_value() {
     assert_eq!(back[1], before[1]);
     assert_eq!(back[2], before[2]);
 }
+
+/// Bind `control` on the key page now showing.
+fn bind_key(h: &mut Headless, control: &str, b: lightcraft_surface::Binding) {
+    let page = h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).cloned().unwrap();
+    let s = h.app.surface.runtime.settings_mut();
+    let cur = s.profile.clone();
+    let p = s.profiles.iter_mut().find(|p| p.name == cur).unwrap();
+    p.pages.iter_mut().find(|q| q.name == page).unwrap().bindings.insert(control.into(), b);
+}
+
+#[test]
+fn console_erase_works_while_held_and_delete_needs_a_hold() {
+    use lightcraft_surface::Binding;
+    let mut h = demo();
+    open_photo(&mut h);
+    bind_key(&mut h, "key.1", Binding::command("brush.erase"));
+    bind_key(&mut h, "key.4", Binding::command_with("tool.brush", json!({"new": true})));
+    // Erase: on while the key is down (the brush comes up with it), off when it is let go
+    assert_eq!(input(&mut h, json!([{"control": "key.1", "press": true}]))["ok"], true);
+    h.settle(T);
+    assert!(h.app.ui.brush_erase, "erasing while held");
+    assert_eq!(h.app.ui.tool, "brush");
+    assert_eq!(input(&mut h, json!([{"control": "key.1", "press": false}]))["ok"], true);
+    h.settle(T);
+    assert!(!h.app.ui.brush_erase, "back to painting when let go");
+    // New Brush runs once and is never lit
+    assert_eq!(input(&mut h, json!([{"control": "key.4", "press": true}, {"control": "key.4", "press": false}]))["ok"], true);
+    h.settle(T);
+    let layout = serde_json::to_value(crate::surface::layout(&h.app, &lightcraft_surface::devices::MX_CREATIVE_CONSOLE)).unwrap();
+    let keys = layout["keys"].as_array().cloned().unwrap_or_default();
+    let new_brush = keys.iter().find(|k| k["control"] == "key.4").cloned().unwrap_or_default();
+    assert_ne!(new_brush["active"], true, "{new_brush}");
+    // Delete (on the everyday page, the brush put away): a quick press does nothing but say to
+    // hold the key
+    assert_eq!(h.request("engine.execute", json!({"command": "tool.done"}), T)["ok"], true);
+    h.settle(T);
+    bind_key(&mut h, "key.3", Binding::command("photo.delete"));
+    let n = h.app.session.visible_cloned().len();
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": true}, {"control": "key.3", "press": false}]))["ok"], true);
+    let osd = h.request("engine.execute", json!({"command": "surface.state"}), T)["result"]["osd"].clone();
+    assert!(osd["notice"].as_str().is_some_and(|t| t.starts_with("Hold the key")), "{osd}");
+    h.settle(T);
+    assert_eq!(h.app.session.visible_cloned().len(), n, "a quick press deletes nothing");
+    // held for a moment: it runs
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": true}]))["ok"], true);
+    for _ in 0..60 {
+        h.step();
+    }
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": false}]))["ok"], true);
+    h.settle(T);
+    assert_eq!(h.app.session.visible_cloned().len(), n - 1, "held: deleted");
+}
