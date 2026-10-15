@@ -97,6 +97,8 @@ fn import_choose_cache_persist_and_delete() {
         // importing it again adds nothing
         let again = s.execute("profile.import", &json!({"paths": [files.join("profiles").join("Swap.dcp").to_string_lossy()]})).unwrap();
         assert_eq!(again["imported"][0]["existing"], true);
+        // a single .dcp file is a camera profile only, not also a LUT that "couldn't be read"
+        assert_eq!(again["failed"], json!([]), "{again}");
         assert_eq!(s.dcp_profiles.len(), 1);
         // the library keeps its own copy
         assert!(std::path::Path::new(&s.dcp_profiles[0].file).starts_with(&lib));
