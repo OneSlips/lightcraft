@@ -211,8 +211,14 @@ pub struct PairedClient {
 #[serde(default, rename_all = "camelCase")]
 pub struct SurfaceSettings {
     pub version: u32,
-    /// Surfaces may connect and drive the app (off until the user turns it on).
+    /// Surfaces may connect and drive the app. Off by default; turned on by itself when a
+    /// surface plugin is installed (the Logi Options+ plugin), unless the user turned it off.
     pub enabled: bool,
+    /// The user switched control surfaces off: never turn them on by themselves again.
+    pub off_by_user: bool,
+    /// Dialogs put their own page on the keys (OK / Cancel…). Off by default: the keys keep the
+    /// page you work with while a dialog is open.
+    pub dialog_pages: bool,
     /// The loopback port surfaces connect to while enabled (the surfaces-only listener).
     pub port: u16,
     /// The profile in use (by name).
@@ -236,6 +242,8 @@ impl Default for SurfaceSettings {
         SurfaceSettings {
             version: FORMAT_VERSION,
             enabled: false,
+            off_by_user: false,
+            dialog_pages: false,
             port: DEFAULT_PORT,
             profile: "Default".into(),
             follow_context: true,

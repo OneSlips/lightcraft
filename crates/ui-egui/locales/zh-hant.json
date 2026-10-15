@@ -2605,6 +2605,9 @@
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Lightroom 目錄會匯入目前開啟的圖庫，不會建立獨立的目錄資料夾。",
   "Destination library": "目標圖庫",
   "Playback": "播放",
+  "Dialogs show their own page (OK, Cancel…)": "對話框顯示自己的頁面（確定、取消…）",
+  "Switch pages with what LightCraft shows (Crop, Masking…)": "隨 LightCraft 顯示的內容切換頁面（裁切、遮色片…）",
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ 會要求安裝外掛：請在那裡點按「繼續」。之後控制台會自動運作。",
   "Display": "顯示器",
   "Faces": "人臉"
 }

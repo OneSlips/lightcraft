@@ -313,6 +313,24 @@ impl Runtime {
         vec![Effect::Changed { notice: Some(text) }]
     }
 
+    /// Show page `name` on the surface without a notice (the editor in Settings ▸ Controls shows
+    /// the device the page being edited). False when it's already shown or doesn't exist.
+    pub fn show_page(&mut self, name: &str) -> bool {
+        let Some(page) = self.profile().and_then(|p| p.page(name)).cloned() else { return false };
+        let mut changed = false;
+        for g in PageGroup::ALL {
+            if page.in_group(g) && self.pages.get(&g) != Some(&page.name) {
+                self.pages.insert(g, page.name.clone());
+                self.manual.insert(g, page.name.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            self.revision += 1;
+        }
+        changed
+    }
+
     fn goto_page(&mut self, name: &str, now_ms: f64) -> Vec<Effect> {
         let Some(page) = self.profile().and_then(|p| p.page(name)).cloned() else { return Vec::new() };
         for g in PageGroup::ALL {

@@ -185,8 +185,14 @@ fn top_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     ui.horizontal_wrapped(|ui| {
         let mut on = app.surface.settings().enabled;
         if check(ui, "surface.enabled", &mut on, "Use control surfaces") {
-            app.surface.runtime.settings_mut().enabled = on;
+            let s = app.surface.runtime.settings_mut();
+            s.enabled = on;
+            // off stays off; on lets LightCraft set up an installed plugin by itself again
+            s.off_by_user = !on;
             app.surface.changed();
+            if on {
+                crate::surface_plugin::auto_setup(app);
+            }
         }
         ui.add_space(12.0);
         ui.label(RichText::new(tr("Profile")).color(t.text_label));
@@ -362,6 +368,10 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         }
     });
     ui.add_space(4.0);
+    // the device shows the page being edited (live), so the drawing and the hardware match
+    if page_key != BASE {
+        app.surface.runtime.show_page(&page_key);
+    }
     let page = profile.page(&page_key).cloned();
     let binding = |c: &str| -> Option<Binding> {
         if page_key == BASE { profile.base.get(c).cloned() } else { page.as_ref().and_then(|p| p.bindings.get(c).cloned()) }
@@ -854,8 +864,13 @@ fn pages_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 fn contexts(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     heading(ui, t, "Pages That Follow the App");
     let mut follow = app.surface.settings().follow_context;
-    if check(ui, "surface.followContext", &mut follow, "Switch pages with what LightCraft shows (Crop, Masking, a dialog…)") {
+    if check(ui, "surface.followContext", &mut follow, "Switch pages with what LightCraft shows (Crop, Masking…)") {
         app.surface.runtime.settings_mut().follow_context = follow;
+        app.surface.changed();
+    }
+    let mut dialogs = app.surface.settings().dialog_pages;
+    if check(ui, "surface.dialogPages", &mut dialogs, "Dialogs show their own page (OK, Cancel…)") {
+        app.surface.runtime.settings_mut().dialog_pages = dialogs;
         app.surface.changed();
     }
     let Some(profile) = app.surface.settings().active_profile().cloned() else { return };

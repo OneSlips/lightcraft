@@ -359,8 +359,14 @@ pub fn run_effects(app: &mut LightcraftApp, effects: Vec<Effect>) {
 
 /// The context key of what the app shows.
 pub fn context_key(app: &LightcraftApp) -> String {
-    let dialog =
-        app.ui.dialog.as_ref().and_then(|d| serde_json::to_value(d).ok()).and_then(|v| v.get("kind").and_then(Value::as_str).map(str::to_string));
+    // Dialogs get their own page only when the user asked for it; Settings ▸ Controls never: the
+    // keys show the page being edited there.
+    let controls_open = matches!(&app.ui.dialog, Some(crate::state::Dialog::Settings { tab }) if tab == "controls");
+    let dialog = if controls_open || !app.surface.settings().dialog_pages {
+        None
+    } else {
+        app.ui.dialog.as_ref().and_then(|d| serde_json::to_value(d).ok()).and_then(|v| v.get("kind").and_then(Value::as_str).map(str::to_string))
+    };
     let library =
         matches!(app.ui.view, ViewMode::PhotoGrid | ViewMode::SquareGrid | ViewMode::Survey | ViewMode::People) || app.session.active().is_none();
     let panel = match app.ui.right {
@@ -541,6 +547,8 @@ fn load(app: &mut LightcraftApp) {
             app.surface.load_error = Some(e);
         }
     }
+    // the Logi plugin installed: on, and trusted, before the listener starts
+    crate::surface_plugin::auto_setup(app);
 }
 
 /// Save the settings now (Settings ▸ Controls, keys that change settings).

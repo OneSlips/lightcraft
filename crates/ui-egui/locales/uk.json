@@ -2802,5 +2802,8 @@
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Каталоги Lightroom імпортуються у відкриту бібліотеку; окрема папка каталогу не створюється.",
   "These photos are only in memory. Open a library on disk and import the catalog again to save them.": "Ці фотографії є лише в пам’яті. Відкрийте бібліотеку на диску та імпортуйте каталог повторно, щоб зберегти їх.",
   "Playback": "Відтворення",
+  "Dialogs show their own page (OK, Cancel…)": "Діалоги показують власну сторінку (OK, Скасувати…)",
+  "Switch pages with what LightCraft shows (Crop, Masking…)": "Перемикати сторінки за тим, що показує LightCraft (Кадрування, Маски…)",
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ запитає про встановлення: натисніть там «Продовжити». Після цього консоль запрацює сама.",
   "Display": "Дисплей"
 }

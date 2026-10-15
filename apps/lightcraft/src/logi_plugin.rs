@@ -40,6 +40,17 @@ fn service_dir() -> Option<PathBuf> {
     Some(env_dir("LOCALAPPDATA")?.join("Logi").join("LogiPluginService"))
 }
 
+/// `%LOCALAPPDATA%\Logi\LogiPluginService\PluginData\LightCraft`: the plugin's own data folder
+/// (its `config.json` and its trust token, `token.txt`).
+fn data_dir() -> Option<PathBuf> {
+    Some(service_dir()?.join("PluginData").join("LightCraft"))
+}
+
+/// The port in a plugin `config.json`.
+fn config_port(text: &str) -> Option<u16> {
+    serde_json::from_str::<serde_json::Value>(text).ok()?.get("port")?.as_u64().and_then(|p| u16::try_from(p).ok())
+}
+
 /// The plugin package that comes with this LightCraft.
 fn package() -> Option<PathBuf> {
     if let Some(p) = env_dir("LIGHTCRAFT_LOGI_PLUGIN").filter(|p| p.is_file()) {
@@ -103,13 +114,34 @@ impl PluginInstaller for Logi {
 
     fn install(&self, port: u16) -> Result<String, String> {
         let pkg = package().ok_or("this LightCraft has no plugin package with it")?;
-        // where the plugin finds LightCraft (it reads this when it starts)
-        if let Some(dir) = service_dir().map(|d| d.join("PluginData").join("LightCraft")) {
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            std::fs::write(dir.join("config.json"), format!("{{\"port\": {port}}}\n")).map_err(|e| format!("{}: {e}", dir.display()))?;
-        }
+        // where the plugin finds LightCraft (it reads this before every connection attempt)
+        self.provision(None, port)?;
         run_tool("install-plugin", &pkg)?;
-        Ok("Logi Options+ asks to install the plugin: click Continue there. Then approve the pairing request here.".into())
+        Ok("Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.".into())
+    }
+
+    fn plugin_token(&self) -> Option<String> {
+        let path = data_dir()?.join("token.txt");
+        // a token is 64 hex digits; anything big isn't one
+        if std::fs::metadata(&path).ok()?.len() > 1024 {
+            return None;
+        }
+        std::fs::read_to_string(path).ok().map(|t| t.trim().to_string()).filter(|t| !t.is_empty())
+    }
+
+    fn provision(&self, token: Option<&str>, port: u16) -> Result<(), String> {
+        let dir = data_dir().ok_or("no %LOCALAPPDATA%")?;
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        if let Some(t) = token {
+            let path = dir.join("token.txt");
+            std::fs::write(&path, t).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
+        let config = dir.join("config.json");
+        let current = std::fs::read_to_string(&config).ok().and_then(|t| config_port(&t));
+        if current != Some(port) {
+            std::fs::write(&config, format!("{{\"port\": {port}}}\n")).map_err(|e| format!("{}: {e}", config.display()))?;
+        }
+        Ok(())
     }
 
     fn uninstall(&self) -> Result<String, String> {
@@ -129,6 +161,9 @@ mod tests {
         assert_eq!(yaml_version("version: '1.0'"), Some("1.0".into()));
         assert_eq!(yaml_version("name: x"), None);
         assert_eq!(yaml_version("version:"), None);
+        assert_eq!(config_port("{\"port\": 7981}"), Some(7981));
+        assert_eq!(config_port("{\"port\": 70000}"), None);
+        assert_eq!(config_port("junk"), None);
         // a file that isn't a package has no version (and doesn't crash)
         let dir = std::env::temp_dir().join(format!("lc-logi-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

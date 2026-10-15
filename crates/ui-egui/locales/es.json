@@ -2804,5 +2804,8 @@
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Los catálogos de Lightroom se importan a la biblioteca abierta; no se crea una carpeta de catálogo separada.",
   "Destination library": "Biblioteca de destino",
   "Playback": "Reproducción",
+  "Dialogs show their own page (OK, Cancel…)": "Los diálogos muestran su propia página (Aceptar, Cancelar…)",
+  "Switch pages with what LightCraft shows (Crop, Masking…)": "Cambiar de página según lo que muestra LightCraft (Recortar, Máscaras…)",
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ pide instalar el complemento: haz clic en Continuar allí. Después la consola funciona sola.",
   "Display": "Pantalla"
 }
