@@ -6,7 +6,7 @@
 //! first). Everything works without them: AI masks then fall back to heuristics (Subject, Sky,
 //! Background) or say that the model is needed (Object).
 //!
-//! The openly licensed models (SAM 2.1, EoMT, BiRefNet, Depth Anything V2 Small) are Apache-2.0 or MIT,
+//! The openly licensed models (SAM 2.1, OWLv2, EoMT, BiRefNet, Depth Anything V2 Small) are Apache-2.0 or MIT,
 //! ungated, and may be redistributed: their default download location is the publisher's own
 //! Hugging Face repository, pinned to a commit. SAM 3 is gated under Meta's SAM License and has no
 //! default location (see `fetch`).
@@ -21,8 +21,11 @@ use lightcraft_fetch::FileSpec;
 /// What a model selects.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum ModelId {
-    /// Object (clicks) and Describe (text), Meta's SAM 3 (gated, SAM License).
+    /// Object (clicks) and Describe (text), Meta's SAM 3 (gated, SAM License): optional, used
+    /// when installed.
     Sam3,
+    /// Describe (text): OWLv2 base (Apache-2.0) finds the boxes SAM 2.1 segments.
+    Describe,
     /// Object (clicks): SAM 2.1 Hiera-Tiny (Apache-2.0).
     Sam2,
     /// Subject: BiRefNet-portrait (MIT), fine hair and edges.
@@ -116,6 +119,29 @@ pub const SAM2_FILES: &[FileSpec<'static>] = &[
     },
 ];
 
+/// OWLv2 base patch16 ensemble, transformers format (`google/owlv2-base-patch16-ensemble`).
+pub const DESCRIBE_FILES: &[FileSpec<'static>] = &[
+    FileSpec { name: "config.json", size: Some(414), sha256: Some("ba9df8c25a4b8461887dd0a93d9252c9cd84697fe8d49a9d8794ce409af9acb2"), max: 414 },
+    FileSpec {
+        name: "vocab.json",
+        size: Some(1_059_962),
+        sha256: Some("e089ad92ba36837a0d31433e555c8f45fe601ab5c221d4f607ded32d9f7a4349"),
+        max: 1_059_962,
+    },
+    FileSpec {
+        name: "merges.txt",
+        size: Some(524_619),
+        sha256: Some("9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a"),
+        max: 524_619,
+    },
+    FileSpec {
+        name: "model.safetensors",
+        size: Some(619_918_824),
+        sha256: Some("e1e130b9e404cf91a75ad45644c1da9d7fa5284085eecc864266a6923efb99e7"),
+        max: 619_918_824,
+    },
+];
+
 /// BiRefNet-portrait (`ZhengPeng7/BiRefNet-portrait`, Swin-L, fp32).
 pub const SUBJECT_FILES: &[FileSpec<'static>] = &[FileSpec {
     name: "model.safetensors",
@@ -203,6 +229,24 @@ pub const SAM2: ModelInfo = ModelInfo {
     licence_pending: false,
 };
 
+pub const DESCRIBE: ModelInfo = ModelInfo {
+    id: ModelId::Describe,
+    key: "describe",
+    dir_name: "owlv2-base-patch16-ensemble",
+    title: "OWLv2 object finder",
+    purpose: "Describe: select what you type (with SAM 2.1)",
+    files: DESCRIBE_FILES,
+    license_name: "Apache-2.0",
+    license_url: "https://huggingface.co/google/owlv2-base-patch16-ensemble",
+    page_url: "https://huggingface.co/google/owlv2-base-patch16-ensemble",
+    default_mirrors: &["https://huggingface.co/google/owlv2-base-patch16-ensemble/resolve/cfd3195ba4ea9592eec887ded089f4c08eff231d"],
+    mirrors_env: "LIGHTCRAFT_DESCRIBE_MIRRORS",
+    token_env: None,
+    open: true,
+    // trained on WebLI pseudo-labels (web image-text pairs), docs/ai-masks.md
+    licence_pending: true,
+};
+
 pub const DEPTH: ModelInfo = ModelInfo {
     id: ModelId::Depth,
     key: "depth",
@@ -225,7 +269,7 @@ pub const SAM3: ModelInfo = ModelInfo {
     key: "sam3",
     dir_name: "sam3",
     title: "SAM 3",
-    purpose: "Select Object and Describe (optional; Meta's licence, gated)",
+    purpose: "Optional: Select Object and Describe with Meta's model (gated licence); both work without it",
     files: crate::fetch::SAM3_FILES,
     license_name: "SAM License (Meta)",
     license_url: "https://github.com/facebookresearch/sam3/blob/main/LICENSE",
@@ -290,13 +334,14 @@ pub const FACE: ModelInfo = ModelInfo {
 
 /// Every model the app offers, in the order it lists them (Depth Anything is ported but not
 /// offered, see [`ModelId::Depth`]).
-pub const MODELS: &[ModelInfo] = &[PEOPLE, FACE, SUBJECT, SCENE, SAM2, SAM3];
+pub const MODELS: &[ModelInfo] = &[PEOPLE, FACE, SUBJECT, SCENE, SAM2, DESCRIBE, SAM3];
 
 /// The entry for `id`.
 pub fn info(id: ModelId) -> &'static ModelInfo {
     match id {
         ModelId::Sam3 => &SAM3,
         ModelId::Sam2 => &SAM2,
+        ModelId::Describe => &DESCRIBE,
         ModelId::Subject => &SUBJECT,
         ModelId::Scene => &SCENE,
         ModelId::Depth => &DEPTH,
@@ -316,7 +361,7 @@ mod tests {
 
     #[test]
     fn every_model_has_one_entry_with_pinned_files() {
-        for id in [ModelId::Sam3, ModelId::Sam2, ModelId::Subject, ModelId::Scene, ModelId::People, ModelId::Face] {
+        for id in [ModelId::Sam3, ModelId::Sam2, ModelId::Describe, ModelId::Subject, ModelId::Scene, ModelId::People, ModelId::Face] {
             assert_eq!(MODELS.iter().filter(|m| m.id == id).count(), 1, "{id:?}");
             assert_eq!(info(id).id, id);
         }
@@ -331,6 +376,10 @@ mod tests {
             assert!(m.token_env.is_none(), "{}: openly licensed models never send a token", m.key);
         }
         assert_eq!(by_key("scene").map(|m| m.id), Some(ModelId::Scene));
+        // Describe's open detector: a tier C model (training data licence pending)
+        let d = by_key("describe").unwrap();
+        assert!(d.open && d.licence_pending && d.token_env.is_none());
+        assert!(crate::owl::OWL_FILES.iter().all(|f| d.files.iter().any(|s| s.name == *f)), "the loader's files are the pinned ones");
         assert!(by_key("nope").is_none());
     }
 

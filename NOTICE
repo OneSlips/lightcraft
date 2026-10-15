@@ -59,6 +59,12 @@ License 2.0, modified the same way (scene.rs, depth.rs, dino.rs). The EoMT-S COC
 (depth-anything/Depth-Anything-V2-Small-hf, Apache-2.0) are not part of LightCraft either; users
 download them separately.
 
+crates/segment/src/owl.rs also ports the OWLv2 model and image-processor code of Hugging Face
+Transformers (src/transformers/models/owlv2: modeling_owlv2.py, image_processing_owlv2.py,
+processing_owlv2.py), Copyright The HuggingFace Team and Google, licensed under the Apache License
+2.0, modified the same way. The OWLv2 weights (google/owlv2-base-patch16-ensemble, Apache-2.0) are
+not part of LightCraft either; the app downloads them when Describe is first used.
+
 The SAM 3 weights are not part of LightCraft and are never distributed with it. A user downloads
 the facebook/sam3 checkpoint only when they choose to (in the app, or by hand), under Meta's SAM
 License (https://github.com/facebookresearch/sam3/blob/main/LICENSE), a separate, non-OSI

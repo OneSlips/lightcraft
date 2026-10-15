@@ -2520,6 +2520,8 @@
   "Select Object: click what to select": "选择对象：点击要选择的内容",
   "Depth Range masks": "深度范围蒙版",
   "Select Object and Describe (optional; Meta's licence, gated)": "选择对象和描述（可选；Meta 的许可证，访问受限）",
+  "Describe: select what you type (with SAM 2.1)": "描述：选择您输入的内容（配合 SAM 2.1）",
+  "Optional: Select Object and Describe with Meta's model (gated licence); both work without it": "可选：使用 Meta 的模型进行选择对象和描述（访问受限的许可证）；没有它两者也能使用",
   "AI Model Status": "AI 模型状态",
   "Download AI Model": "下载 AI 模型",
   "Cancel AI Model Download": "取消下载 AI 模型",

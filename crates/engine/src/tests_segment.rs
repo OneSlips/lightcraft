@@ -146,8 +146,8 @@ fn background_requests_never_wait_and_failures_come_back_as_messages() {
         let e = s.execute(cmd, &p).unwrap_err().to_string();
         assert!(t.elapsed() < Duration::from_millis(500), "{cmd}");
         if Segmenter::AVAILABLE {
-            // Object offers the open SAM 2.1, Describe needs SAM 3
-            let want = if p["kind"] == "prompt" { NOT_INSTALLED } else { "The SAM 2.1 model is not installed" };
+            // Object offers the open SAM 2.1, Describe the open OWLv2 (then SAM 2.1): no SAM 3 needed
+            let want = if p["kind"] == "prompt" { "The OWLv2 object finder model is not installed" } else { "The SAM 2.1 model is not installed" };
             assert!(e.starts_with(want), "{cmd}: {e}");
         } else {
             assert!(e.contains("not available"), "{cmd}: {e}");
@@ -157,6 +157,10 @@ fn background_requests_never_wait_and_failures_come_back_as_messages() {
     if !Segmenter::AVAILABLE {
         return;
     }
+    // what Describe needs, in order; the error names the first, so its download is offered
+    assert_eq!(s.segmenter.describe_needs(), ["describe", "sam2"]);
+    let e = s.segmenter.describe_model().unwrap_err();
+    assert_eq!(crate::segment::models::missing_model(&e), Some("describe"), "{e}");
     // a model folder whose weights are damaged
     let dir = damaged_model("damaged");
     s.segmenter.dir = Some(dir.clone());

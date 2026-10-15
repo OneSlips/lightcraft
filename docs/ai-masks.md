@@ -14,7 +14,7 @@ accounts:
 | **Subject**, **Background** | BiRefNet-portrait (Swin-L) | MIT | pending (maintainer decision) | 885 MB | the person from MediaPipe, else EoMT's most confident object, else a heuristic |
 | **Sky**, **Landscape**; People without MediaPipe | EoMT-S, COCO panoptic (DINOv2 ViT-S) | MIT (backbone Apache-2.0) | pending (maintainer decision) | 96 MB | Sky: a heuristic; Landscape: approximate (empty) |
 | **Object** (clicks) | SAM 2.1 Hiera-Tiny (Meta) | Apache-2.0 | A (Meta's own) | 156 MB | SAM 3 if installed |
-| **Describe** (text) | SAM 3 (optional) | SAM License (Meta, gated) | — | 3.4 GB | none: the dialog explains how to install SAM 3 |
+| **Describe** (text) | OWLv2 base (Google) finds boxes, SAM 2.1 segments them | Apache-2.0 | pending (maintainer decision) | 620 MB (+ SAM 2.1) | SAM 3 if installed (optional, gated) |
 
 Depth Anything V2 Small is ported (`crates/segment/src/depth.rs`) but **not offered**: its training
 data includes SA-1B (whose licence restricts derivative works) and Virtual KITTI 2 (non-commercial).
@@ -26,7 +26,7 @@ never offered.
 
 **No model is required.** None is part of LightCraft, its repository or its installers. Each is
 downloaded once, into its own folder of the models folder, only after the user agreed (the dialog
-names the model, its size and its licence). Without one, Object says what to download, and Subject,
+names the model, its size and its licence). Without one, Object and Describe say what to download, and Subject,
 Sky and Background are made by a heuristic — the Masking panel says the mask is approximate and
 offers the model. Renders, exports and every other feature never touch a model: the model's result
 is stored with the mask.
@@ -59,9 +59,11 @@ In the Masking panel (M):
   heuristic; once the model is there, the panel offers **Update** (`mask.recompute`).
 - **Object**: click the thing you want; every click refines the selection. ⌥-click (Alt) a part
   to leave it out. Clicks show as green (include) and red (leave out) dots.
-- **Describe** (SAM 3 only): type what to select — `sky`, `trees`, `the red car` — and press Return. Every
-  instance the model finds (score above 0.5) joins the mask; if nothing matches, nothing is
-  created and you are told so.
+- **Describe**: type what to select — `sky`, `trees`, `the red car`, `white dress` — and press Return. Every
+  instance found joins the mask; if nothing matches, nothing is created and you are told so. Without
+  SAM 3, OWLv2 finds a box around each instance (boxes scoring at least 0.1 and a quarter of the
+  strongest, overlapping duplicates dropped, at most 24) and SAM 2.1 cuts each one out; with SAM 3
+  installed, SAM 3 does both (score above 0.5).
 - Several things at once: `car, road` (comma-separated) selects each and merges them.
 - **+ / −** under the selected mask (and the Add / Subtract / Intersect menus) combine
   selections: Describe `car`, click the mask, + ▸ Describe… `road`; − ▸ Describe… `people` takes
@@ -94,6 +96,7 @@ model input is rendered at 1024 px on the long edge):
 | MediaPipe Face Landmarker | 7 ms | ~4 ms per BlazeFace window, ~13 ms per FaceMesh face; ~330 ms for a photo (about ten windows) | faces in profile are not landmarked |
 | EoMT-S | ~75 ms | ~0.9–1 s | Sky, Landscape and People share one pass per photo |
 | SAM 2.1 Tiny | ~0.15 s | encode ~1.2 s, then ~45 ms per click | |
+| OWLv2 base (Describe) | ~2 s | ~15 s (measured with the machine busy; the reference PyTorch took ~6 s alongside), then ~0.25 s per description and ~50 ms per box (SAM 2.1) | the photo's analysis is kept: describing again on the same photo is fast |
 | BiRefNet-portrait | ~1.5 s | ~9–12 s | Subject and Background share one pass; the slow one |
 
 The first mask of each kind on a photo pays the "per photo" time; further masks on the same photo
@@ -119,18 +122,19 @@ used.
 Folders: `models/<name>/` in LightCraft's settings folder — `%APPDATA%\LightCraft\models\` (Windows),
 `~/Library/Application Support/LightCraft/models/` (macOS), `~/.config/lightcraft/models/` (Linux) —
 or the folder `LIGHTCRAFT_AI_MODELS_DIR` names: `birefnet-portrait/`, `eomt-s-coco/`,
-`sam2.1-hiera-tiny/`, `depth-anything-v2-small/`. To install one by hand, put its files there
-(`model.safetensors`, plus `config.json` for EoMT and Depth Anything).
+`sam2.1-hiera-tiny/`, `owlv2-base-patch16-ensemble/`, `depth-anything-v2-small/`. To install one by hand, put its files there
+(`model.safetensors`, plus `config.json` for EoMT and Depth Anything, and `config.json`, `vocab.json`
+and `merges.txt` for OWLv2).
 
 Download locations, in order: `LIGHTCRAFT_<MODEL>_MIRRORS` (`LIGHTCRAFT_SUBJECT_MIRRORS`,
-`LIGHTCRAFT_SCENE_MIRRORS`, `LIGHTCRAFT_SAM2_MIRRORS`, `LIGHTCRAFT_DEPTH_MIRRORS`; base URLs
+`LIGHTCRAFT_SCENE_MIRRORS`, `LIGHTCRAFT_SAM2_MIRRORS`, `LIGHTCRAFT_DESCRIBE_MIRRORS`, `LIGHTCRAFT_DEPTH_MIRRORS`; base URLs
 separated by commas or spaces), the file `models/<folder>-mirrors.txt`, then the built-in list: the
 publisher's own Hugging Face repository, pinned to a commit (their licences allow redistribution
 and the repositories are not gated). **Maintainers:** put LightCraft's own mirror first in each
 list (`TODO(maintainer)` in `models.rs`), with the files unchanged and each model's licence next
 to them.
 
-Agents and scripts: `ai.models.status`, `ai.models.download {"id": "subject"|"scene"|"sam2"|"depth",
+Agents and scripts: `ai.models.status`, `ai.models.download {"id": "subject"|"scene"|"sam2"|"describe"|"depth",
 "acknowledged": true}` (refused without `acknowledged`: pass it only after the user agreed),
 `ai.models.cancel {"id"}`.
 
@@ -141,6 +145,7 @@ Agents and scripts: `ai.models.status`, `ai.models.download {"id": "subject"|"sc
 | BiRefNet-portrait (pending) | MIT | MIT | no | P3M-10k (released under the MIT license) + TR-humans (Apache-2.0, synthetic); the starting checkpoint isn't stated | <https://huggingface.co/ZhengPeng7/BiRefNet-portrait>, <https://github.com/ZhengPeng7/BiRefNet>, P3M-10k dataset agreement |
 | EoMT-S COCO panoptic (pending) | MIT | MIT; DINOv2 backbone Apache-2.0 | no | COCO panoptic (annotations CC BY 4.0; images under Flickr's terms) | <https://huggingface.co/tue-mps/coco_panoptic_eomt_small_640_2x>, <https://github.com/tue-mps/eomt> |
 | SAM 2.1 Hiera-Tiny | Apache-2.0 | Apache-2.0 | no | SA-1B (Meta's) + SA-V (CC BY 4.0) | <https://github.com/facebookresearch/sam2>, <https://huggingface.co/facebook/sam2.1-hiera-tiny> |
+| OWLv2 base patch16 ensemble (pending) | Apache-2.0 | Apache-2.0 | no | starts from CLIP ViT-B/16 (OpenAI, MIT); self-trained on WebLI image-text pairs (Google's own) pseudo-labelled by OWL-ViT, ensembled with a model fine-tuned on Objects365 and Visual Genome (annotations CC BY 4.0; images from the web / Flickr under their own terms) | <https://huggingface.co/google/owlv2-base-patch16-ensemble>, <https://github.com/google-research/scenic/tree/main/scenic/projects/owl_vit>, arXiv:2306.09683 |
 | Depth Anything V2 Small (not offered) | Apache-2.0 | Apache-2.0 (Base / Large are CC-BY-NC) | no | teacher on Virtual KITTI 2 (non-commercial) among others; student on SA-1B pseudo-labels | <https://github.com/DepthAnything/Depth-Anything-V2>, <https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf> |
 | MediaPipe Selfie Multiclass | Apache-2.0 | Apache-2.0 (model card) | no | Google's own (card) | <https://storage.googleapis.com/mediapipe-assets/Model%20Card%20Multiclass%20Segmentation.pdf> |
 | MediaPipe Face Landmarker (BlazeFace, FaceMesh-V2) | Apache-2.0 | Apache-2.0 (model cards) | no | "consented images of people" captured by Google (cards) | <https://storage.googleapis.com/mediapipe-assets/MediaPipe%20BlazeFace%20Model%20Card%20(Short%20Range).pdf>, <https://storage.googleapis.com/mediapipe-assets/Model%20Card%20MediaPipe%20Face%20Mesh%20V2.pdf> |
@@ -154,9 +159,10 @@ Depth Anything V2 Base / Large (CC-BY-NC), every face-parsing network found (Cel
 Helen, iBugMask, LIP, FaceSynthetics, Sapiens: non-commercial). Backbones pre-trained on ImageNet
 are industry practice and not counted against a model.
 
-Not yet covered: **Describe** without SAM 3 (Florence-2-base, MIT, and OWLv2 / Grounding DINO are
-candidates, all with research-only data in their training sets: a maintainer decision) and
-**Depth Range**. No openly licensed face-parsing network exists (all are trained on
+**Describe** without SAM 3 runs on OWLv2 (open-vocabulary detection; Grounding DINO tiny was the
+alternative) with SAM 2.1's box prompts: the weights are Apache-2.0 and ungated, but the detection
+fine-tuning data includes web images under their own terms, so like BiRefNet and EoMT it is shown as
+"licence pending a maintainer decision". Not yet covered: **Depth Range**. No openly licensed face-parsing network exists (all are trained on
 non-commercial datasets), so face parts come from MediaPipe's landmarks.
 
 ### Beyond masks
@@ -166,8 +172,8 @@ Blemishes** and **Smooth Skin** ([smooth-skin.md](smooth-skin.md)): one download
 
 ## SAM 3 (optional)
 
-SAM 3 (Segment Anything with Concepts, Meta 2025) is the only model for Describe, and when it is
-installed Object uses it instead of SAM 2.1. Its weights are gated under Meta's SAM License, so
+SAM 3 (Segment Anything with Concepts, Meta 2025) is optional: when it is installed, Describe uses
+it instead of OWLv2 + SAM 2.1, and Object instead of SAM 2.1. Its weights are gated under Meta's SAM License, so
 LightCraft can't host or download them by default. On macOS it runs on the GPU through Metal.
 
 ### Remote Metal inference

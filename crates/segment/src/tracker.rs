@@ -368,25 +368,38 @@ impl Tracker {
 
     /// Sparse prompt embeddings `[1, n + 1, 256]` (a padding point closes the list).
     pub fn embed_clicks(&self, clicks: &[Click]) -> Result<Tensor> {
+        self.embed_prompt(clicks, None)
+    }
+
+    /// Sparse prompt embeddings of `clicks` and an optional box (x0, y0, x1, y1, normalized):
+    /// SAM 2 gives a box as two points labelled 2 (top left) and 3 (bottom right) ahead of the
+    /// clicks (`Sam2ImagePredictor._predict`); a padding point closes the list.
+    pub fn embed_prompt(&self, clicks: &[Click], rect: Option<[f32; 4]>) -> Result<Tensor> {
         let point_embed = to_vec(&self.point_embed)?;
         let not_a_point = to_vec(&self.not_a_point)?;
-        let mut rows = Vec::with_capacity((clicks.len() + 1) * HIDDEN);
-        for c in clicks {
+        let corners: Vec<(f32, f32, usize)> = rect.map(|r| vec![(r[0], r[1], 2), (r[2], r[3], 3)]).unwrap_or_default();
+        let points: Vec<(f32, f32, usize)> = corners.into_iter().chain(clicks.iter().map(|c| (c.x, c.y, usize::from(c.positive)))).collect();
+        let mut rows = Vec::with_capacity((points.len() + 1) * HIDDEN);
+        for (x, y, label) in &points {
             // the reference shifts pixel coordinates (in the square input) by half a pixel
             let side = self.image as f32;
-            let (x, y) = ((c.x * side + 0.5) / side, (c.y * side + 0.5) / side);
+            let (x, y) = ((x * side + 0.5) / side, (y * side + 0.5) / side);
             let e = self.point_pe.encode(x, y);
-            let label = usize::from(c.positive);
             rows.extend(e.iter().enumerate().map(|(i, v)| v + point_embed.get(label * HIDDEN + i).copied().unwrap_or(0.0)));
         }
         rows.extend_from_slice(&not_a_point);
-        Ok(Tensor::from_vec(rows, (1, clicks.len() + 1, HIDDEN), &self.device)?)
+        Ok(Tensor::from_vec(rows, (1, points.len() + 1, HIDDEN), &self.device)?)
     }
 
     /// Predict masks for `clicks`. `multimask`: the three alternatives (best by predicted IoU is
     /// returned), else the single-mask output with SAM 2's stability fallback.
     pub fn predict(&self, f: &Features, clicks: &[Click], multimask: bool) -> Result<Prediction> {
-        let Decoded { masks, iou, object_score } = self.decode(f, clicks)?;
+        self.predict_prompt(f, clicks, None, multimask)
+    }
+
+    /// [`Self::predict`] with an optional box prompt (x0, y0, x1, y1, normalized).
+    pub fn predict_prompt(&self, f: &Features, clicks: &[Click], rect: Option<[f32; 4]>, multimask: bool) -> Result<Prediction> {
+        let Decoded { masks, iou, object_score } = self.decode_prompt(f, clicks, rect)?;
         let pick = |i: usize| -> Result<Prediction> {
             Ok(Prediction { logits: to_vec(&masks.i(i)?)?, iou: iou.get(i).copied().unwrap_or(0.0), object_score })
         };
@@ -404,12 +417,17 @@ impl Tracker {
 
     /// Run the decoder for `clicks`: all four masks with their predicted IoU and the object score.
     pub fn decode(&self, f: &Features, clicks: &[Click]) -> Result<Decoded> {
+        self.decode_prompt(f, clicks, None)
+    }
+
+    /// [`Self::decode`] with an optional box prompt (x0, y0, x1, y1, normalized).
+    pub fn decode_prompt(&self, f: &Features, clicks: &[Click], rect: Option<[f32; 4]>) -> Result<Decoded> {
+        let sparse = self.embed_prompt(clicks, rect)?;
         let (image, s0, s1) = match (&f.0, &self.fast_up) {
             (Layout::Planar { image, s0, s1 }, _) => (image, s0, s1),
-            (Layout::Fast(ff), Some(up)) => return self.decode_fast(ff, up, clicks),
+            (Layout::Fast(ff), Some(up)) => return self.decode_fast(ff, up, sparse),
             (Layout::Fast(_), None) => return Err(crate::Error::Model("channel-last features need the fast decoder".into())),
         };
-        let sparse = self.embed_clicks(clicks)?;
         let tokens = Tensor::cat(&[self.output_tokens.unsqueeze(0)?, sparse], 1)?; // [1, T, 256]
         let image = image.broadcast_add(&self.no_mask)?; // dense prompt: "no mask"
         let (b, c, h, w) = image.dims4()?;
@@ -438,8 +456,7 @@ impl Tracker {
     }
 
     /// [`Self::decode`] through the multi-threaded CPU kernels, channel-last (SAM 2).
-    fn decode_fast(&self, f: &FastFeatures, (up1, up2): &(FastUp, FastUp), clicks: &[Click]) -> Result<Decoded> {
-        let sparse = self.embed_clicks(clicks)?;
+    fn decode_fast(&self, f: &FastFeatures, (up1, up2): &(FastUp, FastUp), sparse: Tensor) -> Result<Decoded> {
         let tokens = Tensor::cat(&[self.output_tokens.unsqueeze(0)?, sparse], 1)?; // [1, T, 256]
         let (mut q, mut k) = (tokens.clone(), f.keys.clone());
         for (i, blk) in self.blocks.iter().enumerate() {

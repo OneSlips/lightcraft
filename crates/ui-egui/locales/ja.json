@@ -2561,6 +2561,8 @@
   "Select Object: click what to select": "オブジェクトを選択： 選択したいものをクリック",
   "Depth Range masks": "深度範囲マスク",
   "Select Object and Describe (optional; Meta's licence, gated)": "オブジェクトを選択と説明（任意、Meta のライセンス、アクセス制限あり）",
+  "Describe: select what you type (with SAM 2.1)": "説明：入力したものを選択（SAM 2.1 と併用）",
+  "Optional: Select Object and Describe with Meta's model (gated licence); both work without it": "任意：Meta のモデルでオブジェクトを選択と説明（アクセス制限付きライセンス）。どちらもなしで動作します",
   "AI Model Status": "AI モデルの状態",
   "Download AI Model": "AI モデルをダウンロード",
   "Cancel AI Model Download": "AI モデルのダウンロードをキャンセル",

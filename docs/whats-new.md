@@ -48,6 +48,13 @@
   (smaller so it still fits), with a fine grid while you drag, as in Lightroom Classic and
   Capture One.
 
+### Masking panel
+- **Describe works without SAM 3.** Type what to select (`white dress`, `car, road`) and LightCraft
+  finds every instance with an open model, OWLv2, and cuts each one out with SAM 2.1 (the model
+  behind Object). Both download on first use, about 620 MB and 156 MB; Meta's gated SAM 3 is no
+  longer needed, and is still used when you have installed it. The first description on a photo
+  takes a few seconds while the photo is analyzed; more descriptions on the same photo are quick.
+
 ## 2026-10-15
 
 ### Settings window
