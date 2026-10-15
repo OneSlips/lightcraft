@@ -282,6 +282,10 @@
   "{name} opened in the other editor": "{name} відкрито в іншому редакторі",
   "{n} originals opened in the other editor": "Відкрито оригіналів в іншому редакторі: {n}",
   "· {in_source} identical copies": "· ідентичних копій: {in_source}",
+  "The AI model download failed: {e}": "Не вдалося завантажити модель ШІ: {e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Ліцензія: {licence}, ліцензія з відкритим кодом, що дозволяє будь-яке використання, зокрема комерційну роботу.",
+  "A one-time download of about {mb} MB, saved in {dir}": "Одноразове завантаження близько {mb} МБ, зберігається в {dir}",
+  "Person {n}": "Людина {n}",
   "{count} more warnings.": "Інших попереджень: {count}.",
   "{photos} catalog records processed; {collections} collections.": "Оброблено записів каталогу: {photos}; колекцій: {collections}.",
   "{missing} originals are missing. Their catalog records are available; use Find Missing Photos to relink them.": "Не знайдено оригінали: {missing}. Їхні записи каталогу доступні; скористайтеся пошуком відсутніх фотографій, щоб відновити посилання."

@@ -338,7 +338,7 @@ pub fn window_renderer_order(
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod tests {
+pub(crate) mod tests {
 
     /// #250: the indirect-call validation pipeline is off unless asked for; other flags are kept.
     #[test]
@@ -354,6 +354,20 @@ mod tests {
 
     // The tests that set the process-wide marker take turns, with each other and with the
     // render tests that create the device: all of them hold `crate::DEVICE_TEST_LOCK`.
+
+    /// Create the process's GPU devices (rendering, AI masks, denoise) before a test sets the
+    /// marker: other tests create them on other threads, and their scopes would share the marker.
+    /// Waits until no scope is open.
+    fn devices_settled() {
+        let _ = crate::device();
+        let _ = crate::gemm::adapter();
+        #[cfg(feature = "denoise")]
+        let _ = crate::nn::adapter();
+        let t = std::time::Instant::now();
+        while *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) > 0 && t.elapsed() < std::time::Duration::from_secs(120) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
 
     #[test]
     fn parses_backend_names() {
@@ -422,14 +436,33 @@ mod tests {
     #[test]
     fn init_marker_is_written_during_creation_and_removed_after() {
         let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        devices_settled();
         let dir = std::env::temp_dir().join(format!("lc-gpu-marker-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);
-        set_init_marker(Some(m.clone()));
-        let seen = with_init_marker(Backends::DX12, || m.exists());
-        set_init_marker(None);
-        assert!(seen, "the marker exists while the device is created");
-        assert!(!m.exists(), "and is removed afterwards");
+        // other tests create real devices on other threads, entering scopes that share the marker:
+        // run the check when no other scope is open, and again if one overlapped it
+        let idle = || {
+            let t = std::time::Instant::now();
+            while *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) > 0 && t.elapsed() < std::time::Duration::from_secs(120) {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        let mut result = (false, true);
+        for _ in 0..5 {
+            idle();
+            set_init_marker(Some(m.clone()));
+            let seen = with_init_marker(Backends::DX12, || m.exists());
+            set_init_marker(None);
+            idle();
+            result = (seen, m.exists());
+            if result == (true, false) {
+                break;
+            }
+            let _ = std::fs::remove_file(&m);
+        }
+        assert!(result.0, "the marker exists while the device is created");
+        assert!(!result.1, "and is removed afterwards");
         // a marker left behind by a crashed process is reported once; reading it leaves it in place
         std::fs::write(&m, "GPU device and kernel creation started (backends DX12)").unwrap();
         assert!(read_init_marker(&m).unwrap().contains("DX12"));
@@ -506,6 +539,7 @@ mod tests {
     #[test]
     fn a_panic_inside_the_scope_still_removes_the_marker() {
         let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        devices_settled();
         let dir = std::env::temp_dir().join(format!("lc-gpu-panic-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);

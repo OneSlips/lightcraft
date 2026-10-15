@@ -35,6 +35,9 @@ pub mod backend;
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
 mod exit;
+/// Matrix products for the AI mask models.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod gemm;
 #[cfg(all(feature = "denoise", not(target_arch = "wasm32")))]
 pub mod nn;
 #[cfg(not(target_arch = "wasm32"))]
@@ -248,7 +251,7 @@ pub fn wait_idle(timeout: std::time::Duration) -> bool {
 
 /// Why GPU compute that has a device of its own (denoise) is switched off by the user's settings, or `None`: the
 /// environment switches and the rendering preference, but not a render-device failure (the devices are separate).
-#[cfg(all(feature = "denoise", not(target_arch = "wasm32")))]
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn switched_off() -> Option<String> {
     if env_disabled() {
         return Some(if backend::env_off() { "disabled by LIGHTCRAFT_GPU_BACKEND=off" } else { "disabled by LIGHTCRAFT_GPU=0" }.into());

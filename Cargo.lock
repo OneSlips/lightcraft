@@ -3462,8 +3462,10 @@ version = "0.8.0"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "image",
  "lightcraft-fetch",
  "log",
+ "rayon",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

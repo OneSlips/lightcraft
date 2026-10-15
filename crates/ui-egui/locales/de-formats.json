@@ -282,6 +282,10 @@
   "{name} opened in the other editor": "{name} im anderen Editor geöffnet",
   "{n} originals opened in the other editor": "{n} Originale im anderen Editor geöffnet",
   "· {in_source} identical copies": "· {in_source} identische Kopien",
+  "The AI model download failed: {e}": "Der Download des KI-Modells ist fehlgeschlagen: {e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Lizenz: {licence}, eine Open-Source-Lizenz, die jede Nutzung erlaubt, auch für kommerzielle Arbeit.",
+  "A one-time download of about {mb} MB, saved in {dir}": "Ein einmaliger Download von etwa {mb} MB, gespeichert in {dir}",
+  "Person {n}": "Person {n}",
   "{count} more warnings.": "{count} weitere Warnungen.",
   "{photos} catalog records processed; {collections} collections.": "{photos} Katalogeinträge verarbeitet; {collections} Sammlungen.",
   "{missing} originals are missing. Their catalog records are available; use Find Missing Photos to relink them.": "{missing} Originale fehlen. Ihre Katalogeinträge sind verfügbar; verwende „Fehlende Fotos suchen“, um sie neu zu verknüpfen."

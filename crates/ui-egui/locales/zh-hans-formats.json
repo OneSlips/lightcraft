@@ -282,6 +282,10 @@
   "{name} opened in the other editor": "已在其他编辑器中打开 {name}",
   "{n} originals opened in the other editor": "已在其他编辑器中打开 {n} 个原始文件",
   "· {in_source} identical copies": "· {in_source} 个相同副本",
+  "The AI model download failed: {e}": "AI 模型下载失败：{e}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "许可证：{licence}，一种允许任何用途（包括商业工作）的开源许可证。",
+  "A one-time download of about {mb} MB, saved in {dir}": "一次性下载约 {mb} MB，保存在 {dir}",
+  "Person {n}": "人物 {n}",
   "{count} more warnings.": "另有 {count} 条警告。",
   "{photos} catalog records processed; {collections} collections.": "已处理 {photos} 条目录记录；{collections} 个收藏集。",
   "{missing} originals are missing. Their catalog records are available; use Find Missing Photos to relink them.": "有 {missing} 个原始文件缺失。其目录记录可用；请使用“查找缺失照片”重新链接文件。"
