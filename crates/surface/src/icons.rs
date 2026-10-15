@@ -67,6 +67,9 @@ fn tb_key(b: &Binding) -> Option<&'static str> {
 
 /// The icon of a binding, if the pack has one.
 pub fn icon_for(b: &Binding) -> Option<&'static str> {
+    if let Some(name) = drawn_icon(b) {
+        return svg_name(name);
+    }
     let name: String = match b {
         Binding::Value { target } => {
             if let Some(k) = tb_key(b) {
@@ -127,6 +130,28 @@ pub fn icon_for(b: &Binding) -> Option<&'static str> {
         Binding::Modifier { modifier: Modifier::Coarse } => "increase-zoom".into(),
     };
     svg_name(&name)
+}
+
+/// Functions that shared one of the pack's generic icons get their own: icons drawn for
+/// LightCraft in the pack's style (the pack's originals stay as they are).
+fn drawn_icon(b: &Binding) -> Option<&'static str> {
+    let Binding::Command { command, params } = b else { return None };
+    Some(match command.as_str() {
+        "mask.invert" => "mask-invert",
+        "brush.erase" => "brush-erase",
+        "tool.brush" if params.get("new").and_then(Value::as_bool) == Some(true) => "brush-new",
+        "surface.maskPrevious" => "mask-previous",
+        "surface.maskNext" => "mask-next",
+        "mask.visible" => "mask-visible",
+        "view.zoomFit" => "zoom-fit-view",
+        "view.zoom100" => "zoom-actual-size",
+        "library.selectAll" => "select-all-photos",
+        "library.selectNone" => "select-no-photos",
+        "photo.rotateLeft" => "rotate-photo-left",
+        "photo.rotateRight" => "rotate-photo-right",
+        "develop.reset" => "reset-develop",
+        _ => return None,
+    })
 }
 
 fn svg_name(name: &str) -> Option<&'static str> {
@@ -260,6 +285,30 @@ pub fn command_label(command: &str, params: &Value) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn mask_and_brush_keys_have_their_own_icons() {
+        let brush = Binding::command("tool.brush");
+        let new_brush = Binding::Command { command: "tool.brush".into(), params: json!({"new": true}) };
+        let picked: Vec<_> = [
+            Binding::command("mask.invert"),
+            Binding::command("brush.erase"),
+            new_brush,
+            Binding::command("surface.maskPrevious"),
+            Binding::command("surface.maskNext"),
+            Binding::command("mask.visible"),
+        ]
+        .iter()
+        .map(icon_for)
+        .collect();
+        assert!(picked.iter().all(Option::is_some), "{picked:?}");
+        let mut distinct = picked.clone();
+        distinct.sort();
+        distinct.dedup();
+        assert_eq!(distinct.len(), picked.len(), "{picked:?}");
+        // the plain brush keeps the pack's own drawing
+        assert_eq!(icon_for(&brush), Some("draw-mask-tool"));
+    }
 
     #[test]
     fn kebab_matches_the_file_names() {
