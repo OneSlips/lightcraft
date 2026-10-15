@@ -58,6 +58,9 @@ What happens then:
   of three reasons, each drawn its own way by the plugin: its value is on the dial (`focus`: the white key), it is
   held down (`held`: a held modifier, or Erase), or a mode it switches is on (`on`: the brush, Before / After, Auto
   Sync …). One-shot keys (New Brush, Add / Subtract) are never lit.
+- **Own icons** for functions that shared one of the pack's generic drawings (Invert Mask, Erase, New Brush,
+  Previous / Next Mask, Mask On/Off, Zoom To Fit, Zoom 100%, Select All / None, Rotate Left / Right, Reset): drawn
+  for LightCraft in the pack's style, next to the pack's originals, which stay as they are.
 - **Erase works while held**, like Alt with the brush: `cmd:brush.erase` with `{on}` (a console key sends on at the
   press and off at the release; without `on` it toggles). The brush page has it, plus Brush Size and Feather keys.
 - **Destructive keys need a hold.** Delete, Delete Permanently, Clear History, Delete All Masks, Reset, deleting a
@@ -616,5 +619,6 @@ every dropped action says why).
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
+| 2026-10-16 | minor | 13 icons of LightCraft's own in the pack's style for functions that shared a generic icon |
 | 2026-10-16 | minor | Erase while held (`brush.erase`), key states (focus / held / on), destructive keys need a 0.7 s hold, no Delete key on built-in layouts, Previous / Next Mask, the brush page's size and feather keys; settings format 3 |
 | 2026-10-15 | minor | Zero setup for the Logi plugin (on by itself, trusted through its data folder); the console shows the page being edited; dialog pages opt-in; `dial` / `roller` are the real big dial / roller (settings format 2 swaps older files), so a value key's value lands on the big dial |
