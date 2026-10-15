@@ -398,5 +398,7 @@
   "{n} rejected photos removed (Edit → Undo brings them back)": "已移除 {n} 張排除的相片（編輯 → 復原可恢復）",
   "Alternatives to {name}": "{name} 的備選",
   "Import {n} Selected": "匯入所選 {n} 張",
-  "{n} alternatives in the library": "已將 {n} 張備選加入圖庫"
+  "{n} alternatives in the library": "已將 {n} 張備選加入圖庫",
+  "{n} people, {k} to look at first": "{n} 人，其中 {k} 人需先看",
+  "Rows {a}–{b} of {c}: scroll for more": "第 {a}–{b} 列，共 {c} 列：捲動查看更多"
 }

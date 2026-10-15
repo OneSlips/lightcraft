@@ -398,5 +398,7 @@
   "{n} rejected photos removed (Edit → Undo brings them back)": "Odebráno zamítnutých fotek: {n} (Úpravy → Zpět je vrátí)",
   "Alternatives to {name}": "Alternativy k {name}",
   "Import {n} Selected": "Importovat vybrané ({n})",
-  "{n} alternatives in the library": "Alternativ v knihovně: {n}"
+  "{n} alternatives in the library": "Alternativ v knihovně: {n}",
+  "{n} people, {k} to look at first": "{n} lidí, {k} k prohlédnutí jako první",
+  "Rows {a}–{b} of {c}: scroll for more": "Řádky {a}–{b} z {c}: další posunutím"
 }

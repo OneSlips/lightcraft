@@ -398,5 +398,7 @@
   "{n} rejected photos removed (Edit → Undo brings them back)": "{n} fotos rejeitadas removidas (Editar → Desfazer as traz de volta)",
   "Alternatives to {name}": "Alternativas a {name}",
   "Import {n} Selected": "Importar {n} selecionadas",
-  "{n} alternatives in the library": "{n} alternativas na biblioteca"
+  "{n} alternatives in the library": "{n} alternativas na biblioteca",
+  "{n} people, {k} to look at first": "{n} pessoas, {k} para ver primeiro",
+  "Rows {a}–{b} of {c}: scroll for more": "Linhas {a}–{b} de {c}: role para ver mais"
 }

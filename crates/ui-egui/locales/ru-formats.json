@@ -398,5 +398,7 @@
   "{n} rejected photos removed (Edit → Undo brings them back)": "Удалено отклонённых фото: {n} (Правка → Отменить вернёт их)",
   "Alternatives to {name}": "Альтернативы для {name}",
   "Import {n} Selected": "Импортировать выбранные ({n})",
-  "{n} alternatives in the library": "Альтернатив в библиотеке: {n}"
+  "{n} alternatives in the library": "Альтернатив в библиотеке: {n}",
+  "{n} people, {k} to look at first": "Людей: {n}, сначала посмотреть: {k}",
+  "Rows {a}–{b} of {c}: scroll for more": "Ряды {a}–{b} из {c}: прокрутите, чтобы увидеть остальные"
 }

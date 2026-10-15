@@ -398,5 +398,7 @@
   "{n} rejected photos removed (Edit → Undo brings them back)": "除外写真{n}枚を取り除きました（編集 → 取り消しで戻せます）",
   "Alternatives to {name}": "{name} の代わり",
   "Import {n} Selected": "選択した{n}枚を読み込む",
-  "{n} alternatives in the library": "代わりの写真{n}枚をライブラリに追加しました"
+  "{n} alternatives in the library": "代わりの写真{n}枚をライブラリに追加しました",
+  "{n} people, {k} to look at first": "{n}人、先に見るべき人{k}人",
+  "Rows {a}–{b} of {c}: scroll for more": "{c}行中 {a}–{b}行：スクロールで続き"
 }

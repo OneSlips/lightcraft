@@ -25,8 +25,24 @@ const LABEL_PT: f32 = 13.5;
 const NOTE_PT: f32 = 13.0;
 /// Height of the verdict line under each crop.
 const LABEL_H: f32 = 20.0;
-/// The smallest a crop is drawn (points wide) before the group wraps into another row.
+/// The smallest a crop is drawn (points wide) before the group wraps into another row; a big
+/// group (more than [`BIG_GROUP`] people) goes down to [`MIN_THUMB_W_BIG`] first.
 const MIN_THUMB_W: f32 = 96.0;
+const MIN_THUMB_W_BIG: f32 = 76.0;
+const BIG_GROUP: usize = 24;
+
+/// The order a big group is shown in: the people to look at first (closed, blurry, half closed,
+/// soft), then those whose eyes can't be seen, then the sharp and open ones.
+pub fn look_first(v: Verdict) -> u8 {
+    match v {
+        Verdict::Closed => 0,
+        Verdict::Blurry => 1,
+        Verdict::HalfClosed => 2,
+        Verdict::Soft => 3,
+        Verdict::NotVisible => 4,
+        Verdict::Sharp => 5,
+    }
+}
 
 /// Photos after the one on screen whose eyes are found ahead.
 pub const AHEAD: usize = 3;
@@ -42,6 +58,8 @@ pub struct EyeStrip {
     wanted: Vec<u64>,
     /// The crops of the photo on screen, as textures.
     textures: Option<(u64, Vec<egui::TextureHandle>)>,
+    /// A big group scrolled down this many rows (for the photo of this key).
+    scrolled: (u64, usize),
 }
 
 impl std::fmt::Debug for EyeStrip {
@@ -217,10 +235,10 @@ pub fn strip_grid(n: usize, w: f32, h: f32, gap: f32, label_h: f32, width: f32, 
         return StripGrid { cols: n.max(1), w: w.max(0.0), h: h.max(0.0), shown: n };
     }
     let (fw, fh) = fit_thumbs(n, w, h, gap, width);
-    if fw >= MIN_THUMB_W.min(w) {
+    if fw >= (if n > BIG_GROUP { MIN_THUMB_W_BIG } else { MIN_THUMB_W }).min(w) {
         return StripGrid { cols: n, w: fw, h: fh, shown: n };
     }
-    let tw = MIN_THUMB_W.min(w);
+    let tw = (if n > BIG_GROUP { MIN_THUMB_W_BIG } else { MIN_THUMB_W }).min(w);
     let th = h * tw / w;
     let cols = (((width - gap) / (tw + gap)).floor().max(1.0)) as usize;
     let rows_fit = (((max_h - gap * 0.5) / (th + label_h + gap)).floor().max(1.0)) as usize;
@@ -314,15 +332,43 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
         canvas.height() * 0.45,
     );
     let (w, h) = (grid.w, grid.h);
+    let cols = grid.cols.max(1);
     let mut order: Vec<usize> = (0..n).collect();
-    if grid.shown < n {
-        order.sort_by_key(|i| report.eyes.get(*i).map_or(1, |e| u8::from(e.good())));
-        notes.push(crate::i18n::tr_format!("+{} more, all sharp and open", n - grid.shown));
-        order.truncate(grid.shown);
+    // a group too big for the room: the people to look at first, and the rows scroll (wheel)
+    let scrollable = grid.shown < n;
+    let mut first_row = 0;
+    if scrollable {
+        order.sort_by_key(|i| (report.eyes.get(*i).map_or(9, |e| look_first(e.verdict())), *i));
+        let rows_all = n.div_ceil(cols);
+        let rows_shown = grid.shown.div_ceil(cols).max(1);
+        let max_first = rows_all.saturating_sub(rows_shown);
+        first_row = if app.eye_strip.scrolled.0 == key { app.eye_strip.scrolled.1.min(max_first) } else { 0 };
+        let band_guess = Rect::from_min_size(pos2(canvas.left(), canvas.top()), vec2(canvas.width(), rows_shown as f32 * (h + label_h + gap) + gap));
+        let wheel = ui.input(|i| {
+            if i.pointer.hover_pos().is_some_and(|p| band_guess.contains(p)) {
+                i.events.iter().map(|e| if let egui::Event::MouseWheel { delta, .. } = e { delta.y } else { 0.0 }).sum::<f32>()
+            } else {
+                0.0
+            }
+        });
+        if wheel < 0.0 {
+            first_row = (first_row + 1).min(max_first);
+        } else if wheel > 0.0 {
+            first_row = first_row.saturating_sub(1);
+        }
+        app.eye_strip.scrolled = (key, first_row);
+        let to_look_at = report.eyes.iter().filter(|e| look_first(e.verdict()) < 4).count();
+        notes.push(crate::i18n::tr_format!("{n} people, {k} to look at first", n = n, k = to_look_at));
+        notes.push(crate::i18n::tr_format!(
+            "Rows {a}–{b} of {c}: scroll for more",
+            a = first_row + 1,
+            b = (first_row + rows_shown).min(rows_all),
+            c = rows_all
+        ));
+        order = order.into_iter().skip(first_row.saturating_mul(cols)).take(rows_shown.saturating_mul(cols)).collect();
     }
     let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout_no_wrap(n, t.font(NOTE_PT), Color32::from_gray(225))).collect();
     let notes_w = notes.iter().map(|g| g.size().x).fold(0.0f32, f32::max);
-    let cols = grid.cols.max(1);
     let rows = order.len().div_ceil(cols).max(1);
     let thumbs_w = cols.min(order.len().max(1)) as f32 * (w + gap) + gap;
     let band_w = thumbs_w + if notes.is_empty() { 0.0 } else { notes_w + gap };
@@ -331,6 +377,16 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     let p = ui.painter_at(canvas);
     p.rect_filled(band, 8.0, Color32::from_black_alpha(175));
     register(ui.ctx(), "eyes:strip", band);
+    if scrollable {
+        // a thin bar at the band's right edge: where these rows are in the group
+        let rows_all = n.div_ceil(cols).max(1) as f32;
+        let shown_rows = order.len().div_ceil(cols).max(1) as f32;
+        let track = Rect::from_min_max(pos2(band.right() - 5.0, band.top() + 6.0), pos2(band.right() - 2.0, band.bottom() - 6.0));
+        let a = track.top() + track.height() * first_row as f32 / rows_all;
+        let b = (a + track.height() * shown_rows / rows_all).min(track.bottom());
+        p.rect_filled(track, 1.5, Color32::from_white_alpha(30));
+        p.rect_filled(Rect::from_x_y_ranges(track.x_range(), a..=b), 1.5, Color32::from_white_alpha(150));
+    }
     let lines = notes.len() as f32;
     for (k, g) in notes.into_iter().enumerate() {
         let y = band.top() + gap + (h + label_h) / 2.0 - (lines - 1.0) * 10.0 + k as f32 * 20.0 - g.size().y / 2.0;
@@ -420,7 +476,7 @@ mod tests {
         let one = strip_grid(4, 160.0, 100.0, 8.0, LABEL_H, 1400.0, 400.0);
         assert_eq!((one.cols, one.shown, one.w), (4, 4, 160.0));
         let big = strip_grid(100, 160.0, 100.0, 8.0, LABEL_H, 1200.0, 400.0);
-        assert!(big.w >= MIN_THUMB_W - 0.01 && big.cols > 4, "{big:?}");
+        assert!(big.w >= MIN_THUMB_W_BIG - 0.01 && big.cols >= 12, "{big:?}");
         let rows = big.shown.div_ceil(big.cols);
         assert!(rows >= 2 && rows as f32 * (big.h + LABEL_H + 8.0) <= 400.0 + 8.0, "{big:?}");
         assert!(big.shown < 100);
@@ -443,6 +499,18 @@ mod tests {
         app.session.source = lightcraft_engine::LibrarySource::All;
         assert_eq!(app.run("view.eyeFocus", serde_json::json!({})).unwrap()["on"], true);
         assert!(app.ui.eye_focus && !app.ui.eye_focus_import, "each side keeps its own");
+    }
+
+    /// In a big group the people to look at come first: closed, blurry, half closed, soft, then
+    /// eyes not visible, then the sharp and open.
+    #[test]
+    fn a_big_group_shows_the_people_to_look_at_first() {
+        let mut v = [Verdict::Sharp, Verdict::NotVisible, Verdict::Soft, Verdict::Closed, Verdict::HalfClosed, Verdict::Blurry];
+        v.sort_by_key(|x| look_first(*x));
+        assert_eq!(v, [Verdict::Closed, Verdict::Blurry, Verdict::HalfClosed, Verdict::Soft, Verdict::NotVisible, Verdict::Sharp]);
+        // 120 people on a 1,300-point loupe: crops at least 76 points wide, several rows
+        let g = strip_grid(120, 160.0, 100.0, 8.0, LABEL_H, 1276.0, 360.0);
+        assert!(g.w >= MIN_THUMB_W_BIG - 0.01 && g.cols >= 14 && g.shown >= 50 && g.shown < 120, "{g:?}");
     }
 
     #[test]
