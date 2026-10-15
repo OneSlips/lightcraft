@@ -391,7 +391,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full)}",
             has_active,
             |s, p| {
                 let pts: Vec<Point> = p
@@ -401,6 +401,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     .iter()
                     .filter_map(|q| Some(Point::new(q.get(0)?.as_f64()?, q.get(1)?.as_f64()?)))
                     .collect();
+                let pts_len = pts.len();
                 let d = BrushStroke::default();
                 let stroke = BrushStroke {
                     points: pts,
@@ -410,6 +411,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     density: f64_or(p, "density", d.density),
                     erase: bool_or(p, "erase", false),
                     auto_mask: bool_or(p, "autoMask", false),
+                    pressure: pressure_list(p.get("pressure"), pts_len)?,
                 };
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let want = p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(s.active_mask);
@@ -1146,7 +1148,7 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             |s, p| {
                 let c = "redeye.catchlight";
-                let i = super::f64_req(p, "index", c)? as usize;
+                let i = super::index_req(p, "index", c)?;
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let eye = dd.red_eye.get_mut(i).ok_or_else(|| bad(c, "no such eye"))?;
@@ -1161,7 +1163,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("redeye.delete", "Delete Red Eye Correction", [], None, "{index}", has_active, |s, p| {
             let c = "redeye.delete";
-            let i = super::f64_req(p, "index", c)? as usize;
+            let i = super::index_req(p, "index", c)?;
             let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
             let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
             if i >= dd.red_eye.len() {
@@ -1237,4 +1239,18 @@ pub(crate) fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
     c(&mut a.color_sat, 0.0, 100.0);
     c(&mut a.amount, 0.0, 200.0);
     a
+}
+
+/// `mask.brushStroke`'s `pressure`: one number 0..1 per point (clamped), at most one per point; absent or `null`
+/// is no pressure data.
+fn pressure_list(v: Option<&Value>, points: usize) -> Result<Vec<f32>> {
+    let Some(v) = v.filter(|v| !v.is_null()) else { return Ok(Vec::new()) };
+    let list = v.as_array().ok_or_else(|| bad("mask.brushStroke", "pressure must be a list of numbers 0..1"))?;
+    if list.len() > points {
+        return Err(bad("mask.brushStroke", "pressure has more values than points"));
+    }
+    list.iter()
+        .map(|q| q.as_f64().filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0) as f32))
+        .collect::<Option<Vec<f32>>>()
+        .ok_or_else(|| bad("mask.brushStroke", "pressure must be a list of numbers 0..1"))
 }

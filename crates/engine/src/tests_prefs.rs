@@ -108,7 +108,7 @@ fn preferences_persist_with_the_library() {
         s.execute("library.xmpPreferences", &json!({"autoWrite": true})).unwrap();
         s.execute(
             "library.preferences",
-            &json!({"import": {"rawPreset": "user.rawlook", "perCamera": true}, "camera": {"camera": "Canon EOS R5", "preset": "user.canonlook"}, "cacheMb": 512}),
+            &json!({"import": {"rawPreset": "user.rawlook", "perCamera": true, "showOnCard": true}, "camera": {"camera": "Canon EOS R5", "preset": "user.canonlook"}, "cacheMb": 512}),
         )
         .unwrap();
         s.close_library().unwrap();
@@ -118,6 +118,7 @@ fn preferences_persist_with_the_library() {
     assert!(s.xmp.auto_write);
     assert_eq!(s.import_defaults.raw_preset.as_deref(), Some("user.rawlook"));
     assert!(s.import_defaults.per_camera);
+    assert!(s.import_defaults.show_on_card);
     assert_eq!(s.import_defaults.cameras.len(), 1);
     assert_eq!(s.import_defaults.preset_for(true, "Canon EOS R5"), Some("user.canonlook"));
     assert_eq!(s.cache_mb, 512);
@@ -368,6 +369,46 @@ fn reopening_a_library_retires_the_old_cache_so_its_jobs_cannot_write_after_a_cl
     assert!(fresh.get(key).is_none(), "stale thumbnail written through the replaced cache");
     assert!(fresh.get(kept).is_none(), "stale put through the replaced cache");
     assert!(s.media.rendered.get(key).is_none());
+    drop(s);
+    let _ = std::fs::remove_dir_all(&lib);
+}
+
+#[test]
+fn slideshow_playback_settings_persist_with_the_library() {
+    let lib = temp_dir("slideshow");
+    {
+        let mut s = Session::new().with_fs();
+        s.open_library(&lib, false).unwrap();
+        let r = s.execute("slideshow.playback", &json!({})).unwrap();
+        assert_eq!(r["slideDuration"], 4.0, "defaults: {r}");
+        let r = s
+            .execute(
+                "slideshow.playback",
+                &json!({"slideDuration": 6, "fadeDuration": 2.5, "fadeColor": "#000000", "randomOrder": true, "repeat": false}),
+            )
+            .unwrap();
+        assert_eq!(r["fadeColor"], "#000000");
+        // a hostile value changes nothing
+        assert!(s.execute("slideshow.playback", &json!({"slideDuration": "soon", "repeat": true})).is_err());
+        assert!(!s.slideshow.repeat);
+        drop(s);
+    }
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    let r = s.execute("slideshow.playback", &json!({})).unwrap();
+    assert_eq!(
+        r,
+        json!({"slideDuration": 6.0, "fadeDuration": 2.5, "fadeColor": "#000000", "randomOrder": true, "repeat": false, "preparePreviews": true})
+    );
+    drop(s);
+    // out-of-range values written by hand are clamped when the library opens
+    std::fs::write(lib.join("prefs.json"), r#"{"slideshow": {"slideDuration": 1e9, "fadeDuration": -3}}"#).unwrap();
+    let s = {
+        let mut s = Session::new().with_fs();
+        s.open_library(&lib, false).unwrap();
+        s
+    };
+    assert_eq!((s.slideshow.slide_duration, s.slideshow.fade_duration), (120.0, 0.0));
     drop(s);
     let _ = std::fs::remove_dir_all(&lib);
 }

@@ -73,7 +73,7 @@ impl Unit {
 pub struct TaskInfo {
     pub id: u64,
     /// A stable id: `import`, `export`, `scan`, `previews`, `smartPreviews`, `lightroom`, `merge`, `download`,
-    /// `faces`, `denoise`, `findMissing`, `applePhotos`, `sensorMaps` (camera sensor map builds and Remove Dust).
+    /// `faces`, `denoise`, `findMissing`, `applePhotos`, `sensorMaps` (camera sensor map builds and Remove Dust), `cache`.
     pub kind: &'static str,
     /// English; the frontend translates it.
     pub label: String,

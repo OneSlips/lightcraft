@@ -104,6 +104,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         egui::Grid::new("mask-tiles").spacing(vec2(TILE_GAP, TILE_GAP)).show(ui, |ui| {
             for (i, (kind, label, icon)) in tiles.iter().enumerate() {
                 let (r, resp) = ui.allocate_exact_size(vec2(tile, TILE_H), Sense::click());
+                crate::widgets::announce(&resp, crate::i18n::tr(label));
                 register(ui.ctx(), format!("maskNew:{kind}"), r);
                 // an armed tool (waiting for the photo), or an open picker, shows pressed
                 let armed = tile_active(app, kind);
@@ -298,6 +299,7 @@ pub(crate) fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: u
             let (lo, hi) = (*lo, *hi);
             let w = ui.available_width().min(240.0);
             let (rect, resp) = ui.allocate_exact_size(vec2(w, 18.0), Sense::click_and_drag());
+            crate::widgets::announce(&resp, crate::i18n::tr("Select Luminance Range"));
             register(ui.ctx(), format!("lumRange:{comp}"), rect);
             let p = ui.painter();
             // dark → light ramp, the selected span outlined
@@ -322,18 +324,27 @@ pub(crate) fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: u
                 p.circle_filled(pos2(x(v), rect.center().y), 5.0, egui::Color32::WHITE);
                 p.circle_stroke(pos2(x(v), rect.center().y), 5.0, Stroke::new(1.0, egui::Color32::from_gray(40)));
             }
-            // drag the nearer handle; one undo step per drag
+            // Choose at the press position, then keep that handle for the entire drag. Testing
+            // proximity on every frame can move the opposite endpoint after a fast/crossing drag.
+            let handle_id = resp.id.with("luminance-handle");
+            let nearer_low = |px: f32| (px - x(lo)).abs() <= (px - x(hi)).abs();
             if resp.drag_started() {
+                if let Some(origin) = ui.input(|i| i.pointer.press_origin()) {
+                    ui.data_mut(|d| d.insert_temp(handle_id, nearer_low(origin.x)));
+                }
                 let _ = app.run("develop.beginInteraction", json!({"label": "Luminance Range"}));
             }
             if (resp.dragged() || resp.clicked())
                 && let Some(pos) = resp.interact_pointer_pos()
             {
                 let v = (((pos.x - rect.left()) / w) as f64).clamp(0.0, 1.0);
-                let (nlo, nhi) = if (v - lo).abs() <= (v - hi).abs() { (v.min(hi - 0.01), hi) } else { (lo, v.max(lo + 0.01)) };
+                let low =
+                    if resp.dragged() { ui.data(|d| d.get_temp::<bool>(handle_id)).unwrap_or_else(|| nearer_low(pos.x)) } else { nearer_low(pos.x) };
+                let (nlo, nhi) = if low { (v.min((hi - 0.01).max(0.0)), hi) } else { (lo, v.max((lo + 0.01).min(1.0))) };
                 update(app, MaskShape::LuminanceRange { lo: nlo, hi: nhi, lo_feather: *lo_feather, hi_feather: *hi_feather });
             }
             if resp.drag_stopped() {
+                ui.data_mut(|d| d.remove::<bool>(handle_id));
                 let _ = app.run("develop.endInteraction", json!({}));
             }
             // Smoothness: both falloffs at once
@@ -444,14 +455,14 @@ pub(crate) fn component_row_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, mas
     run(ui, "Invert", json!({"action": "invert"}));
     run(ui, &crate::i18n::tr_format!("Duplicate \"{label}\"", label = label), json!({"action": "duplicate"}));
     if k > 0 {
-        ui.menu_button(crate::i18n::tr("Mode"), |ui| {
+        crate::widgets::menu_button(ui, crate::i18n::tr("Mode"), |ui| {
             for (op, text) in [("add", "Add"), ("subtract", "Subtract"), ("intersect", "Intersect")] {
                 run(ui, text, json!({"action": "op", "op": op}));
             }
         });
     }
-    ui.menu_button(crate::i18n::tr("Intersect with"), |ui| component_menu(app, ui, "intersect"));
-    ui.menu_button(crate::i18n::tr("Subtract"), |ui| component_menu(app, ui, "subtract"));
+    crate::widgets::menu_button(ui, crate::i18n::tr("Intersect with"), |ui| component_menu(app, ui, "intersect"));
+    crate::widgets::menu_button(ui, crate::i18n::tr("Subtract"), |ui| component_menu(app, ui, "subtract"));
     ui.separator();
     if ui.button(crate::i18n::tr("Rename…")).clicked() {
         app.ui.renaming_component = Some((mask, k, label.to_string()));
@@ -783,6 +794,14 @@ fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             .changed()
         {
             app.ui.brush_auto_mask = auto;
+        }
+        let mut pressure = app.ui.brush_pressure;
+        if ui
+            .checkbox(&mut pressure, crate::i18n::tr("Pen Pressure"))
+            .on_hover_text(crate::i18n::tr("A pen's pressure sets the size and flow of the brush"))
+            .changed()
+        {
+            app.ui.brush_pressure = pressure;
         }
     });
     for (id, label, min, max, get) in [

@@ -275,4 +275,8 @@ fn overlay_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if ui.checkbox(&mut pins, crate::i18n::tr("Show Pins")).changed() {
         let _ = app.run("view.maskPins", json!({"show": pins}));
     }
+    // when the pins show (Auto / Always / Selected / Never; Shift+H)
+    if app.ui.mask_pins {
+        super::right::tool_overlay_options(app, ui);
+    }
 }

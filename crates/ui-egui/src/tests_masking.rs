@@ -839,6 +839,31 @@ fn g_toggles_grids_and_shift_g_starts_guided_upright() {
 }
 
 #[test]
+fn luminance_range_drag_keeps_the_grabbed_handle() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "luminanceRange", "lo": 0.2, "hi": 0.8}));
+    h.settle(SETTLE);
+    let original = develop(&h);
+    for (start, dx, steps) in [(0.2, 180.0, 10), (0.8, -180.0, 10), (0.2, 120.0, 1), (0.8, -120.0, 1)] {
+        let undo0 = h.app.session.undo.len();
+        let r = h.request("ui.dragWidget", json!({"id": "lumRange:0", "fx": start, "fy": 0.5, "dx": dx, "steps": steps}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        let d = develop(&h);
+        let MaskShape::LuminanceRange { lo, hi, .. } = &d.masks[0].components[0].shape else { panic!() };
+        if start < 0.5 {
+            assert_eq!(*hi, 0.8, "dragging low must leave high fixed, including past high");
+            assert!(*lo > 0.6 && *lo < *hi, "{lo}..{hi}");
+        } else {
+            assert_eq!(*lo, 0.2, "dragging high must leave low fixed, including past low");
+            assert!(*hi < 0.4 && *hi > *lo, "{lo}..{hi}");
+        }
+        assert_eq!(h.app.session.undo.len(), undo0 + 1);
+        exec(&mut h, "edit.undo", json!({}));
+        assert_eq!(develop(&h), original);
+    }
+}
+
+#[test]
 fn luminance_range_controls_and_map() {
     let mut h = detail("panel.masking");
     exec(&mut h, "mask.add", json!({"kind": "luminanceRange", "lo": 0.6, "hi": 1.0}));
@@ -950,38 +975,6 @@ fn local_folder_listed_twice_opens_and_closes_each_row() {
         assert_eq!(rows(&h, &sub_row), 0, "copy {copy} closes again");
     }
     let _ = std::fs::remove_dir_all(&base);
-    h.settle(SETTLE);
-}
-
-#[test]
-fn slideshow_advances_pauses_and_ends() {
-    let mut h = detail("panel.edit");
-    let first = h.app.session.active();
-    exec(&mut h, "view.slideshow", json!({"interval": 0.5}));
-    assert!(h.app.ui.fullscreen && h.app.ui.slideshow.is_some());
-    // simulated time runs with the frames
-    let mut moved = false;
-    for _ in 0..200 {
-        h.step();
-        if h.app.session.active() != first {
-            moved = true;
-            break;
-        }
-    }
-    assert!(moved, "the next photo comes up");
-    // Space pauses: nothing moves
-    let r = h.request("ui.key", json!({"key": "space"}), T);
-    assert_eq!(r["ok"], true, "{r}");
-    assert!(h.app.ui.slideshow.is_some_and(|s| s.2), "paused");
-    let held = h.app.session.active();
-    for _ in 0..120 {
-        h.step();
-    }
-    assert_eq!(h.app.session.active(), held);
-    // Esc ends it
-    let r = h.request("ui.key", json!({"key": "escape"}), T);
-    assert_eq!(r["ok"], true, "{r}");
-    assert!(!h.app.ui.fullscreen && h.app.ui.slideshow.is_none());
     h.settle(SETTLE);
 }
 
@@ -1505,6 +1498,36 @@ fn a_selected_develop_slider_accepts_wheel_nudges() {
     }
     let after = lightcraft_develop::controls::get(&develop(&h), "light.exposure").expect("exposure");
     assert!(after > before, "selected exposure did not increase: {before} -> {after}");
+}
+
+/// Scrolling sideways over a slider adjusts it without selecting it first: a trackpad swipe
+/// right raises the value, left lowers it, and Shift+wheel (sideways scrolling with a mouse) does
+/// the same. A mostly vertical swipe still scrolls the panel and leaves the slider alone.
+#[test]
+fn sideways_scrolling_adjusts_the_slider_under_the_pointer() {
+    let mut h = detail("panel.edit");
+    let r = h.request("ui.set", json!({"right": "edit"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let exposure = |h: &Headless| lightcraft_develop::controls::get(&develop(h), "light.exposure").expect("exposure");
+    let scroll = |h: &mut Headless, params: serde_json::Value| {
+        // the pointer rests on the track, the slider is not clicked
+        let r = h.request("ui.hoverWidget", json!({"id": "slider:light.exposure"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        let before = exposure(h);
+        let r = h.request("ui.scroll", params, T);
+        assert_eq!(r["ok"], true, "{r}");
+        for _ in 0..10 {
+            h.step();
+        }
+        exposure(h) - before
+    };
+    assert!(scroll(&mut h, json!({"dx": 120.0})) > 0.0, "a swipe right raises the value");
+    assert!(scroll(&mut h, json!({"dx": -120.0})) < 0.0, "a swipe left lowers it");
+    assert!(scroll(&mut h, json!({"dy": 120.0, "shift": true})) > 0.0, "Shift+wheel scrolls sideways");
+    let undo = h.app.session.undo.len();
+    assert_eq!(scroll(&mut h, json!({"dx": 30.0, "dy": -120.0})), 0.0, "a mostly vertical swipe leaves the slider alone");
+    assert_eq!(h.app.session.undo.len(), undo);
 }
 
 /// Issue #517: a fast brush stroke (pointer samples several brush widths apart) shows on the photo

@@ -213,12 +213,12 @@ fn disarm(marker: &std::path::Path, active: &Mutex<u32>) {
 }
 
 /// Removes the marker on the way out, a panic included (the process survived).
-struct Armed(Option<PathBuf>);
+struct Armed<'a>(Option<PathBuf>, &'a Mutex<u32>);
 
-impl Drop for Armed {
+impl Drop for Armed<'_> {
     fn drop(&mut self) {
         if let Some(m) = &self.0 {
-            disarm(m, &ACTIVE);
+            disarm(m, self.1);
         }
     }
 }
@@ -227,10 +227,16 @@ impl Drop for Armed {
 /// removing the init marker (if one is set).
 pub(crate) fn with_marker<T>(what: &str, f: impl FnOnce() -> T) -> T {
     let marker = MARKER.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    with_marker_on(marker, &ACTIVE, what, f)
+}
+
+/// [`with_marker`] on an explicit marker path and scope counter (the tests use their own, so that
+/// device-creating tests running in parallel cannot join their scopes).
+fn with_marker_on<T>(marker: Option<PathBuf>, active: &Mutex<u32>, what: &str, f: impl FnOnce() -> T) -> T {
     if let Some(m) = &marker {
-        arm(m, &ACTIVE, what);
+        arm(m, active, what);
     }
-    let _armed = Armed(marker);
+    let _armed = Armed(marker, active);
     f()
 }
 
@@ -352,23 +358,6 @@ pub(crate) mod tests {
     }
     use super::*;
 
-    // The tests that set the process-wide marker take turns, with each other and with the
-    // render tests that create the device: all of them hold `crate::DEVICE_TEST_LOCK`.
-
-    /// Create the process's GPU devices (rendering, AI masks, denoise) before a test sets the
-    /// marker: other tests create them on other threads, and their scopes would share the marker.
-    /// Waits until no scope is open.
-    fn devices_settled() {
-        let _ = crate::device();
-        let _ = crate::gemm::adapter();
-        #[cfg(feature = "denoise")]
-        let _ = crate::nn::adapter();
-        let t = std::time::Instant::now();
-        while *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) > 0 && t.elapsed() < std::time::Duration::from_secs(120) {
-            std::thread::sleep(std::time::Duration::from_millis(20));
-        }
-    }
-
     #[test]
     fn parses_backend_names() {
         assert_eq!(parse_backends("dx12"), Some(BackendChoice::Use(Backends::DX12)));
@@ -435,34 +424,14 @@ pub(crate) mod tests {
 
     #[test]
     fn init_marker_is_written_during_creation_and_removed_after() {
-        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        devices_settled();
         let dir = std::env::temp_dir().join(format!("lc-gpu-marker-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);
-        // other tests create real devices on other threads, entering scopes that share the marker:
-        // run the check when no other scope is open, and again if one overlapped it
-        let idle = || {
-            let t = std::time::Instant::now();
-            while *ACTIVE.lock().unwrap_or_else(|e| e.into_inner()) > 0 && t.elapsed() < std::time::Duration::from_secs(120) {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-        };
-        let mut result = (false, true);
-        for _ in 0..5 {
-            idle();
-            set_init_marker(Some(m.clone()));
-            let seen = with_init_marker(Backends::DX12, || m.exists());
-            set_init_marker(None);
-            idle();
-            result = (seen, m.exists());
-            if result == (true, false) {
-                break;
-            }
-            let _ = std::fs::remove_file(&m);
-        }
-        assert!(result.0, "the marker exists while the device is created");
-        assert!(!result.1, "and is removed afterwards");
+        // a local scope counter: other tests create real devices through the process-wide one
+        let active = Mutex::new(0);
+        let seen = with_marker_on(Some(m.clone()), &active, "device creation", || m.exists());
+        assert!(seen, "the marker exists while the device is created");
+        assert!(!m.exists(), "and is removed afterwards");
         // a marker left behind by a crashed process is reported once; reading it leaves it in place
         std::fs::write(&m, "GPU device and kernel creation started (backends DX12)").unwrap();
         assert!(read_init_marker(&m).unwrap().contains("DX12"));
@@ -470,6 +439,20 @@ pub(crate) mod tests {
         assert!(take_init_marker(&m).unwrap().contains("DX12"));
         assert_eq!(take_init_marker(&m), None);
         assert_eq!(read_init_marker(&m), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn with_init_marker_writes_the_process_wide_marker() {
+        let dir = std::env::temp_dir().join(format!("lc-gpu-global-{}", std::process::id()));
+        let m = dir.join("gpu-init.marker");
+        let _ = std::fs::remove_dir_all(&dir);
+        set_init_marker(Some(m.clone()));
+        let seen = with_init_marker(Backends::DX12, || m.exists());
+        set_init_marker(None);
+        // not checked for removal: device-creating tests running in parallel may still hold the file
+        // (the test above checks removal on its own scope counter)
+        assert!(seen, "the marker set with set_init_marker exists while the device is created");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -538,14 +521,11 @@ pub(crate) mod tests {
 
     #[test]
     fn a_panic_inside_the_scope_still_removes_the_marker() {
-        let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        devices_settled();
         let dir = std::env::temp_dir().join(format!("lc-gpu-panic-{}", std::process::id()));
         let m = dir.join("gpu-init.marker");
         let _ = std::fs::remove_dir_all(&dir);
-        set_init_marker(Some(m.clone()));
-        let r = std::panic::catch_unwind(|| with_marker("kernel compilation", || panic!("compile")));
-        set_init_marker(None);
+        let active = Mutex::new(0);
+        let r = std::panic::catch_unwind(|| with_marker_on(Some(m.clone()), &active, "kernel compilation", || panic!("compile")));
         assert!(r.is_err());
         assert!(!m.exists(), "the process survived, so nothing is left to report");
         let _ = std::fs::remove_dir_all(&dir);

@@ -39,7 +39,7 @@ pub const EXTENSIONS: &[&str] = &[
     // Decoded when built with the codecs' `heif` feature; otherwise the import reports them as
     // failed with the reason ("HEIC/HEIF support isn't included in this build").
     "heic", "heif", "avif", // no AV1 decoder yet: reported as failed, like a HEIC without the feature
-    "iiq", "crw", "mrw", "x3f", "kdc", "mos", "erf", "3fr", "fff",
+    "iiq", "crw", "mrw", "x3f", "kdc", "mos", "erf", "3fr", "fff", "mef",
 ];
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -332,6 +332,8 @@ pub struct ImportDefaults {
     /// After an import, Remove Dust runs on the new raw photos in the background (`spot.findDust`; off by default).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remove_dust: bool,
+    /// Open the import review when a camera or memory card is connected.
+    pub show_on_card: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -493,6 +495,12 @@ pub fn launch_path(arg: &str, cwd: Option<&Path>, home: Option<&Path>, dcim: imp
 pub(crate) fn probe_paths(s: &Session, paths: &[String]) -> Vec<Result<ProbeInfo, String>> {
     let progress = ScanProgress::default();
     probe_all(s.media.file_probe.as_ref(), paths, &progress.done, &progress.cancel)
+}
+
+/// Probe files with `probe` (a clone of the session's file probe), off the session: on a worker thread.
+pub(crate) fn probe_with(probe: &crate::media::FileProbe, paths: &[String]) -> Vec<Result<ProbeInfo, String>> {
+    let progress = ScanProgress::default();
+    probe_all(Some(probe), paths, &progress.done, &progress.cancel)
 }
 
 /// Probe `paths` (several at once), counting each in `done`. Stops before the next file once
@@ -1463,7 +1471,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 p.as_shot_wb = info.as_shot_wb;
                 p.content_hash = info.content_hash;
                 p.embedded_lens = info.embedded_lens;
-                p.preview_only = info.preview_only.clone();
+                p.set_preview_only(info.preview_only.clone());
                 apply_import_defaults(s, &mut p);
                 let auto_calibration = p.develop.camera_profile.clone();
                 if let Some(sc) = &sidecar {
@@ -1665,6 +1673,7 @@ impl Session {
             view_cache: None,
             display: None,
             on_screen: false,
+            slide: None,
             preview_cut: None,
         };
         let embedded = match (&self.media.preview_loader, c.kind) {
