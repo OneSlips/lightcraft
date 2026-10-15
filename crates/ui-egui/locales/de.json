@@ -2682,6 +2682,8 @@
   "Select Object: click what to select": "Objekt auswählen: Klicken Sie auf das, was ausgewählt werden soll",
   "Depth Range masks": "Tiefenbereichsmasken",
   "Select Object and Describe (optional; Meta's licence, gated)": "Objekt auswählen und Beschreiben (optional; Lizenz von Meta, zugangsbeschränkt)",
+  "Describe: select what you type (with SAM 2.1)": "Beschreiben: wählt aus, was Sie eingeben (mit SAM 2.1)",
+  "Optional: Select Object and Describe with Meta's model (gated licence); both work without it": "Optional: Objekt auswählen und Beschreiben mit dem Modell von Meta (zugangsbeschränkte Lizenz); beides funktioniert auch ohne",
   "AI Model Status": "Status der KI-Modelle",
   "Download AI Model": "KI-Modell herunterladen",
   "Cancel AI Model Download": "Download des KI-Modells abbrechen",

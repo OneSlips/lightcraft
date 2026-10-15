@@ -2674,6 +2674,8 @@
   "Select Object: click what to select": "Выбор объекта: щёлкните то, что нужно выделить",
   "Depth Range masks": "Маски диапазона глубины",
   "Select Object and Describe (optional; Meta's licence, gated)": "Выбор объекта и Описание (необязательно; лицензия Meta, доступ ограничен)",
+  "Describe: select what you type (with SAM 2.1)": "Описание: выделяет то, что вы ввели (вместе с SAM 2.1)",
+  "Optional: Select Object and Describe with Meta's model (gated licence); both work without it": "Необязательно: Выбор объекта и Описание на модели Meta (лицензия с ограниченным доступом); оба работают и без неё",
   "AI Model Status": "Состояние моделей ИИ",
   "Download AI Model": "Загрузить модель ИИ",
   "Cancel AI Model Download": "Отменить загрузку модели ИИ",

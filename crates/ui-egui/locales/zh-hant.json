@@ -2482,6 +2482,8 @@
   "Select Object: click what to select": "選取物件：點按要選取的內容",
   "Depth Range masks": "深度範圍遮色片",
   "Select Object and Describe (optional; Meta's licence, gated)": "選取物件和描述（選用；Meta 的授權條款，存取受限）",
+  "Describe: select what you type (with SAM 2.1)": "描述：選取您輸入的內容（搭配 SAM 2.1）",
+  "Optional: Select Object and Describe with Meta's model (gated licence); both work without it": "選用：使用 Meta 的模型進行選取物件和描述（存取受限的授權條款）；沒有它兩者也能使用",
   "AI Model Status": "AI 模型狀態",
   "Download AI Model": "下載 AI 模型",
   "Cancel AI Model Download": "取消下載 AI 模型",
