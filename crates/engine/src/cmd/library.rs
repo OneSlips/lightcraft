@@ -419,7 +419,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Filter",
             [],
             None,
-            "partial Filter: {text?, rating?, ratingOp?: atLeast|exactly|atMost, flag?: pick|reject|none|null, label?, kind?, merged?: hdr|panorama|hdrPanorama|any, edited?, date?, libraryFolder?: a path from library.folders, keyword?, person?, camera?}",
+            "partial Filter: {text?, rating?, ratingOp?: atLeast|exactly|atMost, unrated?: bool (no stars; with rating: either), flag?: pick|reject|none|null, flags?: [pick|reject|none] (any of them), label?, labels?: [..] (any of them), unlabeled?: bool (no label; with labels: either), kind?, merged?: hdr|panorama|hdrPanorama|any, edited?, date?, libraryFolder?: a path from library.folders, keyword?, person?, camera?}",
             always,
             |s, p| {
                 let mut v = serde_json::to_value(&s.filter).unwrap_or_default();
@@ -453,6 +453,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{} → [{name, path, count, own, volume, selectable, label?, children}] the disks and the folders the library's photos were imported from, with photo counts (subfolders included in `count`); show one with library.source {kind: libraryFolder, path} (rows with selectable false only open)",
             always,
             |s, _| Ok(serde_json::to_value(s.catalog.folder_tree()).unwrap_or_default())
+        ),
+        cmd!(
+            query "library.tally",
+            "Culling Counts",
+            [],
+            None,
+            "{} → {total, picks, rejects, unflagged, stars: [n with 0..5 stars], labels: [red, yellow, green, blue, purple], unlabeled} for the current view's source and filters, without the stars / flags / labels filter itself (the bottom bar's live counts)",
+            always,
+            |s, _| Ok(serde_json::to_value(s.tally()).unwrap_or_default())
         ),
         cmd!(
             "library.removeFolder",

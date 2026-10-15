@@ -158,14 +158,32 @@ pub fn filter_chips(f: &Filter, cat: &Catalog) -> Vec<FilterChip> {
         };
         add(format!("Rating {op} {}★", f.rating), json!({"rating": 0}));
     }
+    if f.unrated {
+        add("Unrated".into(), json!({"unrated": false}));
+    }
     if let Some(fl) = f.flag {
         add(format!("Flag: {}", format!("{fl:?}").to_lowercase()), json!({"flag": Null}));
     }
+    if !f.flags.is_empty() {
+        let names: Vec<&str> = f
+            .flags
+            .iter()
+            .map(|fl| match fl {
+                lightcraft_catalog::Flag::Pick => "picked",
+                lightcraft_catalog::Flag::Reject => "rejected",
+                lightcraft_catalog::Flag::None => "unflagged",
+            })
+            .collect();
+        add(format!("Flag: {}", names.join(" or ")), json!({"flags": []}));
+    }
     let mut labels = f.labels.clone();
     labels.extend(f.label.filter(|l| !labels.contains(l)));
-    if !labels.is_empty() {
-        let names: Vec<String> = labels.iter().map(|l| cat.label_name(*l)).collect();
-        add(format!("Label: {}", names.join(" or ")), json!({"label": Null, "labels": []}));
+    if !labels.is_empty() || f.unlabeled {
+        let mut names: Vec<String> = labels.iter().map(|l| cat.label_name(*l)).collect();
+        if f.unlabeled {
+            names.push("no label".into());
+        }
+        add(format!("Label: {}", names.join(" or ")), json!({"label": Null, "labels": [], "unlabeled": false}));
     }
     if let Some(k) = f.kind {
         let n = match k {

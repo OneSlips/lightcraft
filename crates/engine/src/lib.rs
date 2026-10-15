@@ -244,6 +244,8 @@ pub struct Session {
     visible_gen: u64,
     /// Photos in the current source with no filter on (cached like `visible`).
     total: Option<((u64, String), usize)>,
+    /// [`Session::tally`] and what it was worked out for.
+    tally: Option<((u64, String), lightcraft_catalog::Tally)>,
     pub undo: Vec<UndoEntry>,
     /// Undo steps committed in this session, ever (the history drops its oldest past 1000, so
     /// its length can't tell how many steps a command just made; see [`Session::commits`]).
@@ -445,6 +447,7 @@ impl Session {
             never_follow: false,
             visible_gen: 0,
             total: None,
+            tally: None,
             undo: Vec::new(),
             commits: 0,
             redo: Vec::new(),
@@ -1296,6 +1299,32 @@ impl Session {
         self.total.as_ref().map(|t| t.1)
     }
 
+    /// How many photos of the current view carry each culling mark (picks, rejects, stars, colour
+    /// labels): the view's source with its other filters, but not the stars, flags and labels filter
+    /// themselves, so "Picks 47" stays readable while only the picks are shown. Kept until the
+    /// catalog, source or filter changes; a slider drag (which changes no mark) reuses it.
+    pub fn tally(&mut self) -> lightcraft_catalog::Tally {
+        let base = self.filter.without_quick();
+        let what = format!("{:?}|{:?}|{:?}|{:?}", self.source, base, self.browse, self.library_folder);
+        if let Some(((_, w), t)) = &self.tally
+            && *w == what
+            && self.interaction.is_some()
+        {
+            return t.clone();
+        }
+        let key = (self.catalog.revision, what);
+        if self.tally.as_ref().map(|t| &t.0) != Some(&key) {
+            let f = self.view_filter(self.source, &base);
+            let mut t = self.catalog.tally(&f);
+            if self.source == LibrarySource::Missing {
+                // what the view lists is what is missing: no separate number to give
+                t = lightcraft_catalog::Tally { total: self.visible().len(), ..t };
+            }
+            self.tally = Some((key, t));
+        }
+        self.tally.as_ref().map(|t| t.1.clone()).unwrap_or_default()
+    }
+
     pub fn visible_cloned(&mut self) -> Vec<PhotoId> {
         self.visible().to_vec()
     }
@@ -1381,6 +1410,8 @@ mod tests_chart_profile;
 mod tests_color;
 #[cfg(test)]
 mod tests_crop_angle;
+#[cfg(test)]
+mod tests_culling;
 #[cfg(test)]
 mod tests_dcp;
 #[cfg(test)]

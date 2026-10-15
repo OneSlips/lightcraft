@@ -32,6 +32,16 @@ pub struct Filter {
     /// Any of these labels (the filter bar's multi-select); empty = no constraint.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<ColorLabel>,
+    /// Photos without a colour label: alone, only those; with `labels`, those or the labels chosen.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unlabeled: bool,
+    /// Any of these flags (the bottom bar's flag filters, e.g. picks and unflagged to hide the
+    /// rejects); empty = no constraint. Combines with `flag` (both must hold).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<Flag>,
+    /// Photos without stars: alone, only those; with a `rating`, those or the rating asked.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unrated: bool,
     pub kind: Option<MediaKind>,
     pub edited: Option<bool>,
     pub album: Option<AlbumId>,
@@ -135,6 +145,33 @@ fn shuffle_rank(seed: u64, id: PhotoId) -> u64 {
     mix64(mix64(seed) ^ id.0)
 }
 
+/// How many photos of a view carry each culling mark: the bottom bar's live counts.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tally {
+    pub total: usize,
+    pub picks: usize,
+    pub rejects: usize,
+    pub unflagged: usize,
+    /// Photos with exactly 0, 1, … 5 stars.
+    pub stars: [usize; 6],
+    /// Photos per colour label, in [`ColorLabel::ALL`] order.
+    pub labels: [usize; 5],
+    pub unlabeled: usize,
+}
+
+impl Tally {
+    /// Photos with at least `n` stars.
+    pub fn at_least(&self, n: u8) -> usize {
+        self.stars.iter().skip(usize::from(n.min(5))).sum()
+    }
+
+    /// Photos with `label`.
+    pub fn label(&self, label: ColorLabel) -> usize {
+        ColorLabel::ALL.iter().position(|x| *x == label).and_then(|i| self.labels.get(i).copied()).unwrap_or(0)
+    }
+}
+
 /// What [`Filter::prepare`] works out once for a pass over many photos.
 pub(crate) struct Prepared {
     root: Option<String>,
@@ -207,14 +244,24 @@ impl Filter {
             };
             v.push(format!("rating {op} {}", self.rating));
         }
+        if self.unrated {
+            v.push("unrated".into());
+        }
         if let Some(f) = self.flag {
             v.push(format!("flag {}", format!("{f:?}").to_lowercase()));
+        }
+        if !self.flags.is_empty() {
+            v.push(format!("flag {}", self.flags.iter().map(|f| format!("{f:?}").to_lowercase()).collect::<Vec<_>>().join(" or ")));
         }
         if let Some(l) = self.label {
             v.push(format!("label {}", format!("{l:?}").to_lowercase()));
         }
-        if !self.labels.is_empty() {
-            v.push(format!("label {}", self.labels.iter().map(|l| format!("{l:?}").to_lowercase()).collect::<Vec<_>>().join(" or ")));
+        if !self.labels.is_empty() || self.unlabeled {
+            let mut names: Vec<String> = self.labels.iter().map(|l| format!("{l:?}").to_lowercase()).collect();
+            if self.unlabeled {
+                names.push("none".into());
+            }
+            v.push(format!("label {}", names.join(" or ")));
         }
         if let Some(k) = self.kind {
             v.push(format!("kind {}", format!("{k:?}").to_lowercase()));
@@ -262,6 +309,35 @@ impl Filter {
         self.rule_set.as_ref().is_some_and(crate::RuleSet::depends_on_now)
     }
 
+    /// Whether a photo with `rating` stars passes the rating part (`rating` / `ratingOp` / `unrated`).
+    pub fn rating_matches(&self, rating: u8) -> bool {
+        let asked = self.rating > 0;
+        let by_stars = asked
+            && match self.rating_op {
+                RatingOp::AtLeast => rating >= self.rating,
+                RatingOp::Exactly => rating == self.rating,
+                RatingOp::AtMost => rating <= self.rating,
+            };
+        let unrated = self.unrated && rating == 0;
+        (!asked && !self.unrated) || by_stars || unrated
+    }
+
+    /// This filter without the quick culling filters (stars, flags, colour labels): what the bottom
+    /// bar counts its photos in.
+    pub fn without_quick(&self) -> Filter {
+        Filter {
+            rating: 0,
+            rating_op: RatingOp::default(),
+            unrated: false,
+            flag: None,
+            flags: Vec::new(),
+            label: None,
+            labels: Vec::new(),
+            unlabeled: false,
+            ..self.clone()
+        }
+    }
+
     pub fn matches(&self, p: &Photo, cat: &Catalog) -> bool {
         self.matches_in(p, cat, &self.prepare_one())
     }
@@ -301,15 +377,11 @@ impl Filter {
                 }
             }
         }
-        if self.rating > 0 {
-            let ok = match self.rating_op {
-                RatingOp::AtLeast => p.rating >= self.rating,
-                RatingOp::Exactly => p.rating == self.rating,
-                RatingOp::AtMost => p.rating <= self.rating,
-            };
-            if !ok {
-                return false;
-            }
+        if !self.rating_matches(p.rating) {
+            return false;
+        }
+        if !self.flags.is_empty() && !self.flags.contains(&p.flag) {
+            return false;
         }
         if self.flag.is_some_and(|f| f != p.flag) || self.label.is_some_and(|l| Some(l) != p.label) || self.kind.is_some_and(|k| k != p.kind) {
             return false;
@@ -322,7 +394,12 @@ impl Filter {
         {
             return false;
         }
-        if !self.labels.is_empty() && !p.label.is_some_and(|l| self.labels.contains(&l)) {
+        if (!self.labels.is_empty() || self.unlabeled)
+            && !match p.label {
+                Some(l) => self.labels.contains(&l),
+                None => self.unlabeled,
+            }
+        {
             return false;
         }
         if !self.only.is_empty() && !prepared.only.as_ref().map_or_else(|| self.only.contains(&p.id), |only| only.contains(&p.id)) {
@@ -452,6 +529,32 @@ impl Catalog {
     pub fn count(&self, filter: &Filter) -> usize {
         let prepared = filter.prepare();
         self.photos().filter(|p| filter.matches_in(p, self, &prepared)).count()
+    }
+
+    /// How many of the photos matching `filter` carry each culling mark (the bottom bar's counts).
+    pub fn tally(&self, filter: &Filter) -> Tally {
+        let prepared = filter.prepare();
+        let mut t = Tally::default();
+        for p in self.photos().filter(|p| filter.matches_in(p, self, &prepared)) {
+            t.total += 1;
+            match p.flag {
+                Flag::Pick => t.picks += 1,
+                Flag::Reject => t.rejects += 1,
+                Flag::None => t.unflagged += 1,
+            }
+            if let Some(n) = t.stars.get_mut(usize::from(p.rating.min(5))) {
+                *n += 1;
+            }
+            match p.label.and_then(|l| ColorLabel::ALL.iter().position(|x| *x == l)) {
+                Some(i) => {
+                    if let Some(n) = t.labels.get_mut(i) {
+                        *n += 1;
+                    }
+                }
+                None => t.unlabeled += 1,
+            }
+        }
+        t
     }
 
     /// Year → month → day counts for the "By Date" section (newest first).
