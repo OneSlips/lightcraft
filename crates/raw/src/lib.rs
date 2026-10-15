@@ -27,7 +27,9 @@
 
 mod binned;
 pub mod color;
+pub mod darkframe;
 pub mod dcp;
+pub mod defects;
 pub mod demosaic;
 mod dng;
 pub mod dngwrite;

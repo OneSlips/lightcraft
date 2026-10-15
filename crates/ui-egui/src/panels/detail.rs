@@ -2086,9 +2086,18 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     for (i, s) in d.spots.iter().enumerate() {
         let r = (s.size * long) as f32;
         let sel = Some(i) == active;
-        let col = Color32::from_white_alpha(if sel { 230 } else { 150 });
+        // Remove Dust's spots: amber (the camera's known dust) or yellow (found in this photo alone); with Visualize
+        // Spots on they stand out more
+        let col = match s.auto {
+            Some(a) => {
+                let alpha = if sel || app.ui.visualize_spots { 255 } else { 190 };
+                if a.confirmed { Color32::from_rgba_unmultiplied(255, 166, 0, alpha) } else { Color32::from_rgba_unmultiplied(255, 228, 92, alpha) }
+            }
+            None => Color32::from_white_alpha(if sel { 230 } else { 150 }),
+        };
+        let width = if sel || (s.auto.is_some() && app.ui.visualize_spots) { 2.0 } else { 1.0 };
         for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(if sel { 1.5 } else { 1.0 }, col));
+            p.circle_stroke(map.screen(*q), r, Stroke::new(width, col));
         }
         let Some(&t) = s.points.first() else { continue };
         let tq = map.screen(t);
@@ -2102,7 +2111,14 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(sq, vec2(14.0, 14.0)));
             grips.push((i, true, sq, r));
         }
-        pin(&p, tq, sel);
+        match s.auto {
+            // Remove Dust's spots: an amber (known dust) or yellow (this photo alone) pin
+            Some(a) if !sel => {
+                p.circle_filled(tq, 6.0, if a.confirmed { Color32::from_rgb(255, 166, 0) } else { Color32::from_rgb(240, 214, 80) });
+                p.circle_stroke(tq, 6.0, Stroke::new(1.5, Color32::WHITE));
+            }
+            _ => pin(&p, tq, sel),
+        }
         register(ui.ctx(), format!("spotPin:{i}"), Rect::from_center_size(tq, vec2(14.0, 14.0)));
         grips.push((i, false, tq, r));
     }

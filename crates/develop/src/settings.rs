@@ -146,6 +146,10 @@ pub struct DevelopSettings {
     pub enhance: Enhance,
     /// Camera calibration: shadows tint and primary hue/saturation (applied before tone mapping).
     pub calibration: Calibration,
+    /// Sensor repairs made on the raw data before it is developed (hot, dead and stuck pixels). Not written while
+    /// it is the default (on), so settings from before it existed keep their JSON and hash.
+    #[serde(skip_serializing_if = "Sensor::is_default")]
+    pub sensor: Sensor,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -181,8 +185,36 @@ impl Default for DevelopSettings {
             lens_blur: LensBlur::default(),
             enhance: Enhance::default(),
             calibration: Calibration::default(),
+            sensor: Sensor::default(),
             disabled_sections: Vec::new(),
         }
+    }
+}
+
+/// Sensor repairs on a raw photo's data, before demosaic (`lightcraft_raw::defects`).
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Sensor {
+    /// Fix hot, dead and stuck pixels: 1 = on (the default: the camera body's known defects and the clear ones this
+    /// photo shows), 0 = off (the data as the camera recorded it). A number so it is a develop control
+    /// (`sensor.pixelFix`).
+    pub pixel_fix: f64,
+}
+
+impl Default for Sensor {
+    fn default() -> Self {
+        Self { pixel_fix: 1.0 }
+    }
+}
+
+impl Sensor {
+    pub fn is_default(&self) -> bool {
+        *self == Sensor::default()
+    }
+
+    /// Whether hot, dead and stuck pixels are fixed.
+    pub fn fixes_pixels(&self) -> bool {
+        self.pixel_fix >= 0.5 || self.pixel_fix.is_nan()
     }
 }
 
@@ -1072,6 +1104,9 @@ pub enum SpotMode {
     Clone,
     /// Content-aware: the spot is rebuilt from patches of its surroundings (no single source).
     Fill,
+    /// Even out (flat-field): the spot keeps its own pixels and is lifted by the smooth gain that brings its tone to
+    /// its surroundings' (divides by the estimated transmission of a sensor dust shadow). No source.
+    Flat,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -1086,12 +1121,36 @@ pub struct Spot {
     pub opacity: f64,
     /// Source offset (normalized) from the target; None = auto (content-aware remove).
     pub source_offset: Option<Point>,
+    /// Added by an automatic finder (Remove Dust), not drawn by hand; `None` once the user moves or resizes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto: Option<AutoSpot>,
 }
 
 impl Default for Spot {
     fn default() -> Self {
-        Self { mode: SpotMode::Remove, points: Vec::new(), size: 0.02, feather: 50.0, opacity: 100.0, source_offset: None }
+        Self { mode: SpotMode::Remove, points: Vec::new(), size: 0.02, feather: 50.0, opacity: 100.0, source_offset: None, auto: None }
     }
+}
+
+/// What added a spot automatically.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutoSpotKind {
+    /// Sensor dust.
+    Dust,
+}
+
+/// A spot an automatic finder added: what it is and how sure it was.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoSpot {
+    pub kind: AutoSpotKind,
+    /// The camera body's dust map has it (seen in several photos), rather than this photo alone.
+    #[serde(default)]
+    pub confirmed: bool,
+    /// 0..1.
+    #[serde(default)]
+    pub confidence: f32,
 }
 
 /// A red eye / pet eye correction: the user's ellipse (centre normalized, radii as fractions of

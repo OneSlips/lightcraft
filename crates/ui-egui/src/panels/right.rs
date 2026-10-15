@@ -354,11 +354,21 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(8.0);
         ui.label(crate::i18n::tr_format!("{} spot(s) on this photo", d.spots.len()));
         ui.add_space(4.0);
-        if text_button(ui, "findDust", crate::i18n::tr("Find Dust Spots"), false)
-            .on_hover_text(crate::i18n::tr("Heal the small, soft dark spots sensor dust leaves on smooth areas"))
+        let several = app.session.selection.ids.len() > 1;
+        let busy = app.session.sensor_job.as_ref().is_some_and(|j| !j.finished.load(std::sync::atomic::Ordering::Relaxed));
+        let label = if several { crate::i18n::tr("Remove Dust from Selected") } else { crate::i18n::tr("Remove Dust") };
+        if text_button(ui, "findDust", label, false)
+            .on_hover_text(crate::i18n::tr(
+                "Heal the small, soft dark spots sensor dust leaves on smooth areas, and the dust this camera is known to have",
+            ))
             .clicked()
+            && !busy
         {
             match app.run("spot.findDust", json!({})) {
+                Ok(r) if r.get("total").is_some() => {
+                    let n = r["total"].as_u64().unwrap_or(0);
+                    app.toast(ui.ctx(), crate::i18n::tr_format!("Removing dust from {n} photos", n = n));
+                }
                 Ok(r) => {
                     let n = r["added"].as_u64().unwrap_or(0);
                     app.toast(
@@ -373,6 +383,28 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 Err(e) => app.toast(ui.ctx(), e),
             }
         }
+        // the camera body's dust map, when it has one
+        let body = app.session.source_info(id).pixels.and_then(|p| p.body);
+        if let Some(m) = body.as_deref().and_then(lightcraft_engine::sensor_maps::get).filter(|m| m.dust.iter().any(|d| d.confirmed)) {
+            let confirmed = m.dust.iter().filter(|d| d.confirmed).count();
+            ui.label(
+                egui::RichText::new(crate::i18n::tr_format!(
+                    "Camera {}: {} known dust spots",
+                    lightcraft_engine::sensor_maps::body_label(&m.body),
+                    confirmed
+                ))
+                .size(11.0)
+                .color(Tokens::get(ui.ctx()).text_dim),
+            );
+        }
+        let auto = d.spots.iter().filter(|sp| sp.auto.is_some()).count();
+        if auto > 0 {
+            ui.label(
+                egui::RichText::new(crate::i18n::tr_format!("{} spot(s) from Remove Dust (outlined in amber)", auto))
+                    .size(11.0)
+                    .color(Tokens::get(ui.ctx()).text_dim),
+            );
+        }
         ui.add_space(4.0);
         ui.label(egui::RichText::new(crate::i18n::tr("Paint over a distraction on the photo to remove it.")).color(Tokens::get(ui.ctx()).text_dim));
     });
@@ -386,6 +418,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             lightcraft_develop::SpotMode::Clone => "Clone",
             lightcraft_develop::SpotMode::Remove => "Remove",
             lightcraft_develop::SpotMode::Fill => "Content-Aware",
+            lightcraft_develop::SpotMode::Flat => "Even Out",
         };
         super::edit::sub_title(ui, &crate::i18n::tr_format!("{mode} spot {} of {}", i + 1, d.spots.len(), mode = crate::i18n::tr(mode)));
     }
@@ -460,6 +493,24 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         }
     });
+}
+
+/// Called every frame: a background Remove Dust's finished photos get their spots (`dust.pump`), and the window
+/// keeps redrawing while it runs.
+pub fn dust_pump(app: &mut LightcraftApp, ctx: &egui::Context) {
+    let Some(job) = app.session.sensor_job.clone() else { return };
+    if job.what != "removeDust" {
+        return;
+    }
+    let running = !job.finished.load(std::sync::atomic::Ordering::Relaxed);
+    if let Ok(v) = app.session.execute("dust.pump", &json!({}))
+        && v["applied"].as_u64().unwrap_or(0) > 0
+    {
+        ctx.request_repaint();
+    }
+    if running {
+        ctx.request_repaint_after(std::time::Duration::from_millis(200));
+    }
 }
 
 fn red_eye(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {

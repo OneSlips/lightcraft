@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (LR-EDIT-EFFECTS-GRAIN: film grain as clumps of irregular particles; LR-MASK-EFFECTS: local adjustment (effect / brush) presets; LR-PROF-IMPORT: the user's own .dcp camera profiles import; catalog import: persistent result, offline Local promotion and library-switch dismissal; integration batch 35: KEYC-SELECTONLYACTIVE, Select Only Active Photo ⌘⇧D; LR-BEHAV-AUTOSAVE, damaged snapshots repaired on open; LR-EDIT-OPTICS-PROFILE, Nikon Z 6II / Z 8 / Z f in-file distortion; LRC-LIB-CATALOG-IMPORT, WAL-only catalogs open; LR-EXP-DIM, enlargements stop at 512 MP; LR-IMP-CAMERA-COVERAGE, Canon EOS RP CR3 verified; model folder retry; LR-PROF-IMPORT-APPLY new: camera profile per body on import; LR-PROF-CREATE reworked; LR-PROF-BODY, LR-PROF-LAYERS new; LR-PROF-CREATE: camera profiles from a ColorChecker photo, single or dual illuminant; LR-PROF-IMPORT: the user's own `.dcp` camera profiles import; AI masks on openly licensed models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (LR-EDIT-EFFECTS-GRAIN: film grain as clumps of irregular particles; LR-MASK-EFFECTS: local adjustment (effect / brush) presets; LR-PROF-IMPORT: the user's own .dcp camera profiles import; catalog import: persistent result, offline Local promotion and library-switch dismissal; integration batch 35: KEYC-SELECTONLYACTIVE, Select Only Active Photo ⌘⇧D; LR-BEHAV-AUTOSAVE, damaged snapshots repaired on open; LR-EDIT-OPTICS-PROFILE, Nikon Z 6II / Z 8 / Z f in-file distortion; LRC-LIB-CATALOG-IMPORT, WAL-only catalogs open; LR-EXP-DIM, enlargements stop at 512 MP; LR-IMP-CAMERA-COVERAGE, Canon EOS RP CR3 verified; model folder retry; LR-PROF-IMPORT-APPLY new: camera profile per body on import; LR-PROF-CREATE reworked; LR-PROF-BODY, LR-PROF-LAYERS new; LR-PROF-CREATE: camera profiles from a ColorChecker photo, single or dual illuminant; LR-PROF-IMPORT: the user's own `.dcp` camera profiles import; AI masks on openly licensed models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-EDIT-DETAIL-HOTPIXELS, LR-REM-DUST-MAP: hot pixel and dust maps per camera body; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -31,10 +31,10 @@ cited here still exists. Formerly docs/parity.md.
 | C. Views & navigation (VIEW) | 15 | 1 | 1 | 0 | 8/9 (89%) | 4/4 (100%) |
 | D. Search & filter (FILT) | 11 | 1 | 1 | 0 | 4/4 (100%) | 4/4 (100%) |
 | E. Metadata (META) | 5 | 1 | 0 | 0 | 2/2 (100%) | 2/2 (100%) |
-| F. Edit panel — global adjustments (EDIT) | 43 | 2 | 3 | 1 | 28/28 (100%) | 13/14 (93%) |
+| F. Edit panel — global adjustments (EDIT) | 44 | 2 | 3 | 1 | 28/28 (100%) | 14/15 (93%) |
 | G. Profiles (PROF) | 10 | 1 | 3 | 0 | 3/4 (75%) | 4/4 (100%) |
 | H. Crop & rotate (CROP) | 9 | 0 | 0 | 1 | 6/6 (100%) | 3/3 (100%) |
-| I. Remove / healing (REM) | 8 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
+| I. Remove / healing (REM) | 9 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
 | J. Red eye (EYE) | 2 | 0 | 0 | 0 | — | 1/1 (100%) |
 | K. Masking (MASK) | 15 | 8 | 2 | 0 | 7/8 (88%) | 7/7 (100%) |
 | L. Presets (PRE) | 6 | 0 | 1 | 1 | 2/2 (100%) | 2/2 (100%) |
@@ -53,9 +53,9 @@ cited here still exists. Formerly docs/parity.md.
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 4 | 3 | 1 | 49/52 (94%) | 23/25 (92%) |
 | Lightroom Classic extras | 34 | 16 | 35 | 8 | — | 24/26 (92%) |
-| **Total** | 414 | 56 | 69 | 35 | 193/201 (96%) | 148/161 (92%) |
+| **Total** | 416 | 56 | 69 | 35 | 193/201 (96%) | 149/162 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **82.0%** of 539 in-scope rows — P0 98.0% of 201 · P1 95.0% of 161 · P2 51.7% of 176.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **82.1%** of 541 in-scope rows — P0 98.0% of 201 · P1 95.1% of 162 · P2 52.0% of 177.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -209,6 +209,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-EDIT-DETAIL-CNR | Colour noise reduction | P0 | ✅ | `ctl:detail.nrColor`, `ctl:detail.nrColorDetail`, `ctl:detail.nrColorSmoothness` | |
 | LR-EDIT-DETAIL-DENOISE | AI denoise | P2 | 🟡 | cmd:denoise.toggle, cmd:denoise.models.install, cmd:denoise.queue, ctl:enhance.denoise, `crates/denoise/`, `docs/denoise.md` | non-destructive Bayer RAW, opt-in weights, pure-Rust CPU/GPU; GPU convolution uses independently written shared scalars (Metal equivalence regression, issue #479); tiles can also run on another computer's graphics card (`lightcraft-cli denoise-serve`, `crates/denoise/src/remote.rs`); X-Trans/linear RGB, model policy and Lightroom fidelity remain; closing the model setup without installing turns the switch back off (#922) |
 | LR-EDIT-DETAIL-RAWDETAILS | Improved demosaic toggle | P2 | ⬜ | | |
+| LR-EDIT-DETAIL-HOTPIXELS | Hot, dead and stuck pixel removal | P1 | ✅ | `ctl:sensor.pixelFix`, `cmd:camera.pixelMap.status`, `cmd:camera.pixelMap.rebuild`, `cmd:camera.pixelMap.learn`, `cmd:camera.pixelMap.clear`, `cmd:camera.pixelMap.calibrate`, `cmd:photo.pixelDefects`, `crates/raw/src/defects.rs`, `crates/raw/src/darkframe.rs`, `docs/sensor-defects.md` | on by default for raws, on the mosaic before demosaic (Bayer, X-Trans, linear): the clear outliers of each photo (stars, catchlights and glint fields guarded) plus each body's confirmed map (3 photos from 3 periods; expiry by exposure range; dark-frame calibration); Detail ▸ Sensor switch per photo, kept in XMP. Lightroom has no switch or memory |
 | LR-EDIT-DETAIL-SUPERRES | Super resolution | P2 | ⬜ | | |
 | LR-EDIT-DETAIL-AISHARPEN | AI sharpen | OOS | 🚫 | | |
 | LR-EDIT-OPTICS-CA | Remove chromatic aberration | P1 | ✅ | `crates/ui-egui/src/panels/edit.rs` (checkbox), `ctl:optics.caRed`, `ctl:optics.caBlue` | |
@@ -274,7 +275,8 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-REM-VISUALIZE | Visualize spots | P1 | ✅ | `cmd:view.visualizeSpots` | |
 | LR-REM-PEOPLE | Remove people (generative) | OOS | 🚫 | | |
 | LR-REM-REFLECT | Remove reflections | P2 | ⬜ | | |
-| LR-REM-DUST | Dust detection | P2 | ✅ | `cmd:spot.findDust`, `crates/pipeline/src/dust.rs` | Remove panel ▸ Find Dust Spots: small, soft, round dark spots on smooth areas become heal spots (sensitivity; one undo step); Visualize Spots for checking by eye |
+| LR-REM-DUST | Dust detection | P2 | ✅ | `cmd:spot.findDust`, `crates/pipeline/src/dust.rs`, `crates/engine/src/dust_map.rs`, `docs/sensor-defects.md` | Remove panel ▸ Remove Dust (was Find Dust Spots; same command): small, soft, round dark spots on smooth areas become heal spots, or Even Out (flat-field) spots for large faint ones, tagged auto dust with a confidence (sensitivity; one undo step; running it again replaces them, a moved spot stays the user's); the active photo, or a selection in the background (activity row); outlined amber/yellow in the Remove tool, bolder with Visualize Spots |
+| LR-REM-DUST-MAP | Dust map per camera body (beyond Lightroom) | P2 | ✅ | `cmd:camera.dustMap.status`, `cmd:camera.dustMap.rebuild`, `cmd:camera.dustMap.learn`, `cmd:camera.dustMap.clear`, `cmd:dust.pump`, `crates/engine/src/sensor_maps.rs` | dust remembered per body (serial, else `file:XX`) in sensor coordinates (rotation-proof), with time windows (dust moves) and size per aperture; Remove Dust adds the map's spots re-checked on each photo (smooth places only), Settings ▸ Import ▸ Remove dust on import (off by default). Not a Lightroom feature; Capture One's LCC needs a reference shot |
 | LR-REM-BLEMISH | Find blemishes on faces (beyond Lightroom) | P2 | ✅ | `cmd:spot.findBlemishes`, `crates/pipeline/src/blemish.rs`, `crates/engine/src/cmd/face_detect.rs` | Remove panel ▸ Find Blemishes: with the YuNet detector installed, small darker-or-redder round spots on each face's skin (eyes, brows, nostrils and mouth cut out around the landmarks) become heal spots (one undo step); faces under 160 px and faces with more than 12 candidates (stubble, freckles) get none, at most 6 per face; sensitivity 0–100. Classical, no learned model beyond the detector; not a Lightroom feature |
 | LR-REM-SYNC | Sync spots | P1 | ✅ | `cmd:develop.copy` (`groups`), `crates/develop/src/presets.rs` | |
 
@@ -826,6 +828,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 | 2026-10-13 | patch | LR-BEHAV-AUTOSAVE: a damaged snapshot that still parses is repaired on open (ids, stacks, folder loops, id counters) instead of panicking or hanging; status unchanged |
 | 2026-10-13 | minor | LR-EDIT-OPTICS-PROFILE: Nikon Z 6II / Z 8 / Z f NEFs use the camera's in-file distortion correction (NikonNEFInfo); status unchanged (🟡) |
 | 2026-10-11 | minor | Model setup folder action, opener error and retry (LR-MASK-OBJECTS). |
+| 2026-10-14 | minor | LR-EDIT-DETAIL-HOTPIXELS (new, ✅): hot, dead and stuck pixels fixed on the raw data with per-body maps and dark frames; LR-REM-DUST: Remove Dust tags its spots, Even Out mode, selections in the background; LR-REM-DUST-MAP (new, ✅): dust maps per camera body |
 | 2026-10-11 | minor | KEY-SLIDER-TYPE: honor immediate Return/Escape and keep typed keys in the value editor; add regression references |
 | 2026-10-11 | minor | LR-PROF-CAMERACOLOR: raws with a black-and-white camera JPEG take its tone curve (issue #577) |
 | 2026-10-11 | minor | LR-VIEW-ZOOM and LR-VIEW-COMPARE: Compare and Reference are sharp at 1:1 (zoom windows per pane, two originals kept decoded while they are open); statuses unchanged |

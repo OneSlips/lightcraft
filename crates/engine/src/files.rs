@@ -345,18 +345,28 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
 /// instead of each one waking the pool from outside and waiting for it (which costs more than the
 /// loops themselves when the machine is busy).
 pub fn load_bytes(bytes: &[u8], max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None, None).map(|(img, _, info)| (img, info)))
+    load_bytes_opts(bytes, max_edge, None, &RawOptions::default())
 }
 
 /// [`load_bytes`] developing a raw file with an imported camera profile (`dcp`) in place of its own colour model.
 pub fn load_bytes_with(bytes: &[u8], max_edge: usize, dcp: Option<&DcpProfile>) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None, dcp).map(|(img, _, info)| (img, info)))
+    load_bytes_opts(bytes, max_edge, dcp, &RawOptions::default())
+}
+
+/// [`load_bytes_with`] with options for raws ([`RawOptions`]).
+pub fn load_bytes_opts(bytes: &[u8], max_edge: usize, dcp: Option<&DcpProfile>, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+    rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, None, dcp, opts).map(|(img, _, info)| (img, info)))
 }
 
 /// [`load_bytes`] taking the file's bytes: a raw file's bytes are freed as soon as it is decoded
 /// (less memory held while it is developed).
 pub fn load_vec(bytes: Vec<u8>, max_edge: usize, dcp: Option<&DcpProfile>) -> Result<(Rgb32f, SourceInfo), String> {
-    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, None, dcp).map(|(img, _, info)| (img, info)))
+    load_vec_opts(bytes, max_edge, dcp, &RawOptions::default())
+}
+
+/// [`load_vec`] with options for raws ([`RawOptions`]).
+pub fn load_vec_opts(bytes: Vec<u8>, max_edge: usize, dcp: Option<&DcpProfile>, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, None, dcp, opts).map(|(img, _, info)| (img, info)))
 }
 
 /// [`load_vec`] that also develops the photo's cached denoised picture (`spec`) from the same decode: the plain
@@ -368,7 +378,112 @@ pub fn load_vec_pair(
     spec: &DenoiseSpec,
     dcp: Option<&DcpProfile>,
 ) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
-    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, Some(spec), dcp))
+    load_vec_pair_opts(bytes, max_edge, spec, dcp, &RawOptions::default())
+}
+
+/// [`load_vec_pair`] with options for raws ([`RawOptions`]).
+pub fn load_vec_pair_opts(
+    bytes: Vec<u8>,
+    max_edge: usize,
+    spec: &DenoiseSpec,
+    dcp: Option<&DcpProfile>,
+    opts: &RawOptions,
+) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
+    rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, Some(spec), dcp, opts))
+}
+
+/// How a raw is decoded beyond its bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RawOptions {
+    /// The file's name, which names the camera body when the file has no serial number
+    /// ([`crate::sensor_maps::body_key`]).
+    pub file_name: Option<String>,
+    /// Where the file is (remembered with its body: `crate::sensor_maps::body_of_path`).
+    pub path: Option<String>,
+    /// Correct hot, dead and stuck pixels (the photo's `sensor.pixelFix`): the camera body's known ones and the clear
+    /// ones this photo shows, and add what it shows to the body's map.
+    pub pixel_fix: bool,
+}
+
+impl Default for RawOptions {
+    fn default() -> Self {
+        RawOptions { file_name: None, path: None, pixel_fix: true }
+    }
+}
+
+impl RawOptions {
+    /// The options for the file at `path`.
+    pub fn for_path(path: &str, pixel_fix: bool) -> RawOptions {
+        let name = std::path::Path::new(path).file_name().and_then(|n| n.to_str()).map(str::to_string);
+        RawOptions { file_name: name, path: Some(path.to_string()), pixel_fix }
+    }
+}
+
+/// What a photo tells the maps: a fingerprint of its samples and capture facts, and those facts.
+pub fn shot_of(raw: &lightcraft_raw::RawImage) -> crate::sensor_maps::Shot {
+    let m = &raw.metadata;
+    let captured = m.capture_time.map(|t| t.to_iso());
+    let mut h = lightcraft_raw::defects::sample_fingerprint(raw);
+    let facts = captured
+        .as_deref()
+        .unwrap_or("")
+        .bytes()
+        .chain(m.exposure_time.unwrap_or(0.0).to_bits().to_le_bytes())
+        .chain(m.iso.unwrap_or(0).to_le_bytes());
+    for b in facts {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    crate::sensor_maps::Shot { fingerprint: h, captured, exposure: m.exposure_time, iso: m.iso, f_number: m.f_number.map(|f| f as f32) }
+}
+
+/// Hot, dead and stuck pixels of a decoded raw, before anything reads its samples: look for them (at the learning
+/// threshold: those go to the body's map), then correct the body's confirmed ones and the clear ones found here.
+pub fn repair_pixels(raw: &mut lightcraft_raw::RawImage, opts: &RawOptions) -> lightcraft_pipeline::PixelRepair {
+    use lightcraft_raw::defects::{Fix, Thresholds, correct, detect, refine};
+    let m = &raw.metadata;
+    let body = crate::sensor_maps::body_key(m.serial_number.as_deref(), opts.file_name.as_deref());
+    if let (Some(p), Some(b)) = (&opts.path, &body) {
+        crate::sensor_maps::remember_path(p, b);
+    }
+    let c = raw.develop_crop(raw.active_area.width, raw.active_area.height);
+    let base = lightcraft_pipeline::PixelRepair {
+        on: false,
+        body: body.clone(),
+        orientation: raw.orientation,
+        developed: [c.width, c.height],
+        sensor: [raw.width, raw.height],
+        model: m.model.clone().unwrap_or_default(),
+        ..Default::default()
+    };
+    if !opts.pixel_fix {
+        return base;
+    }
+    let t0 = web_time::Instant::now();
+    let (make, model) = (m.make.clone().unwrap_or_default(), m.model.clone().unwrap_or_default());
+    let found = detect(raw, &Thresholds::LEARN);
+    let strict = refine(raw, &found, &Thresholds::CORRECT);
+    let sensor = [raw.width, raw.height];
+    let mut fixes: Vec<Fix> = strict.iter().map(Fix::from).collect();
+    let mut from_map = 0;
+    if let Some(b) = &body {
+        if !found.overflow {
+            let _ = crate::sensor_maps::record_pixels(b, &make, &model, sensor, &shot_of(raw), &found.defects);
+        }
+        let known = crate::sensor_maps::fixes_for(b, &model, sensor);
+        from_map = known.len();
+        fixes.extend(known.iter().copied());
+        // a known pixel's cluster mates (they fail the single-photo checks one by one)
+        if !known.is_empty() {
+            fixes.extend(lightcraft_raw::defects::grow(raw, &known));
+        }
+    }
+    fixes.sort_by_key(|f| (f.y, f.x, f.s));
+    fixes.dedup();
+    let n = correct(raw, &fixes);
+    if lightcraft_pipeline::profiling() {
+        eprintln!("[profile] pixels: {} found, {from_map} from the map, {n} corrected in {:.1} ms", strict.len(), t0.elapsed().as_secs_f64() * 1e3);
+    }
+    lightcraft_pipeline::PixelRepair { on: true, from_map: from_map as u32, found: strict.len() as u32, ..base }
 }
 
 /// The denoised camera RGB of `raw` from its cached product, as the plain development would have it: the default
@@ -398,6 +513,7 @@ fn load_bytes_now(
     max_edge: usize,
     denoise: Option<&DenoiseSpec>,
     dcp: Option<&DcpProfile>,
+    opts: &RawOptions,
 ) -> Result<(Rgb32f, Option<Rgb32f>, SourceInfo), String> {
     if lightcraft_raw::probe(&bytes).is_some() {
         let mut raw = match lightcraft_raw::decode(&bytes).map_err(|e| preview_reason(&bytes, e)) {
@@ -410,6 +526,8 @@ fn load_bytes_now(
             }
             Err(Err(e)) => return Err(e),
         };
+        // hot, dead and stuck pixels are corrected on the mosaic, before anything reads it
+        let pixels = repair_pixels(&mut raw, opts);
         // Embedded lens corrections are applied by the pipeline ("Enable Profile Corrections"), not baked in
         // (removed before the camera look's binned sensor proxy too, which needs an empty `OpcodeList3`).
         let info = raw.info();
@@ -529,6 +647,7 @@ fn load_bytes_now(
                 camera_tone,
                 mattes,
                 local_tone,
+                pixels: Some(pixels),
             },
         ));
     }
@@ -1013,13 +1132,33 @@ fn quick_image_srgb(header: &[u8], window: &[u8], adobe_rgb: bool, max_edge: usi
 /// The filesystem-backed [`PairLoader`]: the file is read and decoded once, and developed as usual and from the photo's
 /// denoised picture. It holds two pictures at once, so it counts for more at the memory gate than a plain load.
 pub fn fs_pair_loader() -> PairLoader {
-    Arc::new(|path: &str, max_edge: usize, spec: &DenoiseSpec, dcp: Option<&DcpProfile>| {
+    fs_pair_loader_with(true)
+}
+
+/// [`fs_pair_loader`], correcting hot, dead and stuck pixels or not ([`RawOptions::pixel_fix`]).
+pub fn fs_pair_loader_with(pixel_fix: bool) -> PairLoader {
+    Arc::new(move |path: &str, max_edge: usize, spec: &DenoiseSpec, dcp: Option<&DcpProfile>| {
         let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
         let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 4 } else { 10 };
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
         let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-        let r = load_vec_pair(bytes, max_edge, spec, dcp);
+        let r = load_vec_pair_opts(bytes, max_edge, spec, dcp, &RawOptions::for_path(path, pixel_fix));
+        crate::memory::release();
+        r
+    })
+}
+
+/// The filesystem-backed [`FileLoader`], correcting hot, dead and stuck pixels or not ([`RawOptions::pixel_fix`]).
+pub fn fs_loader(pixel_fix: bool) -> FileLoader {
+    Arc::new(move |path: &str, max_edge: usize, dcp: Option<&DcpProfile>| {
+        let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
+        let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
+        let gate = crate::memory::work_gate();
+        let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let r = load_vec_opts(bytes, max_edge, dcp, &RawOptions::for_path(path, pixel_fix));
+        // the file, the samples and the intermediate images are gone: give their pages back
         crate::memory::release();
         r
     })
@@ -1033,17 +1172,7 @@ pub fn fs_pair_loader() -> PairLoader {
 /// interactive loads (the loupe, exports) never wait — they are counted, so background work
 /// yields to them.
 pub fn fs_hooks() -> (FileLoader, FileProbe) {
-    let loader: FileLoader = Arc::new(|path: &str, max_edge: usize, dcp: Option<&DcpProfile>| {
-        let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
-        let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
-        let gate = crate::memory::work_gate();
-        let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
-        let r = load_vec(bytes, max_edge, dcp);
-        // the file, the samples and the intermediate images are gone: give their pages back
-        crate::memory::release();
-        r
-    });
+    let loader = fs_loader(true);
     let probe: FileProbe = Arc::new(|path: &str| {
         let len = std::fs::metadata(path).map(|m| usize::try_from(m.len()).unwrap_or(usize::MAX)).unwrap_or(0);
         let _permit = crate::memory::work_gate().acquire(len);
@@ -1072,6 +1201,8 @@ impl crate::Session {
         self.media.file_probe = Some(p);
         self.media.preview_loader = Some(fs_preview_loader());
         self.media.denoise.loader = Some(fs_pair_loader());
+        // photos with `sensor.pixelFix` off decode without corrections
+        self.media.unfixed = Some((fs_loader(false), fs_pair_loader_with(false)));
         #[cfg(target_os = "macos")]
         {
             self.apple_photos = Some(crate::apple_photos::osascript());

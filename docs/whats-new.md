@@ -16,6 +16,19 @@
 - **Landscape**: sky, water, vegetation, mountains, architecture, natural or artificial ground.
 - **Update** recomputes a mask made before its model was installed.
 - Everything runs on your computer, in LightCraft's own code; nothing is uploaded.
+### Hot pixels and sensor dust, remembered per camera
+- Hot, dead and stuck pixels are fixed on raw photos automatically, before the photo is developed: the clear single
+  outliers each photo shows, and every pixel a camera has shown in photos of different scenes. LightCraft remembers
+  each camera body (by serial number, else the first two letters of its file names) and keeps learning as you browse,
+  so faint hot pixels that one photo can't prove are fixed once three photos agree. Stars, catchlights and glints on
+  water or sand are left alone. Detail ▸ Sensor ▸ *Fix hot and dead pixels* turns it off for a photo.
+- A dark frame (a raw with the lens cap on) gives a camera's hot pixels at once: `camera.pixelMap.calibrate`.
+- **Remove Dust** (was Find Dust Spots, in the Remove panel) works on a selection too, in the background. Its spots
+  are outlined amber in the Remove tool, and each one is healed or evened out, whichever matches its surroundings
+  better. It also remembers each camera's dust — where it sits on the sensor, how big it looks at each aperture, and
+  when it moved — and adds that dust to later photos where it shows on smooth areas. Settings ▸ Import can run it after
+  every import. See [sensor-defects.md](sensor-defects.md).
+
 ## 2026-10-13
 
 ### HDR merges keep the lens correction

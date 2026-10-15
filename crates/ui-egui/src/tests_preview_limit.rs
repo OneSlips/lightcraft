@@ -377,6 +377,7 @@ mod in_the_loupe {
             points: vec![lightcraft_geom::Point::new(0.5, 0.5)],
             size: 0.01,
             source_offset: Some(lightcraft_geom::Point::new(0.05, 0.0)),
+            auto: None,
             ..Default::default()
         });
         h.app.session.set_develop(id, s, "Spot").unwrap();

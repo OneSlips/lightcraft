@@ -28,6 +28,7 @@ default = ["jxl"]
 jxl = ["dep:jxl-oxide"]
 
 [dev-dependencies]
+serde_json = { workspace = true }
 jpeg-encoder = { workspace = true }
 proptest = { workspace = true }
 zune-jpegxl = { workspace = true }
