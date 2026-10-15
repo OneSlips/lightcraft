@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Auto Sync
+- **Auto Sync now edits all the selected photos live** while you drag a slider, and **each photo moves from its own value**: white balance on each photo's own scale, so photos with another as-shot white balance no longer turn blue.
+
 ### Live thumbnails
 - In the grid, **the thumbnails of the photos you are editing follow the slider** while you drag it, not only when you let go.
 
