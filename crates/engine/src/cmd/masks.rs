@@ -602,7 +602,14 @@ pub fn specs() -> Vec<CommandSpec> {
                 let (k, current) = color_range_of(s, mid, comp, c)?;
                 let room = if add { MAX_COLOR_SAMPLES.saturating_sub(current.len()) } else { MAX_COLOR_SAMPLES };
                 if room == 0 {
-                    return Err(bad(c, "a colour range has at most 5 samples: remove one first (⌥-click its pin)"));
+                    // full (five colours): a further ⇧-click changes nothing, as before
+                    let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                    let d = s.develop_of(id).unwrap_or_default();
+                    let samples = match d.masks.iter().find(|m| m.id == mid).and_then(|m| m.components.get(k)).map(|x| &x.shape) {
+                        Some(MaskShape::ColorRange { samples, .. }) => samples.clone(),
+                        _ => Vec::new(),
+                    };
+                    return Ok(json!({"samples": samples, "pins": lightcraft_develop::color_range_pins(&current).len()}));
                 }
                 let colours = sample_area_colours(s, area, room, c)?;
                 let mut out = json!({});
