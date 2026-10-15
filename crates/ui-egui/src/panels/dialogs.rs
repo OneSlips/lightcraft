@@ -273,7 +273,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::SamModel { .. } if sam_by_hand(&app.session.segmenter) => "Install the SAM 3 Model",
         Dialog::SamModel { .. } => "Download the SAM 3 Model?",
         Dialog::AiModel { .. } => "Download an AI Model?",
-        Dialog::GenfillConsent { .. } => "Send a Crop for Generative Fill?",
+        Dialog::GenfillConsent { .. } => "Generative Fill",
         Dialog::About => "About LightCraft",
         Dialog::Shortcuts => "Keyboard Shortcuts",
     }
@@ -1401,7 +1401,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::AiModel { .. } if ai.is_some_and(|(installed, running, _)| installed || running) => "",
                     Dialog::AiModel { error, .. } if error.is_some() || ai.is_some_and(|(_, _, failed)| failed) => "Try Again",
                     Dialog::AiModel { .. } => "Download",
-                    Dialog::GenfillConsent { .. } => "Agree and Generate",
+                    Dialog::GenfillConsent { .. } => "Generate",
                     Dialog::RenamePerson { from, to, .. } if person_rename_plan(&app.session.catalog, from, to).needs_merge => "Merge",
                     _ if informational => "Close",
                     _ => "OK",
@@ -1848,7 +1848,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         }
         Dialog::GenfillConsent { provider, index, prompt, variations } => {
             app.run("genfill.consent", json!({"provider": provider, "accept": true}))?;
-            app.run("spot.generate", json!({"index": index, "provider": provider, "prompt": prompt, "variations": variations}))
+            crate::panels::genfill::send(app, provider, *index, prompt, *variations)
         }
         Dialog::AiModel { model, then, .. } => {
             if app.session.segmenter.model_installed(model) {
