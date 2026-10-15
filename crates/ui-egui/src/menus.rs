@@ -802,7 +802,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(json!({"navigator": app.ui.navigator}))
         }
         "app.settings" => {
-            let tab = p.get("tab").and_then(Value::as_str).unwrap_or("general");
+            // without a tab, the one shown last (else General)
+            let last = app.ui.settings.settings_tab.as_str();
+            let last = if crate::panels::settings::TABS.iter().any(|(id, _)| *id == last) { last } else { "general" };
+            let tab = p.get("tab").and_then(Value::as_str).unwrap_or(last);
             if !crate::panels::settings::TABS.iter().any(|(id, _)| *id == tab) {
                 let tabs: Vec<&str> = crate::panels::settings::TABS.iter().map(|(id, _)| *id).collect();
                 return Some(Err(format!("unknown settings tab `{tab}` ({})", tabs.join("|"))));

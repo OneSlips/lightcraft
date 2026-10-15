@@ -3207,27 +3207,175 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Switching Settings tabs keeps the window's top edge (and its tab row) where it is and never makes it
-    /// narrower, though the tabs are of different heights and widths.
+    fn settings_window(h: &Headless) -> egui::Rect {
+        h.app.widgets.iter().find(|(w, _)| w == "dialog:window").map(|(_, r)| *r).expect("the Settings window")
+    }
+
+    fn settings_tab(h: &Headless) -> String {
+        match &h.app.ui.dialog {
+            Some(crate::state::Dialog::Settings { tab }) => tab.clone(),
+            other => panic!("Settings isn't open: {other:?}"),
+        }
+    }
+
+    /// Switching Settings tabs never moves or resizes the window: every tab, the tall ones (Controls,
+    /// Slideshow) and the short ones (Display), scrolls inside the same window.
     #[test]
-    fn settings_tabs_keep_the_window_in_place() {
+    fn settings_tabs_keep_the_window_size() {
         let mut h = demo([1300.0, 820.0]);
         let t = Duration::from_secs(10);
-        let window = |h: &Headless| h.app.widgets.iter().find(|(w, _)| w == "dialog:window").map(|(_, r)| *r).expect("the dialog");
         let r = h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "general"}}), t);
         assert_eq!(r["ok"], true, "{r}");
         h.settle(SETTLE);
-        let first = window(&h);
-        let mut heights = Vec::new();
-        for tab in ["display", "import", "performance", "general", "interface", "display"] {
-            h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{tab}")}), t);
-            h.settle(SETTLE);
-            let now = window(&h);
-            assert!((now.top() - first.top()).abs() < 1.0, "{tab}: top {} → {}", first.top(), now.top());
-            assert!(now.width() >= first.width() - 1.0, "{tab}: width {} → {}", first.width(), now.width());
-            heights.push(now.height());
+        let first = settings_window(&h);
+        // the default size, on the screen
+        assert!((first.width() - 900.0).abs() < 2.0 && (first.height() - 640.0).abs() < 2.0, "{first:?}");
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1300.0, 820.0)).contains_rect(first), "{first:?}");
+        for (tab, _) in crate::panels::settings::TABS.iter().chain(crate::panels::settings::TABS.iter().rev()) {
+            let r = h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{tab}")}), t);
+            assert_eq!(r["ok"], true, "{tab}: {r}");
+            for _ in 0..3 {
+                h.step();
+            }
+            assert_eq!(settings_tab(&h), *tab);
+            let now = settings_window(&h);
+            assert!((now.min - first.min).length() < 0.5 && (now.size() - first.size()).length() < 0.5, "{tab}: {first:?} → {now:?}");
         }
-        assert!(heights.iter().any(|h| (h - first.height()).abs() > 20.0), "the tabs differ in height: {heights:?}");
+    }
+
+    /// The Settings window resizes from its corner; the size is remembered in the app settings
+    /// (`ui.json`), kept while tabs switch, and the window opens at it the next time. The tab shown last
+    /// is remembered too: Settings… (⌘,) opens on it.
+    #[test]
+    fn the_settings_window_resizes_and_remembers_its_size_and_tab() {
+        let mut h = demo([1300.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "performance"}}), t);
+        h.settle(SETTLE);
+        let before = settings_window(&h);
+        let corner = before.right_bottom() - egui::vec2(3.0, 3.0);
+        let r = h.request("ui.drag", json!({"x": corner.x, "y": corner.y, "toX": corner.x + 120.0, "toY": corner.y + 60.0, "steps": 12}), t);
+        assert_eq!(r["ok"], true, "{r}");
+        for _ in 0..6 {
+            h.step();
+        }
+        let after = settings_window(&h);
+        assert!(after.width() > before.width() + 60.0 && after.height() > before.height() + 30.0, "{before:?} → {after:?}");
+        let saved = h.app.ui.settings.settings_size.expect("the size is saved");
+        // switching tabs keeps it
+        for tab in ["display", "controls", "general"] {
+            h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{tab}")}), t);
+            h.step();
+            h.step();
+            let now = settings_window(&h);
+            assert!((now.size() - after.size()).length() < 0.5, "{tab}: {after:?} → {now:?}");
+        }
+        assert_eq!(h.app.ui.settings.settings_tab, "general");
+        h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), t);
+        h.step();
+        // the size and tab survive the settings file (ui.json) …
+        let json = serde_json::to_string(&h.app.ui).unwrap();
+        let back = serde_json::from_str::<crate::UiState>(&json).unwrap().sanitized();
+        assert_eq!(back.settings.settings_size, Some(saved));
+        assert_eq!(back.settings.settings_tab, "interface");
+        // … and a new window opens at them
+        let mut h2 = demo([1300.0, 900.0]);
+        h2.app.ui.settings = back.settings;
+        h2.request("ui.key", json!({"key": ",", "cmd": true}), t);
+        h2.settle(SETTLE);
+        assert_eq!(settings_tab(&h2), "interface");
+        let reopened = settings_window(&h2);
+        assert!((reopened.size() - after.size()).length() < 2.0, "{after:?} vs {reopened:?}");
+        // a saved size bigger than the screen is made to fit it
+        let mut h3 = demo([900.0, 640.0]);
+        h3.app.ui.settings.settings_size = Some([5000.0, 4000.0]);
+        h3.request("engine.execute", json!({"command": "app.settings", "params": {}}), t);
+        h3.settle(SETTLE);
+        let small = settings_window(&h3);
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 640.0)).contains_rect(small), "{small:?}");
+    }
+
+    /// The tabs stay on one row at the window's smallest size, in the language with the longest
+    /// names (Russian): those that don't fit are in a More menu, and the chosen tab is always in
+    /// the row.
+    #[test]
+    fn settings_tabs_never_wrap() {
+        let mut h = demo([1300.0, 900.0]);
+        let t = Duration::from_secs(10);
+        h.app.ui.language = crate::i18n::Locale::Ru;
+        crate::i18n::set_language(crate::i18n::Locale::Ru);
+        h.app.ui.settings.settings_size = Some(crate::panels::settings::MIN_SIZE);
+        h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "general"}}), t);
+        h.settle(SETTLE);
+        let window = settings_window(&h);
+        let tabs: Vec<(String, egui::Rect)> = h.app.widgets.iter().filter(|(w, _)| w.starts_with("button:settingsTab-")).cloned().collect();
+        assert!(!tabs.is_empty());
+        let top = tabs[0].1.top();
+        for (id, r) in &tabs {
+            assert!((r.top() - top).abs() < 0.5, "{id} is on another row: {r:?}");
+            assert!(window.contains_rect(*r), "{id} is outside the window: {r:?} {window:?}");
+        }
+        assert!(tabs.len() < crate::panels::settings::TABS.len(), "Russian names don't all fit {window:?}");
+        let more = h.app.widgets.iter().find(|(w, _)| w == "button:settingsTabMore").map(|(_, r)| *r).expect("the More menu");
+        assert!((more.top() - top).abs() < 0.5 && window.contains_rect(more));
+        // a tab from the menu: chosen, it is in the row
+        let hidden: Vec<&str> = crate::panels::settings::TABS
+            .iter()
+            .map(|(id, _)| *id)
+            .filter(|id| !tabs.iter().any(|(w, _)| w == &format!("button:settingsTab-{id}")))
+            .collect();
+        let last = *hidden.last().expect("a tab in the menu");
+        h.request("ui.clickWidget", json!({"id": "button:settingsTabMore"}), t);
+        h.step();
+        let r = h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{last}")}), t);
+        assert_eq!(r["ok"], true, "{r}");
+        h.step();
+        h.step();
+        assert_eq!(settings_tab(&h), last);
+        let in_row = h.app.widgets.iter().find(|(w, _)| w == &format!("button:settingsTab-{last}")).map(|(_, r)| *r).expect("in the row");
+        assert!((in_row.top() - top).abs() < 0.5, "{in_row:?}");
+        assert!((settings_window(&h).size() - window.size()).length() < 0.5);
+        crate::i18n::set_language(crate::i18n::Locale::En);
+    }
+
+    /// Ctrl+Tab / Ctrl+Shift+Tab (and Ctrl+Page Down / Up) go through the Settings tabs, wrapping
+    /// around; ← / → move between them while a tab has the keyboard focus.
+    #[test]
+    fn settings_tabs_by_keyboard() {
+        let mut h = demo([1300.0, 820.0]);
+        let t = Duration::from_secs(10);
+        h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "general"}}), t);
+        h.settle(SETTLE);
+        h.request("ui.key", json!({"key": "tab", "ctrl": true}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "import");
+        h.request("ui.key", json!({"key": "PageDown", "ctrl": true}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "performance");
+        h.request("ui.key", json!({"key": "tab", "ctrl": true, "shift": true}), t);
+        h.step();
+        h.request("ui.key", json!({"key": "tab", "ctrl": true, "shift": true}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "general");
+        h.request("ui.key", json!({"key": "PageUp", "ctrl": true}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "controls", "wraps around");
+        // arrows while a tab has the focus
+        h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "display".into() });
+        h.step();
+        h.view.ctx.memory_mut(|m| m.request_focus(egui::Id::new("settingsTab").with("display")));
+        h.step();
+        h.request("ui.key", json!({"key": "right"}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "interface");
+        h.step();
+        h.request("ui.key", json!({"key": "right"}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "slideshow", "the focus followed the tab");
+        h.request("ui.key", json!({"key": "left"}), t);
+        h.step();
+        assert_eq!(settings_tab(&h), "interface");
+        assert_eq!(h.view.ctx.memory(|m| m.focused()), Some(egui::Id::new("settingsTab").with("interface")));
     }
 
     /// Settings → Import → "Show the import review when a camera or card is connected": a card that

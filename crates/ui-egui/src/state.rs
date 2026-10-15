@@ -391,6 +391,13 @@ pub struct AppSettings {
     /// View ▸ Zoom to Focus Point: Toggle Zoom (Z) centres the zoomed view on the camera's focus point
     /// when the photo has one (`view.zoomToFocus`).
     pub zoom_to_focus: bool,
+    /// The Settings window's content size in points as the user left it (`None` = the default
+    /// size; clamped to the screen when the window opens).
+    #[serde(deserialize_with = "lenient")]
+    pub settings_size: Option<[f32; 2]>,
+    /// The Settings tab shown last: Settings… (⌘,) opens on it.
+    #[serde(deserialize_with = "lenient")]
+    pub settings_tab: String,
 }
 
 impl Default for AppSettings {
@@ -420,6 +427,8 @@ impl Default for AppSettings {
             keyword_chips: KeywordChips::default(),
             focus_point: false,
             zoom_to_focus: true,
+            settings_size: None,
+            settings_tab: String::new(),
         }
     }
 }
@@ -1589,6 +1598,9 @@ impl UiState {
         self.sidebar.adopt_collapsed(&std::mem::take(&mut self.collapsed_sidebar));
         self.dialog = None;
         self.fullscreen = false;
+        if self.settings.settings_size.is_some_and(|[w, h]| !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0)) {
+            self.settings.settings_size = None;
+        }
         if !crate::state::PREVIEW_LIMITS.contains(&self.settings.preview_limit) {
             self.settings.preview_limit = AppSettings::default().preview_limit;
         }

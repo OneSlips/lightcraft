@@ -2604,5 +2604,7 @@
   "Show in Library": "在圖庫中顯示",
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Lightroom 目錄會匯入目前開啟的圖庫，不會建立獨立的目錄資料夾。",
   "Destination library": "目標圖庫",
-  "Playback": "播放"
+  "Playback": "播放",
+  "Display": "顯示器",
+  "Faces": "人臉"
 }

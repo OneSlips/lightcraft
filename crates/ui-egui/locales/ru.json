@@ -2796,5 +2796,6 @@
   "Show in Library": "Показать в библиотеке",
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Каталоги Lightroom импортируются в открытую библиотеку; отдельная папка каталога не создаётся.",
   "These photos are only in memory. Open a library on disk and import the catalog again to save them.": "Эти фотографии находятся только в памяти. Откройте библиотеку на диске и импортируйте каталог повторно, чтобы сохранить их.",
-  "Playback": "Воспроизведение"
+  "Playback": "Воспроизведение",
+  "Display": "Дисплей"
 }

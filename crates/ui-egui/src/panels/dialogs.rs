@@ -291,25 +291,19 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     // previous frame (a guess on the first one).
     let chrome_id = window_id.with("chrome");
     let chrome = ctx.data(|d| d.get_temp::<f32>(chrome_id)).unwrap_or(DIALOG_CHROME_GUESS);
-    // Settings keeps its top edge, and the widest it has been, while tabs of different sizes are shown, so its tab
-    // row stays where it is (centred like the others, the row jumped with each tab's height)
+    // Settings is a window of its own size: it opens at the size it was left
+    // at, the user resizes it, and its tabs scroll inside it, so switching tabs never moves or
+    // resizes it.
     let settings = matches!(dlg, Dialog::Settings { .. });
-    let top = (screen.height() * 0.08).clamp(DIALOG_SCREEN_MARGIN, 96.0);
-    let body_max =
-        if settings { screen.height() - top - DIALOG_SCREEN_MARGIN - chrome } else { screen.height() - 2.0 * DIALOG_SCREEN_MARGIN - chrome }
-            .max(DIALOG_MIN_BODY);
-    let widest_id = window_id.with("widest");
-    let widest = if settings { ctx.data(|d| d.get_temp::<f32>(widest_id)).unwrap_or(0.0).min(screen.width() * 0.9) } else { 0.0 };
-    let mut content_w = 0.0f32;
+    let body_max = (screen.height() - 2.0 * DIALOG_SCREEN_MARGIN - chrome).max(DIALOG_MIN_BODY);
     let mut body_h = None;
-    let shown = egui::Window::new(crate::i18n::tr(&title)).id(window_id)
+    let mut window = egui::Window::new(crate::i18n::tr(&title))
+        .id(window_id)
         .collapsible(false)
-        .resizable(import)
+        .resizable(import || settings)
         .vscroll(import)
         .resize(|r| if import { r.default_height(crate::import::DIALOG_SIZE[1]) } else { r })
         .frame(frame)
-        .anchor(if settings { egui::Align2::CENTER_TOP } else { egui::Align2::CENTER_CENTER }, [0.0, if settings { top } else { 0.0 }])
-        .min_width(widest)
         .default_width(match dlg {
             Dialog::Import { .. } => crate::import::DIALOG_SIZE[0],
             Dialog::SmartRules { .. } => 680.0,
@@ -320,10 +314,22 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             Dialog::LightroomCatalog { .. } => 440.0,
             Dialog::ManageEffects { .. } => 560.0,
             _ => 380.0,
-        })
+        });
+    window = if settings {
+        let size = crate::panels::settings::window_size(screen, app.ui.settings.settings_size);
+        window
+            .default_size(size.default)
+            .min_size(size.min)
+            .max_size(size.max)
+            .pivot(egui::Align2::CENTER_TOP)
+            .default_pos(egui::pos2(screen.center().x, (screen.height() * 0.08).clamp(DIALOG_SCREEN_MARGIN, 96.0)))
+    } else {
+        window.anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+    };
+    let shown = window
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.y = 8.0;
-            body_h = dialog_body(ui, (!import && !print).then_some(title.as_str()), body_max, |ui| match &mut dlg {
+            body_h = dialog_body(ui, (!import && !print && !settings).then_some(title.as_str()), body_max, |ui| match &mut dlg {
                 Dialog::AutoStack { gap } => {
                     ui.label(egui::RichText::new(crate::i18n::tr("Stack photos taken within this time of each other:")).color(t.text_label));
                     let r = ui.add(
@@ -1456,12 +1462,11 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             if import {
                 crate::import::note_dialog_bottom(ui);
             }
-            content_w = ui.min_rect().width();
         });
-    if settings && content_w > widest + 0.5 {
-        ctx.data_mut(|d| d.insert_temp(widest_id, content_w));
-    }
     if let Some(w) = shown {
+        if settings {
+            crate::panels::settings::remember_size(app, w.response.rect.size());
+        }
         ctx.memory_mut(|m| m.set_modal_layer(w.response.layer_id));
         if let Some(body_h) = body_h {
             let measured = (w.response.rect.height() - body_h).max(0.0);

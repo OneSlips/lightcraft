@@ -2804,5 +2804,6 @@
   "Show in Library": "In Bibliothek anzeigen",
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Lightroom-Kataloge werden in die geöffnete Bibliothek importiert; es wird kein eigener Katalogordner erstellt.",
   "These photos are only in memory. Open a library on disk and import the catalog again to save them.": "Diese Fotos befinden sich nur im Arbeitsspeicher. Öffne eine Bibliothek auf dem Datenträger und importiere den Katalog erneut, um sie zu speichern.",
-  "Playback": "Wiedergabe"
+  "Playback": "Wiedergabe",
+  "Display": "Anzeige"
 }

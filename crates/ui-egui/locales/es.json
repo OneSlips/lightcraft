@@ -2803,5 +2803,6 @@
   "Show in Library": "Mostrar en la biblioteca",
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Los catálogos de Lightroom se importan a la biblioteca abierta; no se crea una carpeta de catálogo separada.",
   "Destination library": "Biblioteca de destino",
-  "Playback": "Reproducción"
+  "Playback": "Reproducción",
+  "Display": "Pantalla"
 }
