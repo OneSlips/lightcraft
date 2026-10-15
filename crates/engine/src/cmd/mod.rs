@@ -11,6 +11,7 @@ mod color;
 pub(crate) mod convert;
 mod cull;
 pub mod curves;
+pub mod dcp_profiles;
 pub(crate) mod denoise;
 mod develop;
 mod edit;
@@ -148,6 +149,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(previews::specs());
         v.extend(lut_profiles::specs());
         v.extend(mask_effects::specs());
+        v.extend(dcp_profiles::specs());
         v.extend(cull::specs());
         v.extend(convert::specs());
         v.extend(convert::edit_specs());

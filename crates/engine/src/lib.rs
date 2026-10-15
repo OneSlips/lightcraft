@@ -274,6 +274,8 @@ pub struct Session {
     /// The effect a new mask of each kind (`brush`, `linear`…) starts with: the one last applied
     /// to a mask of that kind.
     pub mask_tool_effects: std::collections::BTreeMap<String, String>,
+    /// Imported camera profiles (`.dcp`).
+    pub dcp_profiles: Vec<cmd::dcp_profiles::DcpEntry>,
     /// Saved colour-label name sets.
     pub label_sets: Vec<cmd::manage::LabelSet>,
     /// Look-alike signatures by content key (Find Similar).
@@ -392,6 +394,7 @@ impl Session {
             curve_presets: Vec::new(),
             mask_effects: Vec::new(),
             mask_tool_effects: Default::default(),
+            dcp_profiles: Vec::new(),
             label_sets: Vec::new(),
             signatures: Default::default(),
             lut_profiles: Vec::new(),
@@ -1014,6 +1017,8 @@ mod tests_albums_local;
 mod tests_color;
 #[cfg(test)]
 mod tests_crop_angle;
+#[cfg(test)]
+mod tests_dcp;
 #[cfg(test)]
 mod tests_denoise;
 #[cfg(test)]
