@@ -33,6 +33,7 @@ pub mod display;
 pub mod dust_map;
 mod errors;
 pub mod export;
+pub mod eyes;
 pub mod face_download;
 pub mod face_tiles;
 #[cfg(not(target_arch = "wasm32"))]

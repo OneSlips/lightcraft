@@ -26,6 +26,7 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         aperture: m.f_number.map(|f| f as f32),
         shutter,
         iso: m.iso,
+        lens_range: m.lens_spec.map(|s| (s[0] as f32, s[1] as f32)).filter(|(a, b)| a.is_finite() && b.is_finite() && *a > 0.0 && *b >= *a),
         location: m.sublocation.clone().unwrap_or_default(),
         city: m.city.clone().unwrap_or_default(),
         state: m.state.clone().unwrap_or_default(),
@@ -1117,6 +1118,12 @@ fn raf_preview_extent(prefix: &[u8]) -> Option<u64> {
 /// `adobe_rgb`: the container declares the preview Adobe RGB ([`PreviewRead::adobe_rgb`]), applied
 /// as [`decode_raw_preview`] applies it. `None` when the bytes are not a decodable image.
 fn quick_image_srgb(header: &[u8], window: &[u8], adobe_rgb: bool, max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
+    // a plain sRGB camera JPEG (nearly all of them) straight to 8-bit (PERF-CULL-3: 45 MP preview
+    // of an EOS R5 C fitted to 2560 px, 194 → ~110 ms); anything else takes the general decode
+    let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
+    if !adobe_rgb && let Ok(Some((image, orientation))) = lightcraft_codecs::decode_jpeg_srgb8_fit(window, edge, edge) {
+        return Some(image.oriented(preview_orientation(header, orientation)));
+    }
     let decoded = if adobe_rgb && window.starts_with(&[0xff, 0xd8]) {
         lightcraft_codecs::decode_jpeg_with_fallback(window, fit_box(max_edge), lightcraft_codecs::NamedSpace::AdobeRgb)
     } else {

@@ -90,6 +90,29 @@ A Canon CR3's preview is a JPEG track instead (issue #832 measured 3 MB of one R
 ~15 %), and Canon is the largest bucket in [gaps.md](gaps.md)'s ranking (33 % of photographers), so
 before this change every unedited CR3 thumbnail paid for the whole file.
 
+## The smallest preview that covers the view
+
+Most raws keep more than one JPEG: an EOS R5 C CR3 has an 8192 × 5464 JPEG track, a 1620 × 1080
+`PRVW` box and a 160 × 120 `THMB`; Sony ARWs keep a 1616 px preview beside the full-size one.
+Decoding the 8192 px one costs about 100 ms of entropy decoding however small it is asked for
+(DCT scaling only saves the inverse transform), against a few milliseconds for the 1620 px one.
+So the preview loader passes the size it wants (`files::preview_window_fit`), and
+`lightcraft_raw::embedded_preview_fit` picks the smallest preview whose long edge covers it and
+whose shape is the largest one's (within 2 %, so a letterboxed preview never stands in), else the
+largest one exactly as `embedded_preview` does. A grid thumbnail and a loupe up to 1620 px read
+the `PRVW`; a bigger loupe still reads the full-size JPEG.
+
+A plain 8-bit sRGB JPEG (no ICC profile, no Adobe RGB hint) is then decoded straight to 8-bit
+(`lightcraft_codecs::decode_jpeg_srgb8_fit`: DCT-scaled, box-averaged in linear light) without
+the float image the general decode builds; anything else keeps the general path.
+
+`lightcraft-cli bench-cull FOLDER` times these steps (and the rest of a culling pass) on a real
+folder; `tools/cull-bench.py` times them in the running app.
+
+Measured on 20 EOS R5 C CR3s of a wedding (local NVMe SSD, machine shared with other work): the
+loader at 1280 px went from 168–322 ms to **31 ms** a photo; at 2560 px the decode of the 8192 px
+JPEG went from 182 to 151 ms (minimum of 15 runs; most of what remains is entropy decoding).
+
 ## The grid thumbnail is the embedded JPEG too
 
 A 512 px grid thumbnail of an unedited raw now keeps the camera's own JPEG instead of rendering the

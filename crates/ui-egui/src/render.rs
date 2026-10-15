@@ -45,6 +45,13 @@ pub enum Slot {
     /// Background preparation of a neighbouring photo (no texture: its decoded source and view
     /// render are cached by the engine). 0 = next, 1 = previous.
     Prefetch(u8),
+    /// The loupe's stand-in for a photo the user is likely to step to next (the camera JPEG of an
+    /// unedited raw, or a cached render), made ahead in the direction of travel so a step shows it
+    /// at once: [`Renderer::request_quick`] takes the texture over into [`Slot::Preview`].
+    QuickAhead(u8),
+    /// The loupe zoomed in on an unedited raw: its camera JPEG at full size, drawn under the window
+    /// render until that arrives (a focus check at 100 % without waiting for the raw).
+    QuickFull,
     /// A variant thumbnail (profile / preset browsers), by its job key ([`Session::variant_job`]).
     /// Kept in a bounded LRU ([`VARIANT_TEXTURES`]).
     Variant(u64),
@@ -252,6 +259,9 @@ pub struct Renderer {
     /// The texture id each view slot shows GPU-resident renders under (one per slot, reused).
     natives: HashMap<Slot, egui::TextureId>,
 }
+
+/// How many [`Slot::QuickAhead`] stand-ins the loupe keeps ready.
+pub const AHEAD_SLOTS: u8 = 6;
 
 /// After this long without renders the GPU renderer's pool of recycled buffers is freed.
 #[cfg(not(target_arch = "wasm32"))]
@@ -496,18 +506,75 @@ impl Renderer {
         );
     }
 
-    /// Request a stand-in for `slot` (once per job key).
+    /// Request a stand-in for `slot` (once per job key). The loupe's [`Slot::Preview`] takes over
+    /// a stand-in already made ahead for the same photo ([`Slot::QuickAhead`]) instead of making it
+    /// again: shown in this frame when it is ready, or as soon as that job finishes.
     pub fn request_quick(&mut self, slot: Slot, mut job: QuickJob, priority: u32) {
         if self.quick_tried.get(&slot) == Some(&job.key) {
             return;
         }
         self.quick_tried.insert(slot, job.key);
+        if slot == Slot::Preview && self.take_ahead(job.photo, job.key) {
+            self.pending.remove(&slot);
+            self.request_ids.remove(&slot);
+            return;
+        }
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
         let display = self.display.clone();
-        self.pool.submit(slot, key, priority, Box::new(move || Self::run_for(|| job.run(), &display)));
+        let background = matches!(slot, Slot::QuickAhead(_));
+        self.pool.submit(
+            slot,
+            key,
+            priority,
+            Box::new(move || {
+                let run = || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
+                Self::run_for(run, &display)
+            }),
+        );
+    }
+
+    /// Move a [`Slot::QuickAhead`] texture of `photo` made for `key` into [`Slot::Preview`].
+    fn take_ahead(&mut self, photo: PhotoId, key: u64) -> bool {
+        let Some(slot) = self.textures.iter().find(|(s, t)| matches!(s, Slot::QuickAhead(_)) && t.photo == photo && t.key == key).map(|(s, _)| *s)
+        else {
+            return false;
+        };
+        let Some(tex) = self.textures.remove(&slot) else { return false };
+        self.quick_tried.remove(&slot);
+        self.textures.insert(Slot::Preview, tex);
+        true
+    }
+
+    /// Make the loupe's stand-ins for the photos it is likely to be stepped to next (see
+    /// [`Slot::QuickAhead`]), most likely first: `jobs[0]` gets `priority`, each next one less.
+    /// A slot keeps a photo for as long as the photo stays wanted (made or being made, it is not
+    /// made again when the user steps and the photos shift places); slots holding photos not
+    /// wanted any more are freed for the new ones, and their queued jobs dropped.
+    pub fn look_ahead(&mut self, jobs: Vec<QuickJob>, priority: u32) {
+        let slots: Vec<Slot> = (0..AHEAD_SLOTS).map(Slot::QuickAhead).collect();
+        let held = |r: &Self, s: Slot| r.textures.get(&s).map(|t| t.key).or_else(|| r.quick_tried.get(&s).copied());
+        let wanted: std::collections::HashSet<u64> = jobs.iter().map(|j| j.key).collect();
+        let mut free = Vec::new();
+        for &s in &slots {
+            if held(self, s).is_none_or(|k| !wanted.contains(&k)) {
+                self.textures.remove(&s);
+                self.quick_tried.remove(&s);
+                self.drop_queued(s);
+                free.push(s);
+            }
+        }
+        let have: std::collections::HashSet<u64> = slots.iter().filter_map(|&s| held(self, s)).collect();
+        let mut free = free.into_iter();
+        for (rank, job) in jobs.into_iter().enumerate() {
+            if have.contains(&job.key) {
+                continue;
+            }
+            let Some(slot) = free.next() else { break };
+            self.request_quick(slot, job, priority.saturating_sub(rank as u32));
+        }
     }
 
     /// Prepare a photo in the background (a [`Slot::Prefetch`] job runs once per key; a newer one
@@ -795,6 +862,14 @@ impl Renderer {
             if self.pending.get(&slot).is_some_and(|p| p.0 == r.key) {
                 self.pending.remove(&slot);
             }
+            // made ahead for the photo the loupe is now waiting for: it is the loupe's stand-in
+            // (the loupe's own request for it, if one was started, is dropped when it arrives)
+            if matches!(slot, Slot::QuickAhead(_)) && r.rendered.is_ok() && self.pending.get(&Slot::Preview).is_some_and(|p| p.0 == r.key) {
+                self.pending.remove(&Slot::Preview);
+                self.request_ids.remove(&Slot::Preview);
+                self.quick_tried.remove(&slot);
+                slot = Slot::Preview;
+            }
             // a render that stayed on the GPU: drawn from its texture
             if let (Some(frame), Ok(rendered)) = (r.frame.as_ref(), r.rendered.as_ref()) {
                 self.failed.remove(&slot);
@@ -849,7 +924,7 @@ impl Renderer {
                     x
                 }
                 Err(e) => {
-                    if !matches!(slot, Slot::Prefetch(_)) {
+                    if !matches!(slot, Slot::Prefetch(_) | Slot::QuickAhead(_)) {
                         log::warn!("render {slot:?}: {e}");
                         self.failed.insert(slot, (r.key, e, self.catalog_rev, r.photo));
                     }
@@ -986,6 +1061,29 @@ impl Renderer {
     /// CPU copies of the current textures by id (see [`Self::keep_pixels`]).
     pub fn cpu_textures(&self) -> HashMap<egui::TextureId, crate::softpaint::CpuTexture> {
         self.textures.values().filter_map(|t| Some((t.id(), crate::softpaint::CpuTexture::linear(t.pixels.clone()?)))).collect()
+    }
+
+    /// Forget everything about `slot`: its texture, its queued job, and that its stand-in was asked
+    /// for (so asking again makes it again).
+    pub fn forget(&mut self, slot: Slot) {
+        self.drop_queued(slot);
+        self.pending.remove(&slot);
+        self.request_ids.remove(&slot);
+        self.quick_tried.remove(&slot);
+        self.release(slot);
+    }
+
+    /// Drop `slot`'s job if it is still queued (a running one finishes). Returns whether one was.
+    pub fn drop_queued(&mut self, slot: Slot) -> bool {
+        let dropped = self.pool.reprioritize(|s, p| if *s == slot { None } else { Some(p) });
+        let before = self.queue.len();
+        self.queue.retain(|q| q.slot != slot);
+        let any = !dropped.is_empty() || self.queue.len() != before;
+        if any {
+            self.pending.remove(&slot);
+            self.request_ids.remove(&slot);
+        }
+        any
     }
 
     /// Drop the import review thumbnails (a new review, or the dialog closed).
@@ -1352,6 +1450,63 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert!(app.renderer.is_pending(Slot::Thumb(PhotoId(1))) || !app.renderer.queue.is_empty(), "an edited raw renders its thumbnail");
+    }
+
+    /// PERF-CULL-2: the loupe's stand-ins made ahead are taken over at the step (no job, the texture
+    /// at once), a photo still wanted keeps its slot as the photos shift, and a step to a photo whose
+    /// stand-in is still being made shows it when it arrives.
+    #[test]
+    fn a_step_takes_over_the_camera_preview_made_ahead() {
+        let gate = Arc::new(std::sync::Mutex::new(()));
+        let mut s = Session::new();
+        let g = gate.clone();
+        s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
+            drop(g.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            Some(lightcraft_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
+        }));
+        let raw = |id: u64| {
+            let mut p = Photo::new(PhotoId(id), Source::File { path: format!("r{id}.cr3") }, &format!("r{id}.cr3"), "CR3", 6000, 4000, "2026-01-01");
+            p.kind = lightcraft_catalog::MediaKind::Raw;
+            p.develop = Arc::new(p.camera_defaults());
+            p
+        };
+        let (mut app, _, ctx) = fixture_with(s, raw(1));
+        for id in 2..=4 {
+            app.session.catalog.apply(Op::AddPhoto { photo: Box::new(raw(id)) }).unwrap();
+        }
+        let job = |app: &mut crate::LightcraftApp, id: u64| app.session.quick_view_job(PhotoId(id), 64, true).unwrap();
+        let wait = |app: &mut crate::LightcraftApp, done: &dyn Fn(&Renderer) -> bool| {
+            let t0 = std::time::Instant::now();
+            while !done(&app.renderer) {
+                assert!(t0.elapsed() < std::time::Duration::from_secs(20), "the stand-ins never arrived");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                app.renderer.poll(&ctx, &mut app.session);
+            }
+        };
+        let ahead_of = |r: &Renderer, id: u64| r.textures.iter().any(|(s, t)| matches!(s, Slot::QuickAhead(_)) && t.photo == PhotoId(id));
+        let jobs = vec![job(&mut app, 2), job(&mut app, 3)];
+        app.renderer.look_ahead(jobs, 96);
+        wait(&mut app, &|r| ahead_of(r, 2) && ahead_of(r, 3));
+        // the step to photo 2: its stand-in is the loupe's at once, nothing is made again
+        let q = job(&mut app, 2);
+        app.renderer.request_quick(Slot::Preview, q, 110);
+        assert!(!app.renderer.is_pending(Slot::Preview));
+        assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(2)));
+        assert!(!ahead_of(&app.renderer, 2));
+        // the next look-ahead (3 and 4): 3 keeps its slot and is not made again
+        let held = gate.lock().unwrap();
+        let jobs = vec![job(&mut app, 3), job(&mut app, 4)];
+        app.renderer.look_ahead(jobs, 96);
+        assert!(ahead_of(&app.renderer, 3), "a photo still wanted keeps what was made for it");
+        let pending_ahead: Vec<Slot> = app.renderer.pending.keys().copied().filter(|s| matches!(s, Slot::QuickAhead(_))).collect();
+        assert_eq!(pending_ahead.len(), 1, "only photo 4 is being made: {pending_ahead:?}");
+        // the step to photo 4 while its stand-in is still being made: shown when it arrives
+        let q = job(&mut app, 4);
+        app.renderer.request_quick(Slot::Preview, q, 110);
+        drop(held);
+        wait(&mut app, &|r| r.textures.get(&Slot::Preview).is_some_and(|t| t.photo == PhotoId(4)) && !r.is_pending(Slot::Preview));
+        wait(&mut app, &|r| !r.pending.keys().any(|s| matches!(s, Slot::QuickAhead(_) | Slot::Preview)));
+        assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(4)));
     }
 
     #[test]

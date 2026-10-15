@@ -474,6 +474,9 @@ impl PanelWidth {
 
 /// The left sidebar (sources, albums, folders).
 pub const LEFT_WIDTH: PanelWidth = PanelWidth { min: 200.0, default: 268.0, max: 480.0 };
+/// The filmstrip's height (points; 142 was its fixed height): small enough for a few rows of
+/// tiny thumbnails, large enough to judge expressions on them.
+pub const FILM_HEIGHT: PanelWidth = PanelWidth { min: 96.0, default: 142.0, max: 360.0 };
 /// The right panel (Edit, Masking, Info, …).
 pub const RIGHT_WIDTH: PanelWidth = PanelWidth { min: 250.0, default: 270.0, max: 520.0 };
 /// The photo area the side panels always leave free (as far as their minimum widths allow).
@@ -516,6 +519,14 @@ pub struct UiState {
     /// Presets column: show a live thumbnail of the photo with each preset.
     pub preset_thumbs: bool,
     pub filmstrip: bool,
+    /// Height of the filmstrip (points): its top edge drags it between [`FILM_HEIGHT`]'s bounds.
+    pub film_height: f32,
+    /// The shot info strip under the photo in the loupe (`view.shotInfo`): aperture, shutter,
+    /// ISO, focal length and lens, size in pixels.
+    pub shot_info: bool,
+    /// The eye focus strip across the top of the loupe (`view.eyeFocus`): each person's sharper
+    /// eye at 100 %, with how sharp it is.
+    pub eye_focus: bool,
     pub zoom: Zoom,
     /// Pan offset of the loupe when zoomed (image-normalized centre).
     pub pan: (f32, f32),
@@ -1125,6 +1136,9 @@ impl Default for UiState {
             presets: false,
             preset_thumbs: false,
             filmstrip: true,
+            film_height: FILM_HEIGHT.default,
+            shot_info: true,
+            eye_focus: false,
             zoom: Zoom::Fit,
             pan: (0.5, 0.5),
             click_zoom: 100,
@@ -1289,6 +1303,7 @@ impl UiState {
         self.thumb_size = self.thumb_size.clamp(90.0, 480.0);
         self.left_width = LEFT_WIDTH.clamp(self.left_width);
         self.right_width = RIGHT_WIDTH.clamp(self.right_width);
+        self.film_height = FILM_HEIGHT.clamp(self.film_height);
         self.brush_size = self.brush_size.clamp(0.002, 0.5);
         self.sidebar.adopt_collapsed(&std::mem::take(&mut self.collapsed_sidebar));
         self.dialog = None;

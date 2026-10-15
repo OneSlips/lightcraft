@@ -912,12 +912,7 @@ fn picker(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ChartProfileDia
                         let [w, h] = tex.size;
                         let s = (thumb.width() / w.max(1) as f32).min(thumb.height() / h.max(1) as f32);
                         let r = egui::Rect::from_center_size(thumb.center(), egui::vec2(w as f32 * s, h as f32 * s));
-                        ui.painter().image(
-                            tex.tex.id(),
-                            r,
-                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-                            egui::Color32::WHITE,
-                        );
+                        ui.painter().image(tex.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
                     }
                     if resp.hovered() {
                         ui.painter().rect_stroke(thumb, 3.0, egui::Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);

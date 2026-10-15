@@ -112,6 +112,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.lightsOut", "Lights Out", Some("Shift+L"), "View"),
     ("view.enterFullScreen", "Enter Full Screen", Some("Cmd+Shift+F"), "View"),
     ("view.infoOverlay", "Cycle Info Overlay", Some("Cmd+I"), "View"),
+    ("view.shotInfo", "Shot Info", Some("Shift+I"), "View"),
+    ("view.eyeFocus", "Eye Focus Strip", Some("Shift+T"), "View"),
     ("view.navigator", "Navigator", None, "View"),
     ("panel.edit", "Edit", Some("E"), "Window"),
     ("panel.profiles", "Profile Browser", None, "Window"),
@@ -699,6 +701,14 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "view.filmstrip" => {
             app.ui.filmstrip = !app.ui.filmstrip;
             Ok(Value::Null)
+        }
+        "view.shotInfo" => {
+            app.ui.shot_info = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.shot_info);
+            Ok(json!({"on": app.ui.shot_info}))
+        }
+        "view.eyeFocus" => {
+            app.ui.eye_focus = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.eye_focus);
+            Ok(json!({"on": app.ui.eye_focus}))
         }
         "view.leftPanel" => {
             app.ui.left_panel = !app.ui.left_panel;

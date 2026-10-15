@@ -512,6 +512,7 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     let (tx, rx) = std::sync::mpsc::channel();
     let p = progress.clone();
     let root = dir_s.clone();
+    let sort = app.session.sort;
     let job = move || {
         let files: Vec<String> = if subfolders {
             lightcraft_engine::import::expand(&[root], None)
@@ -532,7 +533,13 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
             v.sort();
             v
         };
-        let _ = tx.send(scan_with(input, &files, &p));
+        // Nothing is read here: the import that follows reads the files and adds them batch by
+        // batch, first screen first, so the view fills while the rest is read (PERF-CULL-1).
+        let queue = lightcraft_engine::import::browse_queue(&input, files, &sort);
+        p.total.store(queue.len(), Ordering::Relaxed);
+        p.done.store(queue.len(), Ordering::Relaxed);
+        let candidates = queue.into_iter().map(|path| lightcraft_engine::import::ImportCandidate { path, ..Default::default() }).collect();
+        let _ = tx.send(lightcraft_engine::import::ScanOutput { candidates, probes: Default::default() });
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(job);
