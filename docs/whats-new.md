@@ -1,5 +1,13 @@
 # What's new in LightCraft
 
+## 2026-10-16
+
+### Mask tools
+- **Add, Subtract and Intersect offer every kind of mask** that Create New Mask does, in the same
+  order and with the same icons: also Background, People, Remembered, Landscape and Color. A Radial
+  minus the Background is two clicks. People, Remembered and Landscape open their picker under the
+  mask they combine with. The mask tiles have their own icons now.
+
 ## 2026-10-15
 
 ### Settings window

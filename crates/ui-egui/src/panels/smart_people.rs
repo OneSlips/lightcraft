@@ -138,7 +138,9 @@ pub fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             app.ui.people_pick = None;
             app.ui.people_face = None;
-            super::masking::add_auto(app, ui.ctx(), p, None);
+            // (opened from Add / Subtract / Intersect: combined with the selected mask)
+            let op = app.ui.mask_pick_op.take();
+            super::masking::add_auto(app, ui.ctx(), p, op.as_deref());
             return;
         }
         app.ui.people_pick = Some((person, parts));
@@ -302,7 +304,8 @@ pub fn concept_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             register(ui.ctx(), format!("maskConcept:{k}"), b.rect);
             if b.clicked() {
                 app.ui.concept_pick = false;
-                super::masking::add_auto(app, ui.ctx(), json!({"kind": "concept", "concept": n, "name": n}), None);
+                let op = app.ui.mask_pick_op.take();
+                super::masking::add_auto(app, ui.ctx(), json!({"kind": "concept", "concept": n, "name": n}), op.as_deref());
             }
         }
     });

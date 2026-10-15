@@ -228,6 +228,9 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         }
     });
     super::masking::describe_field(app, ui, false);
+    if app.ui.mask_pick_op.is_some() {
+        super::masking::pickers(app, ui);
+    }
 }
 
 /// The overlay's settings (rarely changed: set and forget): how the overlay shows, its colour and

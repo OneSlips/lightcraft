@@ -140,6 +140,8 @@ mod tests_mask_local;
 #[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
+mod tests_mask_tools;
+#[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
 mod tests_masking_layout;

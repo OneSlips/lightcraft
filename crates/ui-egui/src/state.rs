@@ -842,6 +842,11 @@ pub struct UiState {
     /// The remembered objects are shown under the mask tiles (the Remembered tile was clicked).
     #[serde(skip)]
     pub concept_pick: bool,
+    /// The People, Remembered or Landscape picker was opened from Add / Subtract / Intersect: how
+    /// its selection combines with the selected mask (`None`: it makes a new mask). The picker
+    /// then shows under the selected mask instead of under the tiles.
+    #[serde(skip)]
+    pub mask_pick_op: Option<String>,
     /// The People and Roles window is open; its Forget All button was clicked once.
     #[serde(skip)]
     pub roles_window: bool,
@@ -1449,6 +1454,7 @@ impl Default for UiState {
             people_role: String::new(),
             people_by_role: false,
             concept_pick: false,
+            mask_pick_op: None,
             roles_window: false,
             forget_all_armed: false,
             renaming_component: None,
