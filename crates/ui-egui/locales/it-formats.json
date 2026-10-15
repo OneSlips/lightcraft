@@ -361,5 +361,6 @@
   "Key from the environment variable {}": "Chiave dalla variabile d'ambiente {}",
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
-  "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}"
+  "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
+  "Finding “{text}”…": "Cerco «{text}»…"
 }

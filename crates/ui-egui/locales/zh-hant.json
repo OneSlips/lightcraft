@@ -2630,5 +2630,12 @@
   "Overlay on · O": "疊加層已開 · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "按一下或在照片上拖曳以取色；⇧ 加入更多（最多 5 個），⌥-按一下移除一個，拖曳圖釘可移動它",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "按一下照片以選取該處的亮度，或拖過一個區域以選取其亮度範圍；⇧ 擴大範圍",
-  "No colour picked": "未取色"
+  "No colour picked": "未取色",
+  "Finding people…": "正在尋找人物…",
+  "Finding the background…": "正在尋找背景…",
+  "Finding the landscape…": "正在尋找風景…",
+  "Finding the remembered object…": "正在尋找記住的物件…",
+  "Finding the sky…": "正在尋找天空…",
+  "Finding the subject…": "正在尋找主體…",
+  "Selecting the object…": "正在選取物件…"
 }

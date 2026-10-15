@@ -2668,5 +2668,12 @@
   "Overlay on · O": "Sobreposição ativa · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Clique ou arraste sobre a foto para coletar cores; ⇧ adiciona mais (até 5), ⌥-clique remove uma, arraste um pino para movê-lo",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Clique na foto para coletar o tom, ou arraste sobre uma área para coletar seus tons; ⇧ amplia o intervalo",
-  "No colour picked": "Nenhuma cor coletada"
+  "No colour picked": "Nenhuma cor coletada",
+  "Finding people…": "Procurando pessoas…",
+  "Finding the background…": "Procurando o fundo…",
+  "Finding the landscape…": "Procurando a paisagem…",
+  "Finding the remembered object…": "Procurando o objeto lembrado…",
+  "Finding the sky…": "Procurando o céu…",
+  "Finding the subject…": "Procurando o assunto…",
+  "Selecting the object…": "Selecionando o objeto…"
 }

@@ -2086,5 +2086,12 @@
   "Overlay on · O": "Překryv zapnut · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Klepnutím nebo tažením přes fotku vyberte barvy; ⇧ přidá další (až 5), ⌥-klepnutí jednu odebere, tažením špendlíku ji přesunete",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Klepnutím na fotku vyberte její tón, nebo tažením přes oblast vyberte její tóny; ⇧ rozsah rozšíří",
-  "No colour picked": "Žádná vybraná barva"
+  "No colour picked": "Žádná vybraná barva",
+  "Finding people…": "Hledám lidi…",
+  "Finding the background…": "Hledám pozadí…",
+  "Finding the landscape…": "Hledám krajinu…",
+  "Finding the remembered object…": "Hledám zapamatovaný předmět…",
+  "Finding the sky…": "Hledám oblohu…",
+  "Finding the subject…": "Hledám objekt zájmu…",
+  "Selecting the object…": "Vybírám předmět…"
 }

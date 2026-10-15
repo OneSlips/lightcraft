@@ -2826,5 +2826,12 @@
   "Overlay on · O": "Накладання ввімк. · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Клацніть або проведіть по фото, щоб узяти кольори; ⇧ додає ще (до 5), ⌥-клацання прибирає один, перетягніть мітку, щоб перемістити її",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Клацніть по фото, щоб узяти тон, або проведіть по області, щоб узяти її тони; ⇧ розширює діапазон",
-  "No colour picked": "Колір не вибрано"
+  "No colour picked": "Колір не вибрано",
+  "Finding people…": "Шукаю людей…",
+  "Finding the background…": "Шукаю тло…",
+  "Finding the landscape…": "Шукаю краєвид…",
+  "Finding the remembered object…": "Шукаю запам’ятований об’єкт…",
+  "Finding the sky…": "Шукаю небо…",
+  "Finding the subject…": "Шукаю об’єкт зйомки…",
+  "Selecting the object…": "Виділяю об’єкт…"
 }

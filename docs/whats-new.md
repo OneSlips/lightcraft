@@ -37,6 +37,11 @@
   whole painted area (and one round its source), instead of a ring for every dab; while painting
   you see only that outline, not a white fill. Hover a spot to see its outline and both pins, and
   drag either pin to move the area or choose another source.
+- **AI masks no longer show a stand-in while they compute**: Subject, Sky, Background, People,
+  Landscape, Object, Describe and Remembered masks show no overlay until the model's result is
+  there. Instead the photo says what is being found ("Finding the subject…") with a spinner and a
+  **Cancel** button. A simpler method is used only when the AI model isn't installed, and the
+  panel says so.
 
 ## 2026-10-15
 

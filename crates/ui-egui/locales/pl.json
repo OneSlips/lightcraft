@@ -2181,5 +2181,12 @@
   "Overlay on · O": "Nakładka włączona · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Kliknij lub przeciągnij po zdjęciu, aby pobrać kolory; ⇧ dodaje kolejne (do 5), ⌥-klik usuwa jeden, przeciągnij pinezkę, aby ją przesunąć",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Kliknij zdjęcie, aby pobrać jego ton, lub przeciągnij po obszarze, aby pobrać jego tony; ⇧ poszerza zakres",
-  "No colour picked": "Nie pobrano koloru"
+  "No colour picked": "Nie pobrano koloru",
+  "Finding people…": "Szukam ludzi…",
+  "Finding the background…": "Szukam tła…",
+  "Finding the landscape…": "Szukam krajobrazu…",
+  "Finding the remembered object…": "Szukam zapamiętanego obiektu…",
+  "Finding the sky…": "Szukam nieba…",
+  "Finding the subject…": "Szukam obiektu głównego…",
+  "Selecting the object…": "Zaznaczam obiekt…"
 }

@@ -2829,5 +2829,12 @@
   "Overlay on · O": "Überlagerung an · O",
   "Click or drag over the photo to pick colours; ⇧ adds more (up to 5), ⌥-click removes one, drag a pin to move it": "Klicken oder über das Foto ziehen, um Farben aufzunehmen; ⇧ fügt weitere hinzu (bis zu 5), ⌥-Klick entfernt eine, eine Nadel ziehen verschiebt sie",
   "Click the photo to pick its tone, or drag over an area to pick its tones; ⇧ widens the range": "Ins Foto klicken, um den Ton dort aufzunehmen, oder über einen Bereich ziehen für dessen Töne; ⇧ erweitert den Bereich",
-  "No colour picked": "Keine Farbe aufgenommen"
+  "No colour picked": "Keine Farbe aufgenommen",
+  "Finding people…": "Suche Personen…",
+  "Finding the background…": "Suche den Hintergrund…",
+  "Finding the landscape…": "Suche die Landschaft…",
+  "Finding the remembered object…": "Suche das gemerkte Objekt…",
+  "Finding the sky…": "Suche den Himmel…",
+  "Finding the subject…": "Suche das Motiv…",
+  "Selecting the object…": "Wähle das Objekt aus…"
 }
