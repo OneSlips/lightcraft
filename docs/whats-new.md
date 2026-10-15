@@ -1,5 +1,11 @@
 # What's new in LightCraft
 
+## 2026-10-16
+
+### Culling: flags you can see
+- **One flag everywhere.** Picked is a solid white flag, rejected a red flag with a cross, unflagged an empty outline: the same on thumbnails, in the filmstrip, on the bottom bar, in the filters and the menus.
+- **Ratings, flags and labels under the thumbnails**, big enough to read at a glance, in the grid and the filmstrip (Settings ▸ Interface ▸ Grid; on). Rejects are no longer greyed out.
+
 ## 2026-10-15
 
 ### Settings window
