@@ -30,6 +30,8 @@ pub enum Section {
     RedEye,
     /// Repairs of the raw sensor data (a checkbox in the Detail panel).
     Sensor,
+    /// Smooth Skin (beyond Lightroom).
+    Skin,
 }
 
 impl Section {
@@ -52,6 +54,7 @@ impl Section {
             Section::PointColor => "Point Color",
             Section::RedEye => "Red Eye",
             Section::Sensor => "Sensor",
+            Section::Skin => "Smooth Skin",
         }
     }
 }
@@ -243,6 +246,10 @@ controls! {
     "grading.global.lum" => grading.global.lum, "Global Luminance", Grading, -100, 100, 0, 1, 0, Centered;
     "grading.blending" => grading.blending, "Blending", Grading, 0, 100, 50, 1, 0, Plain;
     "grading.balance" => grading.balance, "Balance", Grading, -100, 100, 0, 1, 0, Centered;
+    "skin.amount" => skin.amount, "Amount", Skin, 0, 100, 0, 1, 0, Plain;
+    "skin.texture" => skin.texture, "Texture", Skin, -100, 100, 0, 1, 0, Centered;
+    "skin.evenTone" => skin.even_tone, "Even Tone", Skin, 0, 100, 0, 1, 0, Plain;
+    "skin.redness" => skin.redness, "Redness", Skin, 0, 100, 0, 1, 0, Plain;
     "effects.texture" => effects.texture, "Texture", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.clarity" => effects.clarity, "Clarity", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.dehaze" => effects.dehaze, "Dehaze", Effects, -100, 100, 0, 1, 0, Centered;

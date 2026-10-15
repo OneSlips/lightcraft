@@ -82,6 +82,7 @@
   "Focus {:.0}": "Резкость {:.0}",
   "Folder “{}” (and its subfolders)": "Папка «{}» (и вложенные папки)",
   "Found {n} missing photo{}; {left} still missing{unsure}": "Найдено отсутствующих фото: {n}{:.0}; всё ещё отсутствует: {left}{unsure}",
+  "Healed {n} blemishes": "Исправлено дефектов кожи: {n}",
   "Healed {n} dust spot{}": "Убрано пылинок: {n}{:.0}",
   "Import cancelled · {} photo{} added": "Импорт отменён · добавлено фото: {}{:.0}",
   "Import failed: {e}": "Ошибка импорта: {e}",

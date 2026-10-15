@@ -1,0 +1,88 @@
+//! Headless tests of the Smooth Skin section and the Find Blemishes button.
+
+use std::time::Duration;
+
+use lightcraft_develop::{SkinArea, SkinSmoothing};
+use serde_json::json;
+
+use crate::headless::Headless;
+use crate::{LightcraftApp, Services};
+
+const T: Duration = Duration::from_secs(20);
+const SETTLE: Duration = Duration::from_secs(120);
+
+fn detail(name: &str) -> (Headless, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("lc-ui-retouch-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut session = lightcraft_engine::Session::with_demo();
+    // a models folder without the models: they are offered, never fetched
+    session.segmenter.models_root = Some(dir.clone());
+    let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
+    let mut h = Headless::new(app, [1400.0, 2400.0], 1.0);
+    let r = h.request("engine.execute", json!({"command": "view.detail"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    (h, dir)
+}
+
+/// The Smooth Skin section switches it on subtly, offers the models it needs, and sets the skin and the person.
+#[test]
+fn smooth_skin_section_switches_on_offers_the_models_and_sets_skin_and_person() {
+    let (mut h, dir) = detail("skin");
+    h.app.ui.right = crate::state::RightPanel::Edit;
+    h.settle(SETTLE);
+    if !h.app.widgets.iter().any(|(w, _)| w == "button:skinSmooth") {
+        let r = h.request("ui.clickWidget", json!({"id": "section:skin"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+    }
+    let id = h.app.session.active().unwrap();
+    let r = h.request("ui.clickWidget", json!({"id": "button:skinSmooth"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert_eq!(h.app.session.develop_of(id).unwrap().skin, SkinSmoothing::SUBTLE);
+    if lightcraft_engine::segment::Segmenter::AVAILABLE {
+        assert!(matches!(&h.app.ui.dialog, Some(crate::state::Dialog::AiModel { .. })), "the missing model is offered: {:?}", h.app.ui.dialog);
+        h.app.ui.dialog = None;
+        h.settle(SETTLE);
+    }
+    for (widget, area) in [("button:skinArea-body", SkinArea::Body), ("button:skinArea-both", SkinArea::Both)] {
+        let r = h.request("ui.clickWidget", json!({"id": widget}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.app.ui.dialog = None;
+        h.settle(SETTLE);
+        assert_eq!(h.app.session.develop_of(id).unwrap().skin.area, area);
+    }
+    let r = h.request("ui.clickWidget", json!({"id": "button:skinPerson-2"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.app.ui.dialog = None;
+    h.settle(SETTLE);
+    assert_eq!(h.app.session.develop_of(id).unwrap().skin.person, 2);
+    let r = h.request("ui.clickWidget", json!({"id": "button:skinOff"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(!h.app.session.develop_of(id).unwrap().skin.active());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Find Blemishes in the Remove panel offers the models it needs; Include body skin is remembered.
+#[test]
+fn find_blemishes_offers_the_models_and_remembers_include_body_skin() {
+    let (mut h, dir) = detail("blemish");
+    h.app.ui.right = crate::state::RightPanel::Remove;
+    h.settle(SETTLE);
+    let r = h.request("ui.clickWidget", json!({"id": "check:blemishBody"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(h.app.ui.blemish_body);
+    let spots = h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().spots.len();
+    let r = h.request("ui.clickWidget", json!({"id": "button:findBlemishes"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    if lightcraft_engine::segment::Segmenter::AVAILABLE {
+        assert!(matches!(&h.app.ui.dialog, Some(crate::state::Dialog::AiModel { .. })), "{:?}", h.app.ui.dialog);
+    }
+    assert_eq!(h.app.session.develop_of(h.app.session.active().unwrap()).unwrap().spots.len(), spots, "nothing added without the models");
+    let _ = std::fs::remove_dir_all(&dir);
+}

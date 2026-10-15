@@ -7,8 +7,8 @@
 //! Stage order (see `docs/pipeline.md`):
 //! 1. geometry — user orientation, lens corrections (distortion, CA, vignetting), perspective, crop +
 //!    straighten, flips; one resample at output resolution; then defringe
-//! 2. scene-linear — white balance, exposure, dehaze, local tone (highlights/shadows), texture,
-//!    clarity, local adjustments (masks)
+//! 2. scene-linear — white balance, spot removal, noise reduction, Smooth Skin ([`skin`]), then
+//!    exposure, dehaze, local tone (highlights/shadows), texture, clarity, local adjustments (masks)
 //! 3. tone map — contrast / whites / blacks filmic curve on luminance, highlight desaturation
 //! 4. colour — vibrance, saturation, colour mixer, colour grading, B&W (OkLCh)
 //! 5. display — gamut map to the output space (sRGB unless [`RenderRequest::space`] says otherwise), encode, tone curves (parametric + point), vignette, grain
@@ -39,6 +39,7 @@ pub mod optics;
 pub mod output;
 pub mod profiles;
 pub mod redeye;
+pub mod skin;
 pub mod spots;
 pub mod tone;
 pub mod transform;
@@ -321,6 +322,9 @@ impl StageCache {
             if let Some((_, l)) = &e.lin {
                 add(Arc::as_ptr(l) as usize, size(l));
             }
+            if let Some((_, l)) = &e.nr {
+                add(Arc::as_ptr(l) as usize, size(l));
+            }
             let pl = &e.planes;
             let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)).chain(pl.dark.iter().map(|x| &x.1)) {
@@ -363,6 +367,9 @@ struct CacheEntry {
     geo: u64,
     sampled: Arc<Rgb32f>,
     lin: Option<(u64, Arc<Rgb32f>)>,
+    /// The denoised image before Smooth Skin (the same buffer as `lin` when Smooth Skin is off): a
+    /// Smooth Skin drag redoes only Smooth Skin.
+    nr: Option<(u64, Arc<Rgb32f>)>,
     planes: local::Planes,
 }
 
@@ -385,8 +392,11 @@ pub struct Plan<'a> {
     pub src_long: usize,
     /// Key of the resampled source (together with the source buffer's identity).
     pub geo: u64,
-    /// Key of the white-balanced, retouched, denoised image (and of the planes computed from it).
+    /// Key of the white-balanced, retouched, denoised, skin-smoothed image (and of the planes
+    /// computed from it).
     pub lin_key: u64,
+    /// [`Self::lin_key`] before Smooth Skin (equal to it when Smooth Skin is off).
+    pub nr_key: u64,
     /// [`Self::lin_key`] without the noise-reduction settings: draft renders reuse the smooth
     /// planes of an image that differs from this one only in its noise reduction.
     pub pre_nr_key: u64,
@@ -438,6 +448,8 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
             }
             // (spots grow the rendered window; only 8-bit renders are cut back to the request)
             let work = if req.depth == OutputDepth::U8 { spots::window_for_reads(s, &frame, full_w, full_h, px_per_long, win) } else { win };
+            // and so does Smooth Skin, which reads the skin around what it changes
+            let work = if req.depth == OutputDepth::U8 { grow_window(work, skin::reach(s, px_per_long), full_w, full_h) } else { work };
             if work != win {
                 keep = Some(PixelWindow { x: win.x - work.x, y: win.y - work.y, ..win });
             }
@@ -461,8 +473,28 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         local_tone::enabled(info, s),
         src_long,
     ));
-    let lin_key = hash_of((pre_nr_key, [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits)));
-    Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, pre_nr_key, eyes, fixed_air, keep, mattes: info.mattes.clone() }
+    let nr_key = hash_of((pre_nr_key, [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits)));
+    let lin_key = match skin::key(s) {
+        Some(k) => hash_of((nr_key, k)),
+        None => nr_key,
+    };
+    Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, nr_key, pre_nr_key, eyes, fixed_air, keep, mattes: info.mattes.clone() }
+}
+
+/// `win` grown by `reach` pixels on every side, inside the `full_w × full_h` output.
+fn grow_window(win: PixelWindow, reach: f64, full_w: usize, full_h: usize) -> PixelWindow {
+    if !(reach.is_finite() && reach >= 1.0) {
+        return win;
+    }
+    let r = reach.min((full_w.max(full_h)) as f64) as usize;
+    let (x0, y0) = (win.x.saturating_sub(r), win.y.saturating_sub(r));
+    let (x1, y1) = ((win.x + win.w).saturating_add(r).min(full_w), (win.y + win.h).saturating_add(r).min(full_h));
+    PixelWindow { x: x0, y: y0, w: x1.saturating_sub(x0).max(1), h: y1.saturating_sub(y0).max(1) }
+}
+
+/// Whether Smooth Skin changes this render (it runs on the CPU, after noise reduction).
+pub fn skin_needs_cpu(s: &DevelopSettings) -> bool {
+    skin::analysis(s).is_some()
 }
 
 /// Whether the scene-linear stage needs work only the CPU does (defringe, spot removal).
@@ -561,7 +593,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
         Src::Shared(a) => a,
     };
     let plan = plan(src_img, info, s, req);
-    let Plan { ref frame, w, h, px_per_long, src_long, geo, lin_key, .. } = plan;
+    let Plan { ref frame, w, h, px_per_long, src_long, geo, lin_key, nr_key, .. } = plan;
     let s = &*plan.settings;
 
     let shared = match (&src, cache) {
@@ -575,17 +607,30 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
     };
     lap("sample", &mut t);
 
-    let lin = match cached.as_ref().and_then(|e| e.lin.clone()).filter(|(k, _)| *k == lin_key) {
-        Some((_, img)) => img,
+    let cached_nr = cached.as_ref().and_then(|e| e.nr.clone()).filter(|(k, _)| *k == nr_key);
+    let (lin, nr) = match cached.as_ref().and_then(|e| e.lin.clone()).filter(|(k, _)| *k == lin_key) {
+        Some((_, img)) => (img, cached_nr.map(|(_, n)| n)),
         None => {
-            // Without a cache the resampled buffer is ours: work on it in place.
-            let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
-            lin_cpu(&mut img, info, &plan);
-            local::denoise(&mut img, s, src_long, frame.output_long(w, h));
-            Arc::new(img)
+            let nr = match cached_nr {
+                Some((_, img)) => img,
+                None => {
+                    // Without a cache the resampled buffer is ours: work on it in place.
+                    let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
+                    lin_cpu(&mut img, info, &plan);
+                    local::denoise(&mut img, s, src_long, frame.output_long(w, h));
+                    Arc::new(img)
+                }
+            };
+            if lin_key == nr_key {
+                (nr.clone(), Some(nr))
+            } else {
+                let mut img = (*nr).clone();
+                timed("smooth skin", || skin::apply(&mut img, s, frame, px_per_long));
+                (Arc::new(img), Some(nr))
+            }
         }
     };
-    lap("wb/spots/nr", &mut t);
+    lap("wb/spots/nr/skin", &mut t);
     let mut planes = match cached.map(|e| e.planes) {
         Some(p) if p.key == lin_key => p,
         // A draft while noise reduction changes (a slider drag): the wide, edge-aware planes of the
@@ -601,7 +646,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
     }
     lap("prepare", &mut t);
     if let Some((a, c)) = shared {
-        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), planes });
+        c.put(CacheEntry { src: a.clone(), geo, sampled, lin: Some((lin_key, lin)), nr: nr.map(|n| (nr_key, n)), planes });
     }
     if req.depth != OutputDepth::U8 {
         let deep = finish::finish_deep(&prep, s, frame, info, req.space, req.depth, req.proof);
@@ -735,6 +780,8 @@ mod tests_geometry;
 mod tests_hdr;
 #[cfg(test)]
 mod tests_local;
+#[cfg(test)]
+mod tests_skin;
 #[cfg(test)]
 mod tests_tone;
 #[cfg(test)]

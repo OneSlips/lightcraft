@@ -463,6 +463,10 @@ impl Session {
         // last-resort guard: a panic in a command is that command's error, not a crash
         let r = guard::catch(&format!("`{id}`"), || f(self)).unwrap_or_else(|e| Err(EngineError::Other(e)));
         self.depth -= 1;
+        // photos whose Smooth Skin now wants the skin found get it (stored with this command)
+        if self.depth == 0 && r.is_ok() && (self.pending_log.len() > log_start || self.interaction.is_some()) {
+            self.skin_follow_up(log_start);
+        }
         if self.depth == 0 && was_active.is_some() && self.active() != was_active {
             self.previous_active = was_active;
             if let Some(left) = was_active {
@@ -1124,6 +1128,8 @@ mod tests_prefs;
 mod tests_presets_scale;
 #[cfg(test)]
 mod tests_process;
+#[cfg(test)]
+mod tests_retouch;
 #[cfg(test)]
 mod tests_segment;
 #[cfg(test)]

@@ -1141,38 +1141,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Photo > Detect Faces without the detector offers the download: the terms first, nothing fetched before they are
-    /// accepted, and the model's row in Settings has its Download button.
+    /// Photo > Detect Faces without the face model offers its download (the AI models' dialog: size and licence first,
+    /// nothing fetched before OK), and Settings > Faces has a Download button for it.
     #[test]
-    fn detect_faces_without_the_detector_offers_the_download_and_fetches_nothing_before_acceptance() {
+    fn detect_faces_without_the_face_model_offers_its_download_and_fetches_nothing() {
         use crate::state::Dialog;
         let mut h = demo([1400.0, 900.0]);
         let dir = std::env::temp_dir().join(format!("lc-ui-detector-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         h.app.session.face_models_dir = Some(dir.join("models"));
+        h.app.session.segmenter.models_root = Some(dir.join("models"));
 
         let r = h.app.run("faces.detect", json!({}));
-        assert!(r.is_err(), "no detector yet");
+        assert!(r.is_err(), "no face model yet");
+        if !lightcraft_engine::segment::Segmenter::AVAILABLE {
+            return;
+        }
         let Some(dlg) = h.app.ui.dialog.clone() else { panic!("the download was not offered") };
-        let Dialog::FaceModel { info, accepted, .. } = &dlg else { panic!("{dlg:?}") };
-        assert!(!accepted);
-        assert_eq!((info["download"].as_str(), info["host"].as_str()), (Some("yunet-2023mar"), Some("github.com")));
-        assert_eq!(info["model"]["licence"]["name"], "MIT");
-        // OK without accepting the terms starts nothing
-        assert!(crate::panels::dialogs::confirm_dialog(&mut h.app, &dlg).is_err());
-        assert!(h.app.session.face_downloads.snapshot().is_empty());
-        assert!(!dir.join("models").join(".downloads").exists());
-        assert!(h.app.caches.faces_dl_watch.is_empty());
+        let Dialog::AiModel { model, .. } = &dlg else { panic!("{dlg:?}") };
+        assert_eq!(model, "face");
+        assert!(!h.app.session.segmenter.model_download_status("face").running, "nothing is fetched by offering it");
+        assert!(!dir.join("models").join("mediapipe-face-landmarker").exists());
 
-        // Settings > Faces shows the detector with a Download button
+        // Settings > Faces shows the face model with a Download button
         h.app.ui.dialog = Some(Dialog::Settings { tab: "faces".into() });
         h.step();
         // (the first request switches the widget list on, the next frame fills it)
         h.request("ui.widgets", json!({}), Duration::from_secs(10));
         h.step();
         let w = h.request("ui.widgets", json!({"filter": "faces:"}), Duration::from_secs(10));
-        assert!(w.to_string().contains("faces:download:yunet-2023mar"), "{w}");
+        assert!(w.to_string().contains("faces:downloadFaceModel"), "{w}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

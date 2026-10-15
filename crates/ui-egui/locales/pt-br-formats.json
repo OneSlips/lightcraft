@@ -61,6 +61,7 @@
   "Exported {} preset{}": "{} predefinição(ões) exportada(s){:.0}",
   "Exporting {} of {total}": "Exportando {} de {total}",
   "Filter bar — {active} active filter{}": "Barra de filtros — {active} filtro{0} ativo{0}",
+  "Healed {n} blemishes": "{n} imperfeições corrigidas",
   "Healed {n} dust spot{}": "{n} mancha{0} de poeira recuperada{0}",
   "Import cancelled · {} photo{} added": "Importação cancelada · {0} foto{1} adicionada{1}",
   "Imported {n} point curve preset{}": "{n} predefinição(ões) de curva de pontos importada(s){:.0}",

@@ -609,8 +609,8 @@ impl LightcraftApp {
             Err(e) => {
                 log::warn!("{id}: {e}");
                 self.ui.status = e.message.clone();
-                // no detector yet: offer it (its terms first) instead of only saying so
-                if id == "faces.detect" && e.kind == ErrorKind::ModelMissing(AiModel::FaceDetector) {
+                // no face model yet: offer it (its terms first) instead of only saying so
+                if id == "faces.detect" && lightcraft_engine::segment::missing_model_in(&e.message).is_some() {
                     panels::faces::offer_detector(self);
                 }
             }
@@ -2009,6 +2009,8 @@ mod cache_tests {
 
 #[cfg(test)]
 mod tests_model_setup;
+#[cfg(test)]
+mod tests_retouch;
 
 #[cfg(test)]
 mod tests_docking_acceptance;

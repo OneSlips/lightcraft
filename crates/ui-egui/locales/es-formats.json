@@ -79,6 +79,7 @@
   "Focus {:.0}": "Enfoque {:.0}",
   "Folder “{}” (and its subfolders)": "Carpeta “{}” (y sus subcarpetas)",
   "Found {n} missing photo{}; {left} still missing{unsure}": "Fotos que faltaban encontradas: {n}{:.0}; siguen faltando: {left}{unsure}",
+  "Healed {n} blemishes": "{n} imperfecciones corregidas",
   "Healed {n} dust spot{}": "{n} mancha{0} de polvo corregida{0}",
   "Import cancelled · {} photo{} added": "Importación cancelada · {0} foto{1} añadida{1}",
   "Import failed: {e}": "Error de importación: {e}",

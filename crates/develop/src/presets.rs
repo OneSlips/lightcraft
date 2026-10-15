@@ -38,10 +38,13 @@ pub enum SettingsGroup {
     RedEye,
     LensBlur,
     Calibration,
+    /// Smooth Skin's sliders and which skin it works on (never the skin found on the photo: each
+    /// photo's own is found for it).
+    SmoothSkin,
 }
 
 impl SettingsGroup {
-    pub const ALL: [SettingsGroup; 20] = [
+    pub const ALL: [SettingsGroup; 21] = [
         SettingsGroup::Profile,
         SettingsGroup::Treatment,
         SettingsGroup::WhiteBalance,
@@ -62,13 +65,16 @@ impl SettingsGroup {
         SettingsGroup::RedEye,
         SettingsGroup::LensBlur,
         SettingsGroup::Calibration,
+        SettingsGroup::SmoothSkin,
     ];
 
     /// Groups included by default when copying (Lightroom excludes crop, masks and spots by default).
     pub fn default_copy() -> Vec<SettingsGroup> {
         SettingsGroup::ALL
             .into_iter()
-            .filter(|g| !matches!(g, SettingsGroup::Crop | SettingsGroup::Masks | SettingsGroup::Spots | SettingsGroup::RedEye))
+            .filter(|g| {
+                !matches!(g, SettingsGroup::Crop | SettingsGroup::Masks | SettingsGroup::Spots | SettingsGroup::RedEye | SettingsGroup::SmoothSkin)
+            })
             .collect()
     }
 
@@ -94,6 +100,7 @@ impl SettingsGroup {
             SettingsGroup::RedEye => "Red Eye",
             SettingsGroup::LensBlur => "Lens Blur",
             SettingsGroup::Calibration => "Calibration",
+            SettingsGroup::SmoothSkin => "Smooth Skin",
         }
     }
 
@@ -121,6 +128,7 @@ impl SettingsGroup {
             SettingsGroup::LensBlur => &["lens_blur"],
             // (the camera profile is the camera calibration)
             SettingsGroup::Calibration => &["calibration", "camera_profile"],
+            SettingsGroup::SmoothSkin => &["skin"],
         }
     }
 }
@@ -134,6 +142,10 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
             if let Some(v) = full.get(*k) {
                 out.insert((*k).to_string(), v.clone());
             }
+        }
+        // (not written while off: copying it off still switches it off where it is pasted)
+        if *g == SettingsGroup::SmoothSkin && !out.contains_key("skin") {
+            out.insert("skin".into(), serde_json::to_value(crate::SkinSmoothing::default()).unwrap_or(Value::Null));
         }
     }
     Value::Object(out)

@@ -8,10 +8,13 @@ LightCraft reads the face names other apps (Lightroom, digiKam…) write into yo
 
 No model weights are part of LightCraft. Each one is a file you choose to get, from **Settings ▸ Faces**:
 
-- **Face detection:** [YuNet](https://github.com/opencv/opencv_zoo/tree/main/models/face_detection_yunet) (232 KB, MIT).
-  It runs in LightCraft's own code, with no extra runtime. It was trained on the WIDER FACE dataset; an MIT licence on
-  weights does not settle that dataset's terms, so this is flagged for the maintainer. It finds faces; it does not
-  identify anyone. **Photo ▸ Detect Faces** offers the download the first time you use it.
+- **Face detection:** Google's MediaPipe **Face Landmarker** (3.8 MB, Apache-2.0: BlazeFace finds the faces, FaceMesh-V2
+  places 478 landmarks on each), the same open model the People masks, Find Blemishes and Smooth Skin use
+  ([ai-masks.md](ai-masks.md)). It runs on LightCraft's pure-Rust TFLite interpreter; its model card says it was trained on
+  consented images. It finds faces; it does not identify anyone. **Photo ▸ Detect Faces** offers the download the first
+  time you use it (as does the Masking panel). It replaced **YuNet**: YuNet's MIT weights were trained on WIDER FACE, whose
+  licence is CC BY-NC-ND, so LightCraft no longer offers it. A YuNet an older version installed is listed in Settings ▸
+  Faces as no longer used, so it can be removed; it is never run, and a detector can no longer be added by file.
 - **Face recognition models** are large (AuraFace is 261 MB), and their licences and training data deserve a decision by
   the person installing them. Everything works without one: names from XMP, the People view, the face boxes.
 - **Recognition runs in LightCraft's own pure-Rust CPU interpreter**, shared with the detector. Dense
@@ -39,13 +42,13 @@ does check is listed under "Agreement and regression coverage".
 
 ## Downloading a model
 
-**Settings ▸ Faces ▸ Download** (or Photo ▸ Detect Faces, which offers it for the detector):
+**Settings ▸ Faces ▸ Download** (recognition models; the face detector is the AI masks' face model, offered by Photo ▸
+Detect Faces, Settings ▸ Faces and the Masking panel):
 
 1. A dialog shows the model's licence, whether commercial use is allowed, what it was trained on (or that this is not
    known) and which site the file comes from. **Download stays disabled until you tick "I have read these terms and
    accept them for my own use".** Nothing is fetched before that.
-2. LightCraft downloads the file from the model's own repository (GitHub for YuNet and SFace, Hugging Face for
-   AuraFace), at an address pinned to a commit, over https, in pure Rust (the `lightcraft-fetch` crate: no `curl`, no
+2. LightCraft downloads the file from the model's own repository (GitHub for SFace, Hugging Face for AuraFace), at an address pinned to a commit, over https, in pure Rust (the `lightcraft-fetch` crate: no `curl`, no
    OpenSSL). An interrupted download resumes where it stopped.
 3. The file must match the model's recorded size and SHA-256, or it is thrown away. A file that matches is installed
    by itself. Nothing else is sent anywhere, and no token or account is involved.
@@ -112,11 +115,26 @@ server share it.
 
 | Model | Licence of the weights | Trained on | Notes |
 | --- | --- | --- | --- |
-| YuNet 2023mar (detector) | MIT | WIDER FACE | 232 KB |
+| MediaPipe Face Landmarker (detector, landmarks) | Apache-2.0 | Google's own, consented captures (model cards) | 3.8 MB; shared with AI masks |
 | AuraFace v1 | Apache-2.0 | "a commercial dataset", undisclosed | 261 MB; the best measured on sculpted busts |
-| SFace 2021dec | labelled Apache-2.0 | undocumented (the upstream repository mentions CASIA-WebFace, VGGFace2, MS1MV2) | 39 MB; two questions about commercial use are unanswered upstream |
+| SFace 2021dec | labelled Apache-2.0 | undocumented (the SFace paper trains on CASIA-WebFace, VGGFace2 and MS-Celeb-1M) | 39 MB; two questions about commercial use are unanswered upstream |
+| YuNet 2023mar (retired detector) | MIT | WIDER FACE (CC BY-NC-ND) | no longer offered or used |
 
 "Commercial use allowed" in the dialog is the weights' licence; it says nothing about the training data.
+
+**Licence tiers of the recognisers** (the tier policy of the AI mask audit: A = permissive weights and cleared data,
+B = a non-commercial term on the weights or on data that forbids commercial derivatives, C = permissive weights on
+research-only data, a maintainer decision). Recognition is identity work, outside that audit's scope, so this is a note
+for the maintainers, not a ruling:
+
+- **SFace: B (provisional; C at best).** Apache-2.0 on OpenCV Zoo's files, but the training data is not stated for these
+  weights, and the SFace paper trains on CASIA-WebFace (released for research only), VGGFace2 and MS-Celeb-1M (withdrawn by
+  Microsoft; research only). Offered as "try it yourself, do not redistribute", never bundled.
+- **AuraFace v1: A on its stated terms, C on evidence.** Apache-2.0, made by fal.ai for commercial use, trained on "a
+  commercial dataset" that is not named, so the data cannot be checked.
+
+Neither is bundled; both stay opt-in downloads behind their terms. Whether LightCraft should keep offering SFace is a
+decision for the maintainers.
 
 ## How fast are the models
 
@@ -189,14 +207,15 @@ a ResNet-100 (so it is not the accuracy choice its size suggests). InsightFace's
 
 ## Finding faces yourself
 
-**Photo ▸ Detect Faces** (`faces.detect`) runs the YuNet detector on the selected photos and adds what it finds as
+**Photo ▸ Detect Faces** (`faces.detect`) runs the MediaPipe face model on the selected photos and adds what it finds as
 unnamed face boxes, in one undo step. A new run replaces earlier detections; boxes that came from XMP, or that you drew or
 named, are never touched (and a face that already has one is not boxed a second time), and no sidecar is written. It looks at the photo upright and uncropped with default settings,
-so your edits and crops do not matter. `apply: false` only reports. It finds faces of about 10 pixels and up in a
-640-pixel version of the photo (so very small faces in a large group photo can be missed; looking at tiles is planned).
-The detector's output matches OpenCV's own YuNet on a 45-photo public-domain test set (97 of 99 faces found by both,
-mean box overlap 0.97), including marble busts and paintings, with no false boxes on the landscape and architecture
-photos in the set.
+so your edits and crops do not matter. `apply: false` only reports. BlazeFace (short range) finds faces of at least about a fifth of
+what it looks at, so it looks at the whole photo, at overlapping windows of 45 % of its short edge, and (`fine`, the
+default) at overlapping half-size tiles: faces of about 60 pixels and up in the 1280-pixel version of the photo. Very small
+faces in a big group photo can still be missed (YuNet found smaller ones). Each face's five alignment points (iris centres,
+nose tip, mouth corners) come from its FaceMesh landmarks; a face FaceMesh doesn't accept (a strong profile) uses
+BlazeFace's keypoints. Faces below a score of 0.65 are ignored (`score` raises it).
 
 ## Suggesting who is in a photo
 
@@ -212,8 +231,8 @@ suggest names for the ones you have not:
   the match is strong *and* clearly ahead of the next person: it is better to leave a face unnamed than to name it wrongly.
   Naming a face also makes it one of the faces the others are compared with, so the suggestions improve as you go.
 - Faces come from the names other apps wrote into your photos (read from XMP), from Photo ▸ Detect Faces, or both. A face is
-  aligned using the detector's five landmarks (eyes, nose, mouth corners) when it finds the same face, and cut out by its box
-  otherwise.
+  aligned using the face model's five points (eyes, nose, mouth corners) when it finds the same face, and cut out by its box
+  otherwise. (Embeddings made earlier from YuNet's landmarks are kept; the two alignments differ slightly.)
 - Everything stays on your computer. The embeddings (one short list of numbers per face) are cached in the library folder in
   `face-embeddings-<model id>.bin`, one file per model, so switching models back and forth does not start over; they are
   not part of the catalog and not written to XMP.
@@ -224,7 +243,8 @@ Turning recognition on starts a scan of the whole library, once, in the backgrou
 
 - A photo that already has face boxes (from XMP, or drawn, or named) has its faces embedded.
 - A photo with **no** face boxes at all is searched with the detector, and what it is sure of becomes that photo's unnamed
-  face boxes (marked "Detected by YuNet", so a manual Detect Faces replaces them), embedded in the same pass. Photos are
+  face boxes (marked "Detected by MediaPipe Face Landmarker", so a manual Detect Faces replaces them; boxes an older version marked
+  "Detected by YuNet" are replaced too, and photos YuNet searched are searched again once), embedded in the same pass. Photos are
   searched once: `face-scanned.bin` in the library folder remembers which, so a photo whose boxes you remove is not boxed
   again. These boxes are LightCraft's own bookkeeping: not an undo step, never written to a sidecar.
 - Photos you have named faces in go first, then the rest. Raw files are read through the camera's embedded preview (much
@@ -327,13 +347,18 @@ reuses the pictures of its step instead of rendering every face again.
 
 All of this is reachable from the control channel, the CLI and MCP: `faces.models.list`, `faces.models.inspect {path}`,
 `faces.models.install {path, acknowledged: true, activate?}`, `faces.models.download {id, acknowledged: true}` (then `faces.models.downloads`, which also installs what has arrived, and `faces.models.downloadCancel {id}`), `faces.models.remove {id}`, `faces.models.select {id}`,
-`faces.enable {enabled?}`, `faces.detect {ids?, apply?}`, `faces.index {budgetMs?, ids?}`, `faces.pump` (what the app calls every frame), `faces.suggest {ids?, threshold?, margin?}`, `faces.person {name, more?}` (a person's faces and the unnamed faces that look like them), `faces.unnamed {limit?}` (every unnamed face, look-alikes together, with suggested names), `faces.setName {id?, index, name}`, `faces.nameFaces {faces: [{photo, index}], name}` (name many at once, one undo step) and `faces.evaluate`. `acknowledged` must be `true`: the caller has shown the user the terms and the user agreed. Installing makes the model the one in use and switches recognition on unless `activate` is `false`.
+`faces.enable {enabled?}`, `faces.detect {ids?, apply?, score?, maxFaces?, fine?}`, `faces.index {budgetMs?, ids?}`, `faces.pump` (what the app calls every frame), `faces.suggest {ids?, threshold?, margin?}`, `faces.person {name, more?}` (a person's faces and the unnamed faces that look like them), `faces.unnamed {limit?}` (every unnamed face, look-alikes together, with suggested names), `faces.setName {id?, index, name}`, `faces.nameFaces {faces: [{photo, index}], name}` (name many at once, one undo step) and `faces.evaluate`. `acknowledged` must be `true`: the caller has shown the user the terms and the user agreed. Installing makes the model the one in use and switches recognition on unless `activate` is `false`.
 
 ## Find Blemishes
 
-Photo ▸ Find Blemishes (`spot.findBlemishes`) uses the installed detector's boxes and landmarks to look for small,
-round, darker-or-redder spots on each face's skin and adds a heal spot on each, the way Find Dust Spots does for
-sensor dust. Eyes, brows, nostrils and the mouth are cut out around the landmarks; faces narrower than 160 px in
-the 1600 px analysis image get nothing, as do faces with more than 12 candidates (stubble, freckles and pores are
-texture, not blemishes); at most six per face. It needs no model beyond the detector and never changes anything
-without a spot you can see and delete (`crates/pipeline/src/blemish.rs`).
+**Remove panel ▸ Find Blemishes** (`spot.findBlemishes`) looks for small, round, darker-or-redder spots on the faces'
+skin and adds a heal spot on each, the way Find Dust Spots does for sensor dust. It works from the open MediaPipe models
+(people and face, see [ai-masks.md](ai-masks.md)): only the **skin** Selfie Multiclass finds is searched (never hair, the
+background or a hand over the face), inside each face's outline, with the eyes (and lash line), brows, lips and lower nose
+cut out by polygons around FaceMesh's landmarks. Faces without landmarks (strong profiles) and faces narrower than
+160 px in the 1600 px analysis image get nothing; a face with more than 14 candidates gets none (stubble, freckles and
+pores are texture, not blemishes); at most six per face (`maxPerFace`). **Include body skin** (`body: true`) also searches
+shoulders, arms and back, each person's at the scale of their face, at most six each, none on a body with more than ten
+candidates (freckles, moles). It never changes anything without a spot you can see and delete; the heal spots are applied
+before Smooth Skin, so Smooth Skin smooths the healed skin. In the app the models run in the background and a message
+says what was found (`crates/pipeline/src/blemish.rs`, `crates/engine/src/cmd/retouch.rs`).
