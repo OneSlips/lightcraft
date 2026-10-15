@@ -912,6 +912,7 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             &mut app.ui.settings.grid_badges,
         );
     });
+    check(ui, "settings.badgesUnder", &mut app.ui.settings.badges_under, "Show ratings, flags and labels under the thumbnails");
     check(ui, "settings.showFilenames", &mut app.ui.show_filenames, "Square Grid: show file names and formats");
     heading(ui, t, crate::i18n::tr("Keywords"));
     row(ui, t, crate::i18n::tr("Keywords of the selection"), |ui| {

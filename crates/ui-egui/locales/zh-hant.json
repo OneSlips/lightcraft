@@ -2622,5 +2622,6 @@
   "Select Unrated": "選取未評等",
   "Select No Label": "選取無標籤",
   "Reset Straighten": "重設拉直",
-  "No Mask": "無遮色片"
+  "No Mask": "無遮色片",
+  "Show ratings, flags and labels under the thumbnails": "在縮圖下方顯示星級、旗標和標籤"
 }

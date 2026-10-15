@@ -2821,5 +2821,6 @@
   "Select Unrated": "Unbewertete auswählen",
   "Select No Label": "Ohne Farbe auswählen",
   "Reset Straighten": "Gerade ausrichten zurücksetzen",
-  "No Mask": "Keine Maske"
+  "No Mask": "Keine Maske",
+  "Show ratings, flags and labels under the thumbnails": "Bewertungen, Markierungen und Etiketten unter den Miniaturen"
 }

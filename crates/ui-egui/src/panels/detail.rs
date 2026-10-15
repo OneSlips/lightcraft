@@ -3041,7 +3041,14 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                 p.text(pos2(cr.left() + 8.0, cr.top() + 10.0), Align2::LEFT_CENTER, film_label(name), t.font(10.0), t.text_dim);
                 p.text(pos2(cr.right() - 8.0, cr.top() + 10.0), Align2::RIGHT_CENTER, &ph.format, t.semibold(8.5), t.text_dim);
             }
-            let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0));
+            // the marks under the picture (Settings ▸ Interface), or over its bottom edge
+            let under = app.ui.settings.badges_under && app.ui.settings.film_badges;
+            let strip = if under { (cr.height() * 0.17).clamp(16.0, 26.0) } else { 0.0 };
+            let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0 + strip));
+            if under && let Some(ph) = app.session.catalog.photo(*id) {
+                let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
+                super::grid::paint_badges(p, &t, bar, ph, false);
+            }
             super::grid::request_thumb(app, *id, thumb_px, 8);
             if let Some(tex) = app.renderer.thumb(*id) {
                 let [tw, th] = tex.size;
@@ -3054,6 +3061,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     p.rect_stroke(fr, 0.0, Stroke::new(1.5, Color32::from_gray(170)), StrokeKind::Outside);
                 }
                 if app.ui.settings.film_badges
+                    && !under
                     && let Some(ph) = app.session.catalog.photo(*id)
                 {
                     film_badges(p, &t, fr, ph);
@@ -3099,28 +3107,15 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
 
 /// Rating, flag and edited badges along a filmstrip thumbnail's bottom edge (Settings → Interface).
 fn film_badges(p: &egui::Painter, t: &Tokens, fr: Rect, ph: &lightcraft_catalog::Photo) {
-    use crate::icons::{Icon, paint};
     use lightcraft_catalog::Flag;
-    let edited = ph.is_edited();
-    if ph.rating == 0 && ph.flag == Flag::None && !edited {
+    if ph.rating == 0 && ph.flag == Flag::None && !ph.is_edited() && ph.label.is_none() {
         return;
     }
-    let bar = Rect::from_min_max(pos2(fr.left(), fr.bottom() - 15.0), fr.right_bottom());
-    p.rect_filled(bar, 0.0, Color32::from_black_alpha(130));
-    let y = bar.center().y;
-    let mut x = bar.left() + 3.0;
-    for i in 0..ph.rating {
-        paint(p, Rect::from_min_size(pos2(x + i as f32 * 9.0, y - 4.0), vec2(8.0, 8.0)), Icon::StarFilled, t.star);
-    }
-    x += ph.rating as f32 * 9.0 + 2.0;
-    match ph.flag {
-        Flag::Pick => paint(p, Rect::from_min_size(pos2(x, y - 5.0), vec2(10.0, 10.0)), Icon::FlagPick, t.pick),
-        Flag::Reject => paint(p, Rect::from_min_size(pos2(x, y - 5.0), vec2(10.0, 10.0)), Icon::FlagReject, t.reject),
-        Flag::None => {}
-    }
-    if edited {
-        paint(p, Rect::from_min_size(pos2(bar.right() - 13.0, y - 5.0), vec2(10.0, 10.0)), Icon::Sliders, t.text_label);
-    }
+    // as big as the strip under the picture would draw them (at least 18 points: readable at a glance)
+    let h = (fr.height() * 0.2).clamp(18.0, 24.0).min(fr.height());
+    let bar = Rect::from_min_max(pos2(fr.left(), fr.bottom() - h), fr.right_bottom());
+    p.rect_filled(bar, 0.0, Color32::from_black_alpha(140));
+    super::grid::paint_badges(p, t, bar.shrink2(vec2(2.0, 0.0)), ph, true);
 }
 
 #[cfg(test)]

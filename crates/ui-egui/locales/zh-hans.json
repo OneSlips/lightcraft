@@ -2659,5 +2659,6 @@
   "Select Unrated": "选择未评级",
   "Select No Label": "选择无标签",
   "Reset Straighten": "重置拉直",
-  "No Mask": "无蒙版"
+  "No Mask": "无蒙版",
+  "Show ratings, flags and labels under the thumbnails": "在缩略图下方显示星级、旗标和标签"
 }

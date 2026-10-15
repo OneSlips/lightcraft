@@ -2660,5 +2660,6 @@
   "Select Unrated": "Selecionar sem classificação",
   "Select No Label": "Selecionar sem rótulo",
   "Reset Straighten": "Redefinir endireitamento",
-  "No Mask": "Sem máscara"
+  "No Mask": "Sem máscara",
+  "Show ratings, flags and labels under the thumbnails": "Mostrar classificações, sinalizadores e rótulos abaixo das miniaturas"
 }

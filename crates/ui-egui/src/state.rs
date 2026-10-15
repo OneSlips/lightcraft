@@ -369,6 +369,9 @@ pub struct AppSettings {
     pub film_badges: bool,
     /// Grid: when to show the rating / flag / edited badges.
     pub grid_badges: GridBadges,
+    /// Grid and filmstrip: the ratings, flags and labels in a strip under each thumbnail (where
+    /// they cover nothing) rather than over the picture's bottom edge.
+    pub badges_under: bool,
     /// Shortcuts the user changed (Help ▸ Keyboard Shortcuts): command id → shortcut, `""` = none.
     pub keymap: crate::shortcuts::Keymap,
     /// Auto (follow the system), Dark or Light.
@@ -418,6 +421,7 @@ impl Default for AppSettings {
             film_names: true,
             film_badges: true,
             grid_badges: GridBadges::Auto,
+            badges_under: true,
             keymap: Default::default(),
             appearance_mode: AppearanceMode::Dark,
             dark_theme: DarkTheme::Charcoal,

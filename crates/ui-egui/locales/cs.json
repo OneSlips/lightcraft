@@ -2078,5 +2078,6 @@
   "Select Unrated": "Vybrat bez hodnocení",
   "Select No Label": "Vybrat bez štítku",
   "Reset Straighten": "Obnovit narovnání",
-  "No Mask": "Žádná maska"
+  "No Mask": "Žádná maska",
+  "Show ratings, flags and labels under the thumbnails": "Hodnocení, příznaky a štítky pod miniaturami"
 }

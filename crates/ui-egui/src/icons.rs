@@ -36,8 +36,12 @@ pub enum Icon {
     Star,
     StarFilled,
     Circle,
+    /// Picked: a solid flag.
     FlagPick,
+    /// Rejected: a solid flag with a cross.
     FlagReject,
+    /// Unflagged: a flag's outline.
+    FlagNone,
     Gear,
     Filmstrip,
     BeforeAfter,
@@ -155,6 +159,21 @@ impl Pen<'_> {
             })
             .collect();
         self.line(&v);
+    }
+}
+
+/// The flag's pole and notched banner, the banner filled (`solid`) or outlined.
+fn flag_shape(pen: &Pen, color: Color32, solid: bool) {
+    let pole = Stroke::new((1.9 * pen.k).max(1.2), color);
+    pen.p.line_segment([pen.pt(4.5, 18.0), pen.pt(4.5, 2.2)], pole);
+    let (a, b, n, c, d) = ((4.5, 2.5), (16.5, 2.5), (13.2, 6.4), (16.5, 10.3), (4.5, 10.3));
+    if solid {
+        // concave: three triangles
+        pen.fill(&[a, b, n], color);
+        pen.fill(&[a, n, d], color);
+        pen.fill(&[d, n, c], color);
+    } else {
+        pen.closed(&[a, b, n, c, d]);
     }
 }
 
@@ -383,15 +402,16 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, color: Color32, turn: Option<
             }
         }
         Circle => pen.circle(10.0, 10.0, 6.0),
-        FlagPick => {
-            pen.line(&[(5.0, 17.0), (5.0, 3.5)]);
-            pen.closed(&[(5.0, 3.5), (15.0, 3.5), (12.5, 7.0), (15.0, 10.5), (5.0, 10.5)]);
-        }
+        // One flag for every place a flag shows (thumbnails, filmstrip, bar, menus, filters): a pole
+        // and a notched banner. Picked: the banner solid. Unflagged: the banner's outline. Rejected:
+        // solid, with a bold cross below the banner, so it differs in shape, not only in colour.
+        FlagPick => flag_shape(&pen, color, true),
+        FlagNone => flag_shape(&pen, color, false),
         FlagReject => {
-            pen.line(&[(5.0, 17.0), (5.0, 3.5)]);
-            pen.closed(&[(5.0, 3.5), (15.0, 3.5), (12.5, 7.0), (15.0, 10.5), (5.0, 10.5)]);
-            pen.line(&[(8.0, 5.0), (12.0, 9.0)]);
-            pen.line(&[(12.0, 5.0), (8.0, 9.0)]);
+            flag_shape(&pen, color, true);
+            let bold = Stroke::new((2.1 * pen.k).max(1.3), color);
+            pen.p.line_segment([pen.pt(10.8, 12.3), pen.pt(16.3, 17.8)], bold);
+            pen.p.line_segment([pen.pt(16.3, 12.3), pen.pt(10.8, 17.8)], bold);
         }
         Gear => {
             pen.circle(10.0, 10.0, 2.5);

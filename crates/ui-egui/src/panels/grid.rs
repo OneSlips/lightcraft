@@ -70,7 +70,7 @@ type RunsKey = (u64, Option<SortKey>, GroupBy);
 pub struct GridCache {
     runs: Option<(RunsKey, Arc<Vec<DateRun>>)>,
     /// Layout by (runs key, width, thumbnail size, square).
-    layout: Option<((RunsKey, u32, u32, bool), Arc<GridLayout>)>,
+    layout: Option<((RunsKey, u32, u32, u32, bool), Arc<GridLayout>)>,
     /// Stack index by generation.
     stacks: Option<(u64, Arc<StackIndex>)>,
     /// How many of the photos are browsed (Local) ones, by generation.
@@ -214,14 +214,15 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let runs = app.caches.grid.runs(stats, &app.session.catalog, &ids, runs_key);
     // the layout only changes with the photos (and their shapes), the grouping, the width and
     // the thumbnail size
-    let lay_key = (runs_key, avail_w.to_bits(), target.to_bits(), square);
+    let footer = if app.ui.settings.badges_under { BADGE_STRIP } else { 0.0 };
+    let lay_key = (runs_key, avail_w.to_bits(), target.to_bits(), footer.to_bits(), square);
     let lay = match &app.caches.grid.layout {
         Some((k, l)) if *k == lay_key => l.clone(),
         _ => {
             stats.layout_builds += 1;
             let aspects = if square { vec![1.0; ids.len()] } else { aspects(&app.session.catalog, &ids) };
             let spans: Vec<(usize, usize)> = runs.iter().map(|r| (r.start, r.count)).collect();
-            let l = Arc::new(layout(&aspects, &spans, avail_w, target, square));
+            let l = Arc::new(layout_with_footer(&aspects, &spans, avail_w, target, square, footer));
             app.caches.grid.layout = Some((lay_key, l.clone()));
             l
         }
@@ -434,6 +435,14 @@ pub fn resolve_group(by: GroupBy, thumb_size: f32) -> GroupBy {
 /// below its header. Justified rows fill the width exactly except a group's last row, which keeps
 /// the target height.
 pub fn layout(aspects: &[f32], groups: &[(usize, usize)], avail_w: f32, target: f32, square: bool) -> GridLayout {
+    layout_with_footer(aspects, groups, avail_w, target, square, 0.0)
+}
+
+/// [`layout`] with a `footer` strip (points) under every cell's picture: the ratings, flags and
+/// labels shown under the thumbnails rather than over them. The pictures keep their sizes; each
+/// cell grows by the footer.
+pub fn layout_with_footer(aspects: &[f32], groups: &[(usize, usize)], avail_w: f32, target: f32, square: bool, footer: f32) -> GridLayout {
+    let footer = if footer.is_finite() { footer.max(0.0) } else { 0.0 };
     let n = aspects.len();
     let whole = [(0, n)];
     let (groups, headed) = if groups.is_empty() { (&whole[..], false) } else { (groups, true) };
@@ -455,15 +464,15 @@ pub fn layout(aspects: &[f32], groups: &[(usize, usize)], avail_w: f32, target: 
             for i in start..end {
                 let k = (i - start) as f32;
                 let (c, r) = (k % cols, (k / cols).floor());
-                out.cells[i] = Rect::from_min_size(pos2(4.0 + c * (cw + gap), y + r * (cw + gap)), vec2(cw, cw));
+                out.cells[i] = Rect::from_min_size(pos2(4.0 + c * (cw + gap), y + r * (cw + footer + gap)), vec2(cw, cw + footer));
             }
             let per_row = (cols as usize).max(1);
             for (r, row_start) in (start..end).step_by(per_row).enumerate() {
-                let top = y + r as f32 * (cw + gap);
-                out.rows.push(GridRow { top, bottom: top + cw, start: row_start, end: (row_start + per_row).min(end) });
+                let top = y + r as f32 * (cw + footer + gap);
+                out.rows.push(GridRow { top, bottom: top + cw + footer, start: row_start, end: (row_start + per_row).min(end) });
             }
             let rows = ((end - start) as f32 / cols).ceil();
-            y += rows * (cw + gap);
+            y += rows * (cw + footer + gap);
         } else {
             // justified rows: accumulate aspect ratios until the row is full
             let mut i = start;
@@ -483,11 +492,11 @@ pub fn layout(aspects: &[f32], groups: &[(usize, usize)], avail_w: f32, target: 
                 let mut x = 4.0;
                 for k in i..j {
                     let w = aspects[k].max(0.05) * h;
-                    out.cells[k] = Rect::from_min_size(pos2(x, y), vec2(w, h));
+                    out.cells[k] = Rect::from_min_size(pos2(x, y), vec2(w, h + footer));
                     x += w + gap;
                 }
-                out.rows.push(GridRow { top: y, bottom: y + h, start: i, end: j });
-                y += h + gap;
+                out.rows.push(GridRow { top: y, bottom: y + h + footer, start: i, end: j });
+                y += h + footer + gap;
                 i = j;
             }
         }
@@ -625,12 +634,16 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &spoken));
     let active = state == lightcraft_engine::SelectionState::Active;
     let p = ui.painter();
+    // ratings, flags and labels under the picture (Settings ▸ Interface), not over it
+    let under = app.ui.settings.badges_under;
+    let strip = if under { BADGE_STRIP.min(r.height() * 0.4) } else { 0.0 };
+    let pic = Rect::from_min_max(r.min, pos2(r.right(), r.bottom() - strip));
     let img_rect = if square {
         let base = if selected { t.cell_selected } else { t.cell };
         p.rect_filled(r, 0.0, crate::theme::label_background(base, photo.label, selected));
-        Rect::from_min_max(r.min + vec2(10.0, 24.0), r.max - vec2(10.0, 10.0))
+        Rect::from_min_max(pic.min + vec2(10.0, 24.0), pic.max - vec2(10.0, if under { 2.0 } else { 10.0 }))
     } else {
-        r
+        pic
     };
     // thumbnail
     let size = thumb_px(img_rect.width().max(img_rect.height()), ppp);
@@ -692,34 +705,28 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         crate::state::GridBadges::Always => true,
         crate::state::GridBadges::Never => false,
     };
-    let badge_bar = Rect::from_min_max(pos2(img_rect.left(), img_rect.bottom() - 24.0), img_rect.right_bottom());
-    if !square && photo.label.is_some() {
-        // Justified photos fill the whole cell, so the label shows as a translucent tinted footer
-        // over the photo's bottom edge (opaque, it would hide 24 px of every labelled photo).
-        p.rect_filled(badge_bar, 0.0, crate::theme::label_background(t.cell, photo.label, selected).gamma_multiply(0.7));
-    }
-    if show_badges {
-        let bar = badge_bar;
-        if (resp.hovered() || selected) && (square || photo.label.is_none()) {
-            p.rect_filled(bar, 0.0, Color32::from_black_alpha(120));
+    if under {
+        // the strip under the picture: tinted by the label, always there (it covers nothing)
+        let bar = Rect::from_min_max(pos2(r.left(), pic.bottom()), r.max);
+        if !square {
+            let base = if selected { t.cell_selected } else { t.canvas };
+            p.rect_filled(bar, 0.0, crate::theme::label_background(base, photo.label, selected));
         }
-        let mut x = bar.left() + 6.0;
-        for i in 0..photo.rating {
-            paint(p, Rect::from_min_size(pos2(x + i as f32 * 13.0, bar.center().y - 6.0), vec2(12.0, 12.0)), Icon::StarFilled, t.star);
+        if show_badges || photo.label.is_some() {
+            paint_badges(p, &t, bar.shrink2(vec2(if square { 8.0 } else { 3.0 }, 0.0)), &photo, false);
         }
-        x += photo.rating as f32 * 13.0 + 4.0;
-        match photo.flag {
-            Flag::Pick => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagPick, t.pick),
-            Flag::Reject => paint(p, Rect::from_min_size(pos2(x, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::FlagReject, t.reject),
-            Flag::None => {}
+    } else {
+        let badge_bar = Rect::from_min_max(pos2(img_rect.left(), img_rect.bottom() - 26.0), img_rect.right_bottom());
+        if !square && photo.label.is_some() {
+            // Justified photos fill the whole cell, so the label shows as a translucent tinted footer
+            // over the photo's bottom edge (opaque, it would hide 26 px of every labelled photo).
+            p.rect_filled(badge_bar, 0.0, crate::theme::label_background(t.cell, photo.label, selected).gamma_multiply(0.7));
         }
-        let mut right = bar.right();
-        if photo.is_edited() {
-            paint(p, Rect::from_min_size(pos2(right - 20.0, bar.center().y - 7.0), vec2(14.0, 14.0)), Icon::Sliders, t.text_label);
-            right -= 20.0;
-        }
-        if let Some(l) = photo.label {
-            p.circle(pos2(right - 12.0, bar.center().y), 5.0, label_color(l), Stroke::new(1.0, Color32::from_black_alpha(120)));
+        if show_badges {
+            if (resp.hovered() || selected || photo.flag != Flag::None) && (square || photo.label.is_none()) {
+                p.rect_filled(badge_bar, 0.0, Color32::from_black_alpha(120));
+            }
+            paint_badges(p, &t, badge_bar.shrink2(vec2(4.0, 0.0)), &photo, true);
         }
     }
     if let Some(name) = &photo.copy_name {
@@ -751,9 +758,6 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         register(ui.ctx(), format!("badge:previewOnly:{}", id.0), br);
         ui.interact(br, egui::Id::new(("preview-only-badge", id.0)), Sense::hover())
             .on_hover_text(crate::i18n::tr_format!("Preview only — {}", crate::widgets::preview_only_explanation(why)));
-    }
-    if photo.flag == Flag::Reject {
-        p.rect_filled(img_rect, 0.0, Color32::from_black_alpha(110));
     }
     // interaction
     if let Some(k) = app.ui.keyword_painter.clone() {
@@ -791,6 +795,57 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         app.ui.dragging_photos = Some(app.session.selection.ids.iter().map(|p| p.0).collect());
     }
     resp.context_menu(|ui| context_menu(app, ui, id));
+}
+
+/// Height (points) of the strip under each thumbnail that holds its rating, flag and label when
+/// they are shown under the pictures.
+pub const BADGE_STRIP: f32 = 26.0;
+
+/// A photo's culling marks along `bar` (a thumbnail's bottom edge or the strip under it): its flag
+/// and stars from the left, its colour label and edited mark from the right, sized to the bar's
+/// height so they read at a glance. `on_photo`: drawn over the picture (white marks on a dark band)
+/// rather than on the panel.
+pub fn paint_badges(p: &egui::Painter, t: &Tokens, bar: Rect, photo: &lightcraft_catalog::Photo, on_photo: bool) {
+    let h = bar.height().clamp(10.0, 40.0);
+    let y = bar.center().y;
+    let star = (h * 0.52).round();
+    let flag = (h * 0.8).round();
+    // the pick flag is white over a picture whatever the theme (the theme's colour is for panels)
+    let pick = if on_photo { Color32::WHITE } else { t.pick };
+    let mut x = bar.left() + 2.0;
+    match photo.flag {
+        Flag::Pick => paint(p, Rect::from_min_size(pos2(x, y - flag / 2.0), vec2(flag, flag)), Icon::FlagPick, pick),
+        Flag::Reject => paint(p, Rect::from_min_size(pos2(x, y - flag / 2.0), vec2(flag, flag)), Icon::FlagReject, t.reject),
+        Flag::None => {}
+    }
+    if photo.flag != Flag::None {
+        x += flag + 4.0;
+    }
+    let room = (bar.right() - x - h * 1.6).max(0.0);
+    // every star where they fit; else one star and the number
+    if photo.rating > 0 && f32::from(photo.rating) * (star + 1.0) <= room {
+        for i in 0..photo.rating {
+            paint(p, Rect::from_min_size(pos2(x + f32::from(i) * (star + 1.0), y - star / 2.0), vec2(star, star)), Icon::StarFilled, t.star);
+        }
+    } else if photo.rating > 0 {
+        paint(p, Rect::from_min_size(pos2(x, y - star / 2.0), vec2(star, star)), Icon::StarFilled, t.star);
+        p.text(pos2(x + star + 2.0, y), Align2::LEFT_CENTER, photo.rating.to_string(), t.semibold(h * 0.46), t.star);
+    }
+    let mut right = bar.right() - 2.0;
+    if let Some(l) = photo.label {
+        let rad = (h * 0.22).max(4.0);
+        p.circle(pos2(right - rad, y), rad, label_color(l), Stroke::new(1.0, Color32::from_black_alpha(120)));
+        right -= rad * 2.0 + 5.0;
+    }
+    if photo.is_edited() {
+        let s = (h * 0.5).round();
+        paint(
+            p,
+            Rect::from_min_size(pos2(right - s, y - s / 2.0), vec2(s, s)),
+            Icon::Sliders,
+            if on_photo { Color32::from_gray(220) } else { t.text_label },
+        );
+    }
 }
 
 /// The header of a Local folder view: the path as a breadcrumb (each part opens that folder),
@@ -1379,5 +1434,39 @@ mod tests {
         assert_eq!(resolve_group(GroupBy::Auto, 90.0), GroupBy::Year);
         assert_eq!(resolve_group(GroupBy::None, 220.0), GroupBy::None);
         assert_eq!(resolve_group(GroupBy::Year, 400.0), GroupBy::Year);
+    }
+    /// The strip under the thumbnails adds the same height to every cell and keeps the pictures'
+    /// widths: the marks sit under the picture, never over it.
+    #[test]
+    fn a_footer_grows_each_cell_under_its_picture() {
+        let aspects = [1.5, 0.66, 1.0, 1.5, 1.5];
+        for square in [false, true] {
+            let plain = layout(&aspects, &[], 600.0, 150.0, square);
+            let under = layout_with_footer(&aspects, &[], 600.0, 150.0, square, BADGE_STRIP);
+            for (a, b) in plain.cells.iter().zip(&under.cells) {
+                assert!((b.width() - a.width()).abs() < 1e-3);
+                assert!((b.height() - a.height() - BADGE_STRIP).abs() < 1e-3);
+            }
+            for w in under.rows.windows(2) {
+                assert!(w[1].top >= w[0].bottom, "rows don't overlap");
+            }
+            assert_eq!(layout_with_footer(&aspects, &[], 600.0, 150.0, square, f32::NAN).cells, plain.cells);
+        }
+    }
+
+    /// One flag set everywhere: picked, rejected and unflagged differ in shape, not only colour.
+    #[test]
+    fn the_three_flags_differ_in_shape() {
+        let shapes = |icon: Icon| {
+            let ctx = egui::Context::default();
+            let mut out = ctx.run_ui(Default::default(), |ui| {
+                paint(ui.painter(), Rect::from_min_size(pos2(0.0, 0.0), vec2(20.0, 20.0)), icon, Color32::WHITE);
+            });
+            out.textures_delta.clear();
+            out.shapes.len()
+        };
+        let (pick, reject, none) = (shapes(Icon::FlagPick), shapes(Icon::FlagReject), shapes(Icon::FlagNone));
+        assert!(reject > pick, "the reject flag adds its cross");
+        assert_ne!(pick, none, "the pick flag is solid, the unflagged one an outline");
     }
 }

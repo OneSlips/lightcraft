@@ -2818,5 +2818,6 @@
   "Select Unrated": "Sélectionner les non notées",
   "Select No Label": "Sélectionner sans étiquette",
   "Reset Straighten": "Réinitialiser le redressement",
-  "No Mask": "Aucun masque"
+  "No Mask": "Aucun masque",
+  "Show ratings, flags and labels under the thumbnails": "Afficher notes, drapeaux et étiquettes sous les vignettes"
 }
