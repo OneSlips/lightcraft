@@ -162,7 +162,7 @@ fn resolve_ai(s: &mut Session, shape: &mut MaskShape, c: &str) -> Result<Later> 
             }
         }
         MaskShape::Prompt { text, .. } if background => {
-            s.segmenter.require_sam3()?;
+            require_describe_model(s)?;
             if text.trim().is_empty() {
                 return Err(ai_err("describe what to select"));
             }
@@ -244,11 +244,24 @@ fn ai_err(msg: impl Into<String>) -> crate::EngineError {
     crate::EngineError::Other(msg.into())
 }
 
-/// A segmentation call: the model is checked first, so a missing one is [`crate::EngineError::ModelMissing`]
-/// (the segmenter's own errors are text).
+/// A Describe call: the models are checked first ([`crate::segment::Segmenter::describe_model`]:
+/// SAM 3, else OWLv2 and SAM 2.1); a missing open model is an error naming it (its download is
+/// offered on it), and without a folder for the open models SAM 3's
+/// [`crate::EngineError::ModelMissing`] (the segmenter's own errors are text).
 fn segment<T>(s: &mut Session, f: impl FnOnce(&mut Session) -> std::result::Result<T, String>) -> Result<T> {
-    s.segmenter.require_sam3()?;
+    require_describe_model(s)?;
     f(s).map_err(ai_err)
+}
+
+/// The models for Describe are there (see [`segment`]).
+fn require_describe_model(s: &Session) -> Result<()> {
+    if let Err(e) = s.segmenter.describe_model() {
+        if s.segmenter.models_root.is_none() {
+            s.segmenter.require_sam3()?;
+        }
+        return Err(ai_err(e));
+    }
+    Ok(())
 }
 
 /// The model for Object clicks is there ([`crate::segment::Segmenter::object_model`]). Without a
@@ -304,7 +317,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: brush|linear|radial|sky|subject|background|people|landscape|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; people: person? (0 everyone, n the n-th from the left), parts?; landscape: class sky|water|vegetation|mountains|architecture|naturalGround|artificialGround; AI kinds: seg? a stored segmentation, no model needed), name?} — Object needs SAM 3 or SAM 2.1, Describe SAM 3; Subject/Background/Sky/People/Landscape use their AI model when installed (BiRefNet, EoMT), else a heuristic (→ {approximate, model, note}); in the app AI kinds return {pending} and the selection follows",
+            "{kind: brush|linear|radial|sky|subject|background|people|landscape|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; people: person? (0 everyone, n the n-th from the left), parts?; landscape: class sky|water|vegetation|mountains|architecture|naturalGround|artificialGround; AI kinds: seg? a stored segmentation, no model needed), name?} — Object needs SAM 3 or SAM 2.1, Describe SAM 3 or OWLv2 with SAM 2.1; Subject/Background/Sky/People/Landscape use their AI model when installed (BiRefNet, EoMT), else a heuristic (→ {approximate, model, note}); in the app AI kinds return {pending} and the selection follows",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
@@ -654,7 +667,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Refine AI Mask Detail",
             [],
             None,
-            "{id?: maskId, component?} — a zoomed-in SAM 3 pass over an Object/Describe selection (default: the mask's last one): the photo around it is analyzed again at a higher resolution, in the background; the mask updates when it's done → {started}",
+            "{id?: maskId, component?} — a zoomed-in AI pass over an Object/Describe selection (default: the mask's last one): the photo around it is analyzed again at a higher resolution, in the background; the mask updates when it's done → {started}",
             has_active,
             |s, p| {
                 let c = "mask.refineDetail";
