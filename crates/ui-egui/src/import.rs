@@ -72,6 +72,8 @@ pub struct ImportDialog {
     pub new_album: String,
     /// Preset id ("" = none).
     pub preset: String,
+    /// More presets applied after it, in order (a stack: colour, retouch, AI masks…).
+    pub presets: Vec<String>,
     /// Comma-separated keywords.
     pub keywords: String,
     /// Copy: destination folder ("" = the library's Originals/).
@@ -285,12 +287,22 @@ pub struct ImportTask {
     run: Option<ImportRun>,
     /// The import's row in the activity stack (its ✕ and `activity.cancel` set the run's cancel flag).
     guard: Option<lightcraft_engine::activity::TaskGuard>,
+    /// The Import tab's import: once the photos are in they are finished unattended
+    /// (`library.finishImport`) with these previews (`none` | `standard` | `full`).
+    pub finish: Option<String>,
+    /// The photos it added or brought back (for the finishing).
+    ids: Vec<u64>,
 }
 
 impl ImportTask {
     /// An import of `paths` (files or folders) with `library.import` params (without `paths`).
     pub fn new(paths: Vec<String>, params: Value, undo0: usize, browse: bool) -> Self {
         ImportTask { total: paths.len(), queue: paths, params, undo0, browse, ..Default::default() }
+    }
+
+    /// Reading a folder for the Import tab (not importing it).
+    pub fn browse(&self) -> bool {
+        self.browse
     }
 
     /// An Auto Import (see [`ImportTask::auto`]).
@@ -433,14 +445,14 @@ impl ImportRun {
 /// A folder scan running on a worker thread (a network share can take minutes to read; the
 /// window must keep answering meanwhile).
 pub struct ScanTask {
-    progress: std::sync::Arc<ScanProgress>,
+    pub(crate) progress: std::sync::Arc<ScanProgress>,
     rx: std::sync::mpsc::Receiver<ScanOutput>,
     /// Open the review with "copy into the library" checked (a camera / card).
     pub copy: bool,
     /// Open the review with this album chosen (an album's context menu ▸ Import…).
     pub album: Option<u64>,
     /// Browsing a folder (Local): the photos are read in place instead of opening the review.
-    browse: bool,
+    pub(crate) browse: bool,
     /// What is being scanned (the review's source).
     sources: Vec<String>,
     /// The scan's row in the activity stack (its ✕ and `activity.cancel` set `progress.cancel`).
@@ -660,52 +672,11 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
         return Err("no photos selected".into());
     }
     let undo0 = app.session.undo.len();
-    let mut album = d.album;
-    if album.is_none() && !d.new_album.trim().is_empty() {
+    let mut params = d.params()?;
+    if d.album.is_none() && !d.new_album.trim().is_empty() {
         let r = app.session.execute("album.create", &json!({"name": d.new_album.trim()})).map_err(|e| e.to_string())?;
-        album = r["id"].as_u64();
-    }
-    let mode = match (d.copy, d.move_files) {
-        (false, _) => "add",
-        (true, false) => "copy",
-        (true, true) => "move",
-    };
-    let mut params = json!({"mode": mode, "keywords": d.keywords()});
-    if !d.on_deleted.is_empty() {
-        params["onDeleted"] = json!(d.on_deleted);
-    }
-    if let Some(a) = album {
-        params["album"] = json!(a);
-    }
-    if !d.preset.is_empty() {
-        params["preset"] = json!(d.preset);
-    }
-    if !d.metadata_preset.is_empty() {
-        params["metadataPreset"] = json!(d.metadata_preset);
-    }
-    if let Some(cp) = d.camera_profile_param() {
-        params["cameraProfile"] = cp;
-    }
-    let adopt = d.adopt_param();
-    if !adopt.is_empty() {
-        params["adopt"] = json!(adopt);
-    }
-    if !d.look.is_empty() {
-        params["look"] = json!(d.look);
-    }
-    if d.copy {
-        if !d.destination.trim().is_empty() {
-            params["destination"] = json!(d.destination.trim());
-        }
-        if let Some(o) = d.organize_param()? {
-            params["organize"] = json!(o);
-        }
-        if !d.rename.trim().is_empty() {
-            params["rename"] = json!(d.rename.trim());
-            params["renameStart"] = json!(1);
-        }
-        if d.dng && !d.move_files {
-            params["dng"] = json!(true);
+        if let Some(a) = r["id"].as_u64() {
+            params["album"] = json!(a);
         }
     }
     let total = queue.len();
@@ -823,6 +794,9 @@ fn commit_batch(app: &mut LightcraftApp, task: &mut ImportTask, prepared: lightc
             if task.first.is_none() {
                 task.first = ["imported", "restored"].iter().find_map(|k| v[*k].as_array().and_then(|a| a.first()).and_then(Value::as_u64));
             }
+            if task.finish.is_some() {
+                task.ids.extend(["imported", "restored"].iter().flat_map(|k| v[*k].as_array().into_iter().flatten().filter_map(Value::as_u64)));
+            }
         }
         Err(e) => {
             log::warn!("import: {e}");
@@ -903,6 +877,13 @@ fn finish(app: &mut LightcraftApp, ctx: &egui::Context, task: ImportTask) {
     let adopted = if task.cancelled { Ok(Vec::new()) } else { import_profiles::adopt_after_import(&mut app.session, &task.params) };
     if let Err(e) = &adopted {
         log::warn!("import: adopt: {e}");
+    }
+    // the Import tab's import: get the photos ready unattended (masks, skin, previews)
+    if let Some(previews) = task.finish.clone()
+        && !task.ids.is_empty()
+    {
+        let plan = lightcraft_engine::finishing::FinishPlan { ids: task.ids.clone(), previews, started: String::new() };
+        app.session.finish_import(plan);
     }
     if task.auto {
         if !task.warnings.is_empty() {
@@ -1099,7 +1080,13 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
         ui.ctx().data_mut(|m| m.insert_temp(egui::Id::new(GRID_BOTTOM), grid.inner_rect.bottom()));
     }
     ui.add_space(4.0);
-    // options
+    options(app, ui, d);
+}
+
+/// The review's options (source, transfer, destination, album, camera profiles, look, presets,
+/// metadata, keywords): also the Import tab's settings panel.
+pub(crate) fn options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
+    let t = Tokens::get(ui.ctx());
     if !d.sources.is_empty() {
         field(ui, "Source", |ui| {
             // (whether each source is a folder is checked off the UI thread, once)
@@ -1181,18 +1168,21 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             ];
             let key = if d.organize.is_empty() { "date".to_string() } else { d.organize.clone() };
             let cur = opts.iter().find(|o| o.0 == key).map_or(opts[0].1, |o| o.1);
-            let combo = crate::widgets::combo_box("import-organize").selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
-                for (k, label) in opts {
-                    let r = ui.selectable_label(key == k, crate::i18n::tr(label));
-                    register(ui.ctx(), format!("button:importOrganize-{k}"), r.rect);
-                    if r.clicked() {
-                        d.organize = k.to_string();
-                        if k == "custom" && d.folder_template.trim().is_empty() {
-                            d.folder_template = DEFAULT_FOLDER_TEMPLATE.into();
+            let combo = crate::widgets::combo_box("import-organize").width(combo_width(ui)).truncate().selected_text(crate::i18n::tr(cur)).show_ui(
+                ui,
+                |ui| {
+                    for (k, label) in opts {
+                        let r = ui.selectable_label(key == k, crate::i18n::tr(label));
+                        register(ui.ctx(), format!("button:importOrganize-{k}"), r.rect);
+                        if r.clicked() {
+                            d.organize = k.to_string();
+                            if k == "custom" && d.folder_template.trim().is_empty() {
+                                d.folder_template = DEFAULT_FOLDER_TEMPLATE.into();
+                            }
                         }
                     }
-                }
-            });
+                },
+            );
             register(ui.ctx(), "combo:importOrganize", combo.response.rect);
         });
         if d.organize == "custom" {
@@ -1264,7 +1254,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
                 _ => "Leave them",
             };
             let mut pick = None;
-            crate::widgets::combo_box("import-on-deleted").selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
+            crate::widgets::combo_box("import-on-deleted").width(combo_width(ui)).truncate().selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
                 for (v, label) in [("restore", "Restore them"), ("fresh", "Import as new"), ("", "Leave them")] {
                     if ui.selectable_label(d.on_deleted == v, crate::i18n::tr(label)).clicked() {
                         pick = Some(v);
@@ -1294,7 +1284,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             None if !d.new_album.is_empty() => crate::i18n::tr("New album").into(),
             None => crate::i18n::tr("None").into(),
         };
-        crate::widgets::combo_box("import-album").selected_text(cur).show_ui(ui, |ui| {
+        crate::widgets::combo_box("import-album").width(combo_width(ui)).truncate().selected_text(cur).show_ui(ui, |ui| {
             if ui.selectable_label(d.album.is_none() && d.new_album.is_empty(), crate::i18n::tr("None")).clicked() {
                 d.album = None;
                 d.new_album.clear();
@@ -1319,28 +1309,11 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
     });
     camera_profile_section(app, ui, d);
     look_field(app, ui, d);
-    field(ui, "Preset", |ui| {
-        let cur = app
-            .session
-            .presets
-            .iter()
-            .find(|p| p.id == d.preset)
-            .map(|p| crate::i18n::builtin_label(&p.name, p.builtin).to_string())
-            .unwrap_or_else(|| crate::i18n::tr("None").into());
-        crate::widgets::combo_box("import-preset").selected_text(cur).height(300.0).show_ui(ui, |ui| {
-            if ui.selectable_label(d.preset.is_empty(), crate::i18n::tr("None")).clicked() {
-                d.preset.clear();
-            }
-            let selected = (!d.preset.is_empty()).then_some(d.preset.as_str());
-            if let Some(pid) = crate::panels::presets::picker_rows(ui, "import-preset", &app.session.presets, selected) {
-                d.preset = pid;
-            }
-        });
-    });
+    preset_stack(app, ui, d);
     if !app.session.metadata_presets.is_empty() {
         field(ui, "Metadata", |ui| {
             let cur = if d.metadata_preset.is_empty() { crate::i18n::tr("None").to_string() } else { d.metadata_preset.clone() };
-            crate::widgets::combo_box("import-metadata").selected_text(cur).show_ui(ui, |ui| {
+            crate::widgets::combo_box("import-metadata").width(combo_width(ui)).truncate().selected_text(cur).show_ui(ui, |ui| {
                 if ui.selectable_label(d.metadata_preset.is_empty(), crate::i18n::tr("None")).clicked() {
                     d.metadata_preset.clear();
                 }
@@ -1355,6 +1328,103 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
     field(ui, "Keywords", |ui| {
         let r = ui.add(egui::TextEdit::singleline(&mut d.keywords).hint_text(crate::i18n::tr("comma, separated")).desired_width(f32::INFINITY));
         register(ui.ctx(), "field:importKeywords", r.rect);
+    });
+}
+
+/// The presets applied on import, in order (a stack: a colour preset, then retouch, then one with
+/// AI masks…): each row moves up or down or goes, and Add preset puts one at the end.
+fn preset_stack(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
+    // (an older single preset leads the stack)
+    if !d.preset.is_empty() {
+        d.presets.insert(0, std::mem::take(&mut d.preset));
+    }
+    let t = Tokens::get(ui.ctx());
+    let name = |id: &str| {
+        app.session
+            .presets
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| crate::i18n::builtin_label(&p.name, p.builtin).to_string())
+            .unwrap_or_else(|| crate::i18n::tr("(missing preset)").to_string())
+    };
+    let names: Vec<String> = d.presets.iter().map(|id| name(id)).collect();
+    field(ui, "Presets", |ui| {
+        ui.vertical(|ui| {
+            let n = d.presets.len();
+            let mut action: Option<(usize, i32)> = None;
+            for (i, label) in names.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    let sz = vec2(22.0, 22.0);
+                    if crate::widgets::icon_button(
+                        ui,
+                        &format!("importPresetUp-{i}"),
+                        crate::icons::Icon::ChevronUp,
+                        sz,
+                        false,
+                        i > 0,
+                        crate::i18n::tr("Apply earlier"),
+                    )
+                    .clicked()
+                    {
+                        action = Some((i, -1));
+                    }
+                    if crate::widgets::icon_button(
+                        ui,
+                        &format!("importPresetDown-{i}"),
+                        crate::icons::Icon::ChevronDown,
+                        sz,
+                        false,
+                        i + 1 < n,
+                        crate::i18n::tr("Apply later"),
+                    )
+                    .clicked()
+                    {
+                        action = Some((i, 1));
+                    }
+                    if crate::widgets::icon_button(
+                        ui,
+                        &format!("importPresetRemove-{i}"),
+                        crate::icons::Icon::Close,
+                        sz,
+                        false,
+                        true,
+                        crate::i18n::tr("Remove from the stack"),
+                    )
+                    .clicked()
+                    {
+                        action = Some((i, 0));
+                    }
+                    let r = ui.add(egui::Label::new(egui::RichText::new(format!("{}. {label}", i + 1)).color(t.text)).truncate());
+                    register(ui.ctx(), format!("label:importPreset-{i}"), r.rect);
+                });
+            }
+            match action {
+                Some((i, 0)) if i < d.presets.len() => {
+                    d.presets.remove(i);
+                }
+                Some((i, -1)) if i > 0 && i < d.presets.len() => d.presets.swap(i, i - 1),
+                Some((i, 1)) if i + 1 < d.presets.len() => d.presets.swap(i, i + 1),
+                _ => {}
+            }
+            let label = if d.presets.is_empty() { crate::i18n::tr("Add a preset…") } else { crate::i18n::tr("Add another preset…") };
+            let combo = crate::widgets::combo_box("import-preset-add").width(combo_width(ui)).truncate().selected_text(label).height(300.0).show_ui(
+                ui,
+                |ui| {
+                    if let Some(pid) = crate::panels::presets::picker_rows(ui, "import-preset", &app.session.presets, None) {
+                        d.presets.push(pid);
+                    }
+                },
+            );
+            register(ui.ctx(), "combo:importPresetAdd", combo.response.rect);
+            if d.presets.len() > 1 {
+                ui.label(
+                    egui::RichText::new(crate::i18n::tr("Applied in this order: each sets its settings and adds its masks."))
+                        .color(t.text_dim)
+                        .small(),
+                );
+            }
+        });
     });
 }
 
@@ -1611,9 +1681,16 @@ fn inspect_sources(sources: &[String]) -> SourceSummary {
 }
 
 /// A labelled row (fixed label column).
+/// A drop-down's width in the options: what is left of the row, within reason (its text is cut
+/// with an ellipsis rather than the row growing past a narrow panel).
+fn combo_width(ui: &egui::Ui) -> f32 {
+    (ui.available_width() - 8.0).clamp(90.0, 280.0)
+}
+
 fn field<R>(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let t = Tokens::get(ui.ctx());
-    ui.horizontal(|ui| {
+    // (wraps in a narrow place: the Import tab's settings panel)
+    ui.horizontal_wrapped(|ui| {
         ui.allocate_ui_with_layout(vec2(78.0, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(78.0);
             ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text_label));
@@ -1653,6 +1730,59 @@ fn profiles_summary(counts: &import_profiles::ProfileCounts, adopted: &[Value]) 
 // ------------------------------------------------------------------ camera profiles (LR-PROF-IMPORT-APPLY)
 
 impl ImportDialog {
+    /// The `library.import` parameters these settings ask for (without `paths`, and without a
+    /// new album, which is made when the import starts).
+    pub fn params(&self) -> Result<Value, String> {
+        let d = self;
+        let mode = match (d.copy, d.move_files) {
+            (false, _) => "add",
+            (true, false) => "copy",
+            (true, true) => "move",
+        };
+        let mut params = json!({"mode": mode, "keywords": d.keywords()});
+        if !d.on_deleted.is_empty() {
+            params["onDeleted"] = json!(d.on_deleted);
+        }
+        if let Some(a) = d.album {
+            params["album"] = json!(a);
+        }
+        if !d.preset.is_empty() {
+            params["preset"] = json!(d.preset);
+        }
+        if !d.presets.is_empty() {
+            params["presets"] = json!(d.presets);
+        }
+        if !d.metadata_preset.is_empty() {
+            params["metadataPreset"] = json!(d.metadata_preset);
+        }
+        if let Some(cp) = d.camera_profile_param() {
+            params["cameraProfile"] = cp;
+        }
+        let adopt = d.adopt_param();
+        if !adopt.is_empty() {
+            params["adopt"] = json!(adopt);
+        }
+        if !d.look.is_empty() {
+            params["look"] = json!(d.look);
+        }
+        if d.copy {
+            if !d.destination.trim().is_empty() {
+                params["destination"] = json!(d.destination.trim());
+            }
+            if let Some(o) = d.organize_param()? {
+                params["organize"] = json!(o);
+            }
+            if !d.rename.trim().is_empty() {
+                params["rename"] = json!(d.rename.trim());
+                params["renameStart"] = json!(1);
+            }
+            if d.dng && !d.move_files {
+                params["dng"] = json!(true);
+            }
+        }
+        Ok(params)
+    }
+
     /// The `cameraProfile` param this review asks for (`None`: automatic).
     pub fn camera_profile_param(&self) -> Option<Value> {
         if self.profile_mode == "all" && !self.profile_all.is_empty() {
@@ -1704,22 +1834,28 @@ fn camera_profile_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut Im
     field(ui, "Camera profile", |ui| {
         let all = d.profile_mode == "all";
         let cur = if all { "One profile for all photos" } else { "Automatic (each body's own profile)" };
-        let r = egui::ComboBox::from_id_salt("import-camera-profile").selected_text(crate::i18n::tr(cur)).show_ui(ui, |ui| {
-            if ui.selectable_label(!all, crate::i18n::tr("Automatic (each body's own profile)")).clicked() {
-                d.profile_mode.clear();
-            }
-            if ui.selectable_label(all, crate::i18n::tr("One profile for all photos")).clicked() {
-                d.profile_mode = "all".into();
-                if d.profile_all.is_empty() {
-                    d.profile_all = import_profiles::BUILTIN.into();
+        let r = egui::ComboBox::from_id_salt("import-camera-profile").width(combo_width(ui)).truncate().selected_text(crate::i18n::tr(cur)).show_ui(
+            ui,
+            |ui| {
+                if ui.selectable_label(!all, crate::i18n::tr("Automatic (each body's own profile)")).clicked() {
+                    d.profile_mode.clear();
                 }
-            }
-        });
+                if ui.selectable_label(all, crate::i18n::tr("One profile for all photos")).clicked() {
+                    d.profile_mode = "all".into();
+                    if d.profile_all.is_empty() {
+                        d.profile_all = import_profiles::BUILTIN.into();
+                    }
+                }
+            },
+        );
         register(ui.ctx(), "combo:importCameraProfile", r.response.rect);
         if d.profile_mode == "all" {
-            let r = egui::ComboBox::from_id_salt("import-camera-profile-all").selected_text(choice_name(app, &d.profile_all)).height(300.0).show_ui(
-                ui,
-                |ui| {
+            let r = egui::ComboBox::from_id_salt("import-camera-profile-all")
+                .width(combo_width(ui))
+                .truncate()
+                .selected_text(choice_name(app, &d.profile_all))
+                .height(300.0)
+                .show_ui(ui, |ui| {
                     if ui.selectable_label(d.profile_all == import_profiles::BUILTIN, crate::i18n::tr("LightCraft colour")).clicked() {
                         d.profile_all = import_profiles::BUILTIN.into();
                     }
@@ -1728,8 +1864,7 @@ fn camera_profile_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut Im
                             d.profile_all = e.id.clone();
                         }
                     }
-                },
-            );
+                });
             register(ui.ctx(), "combo:importCameraProfileAll", r.response.rect);
         }
     });
@@ -1829,7 +1964,7 @@ fn look_field(app: &LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             let name = app.session.profile_info(&d.look).map(|(n, _)| n).unwrap_or(&d.look);
             crate::i18n::profile_label(&d.look, name).to_string()
         };
-        let r = egui::ComboBox::from_id_salt("import-look").selected_text(cur).height(300.0).show_ui(ui, |ui| {
+        let r = egui::ComboBox::from_id_salt("import-look").width(combo_width(ui)).truncate().selected_text(cur).height(300.0).show_ui(ui, |ui| {
             if ui.selectable_label(d.look.is_empty(), crate::i18n::tr("None")).clicked() {
                 d.look.clear();
             }

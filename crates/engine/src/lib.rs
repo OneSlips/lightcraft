@@ -376,6 +376,8 @@ pub struct Session {
     pub finish_pending: Option<finishing::FinishPlan>,
     /// "569 photos ready…": what the last finished queue tells the user (the UI takes it).
     pub finishing_note: Option<String>,
+    /// The last finished queue: how many photos, and whether previews were built (for the UI's note).
+    pub finishing_done: Option<(usize, bool)>,
     /// Import presets: named sets of import settings (persisted in prefs.json).
     pub import_presets: Vec<cmd::import_tab::ImportPreset>,
     /// The camera sensor map build or batch Remove Dust running in the background, or the last one.
@@ -517,6 +519,7 @@ impl Session {
             finishing: None,
             finish_pending: None,
             finishing_note: None,
+            finishing_done: None,
             import_presets: Vec::new(),
             sensor_job: None,
             slideshow_export: None,

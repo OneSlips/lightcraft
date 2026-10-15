@@ -721,7 +721,7 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
             let local_only = crate::panels::grid::local_only(app, &targets);
             let mut v: Vec<MenuNode> = vec![];
             if local_only {
-                v.push(item("photo.addToLibrary", Value::Null, crate::i18n::tr("Add to My Photos First"), None, false, None));
+                v.push(item("photo.addToLibrary", Value::Null, crate::i18n::tr("Import Them First"), None, false, None));
                 v.push(MenuNode::Separator);
             }
             let mut albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.name.clone(), a.id.0)).collect();

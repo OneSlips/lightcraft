@@ -361,5 +361,17 @@
   "Renames {n} face{} across the library. The files are not changed.": "ライブラリ全体で{n}件の顔の名前を変更します。ファイルは変更されません。{:.0}",
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "「{to}」はすでに別の人物です。まとめると1人になり、元に戻すと再び分かれます。",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "{what}合成を{mp}で追加しました：フルサイズ（{full}）にはこのコンピューターのメモリが足りません",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what}合成を{mp}で追加しました。パノラマの最大サイズです（フルサイズ：{full}）"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what}合成を{mp}で追加しました。パノラマの最大サイズです（フルサイズ：{full}）",
+  "Picks ({n})": "採用 ({n})",
+  "Selected ({n})": "選択中 ({n})",
+  "All ({n})": "すべて ({n})",
+  "Import {n} into {library}": "{n} 枚を {library} に読み込む",
+  "Browsing {folder}: not imported": "{folder} を閲覧中：未読み込み",
+  "Import preset: {name}": "読み込みプリセット：{name}",
+  "Camera card ({label})": "カメラのカード ({label})",
+  "Type {n} to confirm:": "確認のため {n} と入力してください：",
+  "Rejected files to move to the {bin}: {n}": "{bin}へ移動する除外ファイル：{n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "準備完了の写真：{n}。AI マスク、レタッチ、プレビューが完了しました。",
+  "Photos ready: {n}. AI masks and retouch are done.": "準備完了の写真：{n}。AI マスクとレタッチが完了しました。",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "閲覧中の写真をスキップ：{n}{0:.0}（アルバムにはライブラリの写真が入ります。先に読み込んでください）"
 }

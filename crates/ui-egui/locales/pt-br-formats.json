@@ -361,5 +361,17 @@
   "Renames {n} face{} across the library. The files are not changed.": "Renomeia {n} rosto{} na biblioteca. Os arquivos não são alterados.",
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "“{to}” já é uma pessoa. Combiná-las deixa uma só; Desfazer as separa de novo.",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "{what} mesclagem adicionada em {mp}: o tamanho completo, {full}, precisa de mais memória do que este computador tem",
-  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what} mesclagem adicionada em {mp}, o maior tamanho possível para um panorama (tamanho completo: {full})"
+  "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what} mesclagem adicionada em {mp}, o maior tamanho possível para um panorama (tamanho completo: {full})",
+  "Picks ({n})": "Escolhidas ({n})",
+  "Selected ({n})": "Selecionadas ({n})",
+  "All ({n})": "Todas ({n})",
+  "Import {n} into {library}": "Importar {n} para {library}",
+  "Browsing {folder}: not imported": "Navegando em {folder}: não importado",
+  "Import preset: {name}": "Predefinição de importação: {name}",
+  "Camera card ({label})": "Cartão da câmera ({label})",
+  "Type {n} to confirm:": "Digite {n} para confirmar:",
+  "Rejected files to move to the {bin}: {n}": "Arquivos rejeitados a mover para a {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos prontas: {n}. Máscaras de IA, retoque e pré-visualizações concluídos.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Fotos prontas: {n}. Máscaras de IA e retoque concluídos.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Fotos navegadas ignoradas: {n}{0:.0} — os álbuns contêm fotos da biblioteca (importe-as primeiro)"
 }

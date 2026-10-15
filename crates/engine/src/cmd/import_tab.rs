@@ -149,7 +149,8 @@ fn finish(s: &mut Session, p: &Value) -> Result<Value> {
     } else {
         s.selection.ids.iter().map(|i| i.0).collect()
     };
-    let wait = p.get("wait").and_then(Value::as_bool).unwrap_or(false);
+    // (no threads to wait on in the browser: the app ticks it)
+    let wait = p.get("wait").and_then(Value::as_bool).unwrap_or(false) && !cfg!(target_arch = "wasm32");
     let mut r = s.finish_import(crate::finishing::FinishPlan { ids, previews: previews.to_string(), started: String::new() });
     if wait {
         // (CLI, MCP, tests: tick until the queue is done)

@@ -9,7 +9,7 @@
 //! Driven by [`Session::finishing_tick`] (every frame in the app; in a loop for the CLI and tests).
 
 use std::collections::HashSet;
-use std::time::Instant;
+use web_time::Instant;
 
 use lightcraft_catalog::PhotoId;
 use serde::{Deserialize, Serialize};
@@ -73,6 +73,8 @@ pub struct Finishing {
     /// A preview build of someone else's ran when previews were due: wait for it.
     waited: bool,
     started: Instant,
+    /// When the stage at work began (its pace gives the time left).
+    stage_started: Instant,
     guard: TaskGuard,
 }
 
@@ -96,10 +98,17 @@ impl Finishing {
         if self.plan.preview_size().is_some() { (analysed + built) / 2.0 } else { analysed }
     }
 
-    /// Seconds left, from the pace so far (`None` until there is a pace to go by).
+    /// Seconds left, from the pace of the stage at work (`None` until there is a pace to go by).
+    /// Previews are the last stage: their pace says what is left; the analysis says only its own
+    /// part (previews can't be judged before one is built).
     fn eta(&self) -> Option<u64> {
-        let f = self.fraction();
-        let spent = self.started.elapsed().as_secs_f64();
+        let spent = self.stage_started.elapsed().as_secs_f64();
+        let n = self.ids.len().max(1) as f64;
+        let f = match (self.stage, &self.previews) {
+            (Stage::Analyse, _) => (self.ids.len().saturating_sub(self.analysing)) as f64 / n,
+            (Stage::Previews, Some(b)) => b.done.load(std::sync::atomic::Ordering::Relaxed) as f64 / (b.total.max(1) as f64),
+            _ => return None,
+        };
         (f > 0.02 && f < 1.0 && spent > 2.0).then(|| (spent / f * (1.0 - f)).round() as u64)
     }
 
@@ -148,7 +157,17 @@ impl Session {
         self.save_finishing(Some(&plan));
         let guard = self.activity.start("finishing", "Getting photos ready", Cancel::Yes);
         let ids: HashSet<PhotoId> = plan.ids.iter().map(|i| PhotoId(*i)).collect();
-        let mut f = Finishing { plan, ids, stage: Stage::Analyse, analysing: 0, previews: None, waited: false, started: Instant::now(), guard };
+        let mut f = Finishing {
+            plan,
+            ids,
+            stage: Stage::Analyse,
+            analysing: 0,
+            previews: None,
+            waited: false,
+            started: Instant::now(),
+            stage_started: Instant::now(),
+            guard,
+        };
         // the masks of the presets and Smooth Skin's skin: queued now, their workers take it from here
         let list: Vec<PhotoId> = f.plan.ids.iter().map(|i| PhotoId(*i)).collect();
         let need: Vec<PhotoId> =
@@ -200,6 +219,7 @@ impl Session {
             f.analysing = self.still_analysing(&f.ids);
             if f.analysing == 0 {
                 f.stage = Stage::Previews;
+                f.stage_started = Instant::now();
             }
         }
         if f.stage == Stage::Previews {
@@ -246,6 +266,7 @@ impl Session {
         let note = format!("{n} photo{} ready: {what}", if n == 1 { "" } else { "s" });
         log::info!("finishing import: {note} in {}", duration_text(f.started.elapsed().as_secs()));
         self.finishing_note = Some(note.clone());
+        self.finishing_done = Some((n, f.plan.preview_size().is_some()));
         Some(note)
     }
 

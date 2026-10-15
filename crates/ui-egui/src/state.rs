@@ -37,6 +37,8 @@ pub enum RightPanel {
     Info,
     /// The profile browser (part of Edit).
     Profiles,
+    /// The Import tab's settings: destination, camera profiles, the preset stack, previews.
+    Import,
 }
 
 impl RightPanel {
@@ -652,6 +654,13 @@ pub struct UiState {
     #[serde(skip)]
     pub unsaved_seen: bool,
     pub view: ViewMode,
+    /// The workspace tab on show: Import (browse and cull a folder or card) or Library.
+    pub tab: crate::import_tab::Tab,
+    /// The Import tab's settings (kept between sessions).
+    pub import_settings: crate::import_tab::ImportSettings,
+    /// The library view to go back to when the Library tab is shown again.
+    #[serde(skip)]
+    pub library_source: Option<lightcraft_engine::LibrarySource>,
     pub left_panel: bool,
     pub right: RightPanel,
     /// Widths of the left sidebar and of the right panel in points (dragging their inner edge
@@ -1371,6 +1380,9 @@ impl Default for UiState {
             unsaved_seen: false,
             luminance_map_restore: None,
             view: ViewMode::Detail,
+            tab: Default::default(),
+            import_settings: Default::default(),
+            library_source: None,
             left_panel: false,
             left_width: LEFT_WIDTH.default,
             right_width: RIGHT_WIDTH.default,

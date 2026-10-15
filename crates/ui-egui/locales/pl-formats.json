@@ -361,5 +361,17 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Poprawiono {}: {} znanych dla aparatu {}, {} znalezionych na tym zdjęciu",
   "{} spot(s) from Remove Dust (outlined in amber)": "Punkty z usuwania kurzu: {} (z bursztynowym obrysem)",
   "{} with eyes closed": "Z zamkniętymi oczami: {}",
-  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu"
+  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu",
+  "Picks ({n})": "Wybrane ({n})",
+  "Selected ({n})": "Zaznaczone ({n})",
+  "All ({n})": "Wszystkie ({n})",
+  "Import {n} into {library}": "Importuj {n} do {library}",
+  "Browsing {folder}: not imported": "Przeglądasz {folder}: nie zaimportowano",
+  "Import preset: {name}": "Ustawienie importu: {name}",
+  "Camera card ({label})": "Karta aparatu ({label})",
+  "Type {n} to confirm:": "Wpisz {n}, aby potwierdzić:",
+  "Rejected files to move to the {bin}: {n}": "Odrzucone pliki do przeniesienia do {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Gotowe zdjęcia: {n}. Maski AI, retusz i podglądy są gotowe.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Gotowe zdjęcia: {n}. Maski AI i retusz są gotowe.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Pominięte przeglądane zdjęcia: {n}{0:.0} — albumy zawierają zdjęcia z biblioteki (najpierw je zaimportuj)"
 }

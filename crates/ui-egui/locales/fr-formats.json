@@ -361,5 +361,17 @@
   "Already in “{}”": "Déjà dans « {} »",
   "Move {n} photo{} to “{}”": "Déplacer {n} photo{} vers « {} »",
   "Move {n} photo{} to “{}”?": "Déplacer {n} photo{} vers « {} » ?",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place.",
+  "Picks ({n})": "Retenues ({n})",
+  "Selected ({n})": "Sélectionnées ({n})",
+  "All ({n})": "Toutes ({n})",
+  "Import {n} into {library}": "Importer {n} dans {library}",
+  "Browsing {folder}: not imported": "Parcours de {folder} : non importé",
+  "Import preset: {name}": "Paramètre d’importation : {name}",
+  "Camera card ({label})": "Carte mémoire ({label})",
+  "Type {n} to confirm:": "Tapez {n} pour confirmer :",
+  "Rejected files to move to the {bin}: {n}": "Fichiers rejetés à déplacer vers la {bin} : {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Photos prêtes : {n}. Masques IA, retouche et aperçus terminés.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Photos prêtes : {n}. Masques IA et retouche terminés.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Photos parcourues ignorées : {n}{0:.0} — les albums contiennent des photos de la bibliothèque (importez-les d’abord)"
 }

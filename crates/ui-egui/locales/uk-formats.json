@@ -361,5 +361,17 @@
   "Already in “{}”": "Уже в «{}»",
   "Move {n} photo{} to “{}”": "Перемістити до «{1}» фото: {n}{0:.0}",
   "Move {n} photo{} to “{}”?": "Перемістити до «{1}» фото: {n}{0:.0}?",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "До «{1}» переміщено фото: {n}{0:.0}. Редагування → Скасувати поверне їх."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "До «{1}» переміщено фото: {n}{0:.0}. Редагування → Скасувати поверне їх.",
+  "Picks ({n})": "Відібрані ({n})",
+  "Selected ({n})": "Виділені ({n})",
+  "All ({n})": "Усі ({n})",
+  "Import {n} into {library}": "Імпортувати {n} до {library}",
+  "Browsing {folder}: not imported": "Перегляд {folder}: не імпортовано",
+  "Import preset: {name}": "Набір імпорту: {name}",
+  "Camera card ({label})": "Карта камери ({label})",
+  "Type {n} to confirm:": "Введіть {n} для підтвердження:",
+  "Rejected files to move to the {bin}: {n}": "Відхилені файли для переміщення в {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Готово фото: {n}. ШІ-маски, ретуш і прев’ю готові.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Готово фото: {n}. ШІ-маски й ретуш готові.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Пропущено переглянутих фото: {n}{0:.0} — альбоми містять фото бібліотеки (спершу імпортуйте їх)"
 }

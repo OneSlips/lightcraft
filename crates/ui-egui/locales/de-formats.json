@@ -361,5 +361,17 @@
   "Already in “{}”": "Bereits in „{}“",
   "Move {n} photo{} to “{}”": "{n} Foto{0} nach „{1}“ verschieben",
   "Move {n} photo{} to “{}”?": "{n} Foto{0} nach „{1}“ verschieben?",
-  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} Foto{0} nach „{1}“ verschoben. Bearbeiten → Rückgängig holt sie zurück."
+  "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} Foto{0} nach „{1}“ verschoben. Bearbeiten → Rückgängig holt sie zurück.",
+  "Picks ({n})": "Ausgewählte ({n})",
+  "Selected ({n})": "Markierte ({n})",
+  "All ({n})": "Alle ({n})",
+  "Import {n} into {library}": "{n} in {library} importieren",
+  "Browsing {folder}: not imported": "{folder} wird durchsucht: nicht importiert",
+  "Import preset: {name}": "Importvorgabe: {name}",
+  "Camera card ({label})": "Speicherkarte ({label})",
+  "Type {n} to confirm:": "Zum Bestätigen {n} eingeben:",
+  "Rejected files to move to the {bin}: {n}": "Abgelehnte Dateien, die in den {bin} verschoben werden: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos bereit: {n}. KI-Masken, Retusche und Vorschauen sind fertig.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Fotos bereit: {n}. KI-Masken und Retusche sind fertig.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Übersprungen: {n} durchsuchte Fotos{0:.0} – Alben enthalten Bibliotheksfotos (zuerst importieren)"
 }

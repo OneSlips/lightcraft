@@ -23,6 +23,7 @@ pub mod headless;
 pub mod i18n;
 pub mod icons;
 pub mod import;
+pub mod import_tab;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
@@ -111,6 +112,8 @@ mod tests_grading;
 mod tests_grid;
 #[cfg(test)]
 mod tests_import_profiles;
+#[cfg(test)]
+mod tests_import_tab;
 #[cfg(test)]
 mod tests_info_dialogs;
 #[cfg(test)]
@@ -673,6 +676,7 @@ impl LightcraftApp {
         }
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             if r.is_ok() {
+                import_tab::follow(self, id);
                 docking::reveal_command(self, id)?;
             }
             return r.map_err(CommandError::from);
@@ -696,6 +700,10 @@ impl LightcraftApp {
                     .and_then(|photo| self.session.develop_of(photo))
                     .map(|d| d.crop.aspect.map_or(serde_json::json!("free"), |(w, h)| serde_json::json!([w as f64 / 100.0, h as f64 / 100.0])))
             };
+        }
+        if r.is_ok() {
+            // browsing a folder is the Import tab; a library view the Library tab
+            import_tab::follow(self, id);
         }
         if r.is_ok() && id == "library.clearFilter" {
             // the search field shows the text filter: cleared from anywhere (the loupe's pill, the
@@ -894,6 +902,20 @@ impl LightcraftApp {
     /// (`ui.detail_due`); watch the model download. Never waits for the model.
     fn ai_mask_detail(&mut self, ctx: &egui::Context) {
         let polled = self.session.segment_poll();
+        // an import being finished unattended (masks, skin, previews): its note when it is done
+        if self.session.finishing.is_some() || self.session.finish_pending.is_some() {
+            if self.session.finishing_tick().is_some()
+                && let Some((n, previews)) = self.session.finishing_done
+            {
+                let note = if previews {
+                    i18n::tr_format!("Photos ready: {n}. AI masks, retouch and previews are done.", n = n)
+                } else {
+                    i18n::tr_format!("Photos ready: {n}. AI masks and retouch are done.", n = n)
+                };
+                self.toast_for(ctx, format!("✓ {note}"), 12.0);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         let now = ctx.input(|i| i.time);
         if polled.changed {
             ctx.request_repaint();

@@ -361,5 +361,17 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Opraveno {}: {} známých pro fotoaparát {}, {} nalezených v této fotografii",
   "{} spot(s) from Remove Dust (outlined in amber)": "Body z odstranění prachu: {} (jantarově obtažené)",
   "{} with eyes closed": "Se zavřenýma očima: {}",
-  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu"
+  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
+  "Picks ({n})": "Vybrané ({n})",
+  "Selected ({n})": "Označené ({n})",
+  "All ({n})": "Vše ({n})",
+  "Import {n} into {library}": "Importovat {n} do {library}",
+  "Browsing {folder}: not imported": "Procházíte {folder}: neimportováno",
+  "Import preset: {name}": "Předvolba importu: {name}",
+  "Camera card ({label})": "Paměťová karta ({label})",
+  "Type {n} to confirm:": "Pro potvrzení napište {n}:",
+  "Rejected files to move to the {bin}: {n}": "Zamítnuté soubory k přesunutí do {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Připravené fotky: {n}. AI masky, retuš a náhledy jsou hotové.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Připravené fotky: {n}. AI masky a retuš jsou hotové.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Přeskočené procházené fotky: {n}{:.0}; alba obsahují fotky z knihovny (nejprve je importujte)"
 }
