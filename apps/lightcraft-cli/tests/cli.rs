@@ -510,7 +510,16 @@ fn snapshot_starts_without_a_gpu() {
 }
 
 fn run_cli(args: &[&str], stdin: Option<&str>) -> (bool, Vec<Value>, String) {
-    let mut child = Command::new(BIN).arg("run").args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    // (never the user's shared presets and profiles)
+    let mut child = Command::new(BIN)
+        .env("LIGHTCRAFT_NO_PREFS", "1")
+        .arg("run")
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
     if let Some(text) = stdin {
         child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
     }
@@ -596,8 +605,14 @@ fn a_library_open_in_another_process_is_refused() {
     let lib = tmp("locked-lib");
     let _ = std::fs::remove_dir_all(&lib);
     let lib_s = lib.to_str().unwrap();
-    let mut holder =
-        Command::new(BIN).args(["mcp", "--library", lib_s]).stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap();
+    let mut holder = Command::new(BIN)
+        .env("LIGHTCRAFT_NO_PREFS", "1")
+        .args(["mcp", "--library", lib_s])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
     let mut err = BufReader::new(holder.stderr.take().unwrap());
     let mut line = String::new();
     while !line.contains("opened library") {

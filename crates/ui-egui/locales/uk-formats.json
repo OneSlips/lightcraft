@@ -401,5 +401,19 @@
   "{n} alternatives in the library": "Альтернатив у бібліотеці: {n}",
   "{n} people, {k} to look at first": "Людей: {n}, спершу переглянути: {k}",
   "Rows {a}–{b} of {c}: scroll for more": "Ряди {a}–{b} із {c}: прокрутіть, щоб побачити решту",
-  "Finding “{text}”…": "Шукаю «{text}»…"
+  "Finding “{text}”…": "Шукаю «{text}»…",
+  "Delete “{name}” and its file?": "Видалити «{name}» і його файл?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Видалити «{name}» і його файл? Його використовують {n} фото тут; для профілів камер повернуться кольори камери LightCraft.",
+  "Imported {n} profiles": "Імпортовано профілів: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Імпортовано профілів: {n}; не вдалося прочитати: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Прибрати «{name}» з LightCraft на цьому комп’ютері? Його поверне «Відновити вбудовані стилі».",
+  "Restore Built-in Looks ({n})": "Відновити вбудовані стилі ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Ваші профілі, пресети ({presets}), пресети локальної корекції ({effects}), налаштування імпорту та профілі корпусів зберігаються в теці налаштувань LightCraft, тож вони є в кожній бібліотеці.",
+  "{n} photos here": "{n} фото тут",
+  "Backed up in {s} s ({size})": "Копію створено за {s} с ({size})",
+  "Last {n}": "Останні {n}",
+  "Library backed up to {path}": "Резервна копія бібліотеки: {path}",
+  "The last backup failed: {e}": "Останнє резервне копіювання не вдалося: {e}",
+  "The library backup failed: {e}": "Резервне копіювання бібліотеки не вдалося: {e}",
+  "{n} photos · {size}": "{n} фото · {size}"
 }

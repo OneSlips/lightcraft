@@ -401,5 +401,19 @@
   "{n} alternatives in the library": "Alternatywy w bibliotece: {n}",
   "{n} people, {k} to look at first": "Osoby: {n}, do sprawdzenia najpierw: {k}",
   "Rows {a}–{b} of {c}: scroll for more": "Wiersze {a}–{b} z {c}: przewiń, aby zobaczyć więcej",
-  "Finding “{text}”…": "Szukam „{text}”…"
+  "Finding “{text}”…": "Szukam „{text}”…",
+  "Delete “{name}” and its file?": "Usunąć „{name}” i jego plik?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Usunąć „{name}” i jego plik? Używa go tu {n} zdjęć; profile aparatu wrócą do kolorów aparatu LightCraft.",
+  "Imported {n} profiles": "Zaimportowano profile: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Zaimportowano profile: {n}; nie udało się odczytać: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Usunąć „{name}” z LightCraft na tym komputerze? Przywróć wbudowane wyglądy go przywróci.",
+  "Restore Built-in Looks ({n})": "Przywróć wbudowane wyglądy ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Twoje profile, ustawienia predefiniowane ({presets}), ustawienia korekt lokalnych ({effects}), ustawienia importu i domyślne dla korpusów są w folderze ustawień LightCraft, więc ma je każda biblioteka.",
+  "{n} photos here": "{n} zdjęć tutaj",
+  "Backed up in {s} s ({size})": "Kopia utworzona w {s} s ({size})",
+  "Last {n}": "Ostatnie {n}",
+  "Library backed up to {path}": "Kopia biblioteki zapisana w {path}",
+  "The last backup failed: {e}": "Ostatnia kopia nie powiodła się: {e}",
+  "The library backup failed: {e}": "Kopia biblioteki nie powiodła się: {e}",
+  "{n} photos · {size}": "{n} zdjęć · {size}"
 }

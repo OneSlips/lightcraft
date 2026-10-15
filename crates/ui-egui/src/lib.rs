@@ -65,6 +65,8 @@ mod tests_album_remove;
 #[cfg(test)]
 mod tests_appearance;
 #[cfg(test)]
+mod tests_backups;
+#[cfg(test)]
 mod tests_before_after;
 #[cfg(test)]
 mod tests_browse_active;
@@ -162,6 +164,8 @@ mod tests_preset_import;
 mod tests_preview_limit;
 #[cfg(test)]
 mod tests_print;
+#[cfg(test)]
+mod tests_profile_manager;
 #[cfg(test)]
 mod tests_profiles_layout;
 #[cfg(test)]
@@ -1414,6 +1418,14 @@ impl LightcraftApp {
             self.ui.known_cards = None;
         }
         self.session.persist_if_dirty();
+        // a backup that ran in the background says how it went
+        if let Some(r) = self.session.poll_backup() {
+            let text = match r {
+                Ok(v) => crate::i18n::tr_format!("Library backed up to {path}", path = v["path"].as_str().unwrap_or_default()),
+                Err(e) => crate::i18n::tr_format!("The library backup failed: {e}", e = e),
+            };
+            self.toast(ctx, text);
+        }
         panels::denoise::pump(self, ctx);
         panels::right::dust_pump(self, ctx);
         model_setup::pump(self, ctx);
@@ -1437,6 +1449,13 @@ impl LightcraftApp {
             {
                 self.toast(ctx, e);
             }
+            // on the Profile Manager, dropped files and folders are profiles
+            let dropped = if !dropped.is_empty() && panels::profile_manager::takes_drops(self) {
+                panels::profile_manager::drop_import(self, dropped);
+                Vec::new()
+            } else {
+                dropped
+            };
             let (presets, photos) = split_presets(dropped);
             if !presets.is_empty() {
                 let _ = self.run("file.importPresets", serde_json::json!({"paths": presets}));

@@ -401,5 +401,19 @@
   "{n} alternatives in the library": "已將 {n} 張備選加入圖庫",
   "{n} people, {k} to look at first": "{n} 人，其中 {k} 人需先看",
   "Rows {a}–{b} of {c}: scroll for more": "第 {a}–{b} 列，共 {c} 列：捲動查看更多",
-  "Finding “{text}”…": "正在尋找「{text}」…"
+  "Finding “{text}”…": "正在尋找「{text}」…",
+  "Delete “{name}” and its file?": "刪除「{name}」及其檔案？",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "刪除「{name}」及其檔案？此處有 {n} 張照片在使用它；相機描述檔將恢復為 LightCraft 的相機色彩。",
+  "Imported {n} profiles": "已匯入 {n} 個描述檔",
+  "Imported {n} profiles; {failed} couldn't be read": "已匯入 {n} 個描述檔；{failed} 個無法讀取",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "在此電腦上從 LightCraft 中移除「{name}」？「還原內建風格」可找回。",
+  "Restore Built-in Looks ({n})": "還原內建風格（{n}）",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "你的描述檔、預設（{presets}）、局部調整預設（{effects}）、匯入設定和機身預設值儲存在 LightCraft 的設定資料夾中，因此每個圖庫都有。",
+  "{n} photos here": "此處 {n} 張照片",
+  "Backed up in {s} s ({size})": "已在 {s} 秒內備份（{size}）",
+  "Last {n}": "最近 {n} 個",
+  "Library backed up to {path}": "圖庫已備份到 {path}",
+  "The last backup failed: {e}": "上次備份失敗：{e}",
+  "The library backup failed: {e}": "圖庫備份失敗：{e}",
+  "{n} photos · {size}": "{n} 張照片 · {size}"
 }

@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod alternatives;
+pub mod backups;
 pub mod bottombar;
 pub mod chips;
 pub mod compare;
@@ -31,6 +32,7 @@ pub mod notices;
 pub mod people;
 pub mod person;
 pub mod presets;
+pub mod profile_manager;
 pub mod profiles;
 pub mod range_pick;
 pub mod retouch;

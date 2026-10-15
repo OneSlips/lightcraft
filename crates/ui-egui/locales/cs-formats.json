@@ -401,5 +401,19 @@
   "{n} alternatives in the library": "Alternativ v knihovně: {n}",
   "{n} people, {k} to look at first": "{n} lidí, {k} k prohlédnutí jako první",
   "Rows {a}–{b} of {c}: scroll for more": "Řádky {a}–{b} z {c}: další posunutím",
-  "Finding “{text}”…": "Hledám „{text}“…"
+  "Finding “{text}”…": "Hledám „{text}“…",
+  "Delete “{name}” and its file?": "Smazat „{name}“ i jeho soubor?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "Smazat „{name}“ i jeho soubor? Používá ho {n} fotografií v této knihovně; u profilů fotoaparátu se vrátí barvy fotoaparátu LightCraftu.",
+  "Imported {n} profiles": "Importováno profilů: {n}",
+  "Imported {n} profiles; {failed} couldn't be read": "Importováno profilů: {n}; nepodařilo se přečíst: {failed}",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Odebrat „{name}“ z LightCraftu na tomto počítači? Obnovit vestavěné vzhledy ho vrátí.",
+  "Restore Built-in Looks ({n})": "Obnovit vestavěné vzhledy ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Vaše profily, předvolby ({presets}), předvolby místních úprav ({effects}), nastavení importu a výchozí profily těl jsou uloženy ve složce nastavení LightCraftu, takže je má každá knihovna.",
+  "{n} photos here": "{n} fotografií zde",
+  "Backed up in {s} s ({size})": "Zálohováno za {s} s ({size})",
+  "Last {n}": "Posledních {n}",
+  "Library backed up to {path}": "Knihovna zálohována do {path}",
+  "The last backup failed: {e}": "Poslední záloha selhala: {e}",
+  "The library backup failed: {e}": "Záloha knihovny selhala: {e}",
+  "{n} photos · {size}": "{n} fotografií · {size}"
 }

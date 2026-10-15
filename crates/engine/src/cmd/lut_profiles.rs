@@ -21,8 +21,9 @@ pub struct LutProfile {
     pub file: String,
 }
 
+/// Where imported profile files are kept: the app store's `Profiles/`, else the library's.
 fn profiles_dir(s: &Session) -> Option<PathBuf> {
-    s.library.as_ref().filter(|l| l.on_disk).map(|l| l.dir.join("Profiles"))
+    s.profiles_dir()
 }
 
 /// Register every imported profile's LUT with the pipeline (missing files are skipped).
@@ -77,12 +78,13 @@ fn cube_files(paths: &[String]) -> (Vec<(String, String, Option<String>)>, Vec<V
                     ));
                 }
             }
-        } else {
+        } else if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("cube")) {
             match std::fs::read_to_string(path) {
                 Ok(t) => out.push((stem(path), t, None)),
                 Err(e) => failed.push(json!([stem(path), e.to_string()])),
             }
         }
+        // (a .dcp is a camera profile: `dcp_profiles::import_files` takes it)
     }
     (out, failed)
 }

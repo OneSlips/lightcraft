@@ -49,6 +49,7 @@ pub mod recheck;
 pub(crate) mod retouch;
 pub mod sensor;
 mod slideshow;
+mod store;
 mod sync;
 mod xmp;
 
@@ -170,6 +171,9 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(mask_effects::specs());
         v.extend(dcp_profiles::specs());
         v.extend(dcp_profiles::body_specs());
+        v.extend(crate::profile_manager::specs());
+        v.extend(store::specs());
+        v.extend(crate::backup::specs());
         v.extend(cull::specs());
         v.extend(convert::specs());
         v.extend(convert::edit_specs());

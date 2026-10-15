@@ -51,8 +51,9 @@ pub fn is_dcp_id(id: &str) -> bool {
     id.starts_with(DCP_PREFIX)
 }
 
+/// Where imported profile files are kept: the app store's `Profiles/`, else the library's.
 fn profiles_dir(s: &Session) -> Option<PathBuf> {
-    s.library.as_ref().filter(|l| l.on_disk).map(|l| l.dir.join("Profiles"))
+    s.profiles_dir()
 }
 
 /// Parse every imported camera profile again and hand them to the decoder (missing or damaged
@@ -634,10 +635,11 @@ pub fn body_default_for(s: &Session, camera: &str, serial: &str) -> Option<Strin
     if serial.is_empty() {
         return None;
     }
-    let mine: Vec<&DcpEntry> = s.dcp_profiles.iter().filter(|e| e.bodies.contains(&serial) && same_camera(e, camera)).collect();
-    if let Some(e) = mine.iter().rev().find(|e| e.body_defaults.contains(&serial)) {
+    // made the body's default explicitly: also a profile for every body of the model
+    if let Some(e) = s.dcp_profiles.iter().rev().find(|e| e.body_defaults.contains(&serial) && same_camera(e, camera)) {
         return Some(e.id.clone());
     }
+    let mine: Vec<&DcpEntry> = s.dcp_profiles.iter().filter(|e| e.bodies.contains(&serial) && same_camera(e, camera)).collect();
     let dual = |e: &&&DcpEntry| s.media.camera_profiles.get(&e.id).is_some_and(|p| p.color.color_matrix[1].is_some());
     mine.iter().rev().find(dual).or(mine.last()).map(|e| e.id.clone())
 }

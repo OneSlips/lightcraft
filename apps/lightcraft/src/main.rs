@@ -143,6 +143,18 @@ impl eframe::App for App {
         if let Err(e) = self.0.session.close_library() {
             log::error!("saving the library failed: {e}");
         }
+        // Back up on exit (Settings ▸ Backups): a backup already running finishes first, else one
+        // is made when it is due. A copy of the catalog and settings files: well under a second
+        // on a local disk.
+        if self.0.session.backup_running() {
+            let _ = self.0.session.wait_backup(std::time::Duration::from_secs(120));
+        } else if self.0.session.backup_due() {
+            let t0 = std::time::Instant::now();
+            match self.0.session.back_up_library(false) {
+                Ok(v) => log::info!("backup on exit: {} ({:.0} ms)", v["path"].as_str().unwrap_or_default(), t0.elapsed().as_secs_f64() * 1000.0),
+                Err(e) => log::error!("backup on exit failed: {e}"),
+            }
+        }
         // last, with everything saved: no render may be inside the GPU driver when the process ends
         if !self.0.shutdown(EXIT_WAIT) {
             log::warn!("quit: background work was still running after {EXIT_WAIT:?}");
@@ -849,13 +861,23 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
             None,
         );
     }
-    let unopened = || Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock();
+    // presets, profiles and effects are shared by every library (the settings folder's Library
+    // Store), and the library is backed up when LightCraft exits
+    let unopened = || {
+        Session::new()
+            .with_fs()
+            .with_default_denoise_models()
+            .with_default_genfill()
+            .with_system_clock()
+            .with_default_app_store()
+            .with_default_backups()
+    };
     let Some(dir) = dir else {
         log::warn!("no library location (set --library or LIGHTCRAFT_LIBRARY)");
         return (unopened(), Some(LibraryProblem::new("", "There is no home folder to keep the library in. Choose a folder for it.")));
     };
     let t0 = std::time::Instant::now();
-    let mut s = Session::new().with_fs().with_default_denoise_models().with_default_genfill().with_system_clock();
+    let mut s = unopened();
     match s.open_library(&dir, seed_demo) {
         Ok(r) => {
             let (replayed, torn) = (r.replayed, r.torn_bytes);
@@ -1083,6 +1105,15 @@ fn main() -> eframe::Result {
                 let mut app = LightcraftApp::new(session, services(cc, app_log_file.as_deref()));
                 if let Some(ui) = prefs {
                     app.ui = ui;
+                }
+                // the presets and profiles of every library this app knows join the shared store
+                // (once each; the libraries are only read)
+                let known = app.ui.settings.recent_libraries.clone();
+                if !known.is_empty()
+                    && app.session.uses_app_store()
+                    && let Err(e) = app.session.execute("store.mergeLibraries", &serde_json::json!({"paths": known}))
+                {
+                    log::warn!("store: {e}");
                 }
                 lightcraft_ui_egui::i18n::set_language(app.ui.language);
                 app.integrated_titlebar = cfg!(target_os = "macos");

@@ -5,7 +5,6 @@
 use egui::{Align2, Color32, Rect, Sense, Stroke, pos2, vec2};
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::DevelopSettings;
-use lightcraft_engine::presets::{PROFILES, profile_groups};
 use serde_json::json;
 
 use super::presets::cover_uv;
@@ -30,6 +29,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         app.ui.right = RightPanel::Edit;
     }
     ui.painter().text(pos2(hr.left() + 46.0, hr.center().y + 2.0), Align2::LEFT_CENTER, crate::i18n::tr("Profiles"), t.semibold(15.0), t.text);
+    // the Profile Manager: hide, delete, rename, group, import, body defaults
+    let manage = Rect::from_min_size(pos2(hr.right() - 92.0, hr.top() + 11.0), vec2(80.0, 24.0));
+    let mut mb = ui.new_child(egui::UiBuilder::new().max_rect(manage).layout(egui::Layout::right_to_left(egui::Align::Center)));
+    let r = mb.small_button(crate::i18n::tr("Manage…"));
+    register(ui.ctx(), "button:profilesManage", r.rect);
+    if r.on_hover_text(crate::i18n::tr("Hide, delete, rename, group and import profiles; camera body defaults")).clicked() {
+        let _ = app.run("app.settings", json!({"tab": "profiles"}));
+    }
     divider(ui);
     // the applied profile and its amount
     let (cr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::hover());
@@ -54,25 +61,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if !favs.is_empty() {
         sections.push(("Favorites", "fav", false, favs));
     }
-    for g in profile_groups() {
-        sections.push((
-            g,
-            "",
-            false,
-            PROFILES.iter().filter(|p| p.group == g).map(|p| (p.id.to_string(), p.name.to_string(), p.group.to_string())).collect(),
-        ));
-    }
-    // imported profile groups: LUT folders, then camera profiles
-    let imported = app.session.imported_profiles();
-    let mut lut_groups: Vec<String> = Vec::new();
-    for (_, _, g) in &imported {
-        if !lut_groups.contains(g) {
-            lut_groups.push(g.clone());
-        }
-    }
-    for g in &lut_groups {
-        let profiles = imported.iter().filter(|p| &p.2 == g).cloned().collect();
-        sections.push((g.as_str(), "", true, profiles));
+    // every group as the Profile Manager orders it, without the hidden profiles
+    let shown = app.session.shown_profiles();
+    let group_names = lightcraft_engine::Session::profile_group_order(&shown);
+    for g in &group_names {
+        let members: Vec<&lightcraft_engine::profile_manager::ProfileItem> = shown.iter().filter(|p| &p.group == g).collect();
+        let imported = !members.iter().all(|p| p.builtin_group());
+        sections.push((g.as_str(), "", imported, members.iter().map(|p| (p.id.clone(), p.name.clone(), p.group.clone())).collect()));
     }
     for (title, tag, imported, list) in sections {
         // an imported folder named like a built-in group still opens and closes on its own
@@ -178,7 +173,7 @@ fn cell_ui(
     }
     let name_color = if applied { t.text } else { t.text_label };
     // cut short (with …) to the cell, so it never runs into its neighbour; the full name on hover
-    let g = one_line(painter, crate::i18n::profile_label(p_id, p_name), t.font(12.0), name_color, cell.width() - 2.0);
+    let g = one_line(painter, shown_label(&app.session, p_id, p_name), t.font(12.0), name_color, cell.width() - 2.0);
     painter.galley(pos2(cell.left() + 2.0, thumb.bottom() + 12.0 - g.size().y / 2.0), g, name_color);
     // favourite star (always shown when set, on hover otherwise)
     let fav = app.session.profile_favorites.iter().any(|f| f == p_id);
@@ -207,4 +202,10 @@ fn cell_ui(
             ui.data_mut(|m| m.remove::<(PhotoId, String)>(egui::Id::new("last-profile-hover")));
         }
     }
+}
+
+/// A profile's name for display: a built-in look's own name is translated, a name the user gave it is
+/// shown as typed.
+fn shown_label<'a>(s: &lightcraft_engine::Session, id: &str, name: &'a str) -> &'a str {
+    if s.profile_state.names.contains_key(id) { name } else { crate::i18n::profile_label(id, name) }
 }

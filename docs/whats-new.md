@@ -120,6 +120,52 @@
   eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
 - **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
   frame.
+### Presets and profiles in every library
+- **Your profiles and presets are shared by all your libraries**, as in Lightroom Classic: camera
+  profiles (`.dcp`), LUT profiles, develop presets, local adjustment presets, import settings and
+  the default profile of each camera body now live in LightCraft's settings folder. Start a new
+  library for the next wedding and everything is there.
+- **Nothing to move by hand.** The first time LightCraft opens a library (and the libraries in
+  Open Recent Library), its presets and profiles join the shared ones; the same preset or profile
+  is kept once. The library's own copies stay where they were, untouched.
+- Want one library to keep its own? Settings ▸ Profiles ▸ **Store presets and profiles with this
+  library instead**.
+
+### Profile Manager
+- **Settings ▸ Profiles** (or **Manage…** in the profile browser, **Manage Profiles…** in the
+  profile menu) lists every profile: LightCraft's built-in looks, your LUTs and your camera
+  profiles.
+- **Hide** a profile to take it out of the menus and the browser (one click shows it again), or
+  **Delete** it: your own files are deleted after asking, a built-in look is taken off this
+  computer and **Restore Built-in Looks** brings it back. Photos that use a hidden or deleted
+  built-in look keep it.
+- **Rename**, move to a **group** (or a new one), **move up or down**, star as a favourite.
+- **Import Profiles…** and **Import Folder…**, or drop `.dcp`, `.cube`, folders and `.zip` packs
+  on the window.
+- **Camera Bodies**: choose the camera profile each body's raws get (…71, …74), also one of your
+  own profiles made for the whole camera model, and apply it to the photos in view.
+
+### Library backups
+- Settings ▸ **Backups**: back up when LightCraft exits **every time, once a day, once a week or
+  never**, to a folder you choose (another drive or a network folder), keeping the last 3 to 50.
+  Each backup can be checked by opening its catalog.
+- **File ▸ Back Up Library Now** runs in the background; **Library Backups…** lists them, and
+  **Restore…** opens a backup as a new library beside the current one: nothing is overwritten.
+- A backup holds the catalog, the library's settings and LightCraft's settings with your presets
+  and profiles. Never the photos or the thumbnail cache, so it takes well under a second.
+
+### Colour
+- **Canon EOS R5 C** raws start from a colour profile fitted to nearly 400 of the camera's own
+  photos: skin keeps its warmth instead of turning olive in grass-green scenes. `lightcraft-cli
+  calibrate` now reads CR3 and CR2 (and RW2, ORF, PEF, SRW, ERF) too.
+- Culling a card in place uses each body's default camera profile, so the switch from the camera
+  preview to LightCraft's own render isn't jarring.
+
+### AI Denoise
+- When no AI Denoise model is available, Settings ▸ AI Denoise says so plainly: LightCraft's own
+  model is still being trained, there is nothing to download or install yet, and Luminance and
+  Color under Detail reduce noise meanwhile.
+
 ### Import and Library tabs
 - **Two tabs at the top right: Import and Library.** You always know where you are: Import is a
   folder or card you are looking at (nothing is in your library yet), Library is everything you

@@ -401,5 +401,19 @@
   "{n} alternatives in the library": "{n} Alternativen in der Bibliothek",
   "{n} people, {k} to look at first": "{n} Personen, {k} zuerst ansehen",
   "Rows {a}–{b} of {c}: scroll for more": "Reihen {a}–{b} von {c}: für mehr scrollen",
-  "Finding “{text}”…": "Suche „{text}“…"
+  "Finding “{text}”…": "Suche „{text}“…",
+  "Delete “{name}” and its file?": "„{name}“ und seine Datei löschen?",
+  "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.": "„{name}“ und seine Datei löschen? {n} Fotos hier verwenden es; bei Kameraprofilen gelten wieder die Kamerafarben von LightCraft.",
+  "Imported {n} profiles": "{n} Profile importiert",
+  "Imported {n} profiles; {failed} couldn't be read": "{n} Profile importiert; {failed} konnten nicht gelesen werden",
+  "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "„{name}“ auf diesem Computer aus LightCraft entfernen? Integrierte Looks wiederherstellen holt ihn zurück.",
+  "Restore Built-in Looks ({n})": "Integrierte Looks wiederherstellen ({n})",
+  "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Deine Profile, Vorgaben ({presets}), Vorgaben für lokale Korrekturen ({effects}), Importeinstellungen und Gehäuse-Standards liegen im Einstellungsordner von LightCraft, sodass jede Bibliothek sie hat.",
+  "{n} photos here": "{n} Fotos hier",
+  "Backed up in {s} s ({size})": "Gesichert in {s} s ({size})",
+  "Last {n}": "Letzte {n}",
+  "Library backed up to {path}": "Bibliothek gesichert nach {path}",
+  "The last backup failed: {e}": "Das letzte Backup ist fehlgeschlagen: {e}",
+  "The library backup failed: {e}": "Das Backup der Bibliothek ist fehlgeschlagen: {e}",
+  "{n} photos · {size}": "{n} Fotos · {size}"
 }
