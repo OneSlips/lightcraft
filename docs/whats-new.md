@@ -1,5 +1,19 @@
 # What's new in LightCraft
 
+## 2026-10-16
+
+### Faces and eyes while culling
+- **Groups**: the eye strip now finds the small faces of big groups (a second, long-range face
+  finder): about 62 of 65 people on a 45-megapixel family group, where it found none before. The
+  strip takes up to 120 people.
+- **Fair sharpness**: an eye is measured at a scale that follows its size and compared with the
+  sharpest eye in the photo, so a wide-open 85 mm portrait of five people in focus reads green, not
+  red. Missed focus stays red.
+- **Closed eyes on faces turned away** (a kiss on the cheek, a 3/4 view) are marked Closed; a closed
+  eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
+- **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
+  frame.
+
 ## 2026-10-15
 
 ### Settings window

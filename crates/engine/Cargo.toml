@@ -75,3 +75,8 @@ required-features = ["sam"]
 # real-photo evaluation of smart masks (needs the AI models)
 name = "smart_eval"
 required-features = ["sam"]
+
+[[example]]
+# eye focus on real photos: faces found, eyes judged (needs the face model)
+name = "eyes_eval"
+required-features = ["sam"]

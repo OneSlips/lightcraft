@@ -23,9 +23,9 @@ use lightcraft_catalog::PhotoId;
 use lightcraft_raster::Rgba8;
 
 /// What changes the results (bump when the measure or the crops change, so caches drop them).
-pub const EYES_VERSION: u64 = 1;
+pub const EYES_VERSION: u64 = 2;
 /// At most this many people get an eye thumbnail (the largest faces).
-pub const MAX_PEOPLE: usize = 8;
+pub const MAX_PEOPLE: usize = 120;
 /// The eye crop's size in photo pixels (shown at 100 %).
 pub const CROP_W: usize = 160;
 pub const CROP_H: usize = 100;
@@ -45,13 +45,24 @@ pub enum Focus {
 }
 
 /// [`sharpness`] at or above this is [`Focus::Sharp`]; below [`SOFT_FROM`], [`Focus::Blurry`].
-/// Set by eye on 120 eyes of a wedding's EOS R5 C frames (camera JPEGs): crisp lashes and iris
-/// rims read 42–74, eyes just behind the focal plane 30–42, people out of the depth of field
-/// 0–29. Smooth young skin reads a little lower than lined skin at the same focus.
-pub const SHARP_FROM: f32 = 42.0;
-pub const SOFT_FROM: f32 = 30.0;
+/// Set by eye on 280 eyes 30–260 pixels wide from 112 frames of a wedding's EOS R5 C camera JPEGs
+/// (ceremony, portraits, groups; 35–85 mm, f/1.4–f/4), measured at a scale that follows the eye's
+/// size ([`MEASURE_EYE_W`]): crisp lashes and iris rims read 28–56 (an 85 mm f/1.4 portrait wide
+/// open 23–29), soft ones 16–28, missed focus and motion 2–15. Within a photo, eyes close to its
+/// sharpest are eased up ([`focus_in_frame`]).
+pub const SHARP_FROM: f32 = 28.0;
+pub const SOFT_FROM: f32 = 16.0;
 
 impl Focus {
+    /// Better is higher.
+    fn rank(self) -> u8 {
+        match self {
+            Focus::Sharp => 2,
+            Focus::Soft => 1,
+            Focus::Blurry => 0,
+        }
+    }
+
     pub fn of(sharpness: f32) -> Focus {
         if !sharpness.is_finite() || sharpness < SOFT_FROM {
             Focus::Blurry
@@ -74,6 +85,8 @@ pub enum Lids {
     Closed,
     /// FaceMesh gave no lids to measure.
     Unknown,
+    /// No eye to be seen: a dark lens (sunglasses) over it.
+    Hidden,
 }
 
 /// [`openness`] below this is [`Lids::Closed`]; below [`HALF_BELOW`], [`Lids::Half`]. Set on
@@ -92,13 +105,15 @@ impl Lids {
         }
     }
 
-    /// Better first: open, unknown, half, closed.
+    /// Better first: open, unknown, half, closed, hidden (a closed eye beside a hidden one is
+    /// the one to show).
     fn rank(self) -> u8 {
         match self {
-            Lids::Open => 3,
-            Lids::Unknown => 2,
-            Lids::Half => 1,
-            Lids::Closed => 0,
+            Lids::Open => 4,
+            Lids::Unknown => 3,
+            Lids::Half => 2,
+            Lids::Closed => 1,
+            Lids::Hidden => 0,
         }
     }
 }
@@ -162,6 +177,35 @@ pub fn iris_showing(img: &Rgba8, lm: &[[f32; 2]], k: usize) -> Option<f32> {
     (skin > 0.02).then(|| iris / skin).filter(|v| v.is_finite())
 }
 
+/// How much darker the iris is than the whites beside it (the brighter of the two points halfway
+/// from the iris's centre to each corner), over the cheek's luminance: an eye has a dark iris
+/// between lighter whites, a sunglass lens is one tone across. `None` without landmarks.
+pub fn iris_contrast(img: &Rgba8, lm: &[[f32; 2]], k: usize) -> Option<f32> {
+    let (corners, _, _) = LIDS.get(k)?;
+    let (a, b) = (*lm.get(corners[0])?, *lm.get(corners[1])?);
+    let c = *lm.get(IRIS_POINTS.get(k)?.0)?;
+    let ew = ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt();
+    if !(ew.is_finite() && ew >= 4.0 && c.iter().all(|v| v.is_finite())) {
+        return None;
+    }
+    let rad = (ew * 0.06).max(0.8);
+    let disk = |p: [f32; 2]| -> Option<f32> {
+        let mut v = Vec::new();
+        for dy in [-rad, 0.0, rad] {
+            for dx in [-rad, 0.0, rad] {
+                v.push(luma_at(img, p[0] + dx, p[1] + dy)?);
+            }
+        }
+        Some(v.iter().sum::<f32>() / v.len() as f32)
+    };
+    let iris = disk(c)?;
+    let side = |q: [f32; 2]| disk([(c[0] + q[0]) / 2.0, (c[1] + q[1]) / 2.0]);
+    let sides = side(a).into_iter().chain(side(b)).fold(f32::NEG_INFINITY, f32::max);
+    let skin = luma_at(img, c[0], c[1] + ew * 0.75)?.max(0.02);
+    let v = (sides - iris) / skin;
+    v.is_finite().then_some(v)
+}
+
 /// The lids' verdict from their gap ([`openness`]) and how much iris shows ([`iris_showing`]):
 /// FaceMesh tends to draw a closed eye a little open (gaps of 0.3–0.4 on closed lids are common),
 /// so a middling gap counts as closed when the iris doesn't show either, and as open when it does
@@ -205,6 +249,8 @@ pub struct EyeShot {
     pub crop: Arc<Rgba8>,
     /// 0–100 (see [`sharpness`]).
     pub sharpness: f32,
+    /// The sharpness as a share of the photo's sharpest open eye (0–100; that eye is 100).
+    pub relative: f32,
     pub focus: Focus,
     /// Whether the other eye was measured too (a face turned away shows one).
     pub both_eyes: bool,
@@ -212,6 +258,19 @@ pub struct EyeShot {
     pub openness: Option<f32>,
     /// How much of the iris shows (see [`iris_showing`]; lower shows more).
     pub iris: Option<f32>,
+    /// How much darker the iris is than the whites beside it ([`iris_contrast`]).
+    pub contrast: Option<f32>,
+    /// The eye's look on the photo (see [`eye_look`]).
+    pub look: Option<EyeLook>,
+    /// The eye's width in photo pixels (corner to corner as placed).
+    pub eye_width: f32,
+    /// How sure the face detector was (0–1).
+    pub score: f32,
+    /// One of the photo's main subjects: a face at least half as wide as its largest (not a guest
+    /// further back). Automatic rejects look at these only.
+    pub main: bool,
+    /// Whether FaceMesh placed the eye (else BlazeFace's eye point, refined: a profile).
+    pub landmarks: bool,
     pub lids: Lids,
 }
 
@@ -219,6 +278,40 @@ impl EyeShot {
     /// What the culler wants: sharp and open.
     pub fn good(&self) -> bool {
         self.focus == Focus::Sharp && self.lids == Lids::Open
+    }
+
+    /// The strip's verdict for this person: the worse of the lids and the focus (closed is
+    /// closed however sharp, a hidden eye has no verdict).
+    pub fn verdict(&self) -> Verdict {
+        match (self.lids, self.focus) {
+            (Lids::Hidden, _) => Verdict::NotVisible,
+            (Lids::Closed, _) => Verdict::Closed,
+            (_, Focus::Blurry) => Verdict::Blurry,
+            (Lids::Half, _) => Verdict::HalfClosed,
+            (_, Focus::Soft) => Verdict::Soft,
+            _ => Verdict::Sharp,
+        }
+    }
+}
+
+/// What the strip says about a person (see [`EyeShot::verdict`]): green only for open and
+/// sharp, red for closed or blurry, amber for soft or half closed, grey when no eye shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Verdict {
+    Sharp,
+    Soft,
+    HalfClosed,
+    Blurry,
+    Closed,
+    /// Sunglasses: no eye to judge.
+    NotVisible,
+}
+
+impl Verdict {
+    /// For an automatic reject: closed or blurry.
+    pub fn is_reject(self) -> bool {
+        matches!(self, Verdict::Closed | Verdict::Blurry)
     }
 }
 
@@ -233,12 +326,34 @@ pub struct EyeReport {
     /// in a shoulder): BlazeFace finds them, FaceMesh doesn't take them, and BlazeFace's own eye
     /// points on such faces land on ears and fingers as often as on eyes, so they get no crop.
     pub no_eyes: usize,
+    /// Every face found (normalised boxes, left to right), shown or not.
+    pub boxes: Vec<[f32; 4]>,
     /// The picture's size (pixels).
     pub size: (usize, usize),
     pub ms: f64,
 }
 
 impl EyeReport {
+    /// A report of nothing found.
+    pub fn empty() -> EyeReport {
+        EyeReport { photo: PhotoId(0), eyes: Vec::new(), faces: 0, no_eyes: 0, boxes: Vec::new(), size: (0, 0), ms: 0.0 }
+    }
+
+    /// Where Zoom to Focus Point goes when the camera recorded no point (normalized): the
+    /// sharpest open eye of the photo's main subjects, else the largest face's centre.
+    pub fn zoom_target(&self) -> Option<[f32; 2]> {
+        let open = |e: &&EyeShot| matches!(e.lids, Lids::Open | Lids::Unknown | Lids::Half);
+        if let Some(e) = self.eyes.iter().filter(|e| e.main).filter(open).max_by(|a, b| a.sharpness.total_cmp(&b.sharpness)) {
+            return Some(e.center);
+        }
+        let area = |b: &[f32; 4]| (b[2] - b[0]) * (b[3] - b[1]);
+        self.boxes
+            .iter()
+            .filter(|b| b.iter().all(|v| v.is_finite()))
+            .max_by(|a, b| area(a).total_cmp(&area(b)))
+            .map(|b| [(b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0])
+    }
+
     /// People whose shown eye is closed or half closed (a cull filter could use it later).
     pub fn blinks(&self) -> usize {
         self.eyes.iter().filter(|e| matches!(e.lids, Lids::Closed | Lids::Half)).count()
@@ -290,17 +405,26 @@ impl Region {
     }
 }
 
-/// The luminance inside `r`, averaged over 2 × 2 pixels: (values, width, height). A defocused eye
-/// has lost its detail at this scale too, while the photo's grain (mostly finer) weighs a quarter
-/// as much.
-fn luma_half(img: &Rgba8, r: Region) -> (Vec<f32>, usize, usize) {
-    let (gw, gh) = (r.w / 2, r.h / 2);
-    let at = |x: usize, y: usize| img.data.get(y * img.width + x).copied().map(luma).unwrap_or(0.0);
+/// The luminance inside `r`, box-averaged over `k × k` pixels (`k` at least 2): (values, width,
+/// height). A defocused eye has lost its detail at this scale too, while the photo's grain (mostly
+/// finer) weighs less. [`measure_eye`] scales `k` with the eye's size, so the measure looks at the
+/// same share of an eye whether it is 40 or 400 pixels wide.
+fn luma_scaled(img: &Rgba8, r: Region, k: f32) -> (Vec<f32>, usize, usize) {
+    let k = if k.is_finite() { k.max(2.0) } else { 2.0 };
+    let (gw, gh) = ((r.w as f32 / k) as usize, (r.h as f32 / k) as usize);
     let mut v = Vec::with_capacity(gw * gh);
     for gy in 0..gh {
+        let (y0, y1) = (r.y + (gy as f32 * k) as usize, r.y + ((gy + 1) as f32 * k) as usize);
         for gx in 0..gw {
-            let (x, y) = (r.x + gx * 2, r.y + gy * 2);
-            v.push((at(x, y) + at(x + 1, y) + at(x, y + 1) + at(x + 1, y + 1)) / 4.0);
+            let (x0, x1) = (r.x + (gx as f32 * k) as usize, r.x + ((gx + 1) as f32 * k) as usize);
+            let (mut sum, mut n) = (0.0f32, 0u32);
+            for y in y0..y1.max(y0 + 1) {
+                for p in img.data.get(y * img.width + x0..y * img.width + x1.max(x0 + 1)).unwrap_or(&[]) {
+                    sum += luma(*p);
+                    n += 1;
+                }
+            }
+            v.push(if n > 0 { sum / n as f32 } else { 0.0 });
         }
     }
     (v, gw, gh)
@@ -320,8 +444,8 @@ fn laplacian(g: &[f32], w: usize, h: usize) -> Vec<f32> {
 
 /// The noise at the measure's scale in `r` (a region without detail of its own): the median
 /// absolute Laplacian, scaled to a standard deviation.
-pub fn noise_level(img: &Rgba8, r: Region) -> f32 {
-    let (g, w, h) = luma_half(img, r);
+pub fn noise_level(img: &Rgba8, r: Region, k: f32) -> f32 {
+    let (g, w, h) = luma_scaled(img, r, k);
     let mut v: Vec<f32> = laplacian(&g, w, h).into_iter().map(f32::abs).filter(|v| v.is_finite()).collect();
     if v.is_empty() {
         return 0.0;
@@ -333,8 +457,8 @@ pub fn noise_level(img: &Rgba8, r: Region) -> f32 {
 /// How sharp the detail in `r` is: RMS Laplacian (of the 2 × 2-averaged luminance) with
 /// `noise`'s energy taken out, over the region's contrast (its luminance's standard deviation).
 /// Unitless; `0.0` for an empty or flat region.
-pub fn focus_score(img: &Rgba8, r: Region, noise: f32) -> f32 {
-    let (g, w, h) = luma_half(img, r);
+pub fn focus_score(img: &Rgba8, r: Region, noise: f32, k: f32) -> f32 {
+    let (g, w, h) = luma_scaled(img, r, k);
     let lap = laplacian(&g, w, h);
     if lap.is_empty() || g.len() < 2 {
         return 0.0;
@@ -411,8 +535,13 @@ pub fn crop_at(img: &Rgba8, cx: f32, cy: f32) -> Option<Rgba8> {
     Some(out)
 }
 
-/// One eye's measurement: (score, centre, width) from its outline points (photo pixels), with a patch of
-/// cheek `below` it for the noise. `None` when the outline is degenerate.
+/// An eye this many pixels wide is measured at [`luma_scaled`]'s finest scale (2 × 2 pixels);
+/// a wider one at a proportionally coarser one, so a large face shot at 45 megapixels isn't
+/// judged on detail finer than any lens draws at that size.
+pub const MEASURE_EYE_W: f32 = 80.0;
+
+/// One eye's measurement: (score, centre, width) from its outline points (photo pixels). `None`
+/// when the outline is degenerate.
 pub fn measure_eye(img: &Rgba8, outline: &[[f32; 2]]) -> Option<(f32, [f32; 2], f32)> {
     let xs = outline.iter().map(|p| p[0]).filter(|v| v.is_finite());
     let ys = outline.iter().map(|p| p[1]).filter(|v| v.is_finite());
@@ -423,16 +552,244 @@ pub fn measure_eye(img: &Rgba8, outline: &[[f32; 2]]) -> Option<(f32, [f32; 2], 
     }
     let ew = (x1 - x0).max(4.0);
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
-    // the eye with its lids, lashes, creases and the brow above it: a laughing or blinking eye has
-    // little detail of its own, and the brow hairs and lid creases are in the same focal plane;
-    // at least 12 pixels each way
-    let eye = Region::around(cx, cy - ew * 0.2, (ew * 1.5).max(12.0), (ew * 1.2).max(12.0), img.width, img.height)?;
-    // the grain at the measure's scale, from the region itself: its median absolute Laplacian
-    // (the edges that make an eye sharp are a minority of its pixels; a patch of cheek "beside"
-    // it was a laughing crease or a tooth as often as plain skin)
-    let noise = noise_level(img, eye);
-    Some((focus_score(img, eye, noise), [cx, cy], ew))
+    Some((measure_eye_at(img, [cx, cy], ew)?, [cx, cy], ew))
 }
+
+/// [`focus_score`] of the eye centred on `c` and `ew` pixels wide: the eye with its lids, lashes,
+/// creases and the brow above it (a laughing or blinking eye has little detail of its own, and
+/// the brow hairs and lid creases are in the same focal plane), at least 12 pixels each way, at a
+/// scale that follows the eye's size ([`MEASURE_EYE_W`]).
+pub fn measure_eye_at(img: &Rgba8, c: [f32; 2], ew: f32) -> Option<f32> {
+    if !(ew.is_finite() && ew > 0.0) {
+        return None;
+    }
+    // a small eye (a face at the back of a group) with the brow and the bridge of the nose: too
+    // few pixels of its own to tell detail from grain
+    let eye = Region::around(c[0], c[1] - ew * 0.2, (ew * 1.5).max(32.0), (ew * 1.2).max(24.0), img.width, img.height)?;
+    let k = 2.0 * (ew / MEASURE_EYE_W).max(1.0);
+    // the grain at the measure's scale, from the region itself: its median absolute Laplacian
+    // (the edges that make an eye sharp are a minority of its pixels)
+    let noise = noise_level(img, eye, k);
+    Some(focus_score(img, eye, noise, k))
+}
+
+/// How an eye's surroundings look on the photo, around its centre `c` (`ew` pixels wide), against
+/// the cheek below it: what tells an eye behind a dark lens (sunglasses) from an eye.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct EyeLook {
+    /// Share of the eye's opening that is white of the eye: lighter than the lid would be and
+    /// without skin's warmth.
+    pub sclera: f32,
+    /// Mean luminance of the eye and the brow's underside over the cheek's: a lens is a fraction
+    /// of the cheek's, an eye in its socket's shade still about half or more.
+    pub socket: f32,
+    /// Share of the socket much darker than the cheek (all of it behind a lens).
+    pub socket_dark: f32,
+    /// Just under the eye (lower lid, top of the cheek) over the cheek further down: skin over
+    /// skin (0.6–0.9), or a lens's lower half over skin (0.15–0.25).
+    pub under: f32,
+}
+
+/// Chroma over luminance of an sRGB pixel: skin is warm (high), the white of the eye, grey
+/// lenses and shade-blue whites low.
+fn warmth(p: [u8; 4]) -> f32 {
+    let (r, g, b) = (f32::from(p[0]), f32::from(p[1]), f32::from(p[2]));
+    let mx = r.max(g).max(b);
+    let mn = r.min(g).min(b);
+    // warm: red above blue; a cold (bluish) tint counts as no warmth
+    let warm = (r - b).max(0.0);
+    if mx < 1.0 { 0.0 } else { (0.5 * (mx - mn) + 0.5 * warm) / mx }
+}
+
+/// [`EyeLook`] of the eye at `c`, `ew` wide, its axis at `angle` (radians); `None` without skin
+/// to compare (off the picture).
+pub fn eye_look(img: &Rgba8, c: [f32; 2], ew: f32, angle: f32) -> Option<EyeLook> {
+    eye_look_with(img, c, ew, angle, |_, _| {})
+}
+
+/// Luminance at `(x, y)` (bilinear; `None` off the picture).
+fn luma_at(img: &Rgba8, x: f32, y: f32) -> Option<f32> {
+    if !(x.is_finite() && y.is_finite()) || x < 0.0 || y < 0.0 {
+        return None;
+    }
+    let (x0, y0) = (x as usize, y as usize);
+    if x0 + 1 >= img.width || y0 + 1 >= img.height {
+        return None;
+    }
+    let (tx, ty) = (x - x0 as f32, y - y0 as f32);
+    let p = |x: usize, y: usize| img.data.get(y * img.width + x).copied().map(luma).unwrap_or(0.0);
+    let top = p(x0, y0) * (1.0 - tx) + p(x0 + 1, y0) * tx;
+    let bot = p(x0, y0 + 1) * (1.0 - tx) + p(x0 + 1, y0 + 1) * tx;
+    Some(top * (1.0 - ty) + bot * ty)
+}
+
+/// [`eye_look`], telling `mark` which pixels counted as white of the eye (for looking at it).
+pub fn eye_look_with(img: &Rgba8, c: [f32; 2], ew: f32, angle: f32, mut mark: impl FnMut(usize, usize)) -> Option<EyeLook> {
+    if !(ew.is_finite() && ew >= 4.0 && c.iter().all(|v| v.is_finite())) {
+        return None;
+    }
+    let pixels = |r: Region| {
+        let mut px = Vec::with_capacity(r.w * r.h);
+        for y in r.y..r.y + r.h {
+            px.extend_from_slice(img.data.get(y * img.width + r.x..y * img.width + r.x + r.w).unwrap_or(&[]));
+        }
+        px
+    };
+    // the cheek: under the eye, clear of the lower lid and of the nostril
+    let cheek = pixels(Region::around(c[0], c[1] + ew * 0.75, ew * 0.7, ew * 0.35, img.width, img.height)?);
+    if cheek.is_empty() {
+        return None;
+    }
+    let mut ls: Vec<f32> = cheek.iter().map(|p| luma(*p)).collect();
+    ls.sort_by(f32::total_cmp);
+    let skin_l = ls.get(ls.len() / 2).copied().unwrap_or(0.0).max(0.02);
+    let mut ws: Vec<f32> = cheek.iter().map(|p| warmth(*p)).collect();
+    ws.sort_by(f32::total_cmp);
+    let skin_w = ws.get(ws.len() / 2).copied().unwrap_or(0.0);
+    // the opening: the eye's width, a third of it tall
+    let or = Region::around(c[0], c[1], ew * 0.9, (ew * 0.32).max(3.0), img.width, img.height)?;
+    let mut white = 0usize;
+    for y in or.y..or.y + or.h {
+        for x in or.x..or.x + or.w {
+            let Some(p) = img.data.get(y * img.width + x).copied() else { continue };
+            if luma(p) > skin_l * 0.55 && warmth(p) < skin_w * 0.55 + 0.02 {
+                white += 1;
+                mark(x, y);
+            }
+        }
+    }
+    let sclera = white as f32 / (or.w * or.h).max(1) as f32;
+    // the socket: the eye and the shade under the brow, as wide as a lens
+    let sock = pixels(Region::around(c[0], c[1] - ew * 0.1, ew * 1.3, ew * 0.7, img.width, img.height)?);
+    let sn = sock.len().max(1) as f32;
+    let socket = sock.iter().map(|p| luma(*p)).sum::<f32>() / sn / skin_l;
+    let socket_dark = sock.iter().filter(|p| luma(**p) < skin_l * 0.4).count() as f32 / sn;
+    // just under the eye against the cheek further down, along the levelled axis
+    let (ca, sa) = (angle.cos(), angle.sin());
+    let row = |v0: f32| -> Option<f32> {
+        let px: Vec<f32> = (0..20)
+            .flat_map(|i| (0..3).map(move |j| ((i as f32 / 19.0 - 0.5) * 0.8 * ew, (v0 + 0.04 * j as f32) * ew)))
+            .filter_map(|(u, v)| luma_at(img, c[0] + u * ca - v * sa, c[1] + u * sa + v * ca))
+            .collect();
+        (!px.is_empty()).then(|| px.iter().sum::<f32>() / px.len() as f32)
+    };
+    let under = match (row(0.3), row(0.95)) {
+        (Some(a), Some(b)) if b > 0.005 => a / b,
+        _ => 1.0,
+    };
+    let v = EyeLook { sclera, socket, socket_dark, under };
+    [v.sclera, v.socket, v.socket_dark, v.under].iter().all(|x| x.is_finite()).then_some(v)
+}
+
+/// A dark lens over an eye FaceMesh didn't place (a face turned away): most of the socket much
+/// darker than the cheek, no white of the eye showing, the top of the cheek behind it too.
+pub fn behind_lens(look: &EyeLook) -> bool {
+    look.socket < LENS_SOCKET && look.socket_dark > LENS_DARK && look.sclera < 0.03 && look.under < LENS_UNDER
+}
+
+/// [`EyeLook::socket`] below this: dark enough for a lens.
+pub const LENS_SOCKET: f32 = 0.40;
+/// [`EyeLook::socket_dark`] above this (for an eye without landmarks): a lens.
+pub const LENS_DARK: f32 = 0.7;
+
+/// The faces in `img` (photo pixels), on a copy [`DETECT_EDGE`] pixels long: BlazeFace short range
+/// for the people near the camera, and BlazeFace full range for the small faces of a group (those
+/// of a 60-person group on a 45-megapixel frame are about 12 pixels wide there, inside its range).
+#[cfg(feature = "sam")]
+pub fn find_faces(model: &lightcraft_segment::people::FaceModel, img: &Rgba8) -> Result<Vec<lightcraft_segment::mediapipe::Detection>, String> {
+    use lightcraft_segment::mediapipe::Detection;
+    let (w, h) = (img.width, img.height);
+    let scaled = |d: &Detection, k: f32| Detection {
+        x0: d.x0 * k,
+        y0: d.y0 * k,
+        x1: d.x1 * k,
+        y1: d.y1 * k,
+        score: d.score,
+        keypoints: d.keypoints.map(|p| [p[0] * k, p[1] * k]),
+    };
+    let s = (DETECT_EDGE as f32 / w.max(h) as f32).min(1.0);
+    let (sw, sh) = (((w as f32 * s).round() as usize).max(1), ((h as f32 * s).round() as usize).max(1));
+    let small = rgb_resized(img, sw, sh);
+    let found = model.detect_all(&small, sw, sh).map_err(|e| e.to_string())?;
+    Ok(found.iter().map(|d| scaled(d, 1.0 / s)).collect())
+}
+
+/// The axis of eye `k` from its FaceMesh corners (radians; 0 when they are missing).
+pub fn eye_angle(lm: &[[f32; 2]], k: usize) -> f32 {
+    let Some((corners, _, _)) = LIDS.get(k) else { return 0.0 };
+    let (Some(a), Some(b)) = (lm.get(corners[0]), lm.get(corners[1])) else { return 0.0 };
+    // left to right on the picture, whichever corner FaceMesh names first
+    let (a, b) = if a[0] <= b[0] { (a, b) } else { (b, a) };
+    let t = (b[1] - a[1]).atan2(b[0] - a[0]);
+    if t.is_finite() { t } else { 0.0 }
+}
+
+/// A face at least this share of the widest one's width is a main subject ([`EyeShot::main`]).
+pub const MAIN_FACE: f32 = 0.5;
+
+/// What became of a face found.
+#[cfg(feature = "sam")]
+enum Judged {
+    Eye(Box<EyeShot>),
+    /// A face whose eyes couldn't be placed (turned away, hidden).
+    NoEyes,
+    /// Not a face after all.
+    NotAFace,
+}
+
+/// A face without landmarks counts only when the detector is at least this sure of it.
+#[cfg_attr(not(feature = "sam"), allow(dead_code))]
+const NO_MESH_SCORE: f32 = 0.75;
+
+/// One eye of a face, measured.
+#[cfg(feature = "sam")]
+#[derive(Clone, Copy, Debug)]
+struct Eye {
+    score: f32,
+    centre: [f32; 2],
+    width: f32,
+    openness: Option<f32>,
+    iris: Option<f32>,
+    contrast: Option<f32>,
+    look: Option<EyeLook>,
+    lids: Lids,
+}
+
+/// What FaceMesh's landmarks say about an eye, all measures together:
+/// - an eye under [`SMALL_EYE`] pixels wide (a face at the back of a group): FaceMesh's lids are
+///   guesses at that size, so only a lid gap near zero with no iris showing is closed;
+/// - a face turned away (one eye judged): FaceMesh draws a closed eye seen side on a little open,
+///   but the lid hides the iris ([`iris_showing`] at [`TURNED_IRIS_HIDDEN`] or more);
+/// - otherwise [`lids_from`].
+///
+/// A dark lens ([`iris_contrast`] under [`LENS_CONTRAST`], the socket dark and the lens's lower
+/// half darkening the top of the cheek, [`EyeLook::under`] under [`LENS_UNDER`]) is no eye.
+pub fn lids_of_eye(openness: Option<f32>, iris: Option<f32>, contrast: Option<f32>, look: Option<&EyeLook>, ew: f32, turned: bool) -> Lids {
+    if contrast.is_some_and(|c| c < LENS_CONTRAST) && look.is_some_and(|l| l.socket < LENS_SOCKET && l.under < LENS_UNDER) {
+        return Lids::Hidden;
+    }
+    if ew < SMALL_EYE {
+        return match (openness, iris) {
+            (Some(o), i) if o < 0.08 && i.is_none_or(|i| i >= IRIS_HIDDEN) => Lids::Closed,
+            _ => Lids::Unknown,
+        };
+    }
+    let l = lids_from(openness, iris);
+    if turned && l != Lids::Closed && iris.is_some_and(|i| i >= TURNED_IRIS_HIDDEN) {
+        return Lids::Closed;
+    }
+    l
+}
+
+/// Eyes narrower than this (pixels) have no reliable lids (see [`lids_of_eye`]).
+pub const SMALL_EYE: f32 = 22.0;
+/// On a face turned away, [`iris_showing`] at or above this: the lid covers the iris.
+pub const TURNED_IRIS_HIDDEN: f32 = 0.22;
+/// [`iris_contrast`] below this, with a dark socket: a lens.
+pub const LENS_CONTRAST: f32 = 0.06;
+/// [`EyeLook::under`] below this: the top of the cheek is behind a lens too. Closed eyes with
+/// dark lashes (whose iris contrast is as low as a lens's) read 0.35–0.7, lenses 0.15–0.25.
+pub const LENS_UNDER: f32 = 0.3;
 
 /// Look at `img` (the photo at full size) with `model`: each person's sharper eye.
 #[cfg(feature = "sam")]
@@ -441,79 +798,237 @@ pub fn analyze(model: &lightcraft_segment::people::FaceModel, img: &Rgba8, photo
     let t0 = web_time::Instant::now();
     let (w, h) = (img.width, img.height);
     if w < 16 || h < 16 {
-        return Ok(EyeReport { photo, eyes: Vec::new(), faces: 0, no_eyes: 0, size: (w, h), ms: 0.0 });
+        return Ok(EyeReport { photo, size: (w, h), ..EyeReport::empty() });
     }
-    // faces in a smaller copy
-    let s = (DETECT_EDGE as f32 / w.max(h) as f32).min(1.0);
-    let (sw, sh) = (((w as f32 * s).round() as usize).max(1), ((h as f32 * s).round() as usize).max(1));
-    let small = rgb_resized(img, sw, sh);
-    let found = model.detect(&small, sw, sh).map_err(|e| e.to_string())?;
-    let k = 1.0 / s;
-    let boxes: Vec<[f32; 4]> = found.iter().map(|d| [d.x0 * k, d.y0 * k, d.x1 * k, d.y1 * k]).collect();
-    let mut eyes = Vec::new();
-    let mut no_eyes = 0;
-    for i in people_order(&boxes) {
-        let Some(d) = found.get(i) else { continue };
-        let full = Detection {
-            x0: d.x0 * k,
-            y0: d.y0 * k,
-            x1: d.x1 * k,
-            y1: d.y1 * k,
-            score: d.score,
-            keypoints: d.keypoints.map(|p| [p[0] * k, p[1] * k]),
-        };
-        // FaceMesh on a full-resolution crop around the face (the eye contours are a few pixels
-        // wide in the small copy)
-        let landmarks = face_crop(img, &full).and_then(|(rgb, cw, ch, ox, oy)| {
-            let local = Detection {
-                x0: full.x0 - ox,
-                y0: full.y0 - oy,
-                x1: full.x1 - ox,
-                y1: full.y1 - oy,
-                score: full.score,
-                keypoints: full.keypoints.map(|p| [p[0] - ox, p[1] - oy]),
+    let found = find_faces(model, img)?;
+    let t_detect = t0.elapsed().as_secs_f64() * 1000.0;
+    let boxes: Vec<[f32; 4]> = found.iter().map(|d| [d.x0, d.y0, d.x1, d.y1]).collect();
+    use rayon::prelude::*;
+    // each face on its own (FaceMesh is small: faces side by side use the cores better)
+    let judged: Vec<Judged> = people_order(&boxes)
+        .par_iter()
+        .filter_map(|&i| found.get(i))
+        .map(|full| {
+            // FaceMesh on a full-resolution crop around the face (the eye contours are a few pixels
+            // wide in the small copy)
+            let landmarks = face_crop(img, full).and_then(|(rgb, cw, ch, ox, oy)| {
+                let local = Detection {
+                    x0: full.x0 - ox,
+                    y0: full.y0 - oy,
+                    x1: full.x1 - ox,
+                    y1: full.y1 - oy,
+                    score: full.score,
+                    keypoints: full.keypoints.map(|p| [p[0] - ox, p[1] - oy]),
+                };
+                model.landmarks(&rgb, cw, ch, &local).ok().flatten().map(|l| l.into_iter().map(|p| [p[0] + ox, p[1] + oy]).collect::<Vec<_>>())
+            });
+            let measured: [Option<Eye>; 2] = match &landmarks {
+                Some(l) => {
+                    let outline = |e: &[usize; 16]| e.iter().filter_map(|&j| l.get(j).copied()).collect::<Vec<_>>();
+                    [0, 1].map(|k| {
+                        let (score, c, ew) = EYES.get(k).and_then(|e| measure_eye(img, &outline(e)))?;
+                        // shown centred on the iris (the lashes and the pupil's rim are where a missed
+                        // focus shows first), unless FaceMesh put it outside the eye (a face looking down)
+                        let iris = IRISES.get(k).and_then(|(c, _)| l.get(*c)).copied().filter(|p| p.iter().all(|v| v.is_finite()));
+                        let iris = iris.filter(|p| (p[0] - c[0]).abs() < ew * 0.6 && (p[1] - c[1]).abs() < ew * 0.4);
+                        let (open, shows) = (openness(l, k), iris_showing(img, l, k));
+                        let look = eye_look(img, c, ew, eye_angle(l, k));
+                        // the lids are judged once it is known whether the face is turned away
+                        Some(Eye {
+                            score,
+                            centre: iris.unwrap_or(c),
+                            width: ew,
+                            openness: open,
+                            iris: shows,
+                            contrast: iris_contrast(img, l, k),
+                            look,
+                            lids: Lids::Unknown,
+                        })
+                    })
+                }
+                None => keypoint_eyes(img, full),
             };
-            model.landmarks(&rgb, cw, ch, &local).ok().flatten().map(|l| l.into_iter().map(|p| [p[0] + ox, p[1] + oy]).collect::<Vec<_>>())
-        });
-        // measured over the contour, shown centred on the iris (the lashes and the pupil's rim are
-        // where a missed focus shows first)
-        let Some(l) = &landmarks else {
-            no_eyes += 1;
-            continue;
-        };
-        let outline = |e: &[usize; 16]| e.iter().filter_map(|&j| l.get(j).copied()).collect::<Vec<_>>();
-        let [a, b] = [0, 1].map(|k| {
-            let m = EYES.get(k).and_then(|e| measure_eye(img, &outline(e)))?;
-            let iris = IRISES.get(k).and_then(|(c, _)| l.get(*c)).copied().filter(|p| p.iter().all(|v| v.is_finite()));
-            Some((m.0, ((iris.unwrap_or(m.1), (openness(l, k), iris_showing(img, l, k))), m.2)))
-        });
-        let (a, b) = visible_eyes(a, b);
-        let both = a.is_some() && b.is_some();
-        // the open eye if there is one, then the sharper
-        let Some((score, ((c, (open, iris)), _))) = pick_eye(a, b, |e| lids_from(e.1.0.1.0, e.1.0.1.1)) else {
-            no_eyes += 1;
-            continue;
-        };
-        let Some(crop) = crop_at(img, c[0], c[1]) else { continue };
-        let sh = sharpness(score);
-        eyes.push(EyeShot {
-            face: [full.x0 / w as f32, full.y0 / h as f32, full.x1 / w as f32, full.y1 / h as f32],
-            center: [c[0] / w as f32, c[1] / h as f32],
-            crop: Arc::new(crop),
-            sharpness: sh,
-            focus: Focus::of(sh),
-            both_eyes: both,
-            openness: open,
-            iris,
-            lids: lids_from(open, iris),
-        });
+            let [a, b] = measured.map(|e| e.map(|e| (e.score, (e, e.width))));
+            let (a, b) = visible_eyes(a, b);
+            let both = a.is_some() && b.is_some();
+            let judge = |e: Option<(f32, (Eye, f32))>| {
+                e.map(|(s, (mut e, w))| {
+                    if landmarks.is_some() {
+                        e.lids = lids_of_eye(e.openness, e.iris, e.contrast, e.look.as_ref(), e.width, !both);
+                    }
+                    (s, (e, w))
+                })
+            };
+            let (mut a, mut b) = (judge(a), judge(b));
+            // sunglasses cover both eyes: one seen as a lens and the other not clearly an eye is a
+            // person whose eyes don't show
+            let hidden = |e: &Option<(f32, (Eye, f32))>| e.as_ref().is_some_and(|e| e.1.0.lids == Lids::Hidden);
+            let clear = |e: &Option<(f32, (Eye, f32))>| {
+                e.as_ref().is_none_or(|e| {
+                    e.1.0.contrast.is_none_or(|c| c >= 2.0 * LENS_CONTRAST)
+                        || e.1.0.look.is_none_or(|l| l.socket >= LENS_SOCKET || l.under >= LENS_UNDER * 1.3)
+                })
+            };
+            if (hidden(&a) && !clear(&b)) || (hidden(&b) && !clear(&a)) {
+                for e in [&mut a, &mut b].into_iter().flatten() {
+                    e.1.0.lids = Lids::Hidden;
+                }
+            }
+            // the open eye if there is one, then the sharper
+            // a face FaceMesh doesn't take, found by the far detector with a middling score, is as
+            // often a pattern (a painted sign, foliage) as a face: not counted
+            if landmarks.is_none() && full.score < NO_MESH_SCORE {
+                return Judged::NotAFace;
+            }
+            let Some((score, (e, _))) = pick_eye(a, b, |e| e.1.0.lids) else {
+                return Judged::NoEyes;
+            };
+            let Some(crop) = crop_at(img, e.centre[0], e.centre[1]) else { return Judged::NoEyes };
+            let sh = sharpness(score);
+            Judged::Eye(Box::new(EyeShot {
+                face: [full.x0 / w as f32, full.y0 / h as f32, full.x1 / w as f32, full.y1 / h as f32],
+                center: [e.centre[0] / w as f32, e.centre[1] / h as f32],
+                crop: Arc::new(crop),
+                sharpness: sh,
+                relative: 100.0,
+                focus: Focus::of(sh),
+                both_eyes: both,
+                openness: e.openness,
+                iris: e.iris,
+                contrast: e.contrast,
+                look: e.look,
+                eye_width: e.width,
+                score: full.score,
+                main: true,
+                landmarks: landmarks.is_some(),
+                lids: e.lids,
+            }))
+        })
+        .collect();
+    let no_eyes = judged.iter().filter(|j| matches!(j, Judged::NoEyes)).count();
+    let not_faces = judged.iter().filter(|j| matches!(j, Judged::NotAFace)).count();
+    let mut eyes: Vec<EyeShot> = judged.into_iter().filter_map(|j| if let Judged::Eye(e) = j { Some(*e) } else { None }).collect();
+    let widest = eyes.iter().map(|e| e.face[2] - e.face[0]).fold(0.0f32, f32::max);
+    for e in &mut eyes {
+        e.main = e.face[2] - e.face[0] >= widest * MAIN_FACE;
     }
-    Ok(EyeReport { photo, eyes, faces: found.len(), no_eyes, size: (w, h), ms: t0.elapsed().as_secs_f64() * 1000.0 })
+    judge_relative(&mut eyes);
+    log::debug!("eyes: {} faces, detect {t_detect:.0} ms, judge {:.0} ms", found.len(), t0.elapsed().as_secs_f64() * 1000.0 - t_detect);
+    let boxes = boxes.iter().map(|b| [b[0] / w as f32, b[1] / h as f32, b[2] / w as f32, b[3] / h as f32]).collect();
+    Ok(EyeReport { photo, eyes, faces: found.len().saturating_sub(not_faces), no_eyes, boxes, size: (w, h), ms: t0.elapsed().as_secs_f64() * 1000.0 })
 }
+
+/// A face FaceMesh doesn't take (a profile, a face half hidden): its eyes from BlazeFace's eye
+/// points, each moved onto the darkest eye-sized spot near it (the points are rough on such
+/// faces) and judged by their look. A point that lands off the face (on hair, an ear, the
+/// background) finds no skin around it, or no eye-like spot, and is dropped.
+#[cfg(feature = "sam")]
+fn keypoint_eyes(img: &Rgba8, d: &lightcraft_segment::mediapipe::Detection) -> [Option<Eye>; 2] {
+    let ew = (d.width() * 0.2).max(4.0);
+    let [r, l] = [d.keypoints[0], d.keypoints[1]];
+    let angle = (l[1] - r[1]).atan2(l[0] - r[0]);
+    let angle = if angle.is_finite() && angle.abs() < 0.8 { angle } else { 0.0 };
+    [0usize, 1].map(|k| {
+        let p = *d.keypoints.get(k)?;
+        if !p.iter().all(|v| v.is_finite()) {
+            return None;
+        }
+        let c = darkest_spot(img, p, ew)?;
+        let score = measure_eye_at(img, c, ew)?;
+        let look = eye_look(img, c, ew, angle)?;
+        // without lids to measure, only a lens is told apart
+        let lids = if behind_lens(&look) { Lids::Hidden } else { Lids::Unknown };
+        Some(Eye { score, centre: c, width: ew, openness: None, iris: None, contrast: None, look: Some(look), lids })
+    })
+}
+
+/// The centre of the darkest `ew × ew/3` spot within half an eye's width of `p` sideways and a
+/// third of it up or down (lashes, iris and the lid's crease are the darkest things there; the brow
+/// is further up), with the cheek below it lighter than the spot. `None` when nothing there is
+/// darker than the cheek.
+pub fn darkest_spot(img: &Rgba8, p: [f32; 2], ew: f32) -> Option<[f32; 2]> {
+    if !(ew.is_finite() && ew > 0.0 && p.iter().all(|v| v.is_finite())) {
+        return None;
+    }
+    let (bw, bh) = (ew.max(3.0), (ew / 3.0).max(2.0));
+    let step = (ew / 8.0).max(1.0);
+    let mean = |c: [f32; 2], w: f32, h: f32| -> Option<f32> {
+        let r = Region::around(c[0], c[1], w, h, img.width, img.height)?;
+        let (mut s, mut n) = (0.0f32, 0u32);
+        let stride = ((r.w * r.h) / 400).max(1);
+        for (i, y) in (r.y..r.y + r.h).enumerate() {
+            for x in (r.x + i % stride..r.x + r.w).step_by(stride) {
+                if let Some(px) = img.data.get(y * img.width + x) {
+                    s += luma(*px);
+                    n += 1;
+                }
+            }
+        }
+        (n > 0).then(|| s / n as f32)
+    };
+    let steps = |half: f32| -> Vec<f32> {
+        let n = (half / step).floor().min(64.0) as i32;
+        (-n..=n).map(|i| i as f32 * step).collect()
+    };
+    let mut best: Option<([f32; 2], f32)> = None;
+    for dy in steps(ew / 3.0) {
+        for dx in steps(ew / 2.0) {
+            let c = [p[0] + dx, p[1] + dy];
+            let Some(v) = mean(c, bw, bh) else { continue };
+            if best.is_none_or(|b| v < b.1) {
+                best = Some((c, v));
+            }
+        }
+    }
+    let (c, v) = best?;
+    let cheek = mean([c[0], c[1] + ew * 0.75], ew * 0.7, ew * 0.35)?;
+    (v < cheek * 0.85).then_some(c)
+}
+
+/// Each eye's sharpness against the sharpest of the photo ([`EyeShot::relative`]), and its focus
+/// verdict eased when it is close to it: a fast lens wide open and people across the frame make
+/// an eye as sharp as that photo gets read low on the absolute scale, and the culler compares
+/// faces within the frame. An eye well below the photo's best keeps its own verdict.
+pub fn judge_relative(eyes: &mut [EyeShot]) {
+    let best = eyes.iter().filter(|e| matches!(e.lids, Lids::Open | Lids::Half)).map(|e| e.sharpness).fold(0.0f32, f32::max);
+    for e in eyes.iter_mut() {
+        e.relative = if best > 0.0 { (e.sharpness / best * 100.0).min(100.0) } else { 0.0 };
+        e.focus = focus_in_frame(e.sharpness, best);
+    }
+}
+
+/// The focus verdict of an eye scoring `sharpness` in a photo whose best open eye scores `best`
+/// (see [`judge_relative`]).
+pub fn focus_in_frame(sharpness: f32, best: f32) -> Focus {
+    let own = Focus::of(sharpness);
+    if !(best.is_finite() && sharpness.is_finite()) || best < RELATIVE_FROM {
+        return own;
+    }
+    let rel = sharpness / best;
+    // never above the photo's best eye
+    let ceiling = Focus::of(best);
+    let eased = if rel >= RELATIVE_SHARP {
+        ceiling
+    } else if rel >= RELATIVE_SOFT && ceiling != Focus::Blurry {
+        Focus::Soft
+    } else {
+        own
+    };
+    if eased.rank() > own.rank() { eased } else { own }
+}
+
+/// The best eye must read at least this for the others to be judged against it (in a frame
+/// where every eye is missed, all stay blurry).
+pub const RELATIVE_FROM: f32 = SOFT_FROM;
+/// At this share of the best eye or more: as sharp as it (never above it); at [`RELATIVE_SOFT`]
+/// or more, at worst soft. On the 85 mm f/1.4 portraits of five people in one plane, the eyes
+/// read 62–100 % of the best.
+pub const RELATIVE_SHARP: f32 = 0.75;
+pub const RELATIVE_SOFT: f32 = 0.55;
 
 /// `img` box-averaged to `w × h`, as packed RGB.
 #[cfg_attr(not(feature = "sam"), allow(dead_code))]
-fn rgb_resized(img: &Rgba8, w: usize, h: usize) -> Vec<u8> {
+pub fn rgb_resized(img: &Rgba8, w: usize, h: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(w * h * 3);
     let (sx, sy) = (img.width as f32 / w as f32, img.height as f32 / h as f32);
     for y in 0..h {
@@ -583,8 +1098,16 @@ impl crate::Session {
 
     /// Where the eye finder's model lives, when it is installed (`None`: it needs downloading,
     /// or this build has no AI masks).
-    pub fn eye_model_dir(&self) -> Option<std::path::PathBuf> {
-        self.segmenter.model_installed("face").then(|| self.segmenter.model_dir_for("face")).flatten()
+    /// An installed model that lacks the small-face detector (installed by an older LightCraft)
+    /// fetches it in the background.
+    pub fn eye_model_dir(&mut self) -> Option<std::path::PathBuf> {
+        if !self.segmenter.model_installed("face") {
+            return None;
+        }
+        if let Err(e) = self.segmenter.top_up_model("face", &self.activity) {
+            log::warn!("eyes: the small-face detector can't be fetched ({e})");
+        }
+        self.segmenter.model_dir_for("face")
     }
 }
 
@@ -654,6 +1177,8 @@ impl Drop for EyeScanner {
 fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
     #[cfg(feature = "sam")]
     let mut model: Option<lightcraft_segment::people::FaceModel> = None;
+    #[cfg(feature = "sam")]
+    let mut far_checked = false;
     loop {
         let job = {
             let mut q = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -670,7 +1195,14 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
         let result = crate::guard::catch("finding eyes", || -> Result<Arc<EyeReport>, String> {
             #[cfg(feature = "sam")]
             {
-                if model.is_none() {
+                // the small-face detector may arrive after the model was loaded (fetched in the
+                // background for an older install): loaded again once it is there
+                let far_arrived =
+                    model.as_ref().is_some_and(|m| !m.has_far()) && !far_checked && s.model_dir.join(lightcraft_segment::people::FAR_FILE).is_file();
+                if far_arrived {
+                    far_checked = true;
+                }
+                if model.is_none() || far_arrived {
                     model = Some(lightcraft_segment::people::FaceModel::load(&s.model_dir).map_err(|e| e.to_string())?);
                 }
                 let m = model.as_ref().ok_or("no face model")?;
@@ -753,7 +1285,7 @@ mod tests {
     fn a_sharp_eye_scores_above_a_blurred_one() {
         for noise in [0.0, 0.015] {
             let s = |b| measure_eye(&eye(b, noise), &outline()).unwrap().0;
-            let (sharp, soft, blurry) = (s(0), s(3), s(10));
+            let (sharp, soft, blurry) = (s(0), s(3), s(24));
             assert!(sharp > soft && soft > blurry, "noise {noise}: {sharp} {soft} {blurry}");
             assert_eq!(Focus::of(sharpness(sharp)), Focus::Sharp, "noise {noise}: {sharp} -> {}", sharpness(sharp));
             assert_eq!(Focus::of(sharpness(blurry)), Focus::Blurry, "noise {noise}: {blurry} -> {}", sharpness(blurry));
@@ -840,10 +1372,11 @@ mod tests {
         let b = |x: f32, s: f32| [x, 0.0, x + s, s];
         let boxes = vec![b(500.0, 50.0), b(100.0, 80.0), b(300.0, 10.0), b(200.0, 120.0)];
         assert_eq!(people_order(&boxes), vec![1, 3, 2, 0]);
-        let many: Vec<[f32; 4]> = (0..12).map(|i| b(i as f32 * 100.0, 10.0 + i as f32)).collect();
+        let n = MAX_PEOPLE + 4;
+        let many: Vec<[f32; 4]> = (0..n).map(|i| b(i as f32 * 100.0, 10.0 + i as f32)).collect();
         let o = people_order(&many);
         assert_eq!(o.len(), MAX_PEOPLE);
-        assert_eq!(o, (4..12).collect::<Vec<_>>(), "the smallest faces are left out, the rest left to right");
+        assert_eq!(o, (4..n).collect::<Vec<_>>(), "the smallest faces are left out, the rest left to right");
         assert!(people_order(&[[f32::NAN, 0.0, 1.0, 1.0]]).is_empty());
     }
 
@@ -864,106 +1397,138 @@ mod tests {
         assert_eq!(Focus::of(f32::NAN), Focus::Blurry);
     }
 
-    /// The real check on a photographer's own frames: `LC_EYES_DIR` (a folder of raws, read only),
-    /// `LC_EYES_MODELS` (the folder holding `mediapipe-face-landmarker`), `LC_EYES_OUT` (where the
-    /// crops are written). Ignored by default.
-    #[cfg(feature = "sam")]
+    /// The same eye drawn three times larger (a close portrait on a 45-megapixel frame) scores
+    /// about as sharp, not three times softer: the measure follows the eye's size.
     #[test]
-    #[ignore]
-    fn real_frames() {
-        let (Ok(dir), Ok(models), Ok(out)) = (std::env::var("LC_EYES_DIR"), std::env::var("LC_EYES_MODELS"), std::env::var("LC_EYES_OUT")) else {
-            eprintln!("set LC_EYES_DIR, LC_EYES_MODELS and LC_EYES_OUT");
-            return;
+    fn the_measure_follows_the_eyes_size() {
+        let up3 = |img: &Rgba8| Rgba8 {
+            width: img.width * 3,
+            height: img.height * 3,
+            data: (0..img.width * 3 * img.height * 3).map(|i| img.data[(i / (img.width * 3) / 3) * img.width + (i % (img.width * 3)) / 3]).collect(),
         };
-        let n: usize = std::env::var("LC_EYES_N").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
-        let skip: usize = std::env::var("LC_EYES_SKIP").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
-        let model = lightcraft_segment::people::FaceModel::load(&std::path::Path::new(&models).join("mediapipe-face-landmarker")).unwrap();
-        let loader = crate::files::fs_preview_loader();
-        std::fs::create_dir_all(&out).unwrap();
-        let mut files: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|e| e.path()).filter(|p| crate::import::is_supported(p)).collect();
-        files.sort();
-        for f in files.iter().skip(skip).take(n) {
-            let path = f.to_string_lossy().to_string();
-            let t = web_time::Instant::now();
-            let Some(img) = load(&EyeSource::Embedded(path.clone(), loader.clone())) else { continue };
-            let load_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let r = analyze(&model, &img, PhotoId(0)).unwrap();
-            if std::env::var("LC_EYES_DEBUG").is_ok() {
-                let s = (DETECT_EDGE as f32 / img.width.max(img.height) as f32).min(1.0);
-                let (sw, sh) = ((img.width as f32 * s) as usize, (img.height as f32 * s) as usize);
-                let small = rgb_resized(&img, sw, sh);
-                for d in model.detect(&small, sw, sh).unwrap() {
-                    let full = lightcraft_segment::mediapipe::Detection {
-                        x0: d.x0 / s,
-                        y0: d.y0 / s,
-                        x1: d.x1 / s,
-                        y1: d.y1 / s,
-                        score: d.score,
-                        keypoints: d.keypoints.map(|p| [p[0] / s, p[1] / s]),
-                    };
-                    let lm_small = model.landmarks(&small, sw, sh, &d).unwrap().is_some();
-                    let lm_crop = face_crop(&img, &full).map(|(rgb, cw, ch, ox, oy)| {
-                        let local = lightcraft_segment::mediapipe::Detection {
-                            x0: full.x0 - ox,
-                            y0: full.y0 - oy,
-                            x1: full.x1 - ox,
-                            y1: full.y1 - oy,
-                            score: full.score,
-                            keypoints: full.keypoints.map(|p| [p[0] - ox, p[1] - oy]),
-                        };
-                        model.landmarks(&rgb, cw, ch, &local).unwrap().is_some()
-                    });
-                    println!(
-                        "   face {:.0},{:.0} {:.0}x{:.0} score {:.2} mesh small {lm_small} crop {lm_crop:?}",
-                        full.x0,
-                        full.y0,
-                        full.width(),
-                        full.height(),
-                        d.score
-                    );
-                    if let Some((rgb, cw, ch, _, _)) = face_crop(&img, &full) {
-                        let data = rgb.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2], 255]).collect();
-                        let face = Rgba8 { width: cw, height: ch, data };
-                        let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&face), &Default::default()).unwrap();
-                        std::fs::write(
-                            std::path::Path::new(&out).join(format!("{}-face-{:.0}.png", f.file_stem().unwrap().to_string_lossy(), full.x0)),
-                            png,
-                        )
-                        .unwrap();
-                    }
-                }
-            }
-            let stem = f.file_stem().unwrap().to_string_lossy().to_string();
-            let mut line =
-                format!("{stem}: {}x{} faces {} (no eyes {}) load {load_ms:.0} ms analyze {:.0} ms |", r.size.0, r.size.1, r.faces, r.no_eyes, r.ms);
-            for (i, e) in r.eyes.iter().enumerate() {
-                line += &format!(
-                    " #{i} {:.0} {:?} {:?} o{:.2} i{:.2}{}",
-                    e.sharpness,
-                    e.focus,
-                    e.lids,
-                    e.openness.unwrap_or(-1.0),
-                    e.iris.unwrap_or(-1.0),
-                    if e.both_eyes { "" } else { " one-eye" }
-                );
-                if std::env::var("LC_EYES_ONLY_BLINKS").is_ok() && e.lids == Lids::Open {
-                    continue;
-                }
-                let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&e.crop), &Default::default()).unwrap();
-                std::fs::write(
-                    std::path::Path::new(&out).join(format!(
-                        "{stem}-{i}-{:.0}-{:?}-{:?}-o{:.2}-i{:.2}.png",
-                        e.sharpness,
-                        e.focus,
-                        e.lids,
-                        e.openness.unwrap_or(-1.0),
-                        e.iris.unwrap_or(-1.0)
-                    )),
-                    png,
-                )
-                .unwrap();
-            }
-            println!("{line}");
+        let small = eye(0, 0.0);
+        let big = up3(&small);
+        let (a, b) = (measure_eye_at(&small, [100.0, 50.0], 80.0).unwrap(), measure_eye_at(&big, [300.0, 150.0], 240.0).unwrap());
+        assert!((b / a - 1.0).abs() < 0.5, "small {a} big {b}");
+        // the blurred big eye still reads blurred
+        let big_blur = up3(&eye(10, 0.0));
+        assert!(measure_eye_at(&big_blur, [300.0, 150.0], 240.0).unwrap() < b * 0.5);
+        assert!(measure_eye_at(&small, [f32::NAN, 1.0], 80.0).is_none() && measure_eye_at(&small, [1.0, 1.0], 0.0).is_none());
+    }
+
+    fn shot(x: f32, sharpness: f32, lids: Lids, main: bool) -> EyeShot {
+        EyeShot {
+            face: [x - 0.05, 0.1, x + 0.05, 0.2],
+            center: [x, 0.15],
+            crop: Arc::new(Rgba8::new(1, 1)),
+            sharpness,
+            relative: 0.0,
+            focus: Focus::of(sharpness),
+            both_eyes: true,
+            openness: None,
+            iris: None,
+            contrast: None,
+            look: None,
+            eye_width: 40.0,
+            score: 0.9,
+            main,
+            landmarks: true,
+            lids,
         }
+    }
+
+    /// The user's 85 mm f/1.4 frame of five people in one plane read 18, 23, 24, 24 and 29: as
+    /// sharp as that lens gets wide open. Within the frame they are all green but the softest,
+    /// amber; a frame where every eye is missed stays red; an eye far below the best keeps its own
+    /// verdict.
+    #[test]
+    fn eyes_are_judged_against_the_frames_best() {
+        let five = [18.0, 23.0, 24.0, 24.0, 29.0];
+        let verdicts: Vec<Focus> = five.iter().map(|s| focus_in_frame(*s, 29.0)).collect();
+        assert_eq!(verdicts.iter().filter(|f| **f == Focus::Sharp).count(), 4, "{verdicts:?}");
+        assert_eq!(verdicts.iter().filter(|f| **f == Focus::Soft).count(), 1, "{verdicts:?}");
+        // a missed frame: the best is blurry, so all stay blurry
+        assert!([5.0, 9.0, 12.0].iter().all(|s| focus_in_frame(*s, 12.0) == Focus::Blurry));
+        // a missed person in a sharp frame
+        assert_eq!(focus_in_frame(6.0, 45.0), Focus::Blurry);
+        // never above the best: a soft best makes its peers soft at most
+        assert_eq!(focus_in_frame(20.0, 22.0), Focus::Soft);
+        assert_eq!(focus_in_frame(f32::NAN, 30.0), Focus::Blurry);
+        assert_eq!(focus_in_frame(40.0, f32::NAN), Focus::Sharp);
+        // the report's relative scores: the best open eye is 100, closed eyes don't set the bar
+        let mut eyes = vec![shot(0.2, 29.0, Lids::Open, true), shot(0.4, 23.0, Lids::Open, true), shot(0.6, 60.0, Lids::Closed, true)];
+        judge_relative(&mut eyes);
+        assert_eq!(eyes[0].relative, 100.0);
+        assert!((eyes[1].relative - 23.0 / 29.0 * 100.0).abs() < 0.01);
+        assert_eq!(eyes[1].focus, Focus::Sharp);
+        // the verdicts the strip shows
+        assert_eq!(eyes[2].verdict(), Verdict::Closed, "closed is closed however sharp");
+        assert_eq!(eyes[0].verdict(), Verdict::Sharp);
+        assert_eq!(shot(0.1, 5.0, Lids::Open, true).verdict(), Verdict::Blurry);
+        assert_eq!(shot(0.1, 50.0, Lids::Hidden, true).verdict(), Verdict::NotVisible);
+        assert_eq!(shot(0.1, 50.0, Lids::Half, true).verdict(), Verdict::HalfClosed);
+        assert!(Verdict::Closed.is_reject() && Verdict::Blurry.is_reject() && !Verdict::NotVisible.is_reject());
+    }
+
+    /// Lids from landmarks: tiny eyes have no verdict (unless shut flat), a turned face whose lid
+    /// hides the iris is closed even when FaceMesh draws it open, and a lens is no eye.
+    #[test]
+    fn lids_of_small_turned_and_hidden_eyes() {
+        // a group's back row: FaceMesh's 0.2 gap means nothing at 12 pixels
+        assert_eq!(lids_of_eye(Some(0.2), None, Some(0.2), None, 12.0, false), Lids::Unknown);
+        assert_eq!(lids_of_eye(Some(0.02), None, Some(0.2), None, 12.0, false), Lids::Closed);
+        // the user's kissing frame: side-on closed eyes FaceMesh drew 0.35–0.75 open
+        for (o, i) in [(0.47, 0.35), (0.35, 0.40), (0.40, 0.35), (0.75, 0.24)] {
+            assert_eq!(lids_of_eye(Some(o), Some(i), Some(0.05), None, 90.0, true), Lids::Closed, "{o} {i}");
+        }
+        // the same values on a face seen whole are a squint (the iris shows a little)
+        assert_eq!(lids_of_eye(Some(0.75), Some(0.24), Some(0.15), None, 90.0, false), Lids::Open);
+        // an open eye of a turned face: the iris shows
+        assert_eq!(lids_of_eye(Some(0.56), Some(0.07), Some(0.2), None, 90.0, true), Lids::Open);
+        // sunglasses: no iris against whites, a dark socket, the cheek's top behind the lens
+        let lens = EyeLook { sclera: 0.0, socket: 0.25, socket_dark: 0.8, under: 0.2 };
+        assert_eq!(lids_of_eye(Some(0.5), Some(0.2), Some(0.02), Some(&lens), 60.0, false), Lids::Hidden);
+        // closed eyes with dark lashes: as little iris contrast, but skin under the eye
+        let lashes = EyeLook { under: 0.55, ..lens };
+        assert_eq!(lids_of_eye(Some(0.1), Some(0.9), Some(0.02), Some(&lashes), 60.0, false), Lids::Closed);
+        assert!(behind_lens(&lens) && !behind_lens(&lashes));
+    }
+
+    /// Where Space zooms without a camera focus point: the main subjects' sharpest open eye, else
+    /// the largest face; nothing found, nothing to zoom to.
+    #[test]
+    fn zoom_target_is_the_sharpest_open_eye_of_the_main_subjects() {
+        let r = EyeReport {
+            eyes: vec![
+                shot(0.2, 30.0, Lids::Open, true),
+                shot(0.5, 60.0, Lids::Closed, true),
+                shot(0.8, 70.0, Lids::Open, false),
+                shot(0.4, 40.0, Lids::Open, true),
+            ],
+            boxes: vec![[0.0, 0.0, 0.5, 0.5]],
+            ..EyeReport::empty()
+        };
+        assert_eq!(r.zoom_target(), Some([0.4, 0.15]));
+        let faces_only = EyeReport { boxes: vec![[0.1, 0.1, 0.2, 0.2], [0.5, 0.5, 0.9, 0.9], [f32::NAN, 0.0, 1.0, 1.0]], ..EyeReport::empty() };
+        assert_eq!(faces_only.zoom_target(), Some([0.7, 0.7]));
+        assert_eq!(EyeReport::empty().zoom_target(), None);
+    }
+
+    /// The eye search lands on the dark of the eye, not on the cheek beside it, and gives up on
+    /// skin without one.
+    #[test]
+    fn the_darkest_spot_finds_the_eye() {
+        let img = eye(0, 0.0);
+        // a point off to the side and below: the search moves onto the iris
+        let c = darkest_spot(&img, [112.0, 60.0], 60.0).unwrap();
+        assert!((c[0] - 100.0).abs() < 20.0 && (c[1] - 50.0).abs() < 12.0, "{c:?}");
+        let flat = Rgba8 { width: 200, height: 140, data: vec![[150, 120, 100, 255]; 200 * 140] };
+        assert!(darkest_spot(&flat, [100.0, 50.0], 60.0).is_none());
+        assert!(darkest_spot(&img, [f32::NAN, 50.0], 60.0).is_none());
+        assert!(darkest_spot(&img, [100.0, 50.0], f32::INFINITY).is_none());
+        // the look of junk positions never panics
+        assert!(eye_look(&img, [f32::NAN, 0.0], 40.0, 0.0).is_none());
+        assert!(eye_look(&img, [100.0, 50.0], 2.0, 0.0).is_none());
+        let _ = eye_look(&img, [199.0, 139.0], 400.0, f32::NAN);
     }
 }
