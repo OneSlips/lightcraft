@@ -45,8 +45,7 @@
 - **Crop shows the crop you get**: with Constrain Crop (on with Upright), the crop box is limited
   to the photo's valid area while you crop, so no white wedges show that disappear when you leave.
 - **Rotating turns the photo, not the box**: the crop box stays level, the photo turns under it
-  (smaller so it still fits), with a fine grid while you drag, as in Lightroom Classic and
-  Capture One.
+  (smaller so it still fits), with a fine grid while you drag.
 
 ### Masking panel
 - **Describe works without SAM 3.** Type what to select (`white dress`, `car, road`) and LightCraft
