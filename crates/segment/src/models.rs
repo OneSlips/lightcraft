@@ -270,6 +270,7 @@ pub const DESCRIBE: ModelInfo = ModelInfo {
     open: true,
     // trained on WebLI pseudo-labels (web image-text pairs), docs/ai-masks.md
     licence_pending: true,
+    companions: &[],
 };
 
 pub const DEPTH: ModelInfo = ModelInfo {
