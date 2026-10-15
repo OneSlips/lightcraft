@@ -89,7 +89,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         let eye = Rect::from_center_size(pos2(r.right() - 38.0, r.center().y), vec2(20.0, 20.0));
         // a long name is cut short (with …) before the buttons, the full name on hover
         let color = if m.visible { t.text } else { t.text_disabled };
-        let g = one_line(ui.painter(), &m.name, t.font(12.5), color, (eye.left() - tr.right() - 12.0).max(10.0));
+        // a mask from before automatic names ("Mask 1") shows what it selects
+        let shown = if lightcraft_develop::recipe::generic_name(&m.name) && !m.components.is_empty() {
+            lightcraft_develop::recipe::content_name(m)
+        } else {
+            m.name.clone()
+        };
+        let g = one_line(ui.painter(), &shown, t.font(12.5), color, (eye.left() - tr.right() - 12.0).max(10.0));
         let elided = g.elided;
         let at = pos2(tr.right() + 8.0, r.center().y - g.size().y / 2.0);
         register(ui.ctx(), format!("maskName:{}", m.id), Rect::from_min_size(at, g.size()));
@@ -110,7 +116,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
                 return;
             }
         }
-        let resp = if elided { resp.on_hover_text(&m.name) } else { resp };
+        let resp = if elided { resp.on_hover_text(&shown) } else { resp };
         if resp.clicked() {
             let _ = app.run("mask.select", json!({"id": m.id}));
         }
