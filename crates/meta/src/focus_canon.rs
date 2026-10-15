@@ -40,7 +40,7 @@ const MAX_POINTS: usize = 4096;
 fn values(ifd: &Ifd, tag: u16) -> Option<Vec<i16>> {
     let v = ifd.value(tag)?;
     let n = v.count();
-    if n < 8 || n > 8 + 6 * MAX_POINTS {
+    if !(8..=8 + 6 * MAX_POINTS).contains(&n) {
         return None;
     }
     (0..n).map(|i| v.get_i64(i).map(|x| x as u16 as i16)).collect()
