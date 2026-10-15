@@ -2819,5 +2819,10 @@
   "Select No Label": "Вибрати без мітки",
   "Reset Straighten": "Скинути вирівнювання",
   "No Mask": "Без маски",
-  "Eyes not visible": "Очей не видно"
+  "Eyes not visible": "Очей не видно",
+  "No closed or blurry eyes to reject": "Немає заплющених чи розмитих очей для відхилення",
+  "Reject photos with closed eyes": "Відхиляти фото із заплющеними очима",
+  "Reject photos with blurry eyes": "Відхиляти фото з розмитими очима",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Перевіряє очі головних героїв так само, як стрічка очей, близько секунди на фото, у фоні. Відібрані фото не змінюються.",
+  "Finding closed and blurry eyes": "Пошук заплющених і розмитих очей"
 }

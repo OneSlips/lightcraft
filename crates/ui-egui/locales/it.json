@@ -2007,5 +2007,10 @@
   "Select No Label": "Seleziona senza etichetta",
   "Reset Straighten": "Ripristina raddrizzamento",
   "No Mask": "Nessuna maschera",
-  "Eyes not visible": "Occhi non visibili"
+  "Eyes not visible": "Occhi non visibili",
+  "No closed or blurry eyes to reject": "Nessun occhio chiuso o sfocato da rifiutare",
+  "Reject photos with closed eyes": "Rifiuta le foto con occhi chiusi",
+  "Reject photos with blurry eyes": "Rifiuta le foto con occhi sfocati",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Valuta gli occhi dei soggetti principali come la striscia degli occhi, circa un secondo per foto, in background. Le foto scelte non vengono toccate.",
+  "Finding closed and blurry eyes": "Ricerca di occhi chiusi e sfocati"
 }

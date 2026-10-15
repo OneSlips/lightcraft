@@ -2822,5 +2822,10 @@
   "Select No Label": "Ohne Farbe auswählen",
   "Reset Straighten": "Gerade ausrichten zurücksetzen",
   "No Mask": "Keine Maske",
-  "Eyes not visible": "Augen nicht sichtbar"
+  "Eyes not visible": "Augen nicht sichtbar",
+  "No closed or blurry eyes to reject": "Keine geschlossenen oder unscharfen Augen abzulehnen",
+  "Reject photos with closed eyes": "Fotos mit geschlossenen Augen ablehnen",
+  "Reject photos with blurry eyes": "Fotos mit unscharfen Augen ablehnen",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Prüft die Augen der Hauptpersonen wie die Augenleiste, etwa eine Sekunde pro Foto, im Hintergrund. Ausgewählte Fotos bleiben unberührt.",
+  "Finding closed and blurry eyes": "Geschlossene und unscharfe Augen werden gesucht"
 }

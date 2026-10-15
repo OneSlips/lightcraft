@@ -2819,5 +2819,10 @@
   "Select No Label": "Sélectionner sans étiquette",
   "Reset Straighten": "Réinitialiser le redressement",
   "No Mask": "Aucun masque",
-  "Eyes not visible": "Yeux non visibles"
+  "Eyes not visible": "Yeux non visibles",
+  "No closed or blurry eyes to reject": "Aucun œil fermé ou flou à rejeter",
+  "Reject photos with closed eyes": "Rejeter les photos aux yeux fermés",
+  "Reject photos with blurry eyes": "Rejeter les photos aux yeux flous",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Examine les yeux des sujets principaux comme le bandeau des yeux, environ une seconde par photo, en arrière-plan. Les photos retenues ne sont pas touchées.",
+  "Finding closed and blurry eyes": "Recherche des yeux fermés et flous"
 }

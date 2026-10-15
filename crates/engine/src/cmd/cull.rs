@@ -120,6 +120,24 @@ fn find_similar(s: &mut Session, p: &Value) -> Result<Value> {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
+            "photo.rejectEyes",
+            "Reject Closed and Blurry Eyes",
+            [],
+            None,
+            "{ids?, closed?: bool (true), blurry?: bool (true), mainOnly?: bool (true), wait?: bool} — judge the eyes of the selected photos (else all in view) as the culling strip does and reject those where a main subject (a face at least half as wide as the largest) has closed or blurry eyes; picked photos are left alone. Runs in the background (activity row, cancellable) and flags the rejects in one undo step when done (`photo.rejectEyesPump`); `wait` runs it now → {done, photos} or {done, rejected, closedEyes, blurryEyes, noFaces, looked, failed, cancelled}",
+            always,
+            crate::eye_cull::reject_eyes
+        ),
+        cmd!(
+            "photo.rejectEyesPump",
+            "Reject Closed and Blurry Eyes: Take Results",
+            [],
+            None,
+            "{} — cheap every frame: when a Reject Closed and Blurry Eyes run has finished, flag its rejects (one undo step) and return its summary once → {active, done, rejected, closedEyes, blurryEyes, …}",
+            always,
+            crate::eye_cull::pump
+        ),
+        cmd!(
             "library.findSimilar",
             "Find Similar Photos",
             ["Photo"],

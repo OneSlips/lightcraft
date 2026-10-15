@@ -361,5 +361,6 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Poprawiono {}: {} znanych dla aparatu {}, {} znalezionych na tym zdjęciu",
   "{} spot(s) from Remove Dust (outlined in amber)": "Punkty z usuwania kurzu: {} (z bursztynowym obrysem)",
   "{} with eyes closed": "Z zamkniętymi oczami: {}",
-  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu"
+  "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odrzucono {n}: {closed} z zamkniętymi oczami, {blurry} z nieostrymi oczami"
 }

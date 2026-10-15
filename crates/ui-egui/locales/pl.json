@@ -2174,5 +2174,10 @@
   "Select No Label": "Zaznacz bez etykiety",
   "Reset Straighten": "Resetuj prostowanie",
   "No Mask": "Brak maski",
-  "Eyes not visible": "Oczy niewidoczne"
+  "Eyes not visible": "Oczy niewidoczne",
+  "No closed or blurry eyes to reject": "Brak zamkniętych lub nieostrych oczu do odrzucenia",
+  "Reject photos with closed eyes": "Odrzuć zdjęcia z zamkniętymi oczami",
+  "Reject photos with blurry eyes": "Odrzuć zdjęcia z nieostrymi oczami",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Ocenia oczy głównych osób tak jak pasek oczu, około sekundy na zdjęcie, w tle. Wybrane zdjęcia pozostają bez zmian.",
+  "Finding closed and blurry eyes": "Wyszukiwanie zamkniętych i nieostrych oczu"
 }

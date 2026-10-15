@@ -2623,5 +2623,10 @@
   "Select No Label": "選取無標籤",
   "Reset Straighten": "重設拉直",
   "No Mask": "無遮色片",
-  "Eyes not visible": "看不到眼睛"
+  "Eyes not visible": "看不到眼睛",
+  "No closed or blurry eyes to reject": "沒有需要拒絕的閉眼或模糊眼睛",
+  "Reject photos with closed eyes": "拒絕閉眼的相片",
+  "Reject photos with blurry eyes": "拒絕眼睛模糊的相片",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "像眼睛列一樣檢查主要人物的眼睛，每張約一秒，在背景進行。已挑選的相片不受影響。",
+  "Finding closed and blurry eyes": "正在尋找閉眼和模糊的眼睛"
 }

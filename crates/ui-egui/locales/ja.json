@@ -2821,5 +2821,10 @@
   "Select No Label": "ラベルなしを選択",
   "Reset Straighten": "角度補正をリセット",
   "No Mask": "マスクなし",
-  "Eyes not visible": "目が見えない"
+  "Eyes not visible": "目が見えない",
+  "No closed or blurry eyes to reject": "却下する閉じた目やぼけた目はありません",
+  "Reject photos with closed eyes": "目を閉じた写真を却下",
+  "Reject photos with blurry eyes": "目がぼけた写真を却下",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "アイストリップと同じ方法で主な被写体の目を判定します（1枚約1秒、バックグラウンド）。採用済みの写真はそのままです。",
+  "Finding closed and blurry eyes": "閉じた目とぼけた目を検出中"
 }

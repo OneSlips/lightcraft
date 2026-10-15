@@ -2821,5 +2821,10 @@
   "Select No Label": "Seleccionar sin etiqueta",
   "Reset Straighten": "Restablecer enderezado",
   "No Mask": "Sin máscara",
-  "Eyes not visible": "Ojos no visibles"
+  "Eyes not visible": "Ojos no visibles",
+  "No closed or blurry eyes to reject": "No hay ojos cerrados ni borrosos que rechazar",
+  "Reject photos with closed eyes": "Rechazar fotos con ojos cerrados",
+  "Reject photos with blurry eyes": "Rechazar fotos con ojos borrosos",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Examina los ojos de los protagonistas como la tira de ojos, aproximadamente un segundo por foto, en segundo plano. Las fotos marcadas como elegidas no se tocan.",
+  "Finding closed and blurry eyes": "Buscando ojos cerrados y borrosos"
 }

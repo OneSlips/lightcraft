@@ -2079,5 +2079,10 @@
   "Select No Label": "Vybrat bez štítku",
   "Reset Straighten": "Obnovit narovnání",
   "No Mask": "Žádná maska",
-  "Eyes not visible": "Oči nejsou vidět"
+  "Eyes not visible": "Oči nejsou vidět",
+  "No closed or blurry eyes to reject": "Žádné zavřené ani rozmazané oči k odmítnutí",
+  "Reject photos with closed eyes": "Odmítnout fotky se zavřenýma očima",
+  "Reject photos with blurry eyes": "Odmítnout fotky s rozmazanýma očima",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Posuzuje oči hlavních osob stejně jako pruh očí, asi sekundu na fotku, na pozadí. Vybrané fotky zůstanou beze změny.",
+  "Finding closed and blurry eyes": "Hledání zavřených a rozmazaných očí"
 }

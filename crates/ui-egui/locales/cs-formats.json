@@ -361,5 +361,6 @@
   "{} fixed: {} known for camera {}, {} found in this photo": "Opraveno {}: {} známých pro fotoaparát {}, {} nalezených v této fotografii",
   "{} spot(s) from Remove Dust (outlined in amber)": "Body z odstranění prachu: {} (jantarově obtažené)",
   "{} with eyes closed": "Se zavřenýma očima: {}",
-  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu"
+  "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odmítnuto {n}: {closed} se zavřenýma očima, {blurry} s rozmazanýma očima"
 }

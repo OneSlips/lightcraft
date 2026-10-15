@@ -2,6 +2,11 @@
 
 ## 2026-10-16
 
+### Assisted Culling by the eyes
+- **Assisted Culling** can reject photos where a main subject has closed or blurry eyes (two new
+  boxes in the dialog). It runs in the background, leaves picked photos alone, and says what it
+  rejected; one Undo puts them back.
+
 ### Faces and eyes while culling
 - **Groups**: the eye strip now finds the small faces of big groups (a second, long-range face
   finder): about 62 of 65 people on a 45-megapixel family group, where it found none before. The

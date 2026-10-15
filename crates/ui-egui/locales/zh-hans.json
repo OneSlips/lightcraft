@@ -2660,5 +2660,10 @@
   "Select No Label": "选择无标签",
   "Reset Straighten": "重置拉直",
   "No Mask": "无蒙版",
-  "Eyes not visible": "看不到眼睛"
+  "Eyes not visible": "看不到眼睛",
+  "No closed or blurry eyes to reject": "没有需要拒绝的闭眼或模糊眼睛",
+  "Reject photos with closed eyes": "拒绝闭眼的照片",
+  "Reject photos with blurry eyes": "拒绝眼睛模糊的照片",
+  "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "像眼睛条一样检查主要人物的眼睛，每张约一秒，在后台进行。已选取的照片不受影响。",
+  "Finding closed and blurry eyes": "正在查找闭眼和模糊的眼睛"
 }
