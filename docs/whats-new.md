@@ -36,6 +36,13 @@
 - A backup holds the catalog, the library's settings and LightCraft's settings with your presets
   and profiles. Never the photos or the thumbnail cache, so it takes well under a second.
 
+### Colour
+- **Canon EOS R5 C** raws start from a colour profile fitted to nearly 400 of the camera's own
+  photos: skin keeps its warmth instead of turning olive in grass-green scenes. `lightcraft-cli
+  calibrate` now reads CR3 and CR2 (and RW2, ORF, PEF, SRW, ERF) too.
+- Culling a card in place uses each body's default camera profile, so the switch from the camera
+  preview to LightCraft's own render isn't jarring.
+
 ### AI Denoise
 - When no AI Denoise model is available, Settings ▸ AI Denoise says so plainly: LightCraft's own
   model is still being trained, there is nothing to download or install yet, and Luminance and

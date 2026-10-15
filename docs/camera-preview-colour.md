@@ -139,6 +139,12 @@ With CR3 and CR2 input to `calibrate` (#1073), tried on one photographer's libra
 - Library-wide (`--max 600` over 35,796 CR3s): 410 R7 photos (1.39 million pairs), 119 R6 Mark II (386k) and 38 EOS R100 (129k) gave profiles; 32 photos had no usable camera JPEG or colour (mostly moon, night and other near-colourless scenes) and one did not decode. The R6 Mark II writes its Exif model as "Canon EOS R6m2", the profile's file name too.
 - Decoding: 4 of the R6 Mark II C-RAW files tried (3 of 40 sampled, 1 of 119 in the library run) are refused with "unsupported raw variant: Canon CRX adaptive QP value 172" (or 175) and open preview-only.
 
+### Canon EOS R5 C
+
+Fitted from 398 usable photos of 400 EOS R5 C CR3s (one photographer, two bodies, four wedding and portrait shoots in September and October 2026, 8,951 CR3s in all, every 22nd taken), 1,410,132 colour pairs. Measured as for the ILCE-7CR, against each file's full-size embedded JPEG (8192 × 5464).
+
+The R5 C's per-photo fit rendered skin olive in green, overcast scenes: a 96-pixel proxy of grass and trees holds a few dozen skin pixels, and the matrix and table fitted to it pull skin toward the greens. The pooled profile keeps skin as the camera renders it. On 19 held-back photos (taken from the same four shoots, none of them in the 400) mean ΔE went from 1.79 with per-file fitting to 1.60 with the profile (median 1.77 to 1.57), 15 closer and 4 farther, the largest by 0.31. Five more held-back files gave no camera JPEG to compare with and were left out.
+
 ### Nikon Z 6II
 
 Fitted from 296 usable photos of 299 Z 6II NEFs (one photographer, 2024 to 2026, Standard and Auto picture controls, lossless 14-bit, with the NIKKOR Z 20mm f/1.8 S, Z 24-70mm f/4 S and the AF-S 70-200mm f/2.8G on the FTZ), 1,099,207 colour pairs. The pairs were collected with Nikon's in-file distortion correction read and the sensor proxy following it (see "Lens-corrected camera JPEGs" above), since the camera corrects every JPEG from these lenses. Measured as above: rendered at 1200 px with `lightcraft-cli render`, mean CIE76 ΔE against each file's embedded JPEG at 200 px.
