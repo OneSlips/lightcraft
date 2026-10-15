@@ -472,7 +472,7 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
                     };
                     item(
                         "photo.label",
-                        json!({"label": name.to_lowercase()}),
+                        json!({"label": name.to_lowercase(), "toggle": true}),
                         label,
                         sc,
                         has,
@@ -481,7 +481,7 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
                 })
                 .collect();
             v.push(MenuNode::Separator);
-            v.push(item("photo.label", json!({"label": "none"}), "None", None, has, Some(active.as_ref().is_some_and(|p| p.label.is_none()))));
+            v.push(item("photo.label", json!({"label": "none"}), "No Label", None, has, Some(active.as_ref().is_some_and(|p| p.label.is_none()))));
             v.push(MenuNode::Separator);
             // label sets: each a checkable item; Edit… names them
             let sets = lightcraft_engine::cmd::manage::label_sets_json(&app.session);

@@ -1615,3 +1615,26 @@ fn malformed_photo_targets_are_refused_not_widened() {
     let preset = s.presets.first().unwrap().id.clone();
     s.execute("preset.apply", &json!({"id": preset})).unwrap();
 }
+
+/// Pressing a colour key again takes the label off (`toggle`), in one undo step, and says so.
+#[test]
+fn a_label_toggles_off_when_set_again() {
+    let mut s = demo();
+    let ids: Vec<u64> = s.visible_cloned().iter().take(2).map(|p| p.0).collect();
+    let r = s.execute("photo.label", &json!({"ids": ids, "label": "red", "toggle": true})).unwrap();
+    assert_eq!(r["label"], "red");
+    // one of them has another label: a toggle sets red on both rather than clearing
+    s.execute("photo.label", &json!({"ids": [ids[1]], "label": "blue"})).unwrap();
+    let r = s.execute("photo.label", &json!({"ids": ids, "label": "red", "toggle": true})).unwrap();
+    assert_eq!(r["label"], "red");
+    let r = s.execute("photo.label", &json!({"ids": ids, "label": "red", "toggle": true})).unwrap();
+    assert_eq!(r["label"], Value::Null);
+    assert!(ids.iter().all(|id| s.catalog.photo(lightcraft_catalog::PhotoId(*id)).is_some_and(|p| p.label.is_none())));
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!(
+        ids.iter().all(|id| s.catalog.photo(lightcraft_catalog::PhotoId(*id)).is_some_and(|p| p.label == Some(lightcraft_catalog::ColorLabel::Red)))
+    );
+    // without toggle the label is set again whatever it was
+    let r = s.execute("photo.label", &json!({"ids": ids, "label": "red"})).unwrap();
+    assert_eq!(r["label"], "red");
+}

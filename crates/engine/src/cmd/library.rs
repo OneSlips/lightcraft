@@ -817,14 +817,22 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Color Label",
             ["Photo", "Set Color Label"],
             None,
-            "{label: red|yellow|green|blue|purple|none, ids?}",
+            "{label: red|yellow|green|blue|purple|none, ids?, toggle?: bool} — toggle: when every target already has this label, clear it (pressing a colour key again takes the label off)",
             has_selection,
             |s, p| {
-                let l = match str_param(p, "label") {
+                let mut l = match str_param(p, "label") {
                     None | Some("none") => None,
                     Some(x) => Some(ColorLabel::parse(x).ok_or_else(|| bad("photo.label", "unknown label"))?),
                 };
-                for_targets(s, p, "Set Color Label", |id| Some(Op::SetLabel { id, label: l }))
+                if l.is_some() && bool_or(p, "toggle", false) {
+                    let targets = s.targets(p)?;
+                    if !targets.is_empty() && targets.iter().all(|id| s.catalog.photo(*id).is_some_and(|ph| ph.label == l)) {
+                        l = None;
+                    }
+                }
+                let mut r = for_targets(s, p, "Set Color Label", |id| Some(Op::SetLabel { id, label: l }))?;
+                r["label"] = l.map_or(Value::Null, |l| json!(format!("{l:?}").to_lowercase()));
+                Ok(r)
             }
         ),
         // ---- orientation

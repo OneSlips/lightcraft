@@ -727,7 +727,12 @@ impl LightcraftApp {
             }
         }
         if r.is_ok() && id == "photo.label" {
-            let label = params.get("label").and_then(Value::as_str).and_then(lightcraft_catalog::ColorLabel::parse);
+            // the label the photos have now (a toggle can have taken it off)
+            let applied = r.as_ref().ok().and_then(|v| v.get("label")).cloned();
+            let label = match &applied {
+                Some(v) => v.as_str().and_then(lightcraft_catalog::ColorLabel::parse),
+                None => params.get("label").and_then(Value::as_str).and_then(lightcraft_catalog::ColorLabel::parse),
+            };
             let text = match label {
                 Some(label) => {
                     let name =

@@ -484,7 +484,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         } else if matches!(f.as_str(), "photo.decreaseRating" | "photo.increaseRating") {
             cull(app, &f, json!({}), false);
         } else if let Some(l) = f.strip_prefix("label:") {
-            cull(app, "photo.label", json!({"label": l}), false);
+            // the same key again takes the label off
+            cull(app, "photo.label", json!({"label": l, "toggle": true}), false);
         } else if f == "panel.presets" && library_grid(app) {
             // Classic's Shift+P picks and advances in Library; keep the Presets binding elsewhere.
             cull(app, "photo.flag", json!({"flag": "pick"}), true);
