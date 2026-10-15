@@ -821,7 +821,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     s.copy_groups = g;
                 }
                 let d = s.develop_of(id).unwrap_or_default();
-                s.clipboard = Some(lightcraft_develop::extract_groups(&d, &s.copy_groups));
+                // masks travel as recipes: each photo they are pasted on computes its own selections
+                let mut clip = lightcraft_develop::extract_groups(&d, &s.copy_groups);
+                lightcraft_develop::presets::to_recipes(&mut clip);
+                s.clipboard = Some(clip);
                 Ok(json!({"groups": s.copy_groups}))
             }
         ),
@@ -837,7 +840,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 let prev =
                     s.previous_active.filter(|id| s.catalog.photo(*id).is_some_and(|ph| !ph.deleted)).ok_or_else(|| bad(c, "no previous photo"))?;
                 let groups = groups_param(p, c)?.unwrap_or_else(|| s.copy_groups.clone());
-                let partial = lightcraft_develop::extract_groups(&s.develop_of(prev).unwrap_or_default(), &groups);
+                let mut partial = lightcraft_develop::extract_groups(&s.develop_of(prev).unwrap_or_default(), &groups);
+                lightcraft_develop::presets::to_recipes(&mut partial);
                 let ids: Vec<PhotoId> = s.targets(p).into_iter().filter(|id| *id != prev).collect();
                 let ops = ids
                     .iter()
@@ -846,7 +850,8 @@ pub fn specs() -> Vec<CommandSpec> {
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Paste from Previous", Op::Batch { ops })?;
-                Ok(json!({"changed": n, "from": prev.0}))
+                let masks = if partial.get("masks").is_some() { s.compute_masks(&ids, false) } else { Value::Null };
+                Ok(json!({"changed": n, "from": prev.0, "masks": masks}))
             }
         ),
         cmd!(
@@ -865,6 +870,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     let full = lightcraft_develop::apply_partial(&DevelopSettings::default(), &clip, 1.0);
                     clip = lightcraft_develop::extract_groups(&full, &only);
                 }
+                lightcraft_develop::presets::to_recipes(&mut clip);
                 let ids = s.targets(p);
                 let ops = ids
                     .iter()
@@ -873,7 +879,8 @@ pub fn specs() -> Vec<CommandSpec> {
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Paste Settings", Op::Batch { ops })?;
-                Ok(json!({"changed": n}))
+                let masks = if clip.get("masks").is_some() { s.compute_masks(&ids, false) } else { Value::Null };
+                Ok(json!({"changed": n, "masks": masks}))
             }
         ),
         cmd!(
@@ -888,19 +895,18 @@ pub fn specs() -> Vec<CommandSpec> {
                 let id = active(s, c)?;
                 let groups = groups_param(p, c)?.unwrap_or_else(SettingsGroup::default_copy);
                 let d = s.develop_of(id).unwrap_or_default();
-                let partial = lightcraft_develop::extract_groups(&d, &groups);
-                let ops = s
-                    .selection
-                    .ids
-                    .clone()
-                    .into_iter()
-                    .filter(|x| *x != id)
-                    .filter_map(|x| s.develop_of(x).map(|d| (x, d)))
+                let mut partial = lightcraft_develop::extract_groups(&d, &groups);
+                lightcraft_develop::presets::to_recipes(&mut partial);
+                let targets: Vec<PhotoId> = s.selection.ids.iter().copied().filter(|x| *x != id).collect();
+                let ops = targets
+                    .iter()
+                    .filter_map(|x| s.develop_of(*x).map(|d| (*x, d)))
                     .filter_map(|(x, dd)| s.develop_op(x, lightcraft_develop::apply_partial(&dd, &partial, 1.0), "Sync Settings"))
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit("Sync Settings", Op::Batch { ops })?;
-                Ok(json!({"changed": n}))
+                let masks = if partial.get("masks").is_some() { s.compute_masks(&targets, false) } else { Value::Null };
+                Ok(json!({"changed": n, "masks": masks}))
             }
         ),
         cmd!(
@@ -1001,19 +1007,30 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         // ---- presets
-        cmd!("preset.apply", "Apply Preset", [], None, "{id: presetId, amount?: 0..200 (percent), ids?}", has_selection, |s, p| {
-            let pid = str_param(p, "id").ok_or_else(|| bad("preset.apply", "missing id"))?;
-            let preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
-            let amount = f64_or(p, "amount", 100.0).clamp(0.0, 200.0) / 100.0;
-            let ids = s.targets(p);
-            let ops = ids
-                .iter()
-                .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                .filter_map(|(id, d)| s.develop_op(id, preset.apply(&d, amount), &format!("Preset: {}", preset.name)))
-                .collect::<Vec<_>>();
-            s.commit(&format!("Preset: {}", preset.name), Op::Batch { ops })?;
-            ok()
-        }),
+        cmd!(
+            "preset.apply",
+            "Apply Preset",
+            [],
+            None,
+            "{id: presetId, amount?: 0..200 (percent), ids?} — as Lightroom Classic: sets the settings the preset has and adds its masks (never removes the photo's own); its AI masks (Subject, Sky, People by name or role, remembered objects, anchored gradients) are then computed on each photo, in the app in the background (one undo step with the apply). The same preset again right away replaces its own masks instead of doubling them → {changed, masks: {queued, updated, approximate, notes}}",
+            has_selection,
+            |s, p| {
+                let pid = str_param(p, "id").ok_or_else(|| bad("preset.apply", "missing id"))?;
+                let preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
+                let amount = f64_or(p, "amount", 100.0).clamp(0.0, 200.0) / 100.0;
+                let ids = s.targets(p);
+                let label = format!("Preset: {}", preset.name);
+                let ops = ids
+                    .iter()
+                    .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
+                    .filter_map(|(id, d)| s.develop_op(id, preset.apply(&d, amount, s.photo_aspect(id)), &label))
+                    .collect::<Vec<_>>();
+                let n = ops.len();
+                s.commit(&label, Op::Batch { ops })?;
+                let masks = if preset.settings.get("masks").is_some() { s.compute_masks(&ids, false) } else { Value::Null };
+                Ok(json!({"changed": n, "masks": masks}))
+            }
+        ),
         cmd!("preset.create", "Create Preset", ["Photo"], None, "{name, group?, groups?: [settingsGroup]}", has_active, |s, p| {
             let c = "preset.create";
             let id = active(s, c)?;
@@ -1022,7 +1039,10 @@ pub fn specs() -> Vec<CommandSpec> {
             let groups = groups_param(p, c)?.unwrap_or_else(SettingsGroup::default_copy);
             let d = s.develop_of(id).unwrap_or_default();
             let pid = format!("user.{}.{}", s.presets.len(), name.to_lowercase().replace(' ', "-"));
-            s.presets.push(Preset::from_settings(&pid, name, group, &d, &groups));
+            let mut preset = Preset::from_settings(&pid, name, group, &d, &groups);
+            // masks are kept as recipes (what to select), never this photo's selections
+            lightcraft_develop::presets::to_recipes(&mut preset.settings);
+            s.presets.push(preset);
             Ok(json!({"id": pid}))
         }),
         cmd!("preset.delete", "Delete Preset", [], None, "{id}", always, |s, p| {
@@ -1073,6 +1093,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         Value::Object(keys.into_iter().filter_map(|k| current.get(&k).cloned().map(|v| (k, v))).collect())
                     }
                 };
+                lightcraft_develop::presets::to_recipes(&mut pr.settings);
                 ok()
             }
         ),

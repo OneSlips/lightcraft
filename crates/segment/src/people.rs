@@ -242,10 +242,49 @@ pub struct MaskGrid {
 /// Selfie Multiclass's skin classes (body skin, face skin).
 const SKIN: [usize; 2] = [2, 3];
 
+/// One person's silhouette: `side²` logits over the image stretched to a square (SAM's output).
+/// Everyone's silhouettes (one per face, in the faces' order): `side²` logits each over the image
+/// stretched to a square (SAM's output).
+pub struct Instances {
+    pub side: usize,
+    pub people: Vec<Vec<f32>>,
+}
+
+impl Instances {
+    /// Whose silhouette claims normalized point (u, v) most strongly; `None` where none does
+    /// (logit ≤ −1 everywhere: a little generous, so a sleeve's fringe stays its owner's).
+    pub fn owner(&self, u: f32, v: f32) -> Option<usize> {
+        let s = self.side.max(1);
+        let x = ((u.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
+        let y = ((v.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
+        self.people
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| l.get(y * s + x).map(|v| (i, *v)))
+            .filter(|(_, v)| *v > -1.0)
+            .max_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+}
+
 /// The People selection `req` on an 8-bit RGB image (`w × h`), from the Selfie Multiclass map and
 /// the faces (left to right) its parts need. `None`: nothing of it is there (no such person, no
 /// face for face parts).
 pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Option<&PeopleMap>, faces: &[Face]) -> Option<MaskGrid> {
+    people_mask_with(req, rgb, w, h, map, faces, None)
+}
+
+/// [`people_mask`] with each person's silhouette (`instances`) deciding whose a pixel is, before
+/// "nearest face" (which gives an arm around someone, or a hand on them, to them).
+pub fn people_mask_with(
+    req: &PeopleRequest,
+    rgb: &[u8],
+    w: usize,
+    h: usize,
+    map: Option<&PeopleMap>,
+    faces: &[Face],
+    instances: Option<&Instances>,
+) -> Option<MaskGrid> {
     if w == 0 || h == 0 {
         return None;
     }
@@ -319,7 +358,7 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
             for i in 0..side {
                 let u = (r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) as f32;
                 let v = (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) as f32;
-                if req.person > 0 && owner(u, v).is_none_or(|o| !chosen.contains(&o)) {
+                if req.person > 0 && instances.and_then(|i| i.owner(u, v)).or_else(|| owner(u, v)).is_none_or(|o| !chosen.contains(&o)) {
                     continue;
                 }
                 let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
@@ -346,6 +385,23 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overlapping_people_go_to_the_strongest_silhouette() {
+        // two people on a 4² grid: the left one's silhouette covers the left half and reaches into
+        // the right one's, who claims that overlap more strongly
+        let side = 4;
+        let left: Vec<f32> = (0..16).map(|i| if i % 4 < 3 { 2.0 } else { -5.0 }).collect();
+        let right: Vec<f32> = (0..16).map(|i| if i % 4 >= 2 { 6.0 } else { -5.0 }).collect();
+        let s = Instances { side, people: vec![left, right] };
+        assert_eq!(s.owner(0.1, 0.5), Some(0));
+        assert_eq!(s.owner(0.6, 0.5), Some(1), "the overlap is the stronger claim's");
+        assert_eq!(s.owner(0.9, 0.5), Some(1));
+        // nobody's: nearest face decides (None here); out-of-range and empty are safe
+        let none = Instances { side, people: vec![vec![-5.0; 16]] };
+        assert_eq!(none.owner(0.5, 0.5), None);
+        assert_eq!(Instances { side: 0, people: vec![Vec::new()] }.owner(2.0, f32::NAN), None);
+    }
 
     #[test]
     fn requests_parse_lightrooms_part_names() {

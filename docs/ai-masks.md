@@ -31,6 +31,10 @@ Sky and Background are made by a heuristic — the Masking panel says the mask i
 offers the model. Renders, exports and every other feature never touch a model: the model's result
 is stored with the mask.
 
+Presets carry AI masks as recipes that are computed on each photo, People can be chosen by name or by
+role in the shoot, and things can be remembered and found again: see [Smart presets](smart-presets.md)
+and [People, roles and remembered objects](people-and-roles.md).
+
 ## Using them
 
 In the Masking panel (M):

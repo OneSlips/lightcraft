@@ -190,6 +190,21 @@ impl Sam2Encoded {
     pub fn features(&self) -> Result<(Tensor, Tensor, Tensor)> {
         self.features.planar().map_err(sam2_err)
     }
+
+    /// The image embedding as plain numbers, channel-last: `(values, side, channels)` with
+    /// `values[(y * side + x) * channels + c]` over the stretched square image (64 × 64 × 256 for
+    /// the released checkpoints). Per-region descriptors for remembered objects
+    /// ([`crate::concept`]).
+    pub fn embedding(&self) -> Result<(Vec<f32>, usize, usize)> {
+        let (image, _, _) = self.features()?;
+        let (_, c, h, w) = image.dims4().map_err(|e| Error::Sam2(e.to_string()))?;
+        if h != w || c == 0 {
+            return Err(Error::Sam2(format!("unexpected embedding shape {c} × {h} × {w}")));
+        }
+        let hwc = image.permute((0, 2, 3, 1)).and_then(|t| t.contiguous()).and_then(|t| t.flatten_all()).and_then(|t| t.to_vec1::<f32>());
+        let values = hwc.map_err(|e| Error::Sam2(e.to_string()))?;
+        Ok((values, h, c))
+    }
 }
 
 #[cfg(test)]

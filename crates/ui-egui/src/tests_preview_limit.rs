@@ -202,7 +202,9 @@ mod in_the_loupe {
         }
         h.request("engine.execute", json!({"command": "view.zoom100"}), T);
         h.app.ui.pan = (0.3, 0.4);
+        // a fresh mask shows its overlay by itself: hidden here as O hides it
         h.app.ui.mask_overlay = false;
+        h.app.ui.mask_overlay_hidden = h.app.session.active_mask;
         h.settle(SETTLE);
         let (zoom, pan) = (h.app.ui.zoom, h.app.ui.pan);
         assert_eq!(zoom, crate::state::Zoom::Percent(100.0));

@@ -873,8 +873,18 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.maskOverlay" => {
-            app.ui.mask_overlay = p.get("show").and_then(Value::as_bool).unwrap_or(!app.ui.mask_overlay);
-            Ok(json!({"maskOverlay": app.ui.mask_overlay}))
+            // O shows or hides what is on screen now: an overlay that showed by itself (a fresh
+            // mask, a tool in use) is hidden for that mask
+            let selected = app.session.active().and_then(|id| app.session.develop_of(id)).and_then(|d| {
+                app.session
+                    .active_mask
+                    .and_then(|mid| d.masks.iter().find(|m| m.id == mid).map(|m| (mid, crate::panels::detail::overlay_shown(app, m))))
+            });
+            let shown = selected.is_some_and(|s| s.1) || (selected.is_none() && app.ui.mask_overlay);
+            let show = p.get("show").and_then(Value::as_bool).unwrap_or(!shown);
+            app.ui.mask_overlay = show;
+            app.ui.mask_overlay_hidden = if show { None } else { selected.map(|s| s.0) };
+            Ok(json!({"maskOverlay": show}))
         }
         "view.maskOverlayAll" => {
             app.ui.mask_overlay_all = !app.ui.mask_overlay_all;
@@ -1095,30 +1105,27 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     }
                     app.ui.tool = "guidedUpright".into();
                 }
-                "brush" => {
-                    // A new mask and Add/Subtract are selection operations, not the brush's
-                    // Erase mode. Paint positively into a component with the requested op.
-                    let create = if p.get("new").and_then(Value::as_bool) == Some(true) {
-                        Some(app.run("mask.add", json!({"kind": "brush"})))
+                "brush" | "linear" | "radial" => {
+                    // A new mask, or Add / Subtract (selection operations, not the brush's Erase
+                    // mode), is made by the first stroke or drag on the photo: armed here, never an
+                    // empty mask. Without either, the brush paints into the selected mask.
+                    let op = if p.get("new").and_then(Value::as_bool) == Some(true) {
+                        Some("new".to_string())
                     } else {
-                        p.get("op").map(|op| app.run("mask.addComponent", json!({"kind": "brush", "op": op})))
+                        p.get("op").and_then(Value::as_str).map(str::to_string)
                     };
-                    if let Some(result) = create {
-                        if let Err(e) = result {
-                            return Some(Err(e));
-                        }
-                        app.ui.brush_erase = false;
-                        app.ui.mask_overlay = true;
-                    }
-                    app.ui.right = RightPanel::Masking;
-                    app.ui.view = ViewMode::Detail;
-                    app.ui.tool = "brush".into();
-                }
-                "linear" | "radial" => {
                     app.ui.right = RightPanel::Masking;
                     app.ui.view = ViewMode::Detail;
                     app.ui.tool = tool.into();
-                    return Some(app.session.execute("mask.add", &json!({"kind": tool})).map_err(|e| e.to_string()));
+                    app.ui.mask_new = match op {
+                        Some(op) => Some((tool.to_string(), op)),
+                        // the linear / radial tools without a mask to edit: draw a new one
+                        None if tool != "brush" || app.session.active_mask.is_none() => Some((tool.to_string(), "new".to_string())),
+                        None => None,
+                    };
+                    if tool == "brush" {
+                        app.ui.brush_erase = false;
+                    }
                 }
                 "wbPicker" => {
                     app.ui.right = RightPanel::Edit;

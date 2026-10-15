@@ -25,7 +25,7 @@ mod download;
 pub mod models;
 mod skin;
 #[cfg(feature = "sam")]
-mod worker;
+pub(crate) mod worker;
 
 pub use skin::{FoundFace, SkinFound, missing_model_in};
 pub(crate) use skin::{SkinKey, SkinPurpose};
@@ -67,11 +67,17 @@ pub enum AutoKind {
     People {
         person: u32,
         parts: Vec<String>,
+        /// By name or role instead of position (resolved per photo: [`crate::people`]).
+        who: Option<lightcraft_develop::recipe::Who>,
     },
     /// A landscape class: `sky`, `water`, `vegetation`, `mountains`, `architecture`,
     /// `naturalGround`, `artificialGround`.
     Landscape {
         class: String,
+    },
+    /// A remembered object (`concepts.*`), found with SAM 2.1.
+    Concept {
+        name: String,
     },
 }
 
@@ -118,12 +124,13 @@ impl AutoKind {
             MaskShape::Subject { .. } => Some(AutoKind::Subject),
             MaskShape::Background { .. } => Some(AutoKind::Background),
             MaskShape::Sky { .. } => Some(AutoKind::Sky),
-            MaskShape::People { person, parts, .. }
+            MaskShape::People { person, parts, who, .. }
                 if parts.len() <= 16 && parts.iter().all(|p| PEOPLE_PARTS.contains(&p.to_ascii_lowercase().as_str())) =>
             {
-                Some(AutoKind::People { person: *person, parts: parts.clone() })
+                Some(AutoKind::People { person: *person, parts: parts.clone(), who: who.clone() })
             }
             MaskShape::Landscape { class, .. } if LANDSCAPE_CLASSES.contains(&class.as_str()) => Some(AutoKind::Landscape { class: class.clone() }),
+            MaskShape::Concept { name, .. } if !name.trim().is_empty() => Some(AutoKind::Concept { name: name.clone() }),
             _ => None,
         }
     }
@@ -134,11 +141,10 @@ impl AutoKind {
             (AutoKind::Subject, MaskShape::Subject { seg })
             | (AutoKind::Background, MaskShape::Background { seg })
             | (AutoKind::Sky, MaskShape::Sky { seg }) => Some(seg),
-            (AutoKind::People { .. } | AutoKind::Landscape { .. }, MaskShape::People { seg, .. } | MaskShape::Landscape { seg, .. })
-                if AutoKind::of(shape).as_ref() == Some(self) =>
-            {
-                Some(seg)
-            }
+            (
+                AutoKind::People { .. } | AutoKind::Landscape { .. } | AutoKind::Concept { .. },
+                MaskShape::People { seg, .. } | MaskShape::Landscape { seg, .. } | MaskShape::Concept { seg, .. },
+            ) if AutoKind::of(shape).as_ref() == Some(self) => Some(seg),
             _ => None,
         }
     }
@@ -153,7 +159,8 @@ impl AutoKind {
             | MaskShape::Background { seg: s }
             | MaskShape::Sky { seg: s }
             | MaskShape::People { seg: s, .. }
-            | MaskShape::Landscape { seg: s, .. } => {
+            | MaskShape::Landscape { seg: s, .. }
+            | MaskShape::Concept { seg: s, .. } => {
                 *s = seg;
                 true
             }
@@ -167,11 +174,13 @@ impl AutoKind {
             AutoKind::Subject | AutoKind::Background => "subject",
             AutoKind::People { parts, .. } if parts.iter().any(|p| FACE_PARTS.contains(&p.to_ascii_lowercase().as_str())) => "face",
             AutoKind::People { .. } => "people",
+            AutoKind::Concept { .. } => "sam2",
             _ => "scene",
         }
     }
 
     /// The undo label of its result.
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
     fn label(&self) -> &'static str {
         match self {
             AutoKind::Subject => "Subject Mask",
@@ -179,6 +188,7 @@ impl AutoKind {
             AutoKind::Sky => "Sky Mask",
             AutoKind::People { .. } => "People Mask",
             AutoKind::Landscape { .. } => "Landscape Mask",
+            AutoKind::Concept { .. } => "Remembered Object Mask",
         }
     }
 }
@@ -193,7 +203,11 @@ pub enum AutoModel {
     /// MediaPipe: Selfie Multiclass for the person, skin, hair and clothes; Face Landmarker for face
     /// parts and for telling people apart. A subject without BiRefNet: the people, else EoMT's most
     /// confident thing (`scene`).
-    People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf> },
+    /// `sam2`: SAM 2.1 to cut one person out of a group (their whole silhouette, so an arm around
+    /// them stays the other person's), when installed.
+    People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf>, sam2: Option<PathBuf> },
+    /// SAM 2.1 for a remembered object.
+    Concept(PathBuf),
 }
 
 /// One click of an Object selection (normalized image coordinates).
@@ -222,6 +236,15 @@ pub(crate) enum Tag {
     Auto { photo: PhotoId, mask: u32, comp: usize, kind: AutoKind },
     /// The skin and faces of a photo, for Smooth Skin or Find Blemishes.
     Skin { key: SkinKey, purpose: SkinPurpose },
+    /// A part of a mask recipe (a preset's, a paste's…) for component `comp` of mask `mask`,
+    /// completing the history step of `batch` ([`crate::smart_masks`]).
+    Recipe { photo: PhotoId, mask: u32, comp: usize, part: crate::smart_masks::Part, batch: u64 },
+    /// A selection for the hover preview of a preset (kept aside; nothing changes).
+    Preview { photo: PhotoId, key: u64, part_key: u64 },
+    /// The faces on a photo (`people.faces`).
+    Faces { photo: PhotoId, key: u64 },
+    /// An example of a remembered object to learn (`concepts.teach`).
+    Learn { photo: PhotoId, name: String },
 }
 
 /// The model input: 8-bit RGB.
@@ -300,6 +323,8 @@ pub struct Segmenter {
     model_downloads: std::collections::HashMap<&'static str, download::Downloader>,
     #[cfg(feature = "sam")]
     results: (std::sync::mpsc::Sender<worker::Outcome>, std::sync::mpsc::Receiver<worker::Outcome>),
+    /// Smart masks: recipe batches, the people and concept stores.
+    pub(crate) smart: crate::smart_masks::SmartState,
 }
 
 // (derivable only without the `sam` feature: the results channel has no Default)
@@ -323,6 +348,7 @@ impl Default for Segmenter {
             model_downloads: std::collections::HashMap::new(),
             #[cfg(feature = "sam")]
             results: std::sync::mpsc::channel(),
+            smart: Default::default(),
         }
     }
 }
@@ -489,16 +515,24 @@ impl Segmenter {
                     Err(e) => e,
                 };
                 if let Some(people) = ok("people") {
-                    return Ok(AutoModel::People { people: Some(people), face: None, scene: ok("scene") });
+                    return Ok(AutoModel::People { people: Some(people), face: None, scene: ok("scene"), sam2: None });
                 }
                 ok("scene").map(AutoModel::Scene).ok_or(e)
             }
             AutoKind::Sky | AutoKind::Landscape { .. } => self.require_model("scene").map(AutoModel::Scene),
-            AutoKind::People { person, parts } => {
+            AutoKind::Concept { .. } => self.require_model("sam2").map(AutoModel::Concept),
+            AutoKind::People { person, parts, who } => {
                 let face_parts = parts.iter().any(|p| FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
                 let body = parts.is_empty() || parts.iter().any(|p| !FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
-                let need_face = face_parts || *person > 0;
-                let people = if body { Some(self.require_model("people")) } else { None };
+                let need_face = face_parts || *person > 0 || who.is_some();
+                // (by name or role, the clothes and hair colours help to tell people apart)
+                let people = if body {
+                    Some(self.require_model("people"))
+                } else if who.is_some() {
+                    self.require_model("people").ok().map(Ok)
+                } else {
+                    None
+                };
                 // skin leaves the face's features out when the face model is there to find them
                 let skin = parts.iter().any(|p| p.to_ascii_lowercase().contains("skin"));
                 let face = if need_face {
@@ -512,13 +546,20 @@ impl Segmenter {
                     (Some(Err(e)), _) | (_, Some(Err(e))) => {
                         // the entire person (everyone, or one of them) EoMT can do on its own
                         if whole_person(parts)
+                            && who.is_none()
                             && let Some(scene) = ok("scene")
                         {
                             return Ok(AutoModel::Scene(scene));
                         }
                         Err(e)
                     }
-                    (people, face) => Ok(AutoModel::People { people: people.and_then(Result::ok), face: face.and_then(Result::ok), scene: None }),
+                    (people, face) => Ok(AutoModel::People {
+                        people: people.and_then(Result::ok),
+                        face: face.and_then(Result::ok),
+                        scene: None,
+                        // one person of several: their silhouette from SAM 2.1
+                        sam2: if *person > 0 || who.is_some() { ok("sam2") } else { None },
+                    }),
                 }
             }
         }
@@ -661,11 +702,18 @@ impl Session {
     ) -> Result<worker::Job, String> {
         let (dir, sam2) = match &kind {
             worker::Kind::Text(_) | worker::Kind::Detail { prompt: Prompt::Text(_), .. } => (self.segmenter.model_dir()?, false),
-            worker::Kind::Auto { .. } | worker::Kind::Skin { .. } => (PathBuf::new(), false),
+            worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Faces { .. } => (PathBuf::new(), false),
+            worker::Kind::Learn { .. } => (self.segmenter.require_model("sam2")?, false),
             _ => self.segmenter.object_model()?,
         };
         // SAM 3 sees 1008 px, the openly licensed models 1024
-        let edge = if sam2 || matches!(kind, worker::Kind::Auto { .. } | worker::Kind::Skin { .. }) { AUTO_EDGE } else { INPUT_EDGE };
+        let edge = if sam2
+            || matches!(kind, worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Faces { .. } | worker::Kind::Learn { .. })
+        {
+            AUTO_EDGE
+        } else {
+            INPUT_EDGE
+        };
         let (key, mut d) = self.segment_key(id).ok_or("no such photo")?;
         let key = mix(key, edge as u64);
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
@@ -698,7 +746,44 @@ impl Session {
             tag,
             reply,
             activity: Some(self.activity.clone()),
+            batch: None,
         })
+    }
+
+    /// The key photo `id`'s model input has now (changes with its look; masks don't count).
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
+    pub(crate) fn segment_input_key(&self, id: PhotoId) -> Option<u64> {
+        self.segment_key(id).map(|(k, _)| mix(k, AUTO_EDGE as u64))
+    }
+
+    /// Send a request of recipe batch `batch` (skipped by the worker once the batch is cancelled).
+    #[cfg(feature = "sam")]
+    pub(crate) fn segment_queue_batch(&mut self, id: PhotoId, kind: worker::Kind, tag: Tag, batch: u64) -> Result<(), String> {
+        let reply = self.segmenter.results.0.clone();
+        let mut job = self.segment_job(id, kind, tag, reply, None)?;
+        job.batch = Some((batch, self.segmenter.smart.cancelled.clone()));
+        self.segmenter.worker.submit(job)
+    }
+
+    /// Send a request and wait for its result (any kind; CLI, MCP, tests).
+    #[cfg(feature = "sam")]
+    pub(crate) fn segment_wait_kind(&mut self, id: PhotoId, kind: worker::Kind) -> Result<Option<SegMask>, String> {
+        self.segment_wait(id, kind, None)
+    }
+
+    /// Send a request and wait for its full outcome (payload included).
+    #[cfg(feature = "sam")]
+    pub(crate) fn segment_wait_outcome(&mut self, id: PhotoId, kind: worker::Kind, tag: Tag) -> Result<worker::Outcome, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let job = self.segment_job(id, kind, tag, tx, None)?;
+        self.segmenter.worker.submit(job)?;
+        rx.recv_timeout(WAIT).map_err(|_| "the AI model took too long; try again".to_string())
+    }
+
+    /// Queue a request whose outcome [`Session::segment_poll`] handles.
+    #[cfg(feature = "sam")]
+    pub(crate) fn segment_queue_kind(&mut self, id: PhotoId, kind: worker::Kind, tag: Tag) -> Result<(), String> {
+        self.segment_queue(id, kind, tag, None)
     }
 
     /// Send a request and wait for its result (CLI, MCP, tests; or when not in background mode).
@@ -850,7 +935,7 @@ impl Session {
                 self.segment_queue(id, kind, tag, Some(region))?;
             } else {
                 let patch = self.segment_wait(id, kind, Some(region))?;
-                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false, faces: None, note: None };
+                let outcome = worker::Outcome { tag, result: Ok(patch), superseded: false, faces: None, payload: worker::Payload::None, note: None };
                 let mut polled = Polled::default();
                 self.apply_outcome(outcome, &mut polled);
             }
@@ -869,7 +954,7 @@ impl Session {
         let model = self.segmenter.auto_model(kind)?;
         #[cfg(feature = "sam")]
         {
-            self.segment_wait(id, worker::Kind::Auto { what: kind.clone(), model }, None)
+            self.segment_wait(id, worker::Kind::Auto { what: kind.clone(), model, target: worker::Target::None }, None)
         }
         #[cfg(not(feature = "sam"))]
         {
@@ -886,7 +971,7 @@ impl Session {
         #[cfg(feature = "sam")]
         {
             let tag = Tag::Auto { photo: id, mask, comp, kind: kind.clone() };
-            self.segment_queue(id, worker::Kind::Auto { what: kind, model }, tag, None)
+            self.segment_queue(id, worker::Kind::Auto { what: kind, model, target: worker::Target::None }, tag, None)
         }
         #[cfg(not(feature = "sam"))]
         {
@@ -900,8 +985,10 @@ impl Session {
     pub fn segment_poll(&mut self) -> Polled {
         #[cfg_attr(not(feature = "sam"), allow(unused_mut))]
         let mut polled = Polled { messages: std::mem::take(&mut self.segmenter.messages), ..Default::default() };
+        polled.messages.extend(self.take_smart_messages());
         #[cfg(feature = "sam")]
         {
+            self.poll_batch_cancels();
             // (before draining: a worker that is idle now has sent everything)
             let idle = !self.segmenter.busy();
             let done: Vec<worker::Outcome> = self.segmenter.results.1.try_iter().collect();
@@ -918,10 +1005,38 @@ impl Session {
 
     #[cfg(feature = "sam")]
     fn apply_outcome(&mut self, o: worker::Outcome, polled: &mut Polled) {
+        if matches!(o.tag, Tag::Recipe { .. }) {
+            self.apply_recipe_outcome(o, polled);
+            return;
+        }
+        if matches!(o.tag, Tag::Preview { .. }) {
+            self.apply_preview_outcome(o, polled);
+            return;
+        }
         if o.superseded {
             return;
         }
         match o.tag {
+            Tag::Recipe { .. } | Tag::Preview { .. } => {}
+            Tag::Faces { photo, key } => {
+                self.segmenter.smart.faces_pending.remove(&photo);
+                match (o.result, o.payload) {
+                    (Err(e), _) => polled.messages.push(e),
+                    (Ok(_), worker::Payload::Faces(faces)) => {
+                        self.segmenter.smart.faces.insert(photo, (key, faces));
+                        polled.changed = true;
+                    }
+                    _ => {}
+                }
+            }
+            Tag::Learn { photo, name } => match (o.result, o.payload) {
+                (Err(e), _) => polled.messages.push(e),
+                (Ok(_), worker::Payload::Example(ex)) => match self.store_concept_example(&name, photo, *ex) {
+                    Ok(n) => polled.messages.push(format!("Remembered “{name}” ({n} example{}).", if n == 1 { "" } else { "s" })),
+                    Err(e) => polled.messages.push(e),
+                },
+                _ => polled.messages.push("Nothing was selected to remember.".into()),
+            },
             Tag::Wait => {}
             Tag::Prepare => {
                 if let Err(e) = o.result {
@@ -993,6 +1108,8 @@ impl Session {
                     Ok(Some(seg)) => seg,
                     Ok(None) => {
                         return polled.messages.push(match &kind {
+                            AutoKind::People { who: Some(w), .. } => format!("{} wasn't recognised on this photo.", w.label()),
+                            AutoKind::Concept { name } => format!("“{name}” wasn't found on this photo."),
                             AutoKind::People { person, .. } if *person > 0 => format!("Person {person} wasn't found in this photo."),
                             AutoKind::People { parts, .. } if !parts.is_empty() && !whole_person(parts) => {
                                 "None of those parts were found in this photo (face parts need a face that isn't in profile).".to_string()

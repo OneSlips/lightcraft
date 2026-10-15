@@ -280,7 +280,8 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
             s.data.iter_mut().for_each(|v| *v = 1.0 - *v);
             out = s;
         }
-        MaskShape::DepthRange { .. } | MaskShape::Landscape { .. } => {}
+        // (a Concept or Landscape not computed yet selects nothing)
+        MaskShape::DepthRange { .. } | MaskShape::Landscape { .. } | MaskShape::Concept { .. } => {}
     }
     out
 }
@@ -293,7 +294,8 @@ fn ai_seg(shape: &MaskShape) -> Option<&SegMask> {
         | MaskShape::Sky { seg }
         | MaskShape::Background { seg }
         | MaskShape::People { seg, .. }
-        | MaskShape::Landscape { seg, .. } => seg.as_ref(),
+        | MaskShape::Landscape { seg, .. }
+        | MaskShape::Concept { seg, .. } => seg.as_ref(),
         _ => None,
     }
 }
@@ -785,7 +787,7 @@ mod tests {
         let shape = MaskShape::Radial { center: Point::new(0.5, 0.5), rx: 0.2, ry: 0.2, angle: 0.0, feather: 20.0, invert: false };
         let a = shape_alpha(&shape, &f, 100, 100, &img, &l, 0.0, None);
         assert!(a.get(50, 50) > 0.99 && a.get(5, 5) < 0.01);
-        let m = Mask { components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: true, shape }], ..Default::default() };
+        let m = Mask { components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: true, shape }], ..Default::default() };
         let e = evaluate(&[m], &f, 100, 100, &img, &l, 0.0, None);
         assert!(e[0].alpha.get(50, 50) < 0.01);
     }
@@ -839,7 +841,13 @@ mod tests {
         let stroke = BrushStroke { points: vec![Point::new(0.1, 0.5), Point::new(0.9, 0.5)], size: 0.05, ..Default::default() };
         let erase = BrushStroke { points: vec![Point::new(0.5, 0.5)], size: 0.05, erase: true, feather: 0.0, ..Default::default() };
         let m = Mask {
-            components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes: vec![stroke, erase] } }],
+            components: vec![MaskComponent {
+                anchor: None,
+                name: None,
+                op: MaskOp::Add,
+                invert: false,
+                shape: MaskShape::Brush { strokes: vec![stroke, erase] },
+            }],
             ..Default::default()
         };
         let e = evaluate(&[m], &f, 200, 100, &img, &l, 0.0, None);
@@ -942,6 +950,7 @@ mod tests {
         let f = Frame::new(w, h, &Default::default(), true);
         let soft = Mask {
             components: vec![MaskComponent {
+                anchor: None,
                 name: None,
                 op: MaskOp::Add,
                 invert: false,
@@ -1014,7 +1023,7 @@ mod tests {
             MaskShape::Subject { seg: seg.clone() },
             MaskShape::Sky { seg: seg.clone() },
             MaskShape::Background { seg: seg.clone() },
-            MaskShape::People { person: 0, parts: vec![], seg: seg.clone() },
+            MaskShape::People { who: None, person: 0, parts: vec![], seg: seg.clone() },
             MaskShape::Landscape { class: "water".into(), seg: seg.clone() },
         ] {
             let a = shape_alpha(&shape, &f, w, h, &img, &l, 0.0, Some(&mattes));
@@ -1075,9 +1084,9 @@ mod tests {
         assert!(subject.get(10, 50) > 0.99 && subject.get(190, 50) > 0.99 && subject.get(100, 50) < 0.01);
         let background = eval(&MaskShape::Background { seg: None });
         assert!(background.get(100, 50) > 0.99 && background.get(10, 50) < 0.01);
-        let hair = eval(&MaskShape::People { person: 0, parts: vec!["Hair".into()], seg: None });
+        let hair = eval(&MaskShape::People { who: None, person: 0, parts: vec!["Hair".into()], seg: None });
         assert!(hair.get(190, 50) > 0.99 && hair.get(10, 50) < 0.01);
-        let lips = MaskShape::People { person: 0, parts: vec!["Lips".into()], seg: None };
+        let lips = MaskShape::People { who: None, person: 0, parts: vec!["Lips".into()], seg: None };
         assert_eq!(eval(&lips), shape_alpha(&lips, &f, w, h, &img, &l, 0.0, None));
     }
 }

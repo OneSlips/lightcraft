@@ -78,7 +78,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let _ = app.run("view.person", json!({"name": last}));
         }
     }
-    ui.painter().text(pos2(head.right() - PAD, head.center().y), Align2::RIGHT_CENTER, people.len().to_string(), t.font(13.0), t.text_dim);
+    let count =
+        ui.painter().text(pos2(head.right() - PAD, head.center().y), Align2::RIGHT_CENTER, people.len().to_string(), t.font(13.0), t.text_dim);
+    // roles in the shoot, and forgetting face data
+    let roles = ui.put(
+        Rect::from_min_size(pos2(count.left() - 110.0, head.center().y - 12.0), vec2(96.0, 24.0)),
+        egui::Button::new(RichText::new(crate::i18n::tr("Roles…")).font(t.font(13.0))),
+    );
+    register(ui.ctx(), "people:roles", roles.rect);
+    if roles.clicked() {
+        app.ui.roles_window = true;
+    }
     // until face recognition is set up: what it takes, and a button that does the next step
     super::faces::setup_banner(app, ui);
     // the filters narrowing the list (a date, a keyword…), removable here
@@ -181,9 +191,11 @@ fn card(app: &mut LightcraftApp, ui: &mut egui::Ui, person: &Person, r: Rect, ed
     p.text(pos2(r.left() + 2.0, face.bottom() + 14.0), Align2::LEFT_CENTER, name, t.semibold(13.0), t.text);
     let photos = crate::i18n::tr_format!("{n} photo{}", if person.count == 1 { "" } else { "s" }, n = person.count);
     p.text(pos2(r.left() + 2.0, face.bottom() + 32.0), Align2::LEFT_CENTER, photos, t.font(12.0), t.text_dim);
-    if resp.on_hover_text(crate::i18n::tr_format!("{} — show their photos", person.name)).clicked() {
+    let resp = resp.on_hover_text(crate::i18n::tr_format!("{} — show their photos", person.name));
+    if resp.clicked() {
         let _ = app.run("view.person", json!({"name": person.name}));
     }
+    resp.context_menu(|ui| super::smart_people::person_menu(app, ui, &person.name));
 }
 
 #[cfg(test)]

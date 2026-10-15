@@ -40,6 +40,7 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             MaskShape::ColorRange { samples, refine: f64_or(p, "refine", 50.0) }
         }
         "people" => MaskShape::People {
+            who: who_param(p, c)?,
             person: p.get("person").and_then(Value::as_u64).map_or(0, |n| n.min(u64::from(u32::MAX)) as u32),
             parts: p
                 .get("parts")
@@ -55,6 +56,13 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             }
             MaskShape::Landscape { class: class.to_string(), seg: seg_param(p) }
         }
+        "concept" => {
+            let name = str_param(p, "concept")
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .ok_or_else(|| bad(c, "missing `concept` (the remembered object's name)"))?;
+            MaskShape::Concept { name: name.to_string(), seg: seg_param(p) }
+        }
         "object" => MaskShape::Object { hint: points(p, "points"), exclude: points(p, "exclude"), seg: seg_param(p), detail: vec![], edge: 0.0 },
         "prompt" => {
             MaskShape::Prompt { text: str_param(p, "text").unwrap_or_default().trim().to_string(), seg: seg_param(p), detail: vec![], edge: 0.0 }
@@ -63,11 +71,39 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             return Err(bad(
                 c,
                 format!(
-                    "unknown mask kind `{other}` (brush|linear|radial|sky|subject|background|people|landscape|luminanceRange|colorRange|object|prompt)"
+                    "unknown mask kind `{other}` (brush|linear|radial|sky|subject|background|people|landscape|concept|luminanceRange|colorRange|object|prompt)"
                 ),
             ));
         }
     })
+}
+
+/// `who: {name} | {role}`: a People selection by name or by role in the shoot.
+fn who_param(p: &Value, c: &str) -> Result<Option<lightcraft_develop::recipe::Who>> {
+    match p.get("who") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let w: lightcraft_develop::recipe::Who =
+                serde_json::from_value(v.clone()).map_err(|_| bad(c, "`who` must be {\"name\": …} or {\"role\": …}"))?;
+            if w.text().trim().is_empty() || w.text().chars().count() > 200 {
+                return Err(bad(c, "`who` needs a name or role"));
+            }
+            Ok(Some(w))
+        }
+    }
+}
+
+/// `anchor: "subject" | "people" | {"who": {…}}` (or `{to: …}`): a gradient placed in that
+/// selection's box (its points then are 0..1 of the box).
+fn anchor_param(p: &Value, shape: &MaskShape, c: &str) -> Result<Option<lightcraft_develop::recipe::Anchor>> {
+    let Some(v) = p.get("anchor").filter(|v| !v.is_null()) else { return Ok(None) };
+    if !matches!(shape, MaskShape::Linear { .. } | MaskShape::Radial { .. }) {
+        return Err(bad(c, "only Linear and Radial gradients can be anchored"));
+    }
+    let to = v.get("to").unwrap_or(v);
+    let to: lightcraft_develop::recipe::AnchorTo =
+        serde_json::from_value(to.clone()).map_err(|_| bad(c, "`anchor` must be \"subject\", \"people\" or {\"who\": {\"role\": …}}"))?;
+    Ok(Some(lightcraft_develop::recipe::Anchor { to, shape: shape.clone(), bounds: None }))
 }
 
 /// `[[x, y], …]` normalized points under `key`.
@@ -96,6 +132,9 @@ enum Later {
     /// No model for this automatic selection: the heuristic stands in (the result says so, naming
     /// the model to get).
     Approximate(&'static str),
+    /// A selection by name, role or remembered object, or an anchored gradient: computed as a
+    /// recipe ([`Session::compute_masks`]).
+    Recipe,
 }
 
 /// Compute the segmentation of a new AI shape (Object with clicks, Prompt) — or, in background
@@ -137,6 +176,9 @@ fn resolve_ai(s: &mut Session, shape: &mut MaskShape, c: &str) -> Result<Later> 
             let Some(kind) = AutoKind::of(shape).filter(|k| k.seg_of(shape).is_some_and(Option::is_none)) else { return Ok(Later::Nothing) };
             if !crate::segment::Segmenter::AVAILABLE {
                 return Ok(Later::Nothing);
+            }
+            if matches!(kind, AutoKind::People { who: Some(_), .. } | AutoKind::Concept { .. }) {
+                return Ok(Later::Recipe);
             }
             match s.segmenter.auto_model(&kind) {
                 Err(_) => return Ok(Later::Approximate(kind.preferred_model())),
@@ -181,6 +223,16 @@ fn queue_later(s: &mut Session, later: Later, mask: u32, comp: usize, mut out: V
             out["note"] = json!(format!(
                 "made by a heuristic: the {model} AI model isn't installed (ai.models.download {{\"id\": \"{model}\", \"acknowledged\": true}} after the user agrees)"
             ));
+        }
+        Later::Recipe => {
+            let id = s.active().ok_or_else(|| ai_err("no active photo"))?;
+            let r = s.compute_masks(&[id], false);
+            if r.get("queued").and_then(Value::as_u64).unwrap_or(0) > 0 {
+                out["pending"] = json!(true);
+            }
+            if let Some(n) = r.get("notes").filter(|n| n.as_array().is_some_and(|a| !a.is_empty())) {
+                out["notes"] = n.clone();
+            }
         }
         Later::Nothing | Later::Text(_) => {}
     }
@@ -227,8 +279,11 @@ pub(crate) fn clicks_of(include: &[Point], exclude: &[Point]) -> Vec<Click> {
 fn masks_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut Vec<Mask>, &mut Option<u32>) -> Result<()>) -> Result<Value> {
     let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
     let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+    let before = d.masks.clone();
     let mut active = s.active_mask;
     f(&mut d.masks, &mut active)?;
+    // automatic names follow what the masks select (until the photographer names one)
+    s.refresh_mask_names(id, &before, &mut d.masks);
     s.set_develop(id, d, label)?;
     s.active_mask = active;
     Ok(json!({"activeMask": active}))
@@ -254,7 +309,17 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
                 let mut shape = shape_from(&kind, p, "mask.add")?;
-                let later = resolve_ai(s, &mut shape, "mask.add")?;
+                let anchor = anchor_param(p, &shape, "mask.add")?;
+                if let Some(a) = &anchor
+                    && let Some(id) = s.active()
+                    && let Some(placed) = a.placed(s.photo_aspect(id))
+                {
+                    shape = placed;
+                }
+                let mut later = resolve_ai(s, &mut shape, "mask.add")?;
+                if anchor.is_some() {
+                    later = Later::Recipe;
+                }
                 let name = str_param(p, "name").map(str::to_string);
                 if let Later::Text(text) = &later {
                     let id = s.active().ok_or_else(|| bad("mask.add", "no active photo"))?;
@@ -268,7 +333,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     masks.push(Mask {
                         id: next,
                         name: name.unwrap_or_else(|| format!("Mask {next}")),
-                        components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+                        components: vec![MaskComponent { anchor, name: None, op: MaskOp::Add, invert: false, shape }],
                         adjust,
                         ..Default::default()
                     });
@@ -296,7 +361,16 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("mask.addComponent", format!("no mask {mid}")));
                 }
                 let mut shape = shape_from(&kind, p, "mask.addComponent")?;
-                let later = resolve_ai(s, &mut shape, "mask.addComponent")?;
+                let anchor = anchor_param(p, &shape, "mask.addComponent")?;
+                if let Some(a) = &anchor
+                    && let Some(placed) = a.placed(s.photo_aspect(id))
+                {
+                    shape = placed;
+                }
+                let mut later = resolve_ai(s, &mut shape, "mask.addComponent")?;
+                if anchor.is_some() {
+                    later = Later::Recipe;
+                }
                 if let Later::Text(text) = &later {
                     let op = p.get("op").and_then(Value::as_str).unwrap_or("add");
                     segment(s, |s| s.segment_text_later(id, Some(mid), op, None, text))?;
@@ -305,7 +379,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut comp = 0;
                 let out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
                     let i = find(masks, mid, "mask.addComponent")?;
-                    masks[i].components.push(MaskComponent { name: None, op, invert: bool_or(p, "invert", false), shape });
+                    masks[i].components.push(MaskComponent { anchor, name: None, op, invert: bool_or(p, "invert", false), shape });
                     comp = masks[i].components.len() - 1;
                     Ok(())
                 })?;
@@ -356,6 +430,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         strokes.push(stroke);
                     } else {
                         m.components.push(MaskComponent {
+                            anchor: None,
                             name: None,
                             op: MaskOp::Add,
                             invert: false,
@@ -496,11 +571,35 @@ pub fn specs() -> Vec<CommandSpec> {
                     .filter(|(k, _)| wanted.is_none_or(|w| w == *k))
                     .filter_map(|(k, comp)| AutoKind::of(&comp.shape).map(|kind| (k, kind)))
                     .collect();
-                if todo.is_empty() {
+                let recipe = todo.iter().any(|(_, k)| matches!(k, AutoKind::People { who: Some(_), .. } | AutoKind::Concept { .. }))
+                    || m.components.iter().any(|c| c.anchor.is_some());
+                if todo.is_empty() && !recipe {
                     return Err(bad(c, "the mask has no Subject, Background, Sky, People or Landscape selection"));
                 }
                 for (_, kind) in &todo {
                     s.segmenter.auto_model(kind).map_err(ai_err)?;
+                }
+                if recipe {
+                    // by name, role or remembered object, or anchored: back to the recipe, then computed
+                    let aspect = s.photo_aspect(photo);
+                    let mut d = (*d).clone();
+                    if let Some(m) = d.masks.iter_mut().find(|m| m.id == mid) {
+                        for (k, comp) in m.components.iter_mut().enumerate() {
+                            if wanted.is_none_or(|w| w == k) {
+                                comp.shape = comp.shape.recipe();
+                                if let Some(a) = &mut comp.anchor {
+                                    a.bounds = None;
+                                    if let Some(placed) = a.placed(aspect) {
+                                        comp.shape = placed;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    s.set_develop(photo, d, "Update AI Mask")?;
+                    let r = s.compute_masks(&[photo], false);
+                    let n = |k: &str| r.get(k).and_then(Value::as_u64).unwrap_or(0);
+                    return Ok(json!({"updated": n("updated"), "pending": n("queued"), "notes": r.get("notes")}));
                 }
                 // compute each (the app queues them: meanwhile the mask shows the heuristic)
                 let mut d = (*d).clone();

@@ -370,6 +370,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                     }
                     u.collapsed_sidebar.clear();
                     u.toast = app.ui.toast.clone();
+                    // the Masking panel's transient state isn't settings: it survives a ui.set
+                    u.mask_new = app.ui.mask_new.clone();
+                    u.mask_overlay = p.get("maskOverlay").and_then(Value::as_bool).unwrap_or(app.ui.mask_overlay);
+                    u.mask_overlay_hidden = app.ui.mask_overlay_hidden;
                     u.dialog = app.ui.dialog.clone();
                     u.status = app.ui.status.clone();
                     crate::docking::cancel_replaced_gesture(app, u.docking.as_ref());

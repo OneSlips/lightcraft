@@ -292,6 +292,8 @@
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licence : {licence}, une licence open source qui autorise tout usage, y compris le travail commercial.",
   "A one-time download of about {mb} MB, saved in {dir}": "Un téléchargement unique d’environ {mb} Mo, enregistré dans {dir}",
   "Person {n}": "Personne {n}",
+  "Named {name}": "Nom enregistré : {name}",
+  "Forgot {name}": "Données effacées : {name}",
   "Eye focus: {}": "Mise au point des yeux : {}",
   "+{} turned away": "+{} détourné(s)",
   "{} with eyes closed": "{} les yeux fermÃ©s",

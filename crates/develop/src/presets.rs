@@ -228,29 +228,108 @@ impl Preset {
     pub fn from_settings(id: &str, name: &str, group: &str, s: &DevelopSettings, groups: &[SettingsGroup]) -> Preset {
         Preset { id: id.into(), name: name.into(), group: group.into(), settings: extract_groups(s, groups), favorite: false, builtin: false }
     }
-    /// Apply at `amount` (1.0 = 100 %). Masks in the preset are added to the photo's own (ones it
-    /// already has are skipped), their effect scaled by the amount.
-    pub fn apply(&self, s: &DevelopSettings, amount: f64) -> DevelopSettings {
-        let Some(masks) = self.settings.get("masks").and_then(Value::as_array).filter(|m| !m.is_empty()) else {
-            return apply_partial(s, &self.settings, amount);
-        };
+    /// Apply at `amount` (1.0 = 100 %) to a photo whose image is `aspect` = width / height
+    /// (oriented), as Lightroom Classic does: the preset's settings are set (only those it has;
+    /// everything else stays) and its masks are **added** to the photo's own, their effect scaled
+    /// by the amount. Masks are recipes: their AI selections are computed for each photo
+    /// afterwards ([`crate::Mask::needs_compute`]), never copied from the photo the preset was
+    /// made on.
+    ///
+    /// The masks the latest preset application added are provisional (tagged with that preset's
+    /// id): applying the same preset again right away replaces them (no doubling); applying any
+    /// other preset first makes them the photographer's own (untagged), so the next application
+    /// of the first preset adds a fresh set. Editing a provisional mask makes it the
+    /// photographer's own too ([`settle_provisional`]).
+    pub fn apply(&self, s: &DevelopSettings, amount: f64, aspect: f64) -> DevelopSettings {
+        let masks: Vec<crate::Mask> = self
+            .settings
+            .get("masks")
+            .and_then(Value::as_array)
+            .map(|m| m.iter().filter_map(|m| serde_json::from_value::<crate::Mask>(m.clone()).ok()).collect())
+            .unwrap_or_default();
         let mut rest = self.settings.clone();
         if let Some(o) = rest.as_object_mut() {
             o.remove("masks");
         }
         let mut out = apply_partial(s, &rest, amount);
-        let mut next = out.masks.iter().map(|m| m.id).max().unwrap_or(0);
-        for m in masks {
-            let Ok(mut m) = serde_json::from_value::<crate::Mask>(m.clone()) else { continue };
-            if out.masks.iter().any(|q| q.name == m.name && q.components == m.components) {
-                continue;
-            }
-            next += 1;
+        // the same preset again: its own (still provisional) masks make room for the new ones
+        let again = out.masks.iter().any(|m| m.preset.as_deref() == Some(self.id.as_str()));
+        if again {
+            out.masks.retain(|m| m.preset.as_deref() != Some(self.id.as_str()));
+        }
+        // whatever an earlier application left is the photographer's now
+        for m in &mut out.masks {
+            m.preset = None;
+        }
+        let mut next = s.masks.iter().chain(&out.masks).map(|m| m.id).max().unwrap_or(0);
+        // named after the preset: "Sun Kissed", or "Dress + Portrait - Clothes" for one of several
+        let short = crate::recipe::short_preset_name(&self.name);
+        let several = masks.len() > 1;
+        for mut m in masks {
+            let own = if crate::recipe::generic_name(&m.name) { crate::recipe::content_name(&m) } else { m.name.trim().to_string() };
+            m.name = match (short.is_empty(), several) {
+                (true, _) => own,
+                (false, true) => format!("{short} - {own}"),
+                (false, false) => short.clone(),
+            };
+            next = next.saturating_add(1);
             m.id = next;
+            m.preset = Some(self.id.clone());
+            m.strip_ai(aspect);
             m.adjust.amount = (m.adjust.amount * amount).clamp(0.0, 200.0);
             out.masks.push(m);
         }
         out
+    }
+
+    /// Whether it carries masks with AI selections (shown with a badge; applying it computes them).
+    pub fn has_ai_masks(&self) -> bool {
+        self.settings
+            .get("masks")
+            .and_then(Value::as_array)
+            .is_some_and(|m| m.iter().filter_map(|m| serde_json::from_value::<crate::Mask>(m.clone()).ok()).any(|m| m.uses_ai()))
+    }
+
+    /// Whether it has masks and no other settings (a "mask-only" preset such as Bring Sky Down).
+    pub fn mask_only(&self) -> bool {
+        self.settings.as_object().is_some_and(|o| o.contains_key("masks") && o.len() == 1)
+    }
+}
+
+/// `partial`'s masks as recipes: no segmentation computed for one photo, no provisional tag (what
+/// presets, copy and paste carry).
+pub fn to_recipes(partial: &mut Value) {
+    let Some(masks) = partial.get_mut("masks").and_then(Value::as_array_mut) else { return };
+    for m in masks.iter_mut() {
+        if let Ok(mut mask) = serde_json::from_value::<crate::Mask>(m.clone()) {
+            mask.strip_ai(crate::recipe::RECIPE_ASPECT);
+            mask.preset = None;
+            if let Ok(v) = serde_json::to_value(mask) {
+                *m = v;
+            }
+        }
+    }
+}
+
+/// After an edit of `before` into `after` (not a preset application): when the photographer
+/// changed one of the masks the latest preset application added, all of that application's masks
+/// become theirs (untagged), so applying that preset again adds rather than replaces.
+pub fn settle_provisional(before: &DevelopSettings, after: &mut DevelopSettings) {
+    let touched = after.masks.iter().filter(|m| m.preset.is_some()).any(|m| {
+        before.masks.iter().find(|b| b.id == m.id).is_some_and(|b| {
+            b.preset != m.preset
+                || !b.same_recipe(m)
+                || b.adjust != m.adjust
+                || b.name != m.name
+                || b.invert != m.invert
+                || b.visible != m.visible
+                || b.refine != m.refine
+        })
+    });
+    if touched {
+        for m in &mut after.masks {
+            m.preset = None;
+        }
     }
 }
 
@@ -267,7 +346,7 @@ mod tests {
         a.crop.geometry.angle = 5.0;
         let p = Preset::from_settings("p", "P", "User", &a, &SettingsGroup::default_copy());
         assert!(p.settings.get("crop").is_none());
-        let b = p.apply(&DevelopSettings::default(), 1.0);
+        let b = p.apply(&DevelopSettings::default(), 1.0, 1.5);
         assert_eq!(b.light.exposure, 1.0);
         assert_eq!(b.effects.clarity, 30.0);
         assert_eq!(b.crop.geometry.angle, 0.0);
@@ -299,7 +378,7 @@ mod tests {
         assert!(p.settings.pointer("/grain/seed").is_some_and(Value::is_u64), "the default copy groups include the grain seed");
         let base = DevelopSettings::default();
         for (amount, seed) in [(0.3, 0), (0.5, 12345), (1.5, 12345), (2.0, 12345)] {
-            let out = p.apply(&base, amount);
+            let out = p.apply(&base, amount, 1.5);
             assert!((out.light.exposure - amount.min(5.0)).abs() < 1e-9, "{amount}: exposure {}", out.light.exposure);
             assert!((out.grain.amount - (40.0 * amount).min(100.0)).abs() < 1e-9, "{amount}: grain {}", out.grain.amount);
             assert_eq!(out.grain.seed, seed, "{amount}: seed");

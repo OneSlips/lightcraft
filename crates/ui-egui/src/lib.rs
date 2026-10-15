@@ -23,6 +23,7 @@ pub mod import;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
+pub mod mask_thumbs;
 pub mod menu_level;
 pub mod menubar;
 pub mod menus;
@@ -105,6 +106,8 @@ mod tests_lights_out;
 #[cfg(test)]
 mod tests_mask_effects;
 #[cfg(test)]
+mod tests_mask_panel;
+#[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
 mod tests_masking_layout;
@@ -126,6 +129,8 @@ mod tests_quit_unsaved;
 mod tests_sam_setup;
 #[cfg(test)]
 mod tests_scroll;
+#[cfg(test)]
+mod tests_smart_presets;
 #[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
@@ -587,6 +592,10 @@ impl LightcraftApp {
             // the search field shows the text filter: cleared from anywhere (the loupe's pill, the
             // menu), it must not keep a search that no longer applies (issue #1648)
             self.ui.search.clear();
+        }
+        if r.is_ok() && matches!(id, "preset.apply" | "develop.paste" | "develop.sync") {
+            // a preset's masks come with their adjustments: show the effect, not an overlay
+            self.ui.mask_overlay = false;
         }
         if r.is_ok() && id == "mask.adjust" {
             // Judge local adjustments on the photo, without the selection overlay obscuring them.
@@ -1407,6 +1416,8 @@ impl LightcraftApp {
         self.library_changed(&ctx);
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
+        // (and the mask row or pin under the pointer: the overlay shows that mask)
+        self.ui.mask_hover_prev = self.ui.mask_hover.take();
         self.ai_mask_detail(&ctx);
         crate::panels::genfill::frame(self, &ctx);
         self.place_names_outcome(&ctx);
@@ -1431,6 +1442,7 @@ impl LightcraftApp {
         self.lights_out(&ctx);
         panels::second::show(self, &ctx);
         panels::notices::show(self, &ctx);
+        panels::smart_people::roles_window(self, &ctx);
         panels::dialogs::show(self, &ctx);
         panels::library_problem::show(self, &ctx);
         export_task::poll(self, &ctx);

@@ -17,6 +17,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 use lightcraft_develop::SegMask;
+use lightcraft_segment::identity::Signature;
 use lightcraft_segment::{
     Encoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
     birefnet::{BIREFNET_SIDE, BiRefNet},
@@ -42,10 +43,24 @@ pub enum Kind {
         prompt: Prompt,
         region: [f64; 4],
     },
-    /// An automatic selection (Subject, Sky, …) computed by `model`.
+    /// An automatic selection (Subject, Sky, …) computed by `model`; `target` says which person
+    /// or object (by name, role or examples) when the selection is about one.
     Auto {
         what: AutoKind,
         model: AutoModel,
+        target: Target,
+    },
+    /// The faces on the photo with their appearance signatures (`people.faces`); `people` is
+    /// Selfie Multiclass for the clothes, hair and skin colours, when installed.
+    Faces {
+        face: PathBuf,
+        people: Option<PathBuf>,
+        /// SAM 2.1, for appearance features beyond colour (when installed).
+        sam2: Option<PathBuf>,
+    },
+    /// Learn an example of a remembered object from a mask on the photo (`concepts.teach`).
+    Learn {
+        mask: Box<lightcraft_develop::Mask>,
     },
     /// The skin of `area` (of everyone, or of the `person`-th from the left) and every face with
     /// its landmarks, by MediaPipe's Selfie Multiclass (`people`) and Face Landmarker (`face`):
@@ -78,6 +93,15 @@ pub struct Job {
     pub reply: mpsc::Sender<Outcome>,
     /// Where the slow steps (loading a model, analyzing a photo) show as activity rows.
     pub activity: Option<crate::activity::Activity>,
+    /// The batch it belongs to and the batches cancelled meanwhile (an undone preset): a job of a
+    /// cancelled batch is skipped.
+    pub batch: Option<(u64, Arc<std::sync::Mutex<std::collections::HashSet<u64>>>)>,
+}
+
+impl Job {
+    fn cancelled(&self) -> bool {
+        self.batch.as_ref().is_some_and(|(b, set)| set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).contains(b))
+    }
 }
 
 /// A finished request: the segmentation (`None`: nothing selected / nothing to report).
@@ -90,6 +114,39 @@ pub struct Outcome {
     pub faces: Option<Vec<super::FoundFace>>,
     /// Something the user should know about the result (e.g. face features it couldn't find).
     pub note: Option<String>,
+    /// What a request that isn't a segmentation returns (faces, a learned example).
+    pub payload: Payload,
+}
+
+/// Which person or object an automatic selection is about.
+#[derive(Clone, Debug, Default)]
+pub enum Target {
+    #[default]
+    None,
+    /// A person: their named face box on this photo (normalized), else their known appearance
+    /// (`sam2`: for appearance features, when installed).
+    Person { rect: Option<[f64; 4]>, known: Vec<Signature>, sam2: Option<PathBuf> },
+    /// A remembered object's examples.
+    Concept(Arc<Vec<lightcraft_segment::concept::Example>>),
+}
+
+/// A face found on a photo (normalized box; left to right).
+#[derive(Clone, Debug)]
+pub struct FoundFace {
+    pub rect: [f64; 4],
+    pub score: f32,
+    pub signature: Signature,
+    /// FaceMesh placed its landmarks (not a strong profile).
+    pub landmarks: bool,
+}
+
+/// Non-segmentation results.
+#[derive(Clone, Debug, Default)]
+pub enum Payload {
+    #[default]
+    None,
+    Faces(Vec<FoundFace>),
+    Example(Box<lightcraft_segment::concept::Example>),
 }
 
 /// Counters the session reads without locking.
@@ -310,12 +367,13 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         // counts the job as pending until just before its reply goes out: a caller woken by the
         // reply must not still see the worker busy with it
         let done = Done(if is_detail { &shared.detail } else { &shared.pending });
-        if queue.iter().any(|later| supersedes(later, &job)) {
+        if queue.iter().any(|later| supersedes(later, &job)) || job.cancelled() {
             drop(done);
-            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, faces: None, note: None });
+            let _ = job.reply.send(Outcome { tag: job.tag, result: Ok(None), superseded: true, faces: None, payload: Payload::None, note: None });
             continue;
         }
-        let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job))) {
+        let mut payload = Payload::None;
+        let result = match std::panic::catch_unwind(AssertUnwindSafe(|| run_job(&mut state, shared, &mut job, &mut payload))) {
             Ok(r) => r,
             Err(p) => {
                 let why = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
@@ -335,7 +393,7 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration) {
         if let Some(n) = &note {
             log::info!("AI masks: {n}");
         }
-        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, faces, note });
+        let _ = job.reply.send(Outcome { tag: job.tag, result, superseded: false, faces, payload, note });
     }
 }
 
@@ -505,7 +563,7 @@ fn ensure<M, T>(
 }
 
 /// An automatic selection; `None` when nothing of the kind was found.
-fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel) -> Result<Option<SegMask>, String> {
+fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel, target: &Target) -> Result<Option<SegMask>, String> {
     let invert = |l: Vec<f32>| l.into_iter().map(|v| -v).collect::<Vec<f32>>();
     let background = *what == AutoKind::Background;
     match model {
@@ -527,7 +585,7 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let logits = if background { invert(logits) } else { logits };
             Ok(Some(SegMask::from_logits(SCENE_SIDE, &logits)))
         }
-        AutoModel::People { people, face, scene } => {
+        AutoModel::People { people, face, scene, sam2 } => {
             let map = match &people {
                 Some(dir) => {
                     ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
@@ -541,7 +599,7 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 // a person is the subject when there is one; else EoMT's most confident thing
                 let person_there = map.as_ref().is_some_and(|m| m.person_share() > 0.005);
                 if !person_there && let Some(scene) = scene {
-                    return auto(state, shared, job, what, AutoModel::Scene(scene));
+                    return auto(state, shared, job, what, AutoModel::Scene(scene), target);
                 }
                 let Some(map) = map else { return Ok(None) };
                 let req = PeopleRequest::parse(0, &[]).ok_or("people request")?;
@@ -551,8 +609,8 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                     SegMask::from_logits(g.side, &logits)
                 }));
             }
-            let AutoKind::People { person, parts } = what else { return Err("not a People selection".into()) };
-            let req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
+            let AutoKind::People { person, parts, .. } = what else { return Err("not a People selection".into()) };
+            let mut req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
             let faces: Vec<Face> = match &face {
                 Some(dir) => {
                     ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
@@ -563,13 +621,39 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 }
                 None => Vec::new(),
             };
+            if let Target::Person { rect, known, sam2 } = target {
+                // by name or role: which of the faces it is (appearance features when the
+                // examples have them)
+                let wants = rect.is_none() && known.iter().any(|k| k.body.is_some() || k.face.is_some());
+                let emb = sam2_embedding(state, shared, job, sam2.clone(), wants && !faces.is_empty());
+                let map = match &people {
+                    Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
+                    None => None,
+                };
+                let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+                match pick_face(&faces, *rect, known, map, input, emb.as_ref()) {
+                    Some(i) => {
+                        log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
+                        req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
+                    }
+                    None => return Ok(None),
+                }
+            }
+            // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
+            // others' left out), so what touches them — an arm round the bride — stays the other's
+            let instances = match (&sam2, req.person) {
+                (Some(dir), n) if n > 0 && faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
+                _ => None,
+            };
             let map = match &people {
                 Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
                 None => None,
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
             let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
-            let Some(g) = people_mask(&req, &input.rgb, input.w, input.h, map, &faces) else { return Ok(None) };
+            let Some(g) = lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref()) else {
+                return Ok(None);
+            };
             if skin && face.is_none() {
                 state.note = Some("Skin includes eyes, brows and mouth: the MediaPipe faces model, which finds them, isn't installed.".into());
             } else if skin && g.faces_without_features > 0 {
@@ -582,6 +666,15 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
                 None => SegMask::from_logits(g.side, &g.logits),
             }))
+        }
+        AutoModel::Concept(dir) => {
+            let Target::Concept(examples) = target else { return Err("which remembered object?".into()) };
+            job.dir = dir;
+            let (m, enc, input) = sam2_on_input(state, shared, job)?;
+            let _row = row(job, "Finding a remembered object");
+            let found = lightcraft_segment::concept::find(m, enc, examples, &input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+            log::info!("remembered object: best likeness {:.3}", found.as_ref().map_or(f32::NAN, |f| f.score));
+            Ok(found.map(|f| SegMask::from_logits(f.mask_side, &f.logits)))
         }
     }
 }
@@ -621,6 +714,243 @@ fn skin(
     Ok(seg)
 }
 
+/// Everyone's silhouette (SAM 2.1, for each face: clicks on it and down its body, the other faces
+/// left out), so where people overlap a pixel goes to whoever's silhouette claims it most; `None`
+/// (with a log line) when SAM 2.1 can't give them.
+fn person_instances(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    dir: &std::path::Path,
+    faces: &[Face],
+) -> Option<lightcraft_segment::people::Instances> {
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h))?;
+    let (w, h) = (input.0.max(1) as f32, input.1.max(1) as f32);
+    let centre = |f: &Face| {
+        let d = &f.detection;
+        (((d.x0 + d.x1) / 2.0 / w).clamp(0.0, 1.0), ((d.y0 + d.y1) / 2.0 / h).clamp(0.0, 1.0), ((d.y1 - d.y0) / h).max(0.0))
+    };
+    let keep = std::mem::replace(&mut job.dir, dir.to_path_buf());
+    let out = sam2_on_input(state, shared, job).and_then(|(m, enc, _)| {
+        let mut people = Vec::with_capacity(faces.len());
+        for (k, f) in faces.iter().enumerate() {
+            let (cx, cy, fh) = centre(f);
+            // their face, chest and middle (below the frame: left out)
+            let mut clicks: Vec<lightcraft_segment::Click> = [0.0, 1.6, 3.2]
+                .iter()
+                .map(|d| cy + d * fh)
+                .filter(|y| *y < 0.98)
+                .map(|y| lightcraft_segment::Click { x: cx, y, positive: true })
+                .collect();
+            for (j, o) in faces.iter().enumerate() {
+                if j != k {
+                    let (ox, oy, _) = centre(o);
+                    clicks.push(lightcraft_segment::Click { x: ox, y: oy, positive: false });
+                }
+            }
+            let p = m.segment_clicks_with(enc, &clicks, false).map_err(|e| e.to_string())?;
+            let share = p.logits.iter().filter(|l| **l > -1.0).count() as f32 / p.logits.len().max(1) as f32;
+            log::info!("people: person {} of {}: silhouette {:.0}% of the photo", k + 1, faces.len(), share * 100.0);
+            people.push(p.logits);
+        }
+        Ok(people)
+    });
+    job.dir = keep;
+    match out {
+        Ok(people) => Some(lightcraft_segment::people::Instances { side: SAM2_MASK_SIDE, people }),
+        Err(e) => {
+            log::warn!("people: no silhouettes from SAM 2.1 ({e})");
+            None
+        }
+    }
+}
+
+/// A face's box in normalized photo coordinates.
+fn norm_box(f: &Face, w: usize, h: usize) -> [f64; 4] {
+    let (w, h) = (w.max(1) as f64, h.max(1) as f64);
+    let d = &f.detection;
+    [f64::from(d.x0) / w, f64::from(d.y0) / h, f64::from(d.x1) / w, f64::from(d.y1) / h].map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 })
+}
+
+fn iou(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let ix = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+    let iy = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+    let inter = ix * iy;
+    let union = (a[2] - a[0]).max(0.0) * (a[3] - a[1]).max(0.0) + (b[2] - b[0]).max(0.0) * (b[3] - b[1]).max(0.0) - inter;
+    if union > 0.0 { inter / union } else { 0.0 }
+}
+
+/// Faces whose appearance scores at least this against a person's examples are taken for them.
+pub const PERSON_MATCH: f32 = 0.55;
+
+/// Which of `faces` (index) is the person: the one overlapping their named face box, else the
+/// one that looks most like their examples. `None`: they aren't on this photo (as far as can be
+/// told).
+fn pick_face(
+    faces: &[Face],
+    rect: Option<[f64; 4]>,
+    known: &[Signature],
+    map: Option<&PeopleMap>,
+    input: &Input,
+    emb: Option<&(Vec<f32>, usize, usize)>,
+) -> Option<usize> {
+    if let Some(r) = rect {
+        let centre = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
+        let best = faces
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                let b = norm_box(f, input.w, input.h);
+                let inside = (b[0]..=b[2]).contains(&centre[0]) && (b[1]..=b[3]).contains(&centre[1]);
+                (i, iou(b, r).max(if inside { 0.25 } else { 0.0 }))
+            })
+            .max_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((i, s)) = best
+            && s >= 0.2
+        {
+            return Some(i);
+        }
+    }
+    if known.is_empty() {
+        return None;
+    }
+    let scored: Vec<(usize, f32)> = (0..faces.len())
+        .filter_map(|i| {
+            let mut sig = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h)?;
+            if let Some((e, side, dim)) = emb {
+                (sig.body, sig.face) = lightcraft_segment::identity::features(e, *side, *dim, faces, i, map, input.w, input.h);
+            }
+            let mut s: Vec<f32> = known.iter().map(|k| lightcraft_segment::identity::similarity(&sig, k)).collect();
+            s.sort_by(|a, b| b.total_cmp(a));
+            let top: Vec<f32> = s.into_iter().take(2).collect();
+            (!top.is_empty()).then(|| (i, top.iter().sum::<f32>() / top.len() as f32))
+        })
+        .collect();
+    scored.into_iter().filter(|(_, s)| *s >= PERSON_MATCH).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+}
+
+/// The faces of `job`'s photo with their appearance signatures (`people.faces`).
+fn found_faces(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    face: &std::path::Path,
+    people: Option<&std::path::Path>,
+    sam2: Option<PathBuf>,
+) -> Result<Vec<FoundFace>, String> {
+    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    let faces =
+        cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| m.faces(&i.rgb, i.w, i.h))?
+            .clone();
+    if let Some(dir) = people {
+        ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
+        cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
+    }
+    let emb = sam2_embedding(state, shared, job, sam2, !faces.is_empty());
+    let map = people.and(state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m));
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+    Ok(faces
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let mut signature = lightcraft_segment::identity::signature(&faces, i, map, &input.rgb, input.w, input.h)?;
+            if let Some((e, side, dim)) = &emb {
+                (signature.body, signature.face) = lightcraft_segment::identity::features(e, *side, *dim, &faces, i, map, input.w, input.h);
+            }
+            Some(FoundFace { rect: norm_box(f, input.w, input.h), score: f.detection.score, signature, landmarks: f.landmarks.is_some() })
+        })
+        .collect())
+}
+
+/// SAM 2.1's embedding of `job`'s photo (`(values, side, channels)`), when `dir` is given and
+/// `wanted`; `None` (and a log line) when it can't be had: appearance then rests on colours.
+fn sam2_embedding(state: &mut State, shared: &Shared, job: &mut Job, dir: Option<PathBuf>, wanted: bool) -> Option<(Vec<f32>, usize, usize)> {
+    let dir = dir.filter(|_| wanted)?;
+    let keep = std::mem::replace(&mut job.dir, dir);
+    let out = sam2_on_input(state, shared, job).and_then(|(_, enc, _)| enc.embedding().map_err(|e| e.to_string()));
+    job.dir = keep;
+    match out {
+        Ok(e) => Some(e),
+        Err(e) => {
+            log::warn!("people: no SAM 2.1 features ({e})");
+            None
+        }
+    }
+}
+
+/// SAM 2.1 (from `job.dir`) and the photo encoded by it, from the open models' shared input.
+fn sam2_on_input<'a>(state: &'a mut State, shared: &Shared, job: &mut Job) -> Result<(&'a Sam2, &'a Sam2Encoded, &'a Input), String> {
+    if state.sam2.as_ref().is_none_or(|(d, _)| *d != job.dir) {
+        state.sam2_cache = None;
+    }
+    load(&mut state.sam2, shared, &job.dir, "SAM 2.1", Sam2::load)?;
+    photo(&mut state.input_cache, job)?;
+    if state.sam2_cache.as_ref().is_none_or(|(k, _)| *k != job.key) {
+        state.sam2_cache = None;
+        let input = state.input_cache.as_ref().map(|(_, i)| i).ok_or("the photo is not available")?;
+        let _busy = Flag::raise(&shared.encoding);
+        let _row = row(job, "SAM 2.1");
+        let m = state.sam2.as_ref().map(|(_, m)| m).ok_or("SAM 2.1 did not load")?;
+        let t = web_time::Instant::now();
+        let enc = m.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+        log::info!("SAM 2.1 encoded {}×{} in {:?}", input.w, input.h, t.elapsed());
+        state.sam2_cache = Some((job.key, enc));
+    }
+    match (&state.sam2, &state.sam2_cache, &state.input_cache) {
+        (Some((_, m)), Some((_, e)), Some((_, i))) => Ok((m, e, i)),
+        _ => Err("SAM 2.1 is not ready".into()),
+    }
+}
+
+/// The alpha of `mask` over the model input, on a grid of about `edge` cells on the long side
+/// (the mask's coordinates are the uncropped photo's, which the input is).
+pub(crate) fn mask_alpha(mask: &lightcraft_develop::Mask, input: &Input, edge: usize) -> lightcraft_raster::Plane {
+    let (w, h) = (input.w.max(1), input.h.max(1));
+    let s = edge.max(8) as f64 / w.max(h) as f64;
+    let (gw, gh) = (((w as f64 * s).round() as usize).max(1), ((h as f64 * s).round() as usize).max(1));
+    let lin = |v: u8| {
+        let c = f32::from(v) / 255.0;
+        if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
+    };
+    let px = |x: usize, y: usize| -> [f32; 3] {
+        let (sx, sy) = ((x * w / gw).min(w - 1), (y * h / gh).min(h - 1));
+        let i = (sy * w + sx) * 3;
+        match input.rgb.get(i..i + 3) {
+            Some(p) => [lin(p[0]), lin(p[1]), lin(p[2])],
+            None => [0.0; 3],
+        }
+    };
+    let img = lightcraft_raster::Rgb32f::from_fn(gw, gh, px);
+    let log_l = lightcraft_raster::Plane::from_fn(gw, gh, |x, y| {
+        let p = img.data.get(y * gw + x).copied().unwrap_or_default();
+        (0.2627 * p[0] + 0.678 * p[1] + 0.0593 * p[2]).max(1e-6).log2()
+    });
+    let frame = lightcraft_pipeline::geometry::Frame::new(gw, gh, &lightcraft_develop::DevelopSettings::default(), false);
+    let mut m = mask.clone();
+    m.visible = true;
+    m.adjust.amount = 100.0;
+    lightcraft_pipeline::masks::evaluate_one(&m, &frame, gw, gh, &img, &log_l, 0.0, None)
+}
+
+/// Learn an example of a remembered object from `mask` on the photo.
+fn learn(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    mask: &lightcraft_develop::Mask,
+) -> Result<Option<lightcraft_segment::concept::Example>, String> {
+    let (_, enc, input) = sam2_on_input(state, shared, job)?;
+    let alpha = mask_alpha(mask, input, 128);
+    let (emb, es, dim) = enc.embedding().map_err(|e| e.to_string())?;
+    let (aw, ah) = (alpha.width.max(1), alpha.height.max(1));
+    let at = |u: f32, v: f32| {
+        let x = ((u * aw as f32) as usize).min(aw - 1);
+        let y = ((v * ah as f32) as usize).min(ah - 1);
+        alpha.data.get(y * aw + x).copied().unwrap_or(0.0)
+    };
+    Ok(lightcraft_segment::concept::learn(&emb, es, dim, at, &input.rgb, input.w, input.h))
+}
+
 /// The probability of `what` at each cell of `scene`'s grid; `None` when it isn't there.
 fn scene_probs(scene: &Scene, what: &AutoKind) -> Option<Vec<f32>> {
     use lightcraft_segment::scene::class_ids;
@@ -632,6 +962,7 @@ fn scene_probs(scene: &Scene, what: &AutoKind) -> Option<Vec<f32>> {
             let names = landscape_classes(class);
             Some(scene.class_probability(&class_ids(|n| names.contains(&n))))
         }
+        AutoKind::People { who: Some(_), .. } | AutoKind::Concept { .. } => None,
         AutoKind::People { person: 0, .. } => Some(scene.class_probability(&person)).filter(|p| found(p)),
         AutoKind::People { person: n, .. } => {
             // people counted from the left (by the centre of their mask)
@@ -735,7 +1066,7 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
                 }
             }
         }
-        Kind::Auto { .. } | Kind::Skin { .. } => return Err("automatic selections run locally".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => return Err("automatic selections run locally".into()),
         #[cfg(test)]
         Kind::Panic => return Err("test panic request".into()),
     };
@@ -751,10 +1082,22 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
     }))
 }
 
-fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<SegMask>, String> {
-    if let Kind::Auto { what, model } = &job.kind {
-        let (what, model) = (what.clone(), model.clone());
-        return auto(state, shared, job, &what, model);
+fn run_job(state: &mut State, shared: &Shared, job: &mut Job, payload: &mut Payload) -> Result<Option<SegMask>, String> {
+    if let Kind::Auto { what, model, target } = &job.kind {
+        let (what, model, target) = (what.clone(), model.clone(), target.clone());
+        return auto(state, shared, job, &what, model, &target);
+    }
+    if let Kind::Faces { face, people, sam2 } = &job.kind {
+        let (face, people, sam2) = (face.clone(), people.clone(), sam2.clone());
+        *payload = Payload::Faces(found_faces(state, shared, job, &face, people.as_deref(), sam2)?);
+        return Ok(None);
+    }
+    if let Kind::Learn { mask } = &job.kind {
+        let mask = mask.clone();
+        if let Some(e) = learn(state, shared, job, &mask)? {
+            *payload = Payload::Example(Box::new(e));
+        }
+        return Ok(None);
     }
     if let Kind::Skin { area, person, people, face } = &job.kind {
         let (area, person, people, face) = (*area, *person, people.clone(), face.clone());
@@ -785,7 +1128,9 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<S
             let (m, enc) = encoded(state, shared, job)?;
             Ok(text_logits(m, enc, &text)?.map(|l| SegMask::from_logits(side, &l)))
         }
-        Kind::Auto { .. } | Kind::Skin { .. } => Err("an automatic selection reached the SAM 3 path".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
+            Err("an automatic selection reached the SAM 3 path".into())
+        }
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
@@ -835,7 +1180,9 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
             Ok(Some(SegMask::from_logits_in(side, &p.logits, region)))
         }
         Kind::Text(_) | Kind::Detail { prompt: Prompt::Text(_), .. } => Err("Describe needs the SAM 3 model".into()),
-        Kind::Auto { .. } | Kind::Skin { .. } => Err("an automatic selection reached the SAM 2.1 path".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
+            Err("an automatic selection reached the SAM 2.1 path".into())
+        }
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
@@ -849,7 +1196,7 @@ mod tests {
     fn job(tag: Tag, reply: &mpsc::Sender<Outcome>) -> Job {
         // an empty folder: loading fails with an error (no model files)
         let dir = std::env::temp_dir().join(format!("lc-sam3-worker-none-{}", std::process::id()));
-        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None }
+        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None, batch: None }
     }
 
     #[test]

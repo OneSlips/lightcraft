@@ -8,6 +8,7 @@
 
 pub mod controls;
 pub mod presets;
+pub mod recipe;
 pub mod segmask;
 pub mod settings;
 
@@ -182,6 +183,7 @@ mod tests {
         s.masks.push(Mask {
             id: 1,
             components: vec![MaskComponent {
+                anchor: None,
                 name: None,
                 op: MaskOp::Add,
                 invert: false,

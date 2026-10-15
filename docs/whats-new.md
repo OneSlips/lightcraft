@@ -1,5 +1,24 @@
 # What's new in LightCraft
 
+## 2026-10-15
+
+### Masking panel
+- The **mask overlay** shows only while it helps: for a mask you have just made, while you paint or
+  draw, and while the pointer rests on a mask's name or pin. Adjust the mask and you see its effect;
+  presets never leave the overlay on. **O** shows or hides it; its colour and opacity are in the
+  small menu by the Masks title.
+- Masks are a **tree with thumbnails**: each mask, and under the selected one its parts, with Add,
+  Subtract, Intersect and Invert. The **eye** switches a mask's effect on and off; the **bin**
+  deletes it. **Amount** (the strength of the mask's effect) is the first slider.
+- **Tools wait for the photo**: Brush, Linear, Radial, Color and Object make their mask with your
+  first stroke, drag or click on the photo; clicking the tool again puts it away. No more empty
+  masks.
+- Masks are **named after where they come from**: the preset ("Sun Kissed"), the person ("Groom
+  Jamie - Clothes"), or what they select ("Radial Gradient − Linear Gradient"). Rename one and your
+  name stays.
+- **Brighten Dress** and the other People masks for one person follow that person's outline, so an
+  arm around the bride or the groom's cuff on her waist stays out, and their edges follow the dress.
+
 ## 2026-10-14
 
 ### Hard-edged Heal and Clone spots
@@ -13,6 +32,20 @@
   the eyes, brows, nostrils and lips by the face's landmarks, and can include the shoulders, arms and back.
 - **Detect Faces** and the face scan use the open MediaPipe face model too. YuNet is no longer offered: its training
   data doesn't allow commercial use. If you installed it, Settings ▸ Faces lists it so you can remove it.
+### Smart AI-mask presets
+- Presets remember their **AI masks as recipes**: applying one finds the sky, the subject, the
+  background or the people again on each photo, in the background, with one undo step per preset.
+- Presets work as in Lightroom Classic: their settings are set and their masks are **added**, so
+  they stack (a look, then Recover Blue Suit, then Bring Sky Down). Clicking the same preset again
+  right away replaces its own masks instead of doubling them.
+- **People by name and role**: the People picker shows the faces on the photo; name them and make
+  them the Bride or the Groom of the shoot, and masks and presets follow them on other photos.
+- **Remembered objects**: select a wedding dress (or anything) and Remember Selected Mask As…;
+  LightCraft finds it on other photos.
+- New **Smart Masks** presets: Sun Kissed, Recover Blue Suit, Bring Sky Down, Brighten Dress, Darken
+  Background. Lightroom presets with AI masks import with their masks.
+- Resting on a preset previews its AI masks too. Face data stays on your computer; People and Roles
+  can forget it.
 
 ### AI masks with openly licensed models
 ### Better Content-Aware fill, and Generative fill with your own account

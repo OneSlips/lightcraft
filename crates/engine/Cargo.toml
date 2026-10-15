@@ -67,3 +67,8 @@ lightcraft-tiff = { workspace = true }
 [[example]]
 name = "retouch_probe"
 required-features = ["sam"]
+
+[[example]]
+# real-photo evaluation of smart masks (needs the AI models)
+name = "smart_eval"
+required-features = ["sam"]

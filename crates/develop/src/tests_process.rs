@@ -152,7 +152,7 @@ fn the_process_is_not_an_edit_nor_part_of_copied_settings() {
     // (at another amount, without Grain: its integer seed doesn't survive scaling, a separate issue)
     let groups: Vec<SettingsGroup> = SettingsGroup::ALL.into_iter().filter(|g| *g != SettingsGroup::Grain).collect();
     let preset = Preset::from_settings("p", "P", "User", &s, &groups);
-    let half = preset.apply(&target, 0.5);
+    let half = preset.apply(&target, 0.5, 1.5);
     assert_eq!((half.process, half.light.exposure), (ProcessVersion(1), 0.7));
     // a partial that names a process explicitly (Apply Settings JSON) sets it
     assert_eq!(target.merged(&json!({"process": LATEST_PLUS_ONE})).unwrap().process, ProcessVersion(LATEST_PLUS_ONE));

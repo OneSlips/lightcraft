@@ -111,6 +111,7 @@ fn banded_full_size_render_matches() {
     s.vignette.amount = -30.0;
     s.masks = vec![Mask {
         components: vec![MaskComponent {
+            anchor: None,
             name: None,
             op: MaskOp::Add,
             invert: false,
@@ -246,6 +247,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.masks = vec![
                 Mask {
                     components: vec![MaskComponent {
+                        anchor: None,
                         name: None,
                         op: MaskOp::Add,
                         invert: false,
@@ -257,12 +259,14 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 Mask {
                     components: vec![
                         MaskComponent {
+                            anchor: None,
                             name: None,
                             op: MaskOp::Add,
                             invert: false,
                             shape: MaskShape::Radial { center: Point::new(0.4, 0.6), rx: 0.25, ry: 0.15, angle: 20.0, feather: 60.0, invert: false },
                         },
                         MaskComponent {
+                            anchor: None,
                             name: None,
                             op: MaskOp::Intersect,
                             invert: true,
@@ -293,6 +297,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.masks = vec![
                 Mask {
                     components: vec![MaskComponent {
+                        anchor: None,
                         name: None,
                         op: MaskOp::Add,
                         invert: false,
@@ -303,6 +308,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 },
                 Mask {
                     components: vec![MaskComponent {
+                        anchor: None,
                         name: None,
                         op: MaskOp::Add,
                         invert: false,
@@ -313,6 +319,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 },
                 Mask {
                     components: vec![MaskComponent {
+                        anchor: None,
                         name: None,
                         op: MaskOp::Add,
                         invert: false,
@@ -328,8 +335,9 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.masks = vec![
                 Mask {
                     components: vec![
-                        MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Sky { seg: None } },
+                        MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Sky { seg: None } },
                         MaskComponent {
+                            anchor: None,
                             name: None,
                             op: MaskOp::Subtract,
                             invert: false,
@@ -340,12 +348,24 @@ fn cases() -> Vec<(&'static str, Edit)> {
                     ..Default::default()
                 },
                 Mask {
-                    components: vec![MaskComponent { name: None, op: MaskOp::Intersect, invert: false, shape: MaskShape::Subject { seg: None } }],
+                    components: vec![MaskComponent {
+                        anchor: None,
+                        name: None,
+                        op: MaskOp::Intersect,
+                        invert: false,
+                        shape: MaskShape::Subject { seg: None },
+                    }],
                     adjust: lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
                     ..Default::default()
                 },
                 Mask {
-                    components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: true, shape: MaskShape::Background { seg: None } }],
+                    components: vec![MaskComponent {
+                        anchor: None,
+                        name: None,
+                        op: MaskOp::Add,
+                        invert: true,
+                        shape: MaskShape::Background { seg: None },
+                    }],
                     adjust: lightcraft_develop::LocalAdjustments { saturation: -60.0, ..Default::default() },
                     invert: true,
                     ..Default::default()
@@ -356,7 +376,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
             let radial = MaskShape::Radial { center: Point::new(0.4, 0.6), rx: 0.3, ry: 0.25, angle: 0.0, feather: 50.0, invert: false };
             let linear = MaskShape::Linear { start: Point::new(0.5, 0.0), end: Point::new(0.5, 0.7) };
             let m = |shape, adjust| Mask {
-                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+                components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape }],
                 adjust,
                 ..Default::default()
             };
@@ -382,7 +402,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 st(&[(0.5, 0.58)], true, true),
             ];
             s.masks = vec![Mask {
-                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
+                components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
                 adjust: lightcraft_develop::LocalAdjustments { exposure: 1.0, saturation: -50.0, ..Default::default() },
                 ..Default::default()
             }];
@@ -587,6 +607,7 @@ fn highlights_shadows_base_matches_on_every_process() {
             check(&format!("{p:?} typical {w}"), &src, &raw, &s, &req);
             s.masks = vec![Mask {
                 components: vec![MaskComponent {
+                    anchor: None,
                     name: None,
                     op: MaskOp::Add,
                     invert: false,
@@ -640,6 +661,7 @@ fn overlays_match() {
         Mask {
             id: 1,
             components: vec![MaskComponent {
+                anchor: None,
                 name: None,
                 op: MaskOp::Add,
                 invert: false,
@@ -649,13 +671,20 @@ fn overlays_match() {
         },
         Mask {
             id: 2,
-            components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes: vec![stroke] } }],
+            components: vec![MaskComponent {
+                anchor: None,
+                name: None,
+                op: MaskOp::Add,
+                invert: false,
+                shape: MaskShape::Brush { strokes: vec![stroke] },
+            }],
             ..Default::default()
         },
         Mask {
             id: 3,
             visible: false,
             components: vec![MaskComponent {
+                anchor: None,
                 name: None,
                 op: MaskOp::Add,
                 invert: false,
@@ -925,6 +954,7 @@ fn refine_edges_match() {
         s.masks = vec![
             Mask {
                 components: vec![MaskComponent {
+                    anchor: None,
                     name: None,
                     op: MaskOp::Add,
                     invert: false,
@@ -936,6 +966,7 @@ fn refine_edges_match() {
             },
             Mask {
                 components: vec![MaskComponent {
+                    anchor: None,
                     name: None,
                     op: MaskOp::Add,
                     invert: false,

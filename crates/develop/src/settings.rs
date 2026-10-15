@@ -1054,6 +1054,17 @@ pub enum MaskShape {
     People {
         person: u32,
         parts: Vec<String>,
+        /// Who it is about by name or role ("Alex", the Bride of this shoot), resolved on each
+        /// photo when the mask is computed; `None`: by `person` (position).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        who: Option<crate::recipe::Who>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seg: Option<crate::SegMask>,
+    },
+    /// A remembered object ("Wedding dress", "Groom's suit"), taught by example and found on each
+    /// photo (`concepts.*`); `seg` the segmentation computed for it.
+    Concept {
+        name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seg: Option<crate::SegMask>,
     },
@@ -1071,6 +1082,10 @@ pub struct MaskComponent {
     /// A name given in the Masking panel (Rename); `None` shows the shape's kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// A gradient placed relative to a selection's box ("from the bottom of the couple"): the
+    /// recipe, resolved into `shape` on each photo when its AI masks are computed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<crate::recipe::Anchor>,
     #[serde(default)]
     pub op: MaskOp,
     #[serde(default)]
@@ -1090,6 +1105,9 @@ pub struct Mask {
     /// Refine Edges 0..100: the mask's edges snap to the photo's (guided filter).
     #[serde(skip_serializing_if = "is_zero")]
     pub refine: f64,
+    /// The preset that added it (applying that preset again refreshes it instead of adding a copy).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<String>,
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -1098,7 +1116,16 @@ fn is_zero(v: &f64) -> bool {
 
 impl Default for Mask {
     fn default() -> Self {
-        Self { id: 0, name: "Mask 1".into(), visible: true, invert: false, components: Vec::new(), adjust: LocalAdjustments::default(), refine: 0.0 }
+        Self {
+            id: 0,
+            name: "Mask 1".into(),
+            visible: true,
+            invert: false,
+            components: Vec::new(),
+            adjust: LocalAdjustments::default(),
+            refine: 0.0,
+            preset: None,
+        }
     }
 }
 

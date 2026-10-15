@@ -556,9 +556,22 @@ pub struct UiState {
     #[serde(skip)]
     pub proof_intent: lightcraft_engine::proof::ProofIntent,
     pub proof_paper_ink: bool,
-    /// Masking: show the selected mask as a rendered overlay (O), how (`MaskView` name, ⇧O cycles),
-    /// in which colour and opacity (0..100, colour views), and whether pins are drawn.
+    /// Masking: the overlay shown on demand (O, the overlay button), how (`MaskView` name, ⇧O
+    /// cycles), in which colour and opacity (0..100, colour views), and whether pins are drawn.
+    /// Without it the overlay still shows by itself, as in Lightroom Classic, for a fresh mask (no
+    /// adjustment yet), while a mask tool is in use, and while the pointer is on a mask's row or pin
+    /// ([`crate::panels::detail::overlay_shown`]). Not kept between sessions: the photo opens
+    /// without it.
+    #[serde(skip)]
     pub mask_overlay: bool,
+    /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it).
+    #[serde(skip)]
+    pub mask_hover: Option<u32>,
+    #[serde(skip)]
+    pub mask_hover_prev: Option<u32>,
+    /// O hid the automatic overlay of this mask (until another mask is selected).
+    #[serde(skip)]
+    pub mask_overlay_hidden: Option<u32>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -655,6 +668,28 @@ pub struct UiState {
     /// n-th person from the left) and which parts (Lightroom's names; none: the entire person).
     #[serde(skip)]
     pub people_pick: Option<(u32, Vec<String>)>,
+    /// A mask tool armed in the Masking panel and the operation it makes (`new` or add, subtract,
+    /// intersect): the first click or drag on the photo makes the mask.
+    #[serde(skip)]
+    pub mask_new: Option<(String, String)>,
+    /// The face chosen in the People picker (index into the photo's faces).
+    #[serde(skip)]
+    pub people_face: Option<usize>,
+    /// The People picker's name and role fields, and whether the mask finds the person by role.
+    #[serde(skip)]
+    pub people_name: String,
+    #[serde(skip)]
+    pub people_role: String,
+    #[serde(skip)]
+    pub people_by_role: bool,
+    /// The remembered objects are shown under the mask tiles (the Remembered tile was clicked).
+    #[serde(skip)]
+    pub concept_pick: bool,
+    /// The People and Roles window is open; its Forget All button was clicked once.
+    #[serde(skip)]
+    pub roles_window: bool,
+    #[serde(skip)]
+    pub forget_all_armed: bool,
     /// When to start the zoomed-in detail pass of an AI mask (app time) and which mask: set by
     /// each click or description, so the pass runs once the clicking stops.
     #[serde(skip)]
@@ -1155,7 +1190,10 @@ impl Default for UiState {
             proof_profile: None,
             proof_intent: lightcraft_engine::proof::ProofIntent::Perceptual,
             proof_paper_ink: false,
-            mask_overlay: true,
+            mask_overlay: false,
+            mask_hover: None,
+            mask_hover_prev: None,
+            mask_overlay_hidden: None,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,
@@ -1194,6 +1232,14 @@ impl Default for UiState {
             ai_hint: None,
             landscape_pick: false,
             people_pick: None,
+            people_face: None,
+            mask_new: None,
+            people_name: String::new(),
+            people_role: String::new(),
+            people_by_role: false,
+            concept_pick: false,
+            roles_window: false,
+            forget_all_armed: false,
             renaming_component: None,
             quit: false,
             dragging_photos: None,

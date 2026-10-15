@@ -40,6 +40,8 @@ pub mod birefnet;
 #[cfg(not(target_arch = "wasm32"))]
 mod clip;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod concept;
+#[cfg(not(target_arch = "wasm32"))]
 mod cpu;
 #[cfg(not(target_arch = "wasm32"))]
 mod deform;
@@ -56,6 +58,8 @@ pub mod fetch;
 pub mod grid;
 #[cfg(not(target_arch = "wasm32"))]
 mod hiera;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod identity;
 pub mod mask;
 pub mod mediapipe;
 #[cfg(not(target_arch = "wasm32"))]
