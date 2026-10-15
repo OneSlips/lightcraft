@@ -240,6 +240,20 @@ pub struct Limits {
     pub max_side: usize,
     /// Fixed sizes (the crop is cut to the nearest aspect), or none.
     pub sizes: &'static [(u32, u32)],
+    /// A large area may go as up to this many tiles, each at a higher resolution than one crop
+    /// of the whole area would get (0: always one crop, the cheapest and softest).
+    pub tiles: usize,
+}
+
+/// Most tiles a large area is split into for a sharper result ([`Limits::tiles`]).
+pub const SHARP_TILES: usize = 8;
+
+impl Limits {
+    /// `provider`'s limits; `sharp`: allow [`SHARP_TILES`] tiles for a large area.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn for_provider(provider: lightcraft_genfill::cloud::Provider, sharp: bool) -> Limits {
+        Limits { max_side: provider.info().max_side as usize, sizes: provider.info().sizes, tiles: if sharp { SHARP_TILES } else { 0 } }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -375,6 +389,77 @@ pub fn plan(
     let (cw, ch) = (((sw as f64 / k).ceil() as usize).min(src_w), ((sh as f64 / k).ceil() as usize).min(src_h));
     let crop = crop_around(cw, ch, cx, cy);
     let scale = (sw as f64 / (crop[2] - crop[0]) as f64).min(sh as f64 / (crop[3] - crop[1]) as f64).min(1.0);
+    // a large area: tiles at a higher resolution, when that is clearly sharper (each tile sees the
+    // ones before it filled, so the area is built outward from its edge)
+    if lim.tiles > 1 && scale < 0.5 {
+        let near_hole =
+            |b: [usize; 4]| dabs.iter().any(|(x, y, r)| *x + r > b[0] as f64 && *x - r < b[2] as f64 && *y + r > b[1] as f64 && *y - r < b[3] as f64);
+        // the cores cover the hole and the part of its feather a result is pasted into
+        let grow = r + feather + ring * 0.5 + 2.0;
+        let (mut hx0, mut hy0, mut hx1, mut hy1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for (x, y, _) in &dabs {
+            (hx0, hy0, hx1, hy1) = (hx0.min(x - grow), hy0.min(y - grow), hx1.max(x + grow), hy1.max(y + grow));
+        }
+        let area =
+            [clampx(hx0.floor()).max(rect[0]), clampy(hy0.floor()).max(rect[1]), clampx(hx1.ceil()).min(rect[2]), clampy(hy1.ceil()).min(rect[3])];
+        // tiles of each of the provider's sizes (the one that needs the fewest wins)
+        let shapes: Vec<(usize, usize)> =
+            if lim.sizes.is_empty() { vec![tile] } else { lim.sizes.iter().map(|&(a, b)| (a as usize, b as usize)).collect() };
+        // each tile is a paid request: the fewest tiles that reach half the photo's resolution (or,
+        // for a huge area, 1.5x one crop's), the sharper of equals
+        let floor = (scale * 1.5).max(0.5);
+        let floor = if floor > 1.0 { scale * 1.5 } else { floor };
+        let mut best: Option<(Vec<Tile>, f64)> = None;
+        for target in [floor, scale * 1.5] {
+            for (s, tile) in [1.0, 0.85, 0.7, 0.6, 0.5, 0.42, 0.35, 0.3].into_iter().flat_map(|s| shapes.iter().map(move |t| (s, *t))) {
+                if s < target {
+                    continue;
+                }
+                let (tw, th) = (((tile.0 as f64 / s) as usize).min(src_w), ((tile.1 as f64 / s) as usize).min(src_h));
+                let (mx, my) = (tw / 8, th / 8);
+                let (stx, sty) = ((tw - 2 * mx).max(1), (th - 2 * my).max(1));
+                let mut tiles = Vec::new();
+                let mut ty = area[1];
+                while ty < area[3] && tiles.len() <= lim.tiles {
+                    let mut tx = area[0];
+                    while tx < area[2] && tiles.len() <= lim.tiles {
+                        let core = [tx, ty, (tx + stx).min(area[2]), (ty + sty).min(area[3])];
+                        if near_hole(core) {
+                            let crop = crop_around(tw, th, (core[0] + core[2]) as f64 / 2.0, (core[1] + core[3]) as f64 / 2.0);
+                            let send = if lim.sizes.is_empty() {
+                                (
+                                    ((crop[2] - crop[0]) as f64 * s).round().max(1.0) as usize,
+                                    ((crop[3] - crop[1]) as f64 * s).round().max(1.0) as usize,
+                                )
+                            } else {
+                                tile
+                            };
+                            tiles.push(Tile { crop, send, core });
+                        }
+                        tx += stx;
+                    }
+                    ty += sty;
+                }
+                if tiles.is_empty() || tiles.len() > lim.tiles {
+                    continue;
+                }
+                let got = tiles
+                    .iter()
+                    .map(|t| (t.send.0 as f64 / (t.crop[2] - t.crop[0]) as f64).min(t.send.1 as f64 / (t.crop[3] - t.crop[1]) as f64))
+                    .fold(1.0, f64::min)
+                    .min(1.0);
+                if best.as_ref().is_none_or(|(b, bs)| tiles.len() < b.len() || (tiles.len() == b.len() && got > *bs)) {
+                    best = Some((tiles, got));
+                }
+            }
+            if best.is_some() {
+                break;
+            }
+        }
+        if let Some((tiles, s)) = best {
+            return Ok(Plan { src_w, src_h, dabs, feather, ring, opacity: (spot.opacity / 100.0).clamp(0.0, 1.0) as f32, rect, tiles, scale: s });
+        }
+    }
     Ok(Plan {
         src_w,
         src_h,
@@ -483,12 +568,120 @@ fn tile_mask(p: &Plan, field: &Plane, t: &Tile) -> Vec<u8> {
 /// One request's results for a tile: decoded to linear light at the crop's native size.
 fn receive(img: &lightcraft_genfill::cloud::Image, neutral: lightcraft_genfill::Neutral, t: &Tile) -> Option<Rgb32f> {
     let lin = neutral.decode(img.width, img.height, &img.rgb)?;
+    Some(to_native(lin, t))
+}
+
+/// A result at its crop's native size. Sent smaller, the model's own grain comes back enlarged as
+/// blotches: it is smoothed away (the photo's own grain is added when the patch renders).
+#[cfg(not(target_arch = "wasm32"))]
+fn to_native(lin: Rgb32f, t: &Tile) -> Rgb32f {
     let (cw, ch) = (t.crop[2] - t.crop[0], t.crop[3] - t.crop[1]);
-    Some(if (lin.width, lin.height) == (cw, ch) {
-        lin
-    } else {
-        lightcraft_raster::resample::resize(&lin, cw, ch, lightcraft_raster::resample::Filter::Mitchell)
-    })
+    if (lin.width, lin.height) == (cw, ch) {
+        return lin;
+    }
+    let up = lightcraft_raster::resample::resize(&lin, cw, ch, lightcraft_raster::resample::Filter::Mitchell);
+    let k = (t.send.0 as f64 / cw.max(1) as f64).min(t.send.1 as f64 / ch.max(1) as f64);
+    if k < 0.9 && k > 0.0 { lightcraft_raster::blur::gaussian(&up, (0.8 / k) as f32) } else { up }
+}
+
+/// The mask of one tile of several (255 = generate): every hole pixel in the crop that no earlier
+/// tile filled, so the model never sees the rest of the object it is removing.
+#[cfg(not(target_arch = "wasm32"))]
+fn tile_mask_open(p: &Plan, field: &Plane, t: &Tile, filled: &[bool]) -> Vec<u8> {
+    let (cw, ch) = ((t.crop[2] - t.crop[0]) as f64, (t.crop[3] - t.crop[1]) as f64);
+    let (sw, sh) = t.send;
+    let mut m = vec![0u8; sw * sh];
+    let [rx0, ry0, rx1, ry1] = p.rect;
+    let k = (cw / sw as f64).max(ch / sh as f64).max(1.0);
+    for y in 0..sh {
+        for x in 0..sw {
+            let (sx, sy) = (t.crop[0] as f64 + (x as f64 + 0.5) * cw / sw as f64, t.crop[1] as f64 + (y as f64 + 0.5) * ch / sh as f64);
+            let (ix, iy) = (sx as usize, sy as usize);
+            if ix < rx0 || iy < ry0 || ix >= rx1 || iy >= ry1 {
+                continue;
+            }
+            let i = (iy - ry0) * field.width + (ix - rx0);
+            let d = field.data.get(i).copied().unwrap_or(f32::MAX);
+            if f64::from(d) < k + 1.0
+                && !filled.get(i).copied().unwrap_or(false)
+                && let Some(v) = m.get_mut(y * sw + x)
+            {
+                *v = 255;
+            }
+        }
+    }
+    m
+}
+
+/// A tile's result in linear light at the crop's native size, its level and colour matched to
+/// what was sent where nothing was to change (each request drifts a little on its own; tiles
+/// side by side would show it).
+#[cfg(not(target_arch = "wasm32"))]
+fn receive_matched(
+    img: &lightcraft_genfill::cloud::Image,
+    neutral: lightcraft_genfill::Neutral,
+    t: &Tile,
+    sent: &Rgb32f,
+    mask: &[u8],
+) -> Option<Rgb32f> {
+    let mut lin = neutral.decode(img.width, img.height, &img.rgb)?;
+    if (lin.width, lin.height) != (sent.width, sent.height) {
+        lin = lightcraft_raster::resample::resize(&lin, sent.width, sent.height, lightcraft_raster::resample::Filter::Mitchell);
+    }
+    let (mut a, mut b) = ([0f64; 3], [0f64; 3]);
+    for ((o, g), m) in sent.data.iter().zip(&lin.data).zip(mask) {
+        if *m == 0 {
+            for c in 0..3 {
+                a[c] += f64::from(o[c]);
+                b[c] += f64::from(g[c]);
+            }
+        }
+    }
+    let gain: Vec<f32> = (0..3).map(|c| if b[c] > 1e-6 && a[c] > 1e-6 { (a[c] / b[c]).clamp(0.5, 2.0) as f32 } else { 1.0 }).collect();
+    for v in &mut lin.data {
+        for (c, k) in gain.iter().enumerate() {
+            v[c] *= k;
+        }
+    }
+    Some(to_native(lin, t))
+}
+
+/// Paste one tile of several into the working patch: its core, and a band around it blended into
+/// what earlier tiles filled (no straight seams between tiles).
+#[cfg(not(target_arch = "wasm32"))]
+fn paste_tile(p: &Plan, field: &Plane, t: &Tile, res: &Rgb32f, gen_img: &mut Rgb32f, filled: &mut [bool]) {
+    let [rx0, ry0, rx1, ry1] = p.rect;
+    let reach = (p.feather + p.ring * 0.5) as f32;
+    let band = ((t.crop[2] - t.crop[0]).min(t.crop[3] - t.crop[1]) / 10).max(4);
+    let (bx0, by0) = (t.core[0].saturating_sub(band).max(t.crop[0]).max(rx0), t.core[1].saturating_sub(band).max(t.crop[1]).max(ry0));
+    let (bx1, by1) = ((t.core[2] + band).min(t.crop[2]).min(rx1), (t.core[3] + band).min(t.crop[3]).min(ry1));
+    for y in by0..by1 {
+        for x in bx0..bx1 {
+            let i = (y - ry0) * gen_img.width + (x - rx0);
+            if !field.data.get(i).is_some_and(|d| *d < reach) {
+                continue;
+            }
+            let Some(v) = res.data.get((y - t.crop[1]) * res.width + (x - t.crop[0])).copied() else { continue };
+            let out = t.core[0]
+                .saturating_sub(x)
+                .max(x.saturating_sub(t.core[2].saturating_sub(1)))
+                .max(t.core[1].saturating_sub(y))
+                .max(y.saturating_sub(t.core[3].saturating_sub(1)));
+            let inside = x >= t.core[0] && x < t.core[2] && y >= t.core[1] && y < t.core[3];
+            let Some(g) = gen_img.data.get_mut(i) else { continue };
+            if inside {
+                *g = v;
+                if let Some(f) = filled.get_mut(i) {
+                    *f = true;
+                }
+            } else if filled.get(i).copied().unwrap_or(false) {
+                let w = 1.0 - out as f32 / band as f32;
+                for c in 0..3 {
+                    g[c] += (v[c] - g[c]) * w.clamp(0.0, 1.0);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -599,6 +792,8 @@ pub struct Work {
     pub header: lightcraft_pipeline::SourceInfo,
     pub prompt: String,
     pub variations: u32,
+    /// Tiles for a large area ([`Limits::tiles`]).
+    pub sharp: bool,
     pub dir: PathBuf,
     pub id: String,
 }
@@ -611,7 +806,7 @@ pub fn run(w: &Work, cancel: &AtomicBool, cache: &PatchCache, progress: &dyn Fn(
     let source = w.source.load_source()?;
     let src = source.image.clone();
     let info = source.info_or(w.header.clone());
-    let lim = Limits { max_side: w.provider.info().max_side as usize, sizes: w.provider.info().sizes };
+    let lim = Limits::for_provider(w.provider, w.sharp);
     let p = plan(&w.spot, &w.settings, info.lens.as_ref(), src.width, src.height, lim)?;
     let remove = w.prompt.trim().is_empty();
     let n = w.variations.clamp(1, MAX_VARIATIONS);
@@ -651,14 +846,17 @@ pub fn run(w: &Work, cancel: &AtomicBool, cache: &PatchCache, progress: &dyn Fn(
         gens.truncate(out.len().min(n as usize));
     } else {
         for g in gens.iter_mut() {
+            // the hole pixels earlier tiles filled (rect-sized)
+            let mut filled = vec![false; field.data.len()];
             for t in &p.tiles {
                 if cancel.load(Ordering::Relaxed) {
                     return Err("cancelled".into());
                 }
-                // each tile sees the tiles before it filled
+                // each tile sees the tiles before it filled, and none of what is still to be
+                // removed (else the model continues the object into its part)
                 let crop = cut_over(&src, Some((&p, &field, g)), t.crop, t.send);
                 neutral = lightcraft_genfill::Neutral::for_crop(&crop);
-                let mask = tile_mask(&p, &field, t);
+                let mask = tile_mask_open(&p, &field, t, &filled);
                 if !mask.iter().any(|m| *m > 0) {
                     continue;
                 }
@@ -671,10 +869,11 @@ pub fn run(w: &Work, cancel: &AtomicBool, cache: &PatchCache, progress: &dyn Fn(
                     variations: 1,
                     seed: seed.wrapping_add(u64::from(done)),
                 };
+                let mask = req.mask.clone();
                 let out = generate(w.provider, &w.key, &w.endpoint, &req, &ctl).map_err(|e| e.to_string())?;
                 let img = out.first().ok_or("the provider sent no image")?;
-                let res = receive(img, neutral, t).ok_or("the provider sent an unreadable image")?;
-                paste(&p, &field, t, &res, g);
+                let res = receive_matched(img, neutral, t, &crop, &mask).ok_or("the provider sent an unreadable image")?;
+                paste_tile(&p, &field, t, &res, g, &mut filled);
                 done += 1;
                 progress(done, total);
             }
@@ -757,13 +956,14 @@ impl crate::Session {
         id: PhotoId,
         index: usize,
         provider: lightcraft_genfill::cloud::Provider,
+        sharp: bool,
     ) -> Result<(usize, usize, Vec<u8>, Vec<u8>), String> {
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
         let spot = p.develop.spots.get(index).cloned().ok_or("no such spot")?;
         let src = self.source_now(id, crate::media::SourceLevel::Preview)?;
         // the native plan, scaled to this source (so the framing is the one that will be sent)
         let (nw, nh) = (p.width.max(1) as usize, p.height.max(1) as usize);
-        let lim = Limits { max_side: provider.info().max_side as usize, sizes: provider.info().sizes };
+        let lim = Limits::for_provider(provider, sharp);
         let native = plan(&spot, &p.develop, p.embedded_lens.as_ref(), nw, nh, lim)?;
         let k = src.width as f64 / nw as f64;
         let sc = |v: usize, max: usize| ((v as f64 * k).round() as usize).min(max);
@@ -793,15 +993,21 @@ impl crate::Session {
     }
 
     /// [`Session::genfill_preview`] by provider id (an error where generative fill isn't available).
-    pub fn genfill_preview_by_id(&mut self, id: PhotoId, index: usize, provider: &str) -> Result<(usize, usize, Vec<u8>, Vec<u8>), String> {
+    pub fn genfill_preview_by_id(
+        &mut self,
+        id: PhotoId,
+        index: usize,
+        provider: &str,
+        sharp: bool,
+    ) -> Result<(usize, usize, Vec<u8>, Vec<u8>), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let pr = lightcraft_genfill::cloud::Provider::from_id(provider).ok_or("unknown provider")?;
-            self.genfill_preview(id, index, pr)
+            self.genfill_preview(id, index, pr, sharp)
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = (id, index, provider);
+            let _ = (id, index, provider, sharp);
             Err("generative fill is not available in the web version".into())
         }
     }
@@ -822,6 +1028,7 @@ impl crate::Session {
         provider: lightcraft_genfill::cloud::Provider,
         prompt: &str,
         variations: u32,
+        sharp: bool,
     ) -> Result<Option<Generated>, String> {
         use crate::activity::Cancel;
         let pid = provider.info().id;
@@ -853,6 +1060,7 @@ impl crate::Session {
             header: crate::media::source_info(&p),
             prompt: prompt.trim().to_string(),
             variations: variations.clamp(1, MAX_VARIATIONS),
+            sharp,
             dir: self.genfill_dir(id),
             id: new_id(id.0),
         };
@@ -960,8 +1168,8 @@ mod tests {
         Spot { mode: SpotMode::Generate, points: vec![Point::new(x, y)], size, ..Default::default() }
     }
 
-    const OPENAI: Limits = Limits { max_side: 1536, sizes: &[(1024, 1024), (1536, 1024), (1024, 1536)] };
-    const FREE: Limits = Limits { max_side: 2048, sizes: &[] };
+    const OPENAI: Limits = Limits { max_side: 1536, sizes: &[(1024, 1024), (1536, 1024), (1024, 1536)], tiles: 0 };
+    const FREE: Limits = Limits { max_side: 2048, sizes: &[], tiles: 0 };
 
     #[test]
     fn a_small_hole_is_sent_at_native_size_with_context() {
@@ -993,6 +1201,31 @@ mod tests {
         for (x, y, _) in &w.dabs {
             assert!(w.tiles.iter().any(|t| (t.core[0] as f64..t.core[2] as f64).contains(x) && (t.core[1] as f64..t.core[3] as f64).contains(y)));
         }
+    }
+
+    /// A large area (the 20 % case from the first real test: people painted out of a portrait)
+    /// goes as a few tiles at a much higher resolution when tiles are allowed, every dab inside a
+    /// tile's core; without them, one soft crop.
+    #[test]
+    fn a_large_area_goes_as_sharper_tiles_when_allowed() {
+        let s = DevelopSettings::default();
+        let big = Spot { points: vec![Point::new(0.45, 0.4), Point::new(0.5, 0.5), Point::new(0.55, 0.6)], ..spot(0.0, 0.0, 0.09) };
+        let soft = plan(&big, &s, None, 5464, 8192, OPENAI).unwrap();
+        assert_eq!(soft.tiles.len(), 1);
+        assert!(soft.scale < 0.35, "{}", soft.scale);
+        let sharp = plan(&big, &s, None, 5464, 8192, Limits { tiles: SHARP_TILES, ..OPENAI }).unwrap();
+        assert!(sharp.tiles.len() > 1 && sharp.tiles.len() <= SHARP_TILES, "{}", sharp.tiles.len());
+        assert!(sharp.scale >= soft.scale * 1.5, "{} vs {}", sharp.scale, soft.scale);
+        for t in &sharp.tiles {
+            assert!(matches!(t.send, (1024, 1024) | (1536, 1024) | (1024, 1536)), "{:?}", t.send);
+            assert!(t.crop[2] <= 5464 && t.crop[3] <= 8192);
+        }
+        for (x, y, _) in &sharp.dabs {
+            assert!(sharp.tiles.iter().any(|t| (t.core[0] as f64..t.core[2] as f64).contains(x) && (t.core[1] as f64..t.core[3] as f64).contains(y)));
+        }
+        // a small hole is unaffected
+        let small = plan(&spot(0.5, 0.5, 0.02), &s, None, 6000, 4000, Limits { tiles: SHARP_TILES, ..OPENAI }).unwrap();
+        assert_eq!(small.tiles.len(), 1);
     }
 
     #[test]

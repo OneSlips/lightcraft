@@ -31,6 +31,54 @@
   eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
 - **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
   frame.
+### Import and Library tabs
+- **Two tabs at the top right: Import and Library.** You always know where you are: Import is a
+  folder or card you are looking at (nothing is in your library yet), Library is everything you
+  imported, to edit and export.
+- **The Import tab** lists every drive of the computer (network drives and camera cards too: a
+  card opens at its DCIM folder), the usual places, your favourite and recent folders on the
+  left; the photos in the middle, with the same fast grid, loupe and eye strip for culling; and
+  the import settings on the right.
+- **One big button: "Import 312 into <your library>"**, over the grid and the loupe alike, with
+  **Picks / Selected / All** and how many each is. It imports exactly that, never everything by
+  surprise, then shows the Library tab while the photos come in.
+- **Stack presets on import**: a colour preset, then a retouch preset, then one with AI masks,
+  applied in that order (move them up or down). Destination (in place, copy or move, with folder
+  templates and renaming), camera profile per body, keywords and metadata are there too, and
+  **import presets** keep the whole setup by name.
+- **Unattended finishing**: after the import LightCraft computes the presets' AI masks, finds the
+  skin for Smooth Skin and builds the previews you chose (none, standard or 1:1), in one row of
+  the activity stack with the time left. Go for lunch: it keeps going while you browse, picks up
+  again after a restart, and says "N photos ready" when it is done.
+- **Copied or moved photos keep their culling**: flags, stars, labels and edits made while
+  browsing go with the photos into the library.
+- **Browsing writes nothing into the folder** (a client's card or archive) until you import,
+  even with automatic XMP writing on; Import ▸ While browsing can change that. **Culling saved**
+  shows that your flags and stars are kept, imported or not.
+- **No delete in Import.** Delete on a photo you are browsing does nothing but say "reject it
+  (X) instead". To remove files, **Photo ▸ Delete Rejected Files from Disk…** moves the rejected
+  files to the Recycle Bin after you type how many there are.
+- "My Photos" is now called **Library** everywhere.
+
+### Generative Fill
+- **The upload works.** Sending a crop to OpenAI failed with "secure connection failed: failed
+  to write whole buffer"; large uploads now go out whole. Tested with a real OpenAI account on
+  wedding photos.
+- **Painting only marks the area.** With the Generative tool, painting no longer runs a heal or a
+  content-aware fill that looked like a poor AI result: the photo stays as it is until the
+  generated result arrives, with a spinner over the area while it is on its way.
+- **Large areas stay sharper.** Instead of one crop at 20–30 % of the photo's resolution, a large
+  area is sent as a few tiles at about half resolution or more (**Sharper result for a large
+  area**, with the number of requests and the cost); untick it for one cheaper, softer crop.
+- **Variations** is 1 unless you choose more, and LightCraft remembers it; the price per
+  variation shows before you generate.
+- **Only the services you set up** appear in the Remove panel.
+- **A short, calm first-use dialog**: what is sent, its size and the cost, Generate or Cancel; the
+  data policy and watermarks are behind Details.
+- **Failures are clear**: the message stays in the Remove panel with Retry.
+- **Which service for what**: Settings ▸ Generative Fill has a card per service (best at, weak
+  spots, size and price, training on uploads, marks added) and a recommendation.
+
 ### Deleting photos
 - Deleting photos now says plainly what happened: they went to **Recently Deleted**, the files
   stay on disk, and **Undo** brings them back.

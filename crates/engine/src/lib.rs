@@ -44,6 +44,7 @@ mod faces_index;
 #[cfg(not(target_arch = "wasm32"))]
 mod faces_worker;
 pub mod files;
+pub mod finishing;
 #[cfg(not(target_arch = "wasm32"))]
 mod focus_scan;
 pub mod fonts;
@@ -373,6 +374,16 @@ pub struct Session {
     pub slideshow_export: Option<std::sync::Arc<slideshow_export::ExportRun>>,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
+    /// Getting just-imported photos ready (masks, skin, previews: [`finishing`]).
+    pub finishing: Option<finishing::Finishing>,
+    /// An unfinished plan the library kept, resumed by the next [`Session::finishing_tick`].
+    pub finish_pending: Option<finishing::FinishPlan>,
+    /// "569 photos ready…": what the last finished queue tells the user (the UI takes it).
+    pub finishing_note: Option<String>,
+    /// The last finished queue: how many photos, and whether previews were built (for the UI's note).
+    pub finishing_done: Option<(usize, bool)>,
+    /// Import presets: named sets of import settings (persisted in prefs.json).
+    pub import_presets: Vec<cmd::import_tab::ImportPreset>,
     /// The camera sensor map build or batch Remove Dust running in the background, or the last one.
     pub sensor_job: Option<std::sync::Arc<cmd::sensor::SensorJob>>,
     /// Develop defaults applied on import (persisted in prefs.json).
@@ -511,6 +522,11 @@ impl Session {
             activity: Default::default(),
             genfill: Default::default(),
             preview_build: None,
+            finishing: None,
+            finish_pending: None,
+            finishing_note: None,
+            finishing_done: None,
+            import_presets: Vec::new(),
             sensor_job: None,
             slideshow_export: None,
             import_defaults: import::ImportDefaults::default(),
@@ -1419,6 +1435,8 @@ mod tests_import;
 mod tests_import_move;
 #[cfg(test)]
 mod tests_import_profiles;
+#[cfg(test)]
+mod tests_import_tab;
 #[cfg(test)]
 mod tests_keyword_list;
 #[cfg(test)]

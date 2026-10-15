@@ -366,6 +366,7 @@ impl Headless {
             || self.app.import.is_some()
             || self.app.export.is_some()
             || self.app.session.denoise_busy()
+            || self.app.session.genfill.running()
             || !self.app.tasks.is_empty()
             || !self.app.synthetic.is_empty()
             || !self.events.is_empty()
@@ -2714,7 +2715,7 @@ mod tests {
     }
 
     /// Local: a folder's photos show without joining the library; the breadcrumb, Include
-    /// subfolders and Add to My Photos work from the grid header.
+    /// subfolders work from the grid header.
     #[test]
     fn browse_a_local_folder() {
         let mut h = demo([1300.0, 900.0]);
@@ -2751,8 +2752,11 @@ mod tests {
         assert_eq!(h.request("ui.clickWidget", json!({"id": "check:includeSubfolders"}), t)["ok"], true);
         h.settle(SETTLE);
         assert_eq!(h.app.session.visible_cloned().len(), 2);
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:addToLibrary"}), t)["ok"], true);
+        // the Import tab's big button, taking all of them
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:importTake-all"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:importNow"}), t)["ok"], true);
         h.settle(SETTLE);
+        assert!(h.step_until(Duration::from_secs(60), |h| h.app.import.is_none()));
         assert_eq!(h.app.session.catalog.photos().filter(|p| !p.local).count(), library_before + 2);
         // Truncated ancestors remain clickable and still open the original, unabridged path.
         let inner = dir.join("inner");
@@ -3192,7 +3196,7 @@ mod tests {
             texts(&shape.shape, &mut painted);
         }
         assert!(painted.iter().any(|text| text == &format!("Ordner „{name}“ (und seine Unterordner)")), "{painted:?}");
-        for label in ["Quelle", "Übertragen", "Stichwörter", "Vorgabe"] {
+        for label in ["Quelle", "Übertragen", "Stichwörter", "Vorgaben"] {
             assert!(painted.iter().any(|text| text == label), "{label}: {painted:?}");
         }
         assert_eq!(h.request("engine.execute", json!({"command": "app.language.english"}), t)["ok"], true);

@@ -66,6 +66,9 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(a) = p.get("autoWrite").and_then(Value::as_bool) {
         s.xmp.auto_write = a;
     }
+    if let Some(a) = p.get("writeBrowsed").and_then(Value::as_bool) {
+        s.xmp.write_browsed = a;
+    }
     if let Some(n) = str_param(p, "naming") {
         s.xmp.naming = match n {
             "stem" => SidecarNaming::Stem,
@@ -104,7 +107,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "XMP Sidecar Preferences",
             [],
             None,
-            "{autoWrite?: bool, naming?: stem (IMG_1.xmp, default) | full (IMG_1.CR3.xmp)} → current preferences (saved with the library)",
+            "{autoWrite?: bool, naming?: stem (IMG_1.xmp, default) | full (IMG_1.CR3.xmp), writeBrowsed?: bool (auto-write also for photos browsed in Import, not imported yet; default off: their culling and edits stay in LightCraft until they are imported, nothing is written into the folder)} → current preferences (saved with the library)",
             always,
             prefs
         ),
