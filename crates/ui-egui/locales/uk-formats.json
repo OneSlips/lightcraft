@@ -362,5 +362,6 @@
   "Move {n} photo{} to “{}”": "Перемістити до «{1}» фото: {n}{0:.0}",
   "Move {n} photo{} to “{}”?": "Перемістити до «{1}» фото: {n}{0:.0}?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "До «{1}» переміщено фото: {n}{0:.0}. Редагування → Скасувати поверне їх.",
-  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Переміщено фото: {n} до «Нещодавно видалених». Файли лишаються на диску; «Скасувати» поверне їх."
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Переміщено фото: {n} до «Нещодавно видалених». Файли лишаються на диску; «Скасувати» поверне їх.",
+  "Import “{name}”": "Імпортувати «{name}»"
 }

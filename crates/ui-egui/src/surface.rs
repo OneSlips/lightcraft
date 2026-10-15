@@ -1061,14 +1061,77 @@ pub fn tactilebridge_settings_path() -> Option<std::path::PathBuf> {
     }
 }
 
-/// `surface.import {path}`: a TactileBridge `settings.json`, a Logi profile (`.lp5`) or a
-/// LightCraft layout file (`.lcsurface`, a profile as JSON).
+/// Loupedeck's profiles for the Loupedeck+ on this computer, as its own software keeps them:
+/// (the profile's name, its `ProfileInfo.json`). Read only.
+pub fn loupedeck_profiles() -> Vec<(String, std::path::PathBuf)> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(base) = std::env::var_os("LOCALAPPDATA").map(std::path::PathBuf::from) else { return Vec::new() };
+        let mut out = Vec::new();
+        for device in ["Loupedeck15", "Loupedeck10"] {
+            let Ok(apps) = std::fs::read_dir(base.join("Loupedeck").join("Applications").join(device)) else { continue };
+            for app in apps.flatten().take(200) {
+                let Ok(profiles) = std::fs::read_dir(app.path().join("Profiles")) else { continue };
+                for prof in profiles.flatten().take(200) {
+                    let file = prof.path().join("ProfileInfo.json");
+                    let Ok(meta) = std::fs::metadata(&file) else { continue };
+                    if meta.len() > MAX_IMPORT {
+                        continue;
+                    }
+                    let Ok(text) = std::fs::read_to_string(&file) else { continue };
+                    let Ok(v) = serde_json::from_str::<Value>(text.trim_start_matches('\u{feff}')) else { continue };
+                    let name = v.get("displayName").and_then(Value::as_str).unwrap_or("Loupedeck").to_string();
+                    out.push((name, file));
+                    if out.len() >= 50 {
+                        return out;
+                    }
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Vec::new()
+    }
+}
+
+/// Is this file a Loupedeck+ profile (its `ProfileInfo.json`, or an `.lp5` holding one)?
+fn is_loupedeck(bytes: &[u8]) -> bool {
+    let json = if bytes.starts_with(b"PK") { ls::zip::read_member(bytes, "ProfileInfo.json").unwrap_or_default() } else { bytes.to_vec() };
+    let text = String::from_utf8_lossy(json.get(..json.len().min(8192)).unwrap_or_default());
+    text.contains("\"Loupedeck15\"") || text.contains("\"Loupedeck10\"")
+}
+
+/// A Loupedeck+ profile's layout into every LightCraft profile (the console has no pages: its
+/// controls hold on every page and in every profile), replacing an earlier import.
+fn import_loupedeck(app: &mut LightcraftApp, s: &mut ls::SurfaceSettings, bytes: &[u8]) -> Result<Value, String> {
+    let presets: Vec<(String, String)> = app.session.presets.iter().map(|p| (p.name.to_lowercase(), p.id.clone())).collect();
+    let find = |name: &str| {
+        let n = name.trim().to_lowercase();
+        presets.iter().find(|(p, _)| *p == n).map(|(_, id)| id.clone())
+    };
+    let imported = ls::loupedeck::import(bytes, &find)?;
+    for p in &mut s.profiles {
+        p.base.retain(|c, _| !c.starts_with("ld."));
+        p.base.extend(imported.bindings.clone());
+    }
+    app.surface.last_report = Some(imported.report.clone());
+    Ok(json!({"profile": s.profile, "device": ls::devices::LOUPEDECK_PLUS.id, "loupedeck": imported.name, "report": imported.report}))
+}
+
+/// `surface.import {path}`: a TactileBridge `settings.json`, a Logi profile (`.lp5`), a
+/// Loupedeck+ profile (its `ProfileInfo.json` or an exported `.lp5`) or a LightCraft layout file
+/// (`.lcsurface`, a profile as JSON).
 fn import(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
     let path = p.get("path").and_then(Value::as_str).ok_or("surface.import: give `path`")?;
     let bytes = read_file(path)?;
     let lower = path.to_ascii_lowercase();
     let mut s = app.surface.settings().clone();
-    let result = if lower.ends_with(".lp5") {
+    let result = if is_loupedeck(&bytes) {
+        import_loupedeck(app, &mut s, &bytes)?
+    } else if lower.ends_with(".lp5") {
         let (mut profile, report) = ls::tactilebridge::import_lp5(&bytes)?;
         profile.name = unique_profile_name(&s, &profile.name);
         let name = profile.name.clone();

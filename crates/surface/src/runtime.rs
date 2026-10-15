@@ -409,7 +409,7 @@ impl Runtime {
         if is_encoder(control)
             && let Some(f) = &self.focus
         {
-            let own = p.binding(control, &self.pages);
+            let own = p.binding(control, &self.pages).cloned().or_else(|| crate::loupedeck::default_binding(control));
             // a dial focus moves the dial (the first encoder) only; the others keep their values
             if control == "dial" || own.is_none() {
                 return Some(Binding::value(f));
@@ -418,7 +418,8 @@ impl Runtime {
         if let (Some(n), PageGroup::Keys) = (page, group_of(control)) {
             return self.device_key_page(n).and_then(|pg| pg.bindings.get(control)).or_else(|| p.base.get(control)).cloned();
         }
-        p.binding(control, &self.pages).cloned()
+        // a Loupedeck+ control nothing binds does what its label says
+        p.binding(control, &self.pages).cloned().or_else(|| crate::loupedeck::default_binding(control))
     }
 
     // ------------------------------------------------------------------------------- input

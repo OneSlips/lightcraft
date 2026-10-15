@@ -2011,5 +2011,13 @@
   "Previous Mask": "Maschera precedente",
   "Next Mask": "Maschera successiva",
   "Select Previous Mask": "Seleziona la maschera precedente",
-  "Select Next Mask": "Seleziona la maschera successiva"
+  "Select Next Mask": "Seleziona la maschera successiva",
+  "The Loupedeck+ works through the LightCraft plugin. Every knob and button does what its label says until you set it here, or bring over your own Loupedeck profile (only the layout comes along).": "Il Loupedeck+ funziona tramite il plug-in di LightCraft. Ogni manopola e ogni pulsante fa ciò che dice la sua etichetta finché non lo imposti qui o non importi il tuo profilo Loupedeck (viene importata solo la disposizione).",
+  "Import a Loupedeck profile…": "Importa un profilo Loupedeck…",
+  "Knobs": "Manopole",
+  "Buttons": "Pulsanti",
+  "P1–P8 (Hue)": "P1–P8 (tonalità)",
+  "P1–P8 (Sat)": "P1–P8 (saturazione)",
+  "P1–P8 (Lum)": "P1–P8 (luminanza)",
+  "P1–P8 (B&W)": "P1–P8 (B/N)"
 }

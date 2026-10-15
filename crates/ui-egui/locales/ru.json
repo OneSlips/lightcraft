@@ -2818,5 +2818,13 @@
   "Previous Mask": "Предыдущая маска",
   "Next Mask": "Следующая маска",
   "Select Previous Mask": "Выбрать предыдущую маску",
-  "Select Next Mask": "Выбрать следующую маску"
+  "Select Next Mask": "Выбрать следующую маску",
+  "The Loupedeck+ works through the LightCraft plugin. Every knob and button does what its label says until you set it here, or bring over your own Loupedeck profile (only the layout comes along).": "Loupedeck+ работает через плагин LightCraft. Каждая ручка и кнопка делает то, что на ней написано, пока вы не настроите её здесь или не перенесёте свой профиль Loupedeck (переносится только раскладка).",
+  "Import a Loupedeck profile…": "Импортировать профиль Loupedeck…",
+  "Knobs": "Ручки",
+  "Buttons": "Кнопки",
+  "P1–P8 (Hue)": "P1–P8 (тон)",
+  "P1–P8 (Sat)": "P1–P8 (насыщенность)",
+  "P1–P8 (Lum)": "P1–P8 (яркость)",
+  "P1–P8 (B&W)": "P1–P8 (ч/б)"
 }

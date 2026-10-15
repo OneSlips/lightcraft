@@ -362,5 +362,6 @@
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
   "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
-  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} foto spostate in Eliminate di recente. I file restano sul disco; Annulla le ripristina."
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} foto spostate in Eliminate di recente. I file restano sul disco; Annulla le ripristina.",
+  "Import “{name}”": "Importa «{name}»"
 }

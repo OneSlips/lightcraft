@@ -602,3 +602,48 @@ fn deleting_says_the_file_stays_on_disk_and_undo_brings_it_back() {
     let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     assert!(toast.contains("Recently Deleted") && toast.contains("stays on disk") && toast.contains("Undo"), "{toast:?}");
 }
+
+#[test]
+fn a_loupedeck_plus_works_as_labelled_and_takes_a_loupedeck_profile() {
+    let mut h = demo();
+    open_photo(&mut h);
+    // no setup: the knob labelled Exposure moves Exposure
+    let before = exposure(&h);
+    assert_eq!(input(&mut h, json!([{"control": "ld.r33", "ticks": 20}]))["ok"], true);
+    finish_gesture(&mut h);
+    assert!(exposure(&h) > before, "the Exposure knob");
+    // a Loupedeck profile: that knob now moves Temperature, Undo stays on its button
+    let dir = std::env::temp_dir().join(format!("lc-surface-ld-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("ProfileInfo.json");
+    let mut rotate = vec![Value::Null; 127];
+    rotate[33] = json!("$Photo___Temperature");
+    let mut press = vec![Value::Null; 127];
+    press[95] = json!("$Photo___Undo");
+    press[76] = json!("$@Generic___@Macro___0123");
+    let profile = json!({"displayName": "Mine", "deviceType": "Loupedeck15", "layout": {"layoutModes": [
+        {"modeName": "loupe", "workspaces": [{"pressActions": press, "rotateActions": rotate}]}]}});
+    std::fs::write(&path, profile.to_string()).unwrap();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["device"], "loupedeck-plus");
+    assert_eq!(r["result"]["report"]["dropped"].as_array().map(Vec::len), Some(1), "the macro is listed as left out");
+    for p in &h.app.surface.settings().profiles {
+        assert_eq!(p.base.get("ld.r33"), Some(&lightcraft_surface::Binding::value("wb.temp")), "{}", p.name);
+    }
+    let id = h.app.session.active().unwrap();
+    let (exp, temp) = {
+        let d = h.app.session.develop_of(id).unwrap();
+        (d.light.exposure, d.wb.temp)
+    };
+    assert_eq!(input(&mut h, json!([{"control": "ld.r33", "ticks": 20}]))["ok"], true);
+    finish_gesture(&mut h);
+    let d = h.app.session.develop_of(id).unwrap();
+    assert_eq!(d.light.exposure, exp);
+    assert_ne!(d.wb.temp, temp);
+    // a damaged Loupedeck profile is an error, not a crash
+    std::fs::write(&path, r#"{"deviceType": "Loupedeck15", "layout": 7}"#).unwrap();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], false);
+    let _ = std::fs::remove_dir_all(&dir);
+}
