@@ -3096,6 +3096,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "lightcraft-camprof"
+version = "0.8.0"
+dependencies = [
+ "lightcraft-color",
+ "lightcraft-raw",
+]
+
+[[package]]
 name = "lightcraft-catalog"
 version = "0.8.0"
 dependencies = [
@@ -3218,6 +3226,7 @@ dependencies = [
  "harfrust",
  "jxl-oxide",
  "libc",
+ "lightcraft-camprof",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",

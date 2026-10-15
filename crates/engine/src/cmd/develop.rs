@@ -479,14 +479,39 @@ pub fn specs() -> Vec<CommandSpec> {
             {
                 return Err(bad("develop.profile", format!("unknown profile `{id}`")));
             }
-            edit(s, "develop.profile", "Profile", |d| {
-                d.profile.id = id.clone();
-                d.profile.amount = f64_or(p, "amount", d.profile.amount).clamp(0.0, 200.0);
+            let mut d = (*s.develop_of(active(s, "develop.profile")?).unwrap_or_default()).clone();
+            crate::cmd::dcp_profiles::choose(s, &mut d, &id);
+            edit(s, "develop.profile", "Profile", |e| {
+                e.profile.id = d.profile.id.clone();
+                e.camera_profile = d.camera_profile.clone();
+                e.profile.amount = f64_or(p, "amount", e.profile.amount).clamp(0.0, 200.0);
                 Ok(())
             })?;
             s.note_profile_used(&id);
             ok()
         }),
+        cmd!(
+            "develop.cameraProfile",
+            "Set Camera Calibration",
+            [],
+            None,
+            "{id: dcp:… | \"\" (LightCraft's own camera colour)} — the camera calibration only; the look (develop.profile) stays",
+            has_active,
+            |s, p| {
+                let id = str_param(p, "id").unwrap_or("").to_string();
+                if !id.is_empty() && !s.dcp_profiles.iter().any(|x| x.id == id) {
+                    return Err(bad("develop.cameraProfile", format!("unknown camera profile `{id}`")));
+                }
+                let mut d = (*s.develop_of(active(s, "develop.cameraProfile")?).unwrap_or_default()).clone();
+                crate::cmd::dcp_profiles::choose(s, &mut d, &id);
+                edit(s, "develop.cameraProfile", "Camera Calibration", |e| {
+                    e.profile.id = d.profile.id.clone();
+                    e.camera_profile = d.camera_profile.clone();
+                    Ok(())
+                })?;
+                ok()
+            }
+        ),
         cmd!("profile.favorite", "Favorite Profile", [], None, "{id, favorite?: bool} (toggles when omitted)", always, |s, p| {
             let id = str_param(p, "id").ok_or_else(|| bad("profile.favorite", "missing id"))?.to_string();
             if crate::presets::profile(&id).is_none() && !s.lut_profiles.iter().any(|x| x.id == id) {

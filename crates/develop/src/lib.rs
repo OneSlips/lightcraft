@@ -18,6 +18,10 @@ pub use settings::*;
 
 use serde_json::Value;
 
+/// [`DevelopSettings::camera_profile`] when LightCraft's own camera colour was chosen explicitly
+/// (empty: never chosen, so a camera body's own profile may still be picked for the photo).
+pub const BUILTIN_CAMERA_COLOR: &str = "lc.camera";
+
 impl DevelopSettings {
     /// Settings for a freshly imported raw file (Lightroom applies capture sharpening and colour
     /// noise reduction by default to raw files).
@@ -28,6 +32,25 @@ impl DevelopSettings {
         s.detail.sharpen_amount = 40.0;
         s.detail.nr_color = 25.0;
         s
+    }
+
+    /// The camera profile this edit develops with: [`Self::camera_profile`], else a `dcp:` id in
+    /// `profile.id` (edits from before looks and calibrations were separate: the camera profile with
+    /// its own look).
+    pub fn calibration_id(&self) -> Option<&str> {
+        if self.camera_profile == BUILTIN_CAMERA_COLOR {
+            return None;
+        }
+        if !self.camera_profile.is_empty() {
+            return Some(&self.camera_profile);
+        }
+        self.profile.id.starts_with("dcp:").then_some(self.profile.id.as_str())
+    }
+
+    /// The look is the camera profile's own ("As profile": its tone curve and look table), not one
+    /// of LightCraft's looks.
+    pub fn look_is_camera_profile(&self) -> bool {
+        self.profile.id.starts_with("dcp:")
     }
 
     pub fn to_json(&self) -> Value {

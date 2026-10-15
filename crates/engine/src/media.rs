@@ -376,6 +376,9 @@ pub struct MediaCache {
     pub denoise: DenoiseIndex,
     /// Imported camera profiles by id ([`crate::cmd::dcp_profiles`]), handed to the decoder of photos using them.
     pub camera_profiles: std::collections::HashMap<String, Arc<DcpProfile>>,
+    /// How many times each camera profile was written over in place (Replace): decodes and renders
+    /// made with an earlier version don't stand in.
+    pub camera_profile_versions: std::collections::HashMap<String, u64>,
 }
 
 /// The photos that have a cached denoised picture for the denoise model in use. Only memory: nothing here touches the
@@ -446,6 +449,7 @@ impl Default for MediaCache {
             rendered: Arc::new(PreviewCache::memory(rendered_budget(budget))),
             denoise: DenoiseIndex::default(),
             camera_profiles: HashMap::new(),
+            camera_profile_versions: HashMap::new(),
         }
     }
 }
@@ -730,13 +734,37 @@ impl MediaCache {
         r
     }
 
-    /// The imported camera profile photo `p` develops with: its profile setting names one this library has.
+    /// The camera profile photo `p` develops with ([`Self::camera_profile_for`] of its settings).
     pub fn camera_profile_of(&self, p: &Photo) -> Option<(String, Arc<DcpProfile>)> {
-        let id = &p.develop.profile.id;
-        if !crate::cmd::dcp_profiles::is_dcp_id(id) {
-            return None;
+        self.camera_profile_for(&p.develop)
+    }
+
+    /// The camera profile (calibration) `settings` develop with, as the decoder gets it: under one of
+    /// LightCraft's looks, without the profile's own look parts (tone curve, look table), which
+    /// only apply with the profile's own look ("As profile"). The id says which: a decode made with
+    /// another version or other parts doesn't stand in.
+    pub fn camera_profile_for(&self, settings: &DevelopSettings) -> Option<(String, Arc<DcpProfile>)> {
+        let id = settings.calibration_id()?;
+        let profile = self.camera_profiles.get(id)?;
+        let mut made_with = id.to_string();
+        // (a profile written over in place is told apart by its version)
+        if let Some(v) = self.camera_profile_versions.get(id).filter(|v| **v > 0) {
+            made_with = format!("{made_with}@{v}");
         }
-        self.camera_profiles.get(id).map(|d| (id.clone(), d.clone()))
+        let has_look = profile.color.profile.tone_curve.is_some() || profile.color.profile.look_table.is_some();
+        if has_look && !settings.look_is_camera_profile() {
+            let mut bare = (**profile).clone();
+            bare.color.profile.tone_curve = None;
+            bare.color.profile.look_table = None;
+            return Some((format!("{made_with}#calibration"), Arc::new(bare)));
+        }
+        Some((made_with, profile.clone()))
+    }
+
+    /// What distinguishes renders of a photo whose camera profile was written over in place (0
+    /// for every other photo, so their keys don't change).
+    pub fn camera_profile_salt(&self, settings: &DevelopSettings) -> u64 {
+        settings.calibration_id().and_then(|id| self.camera_profile_versions.get(id)).map_or(0, |v| v.wrapping_mul(0xa076_1d64_78bd_642f))
     }
 
     /// How to load `origin` at most `max_edge` pixels long, ignoring decoded sources in memory (a
@@ -1313,7 +1341,7 @@ impl crate::Session {
         let content = source_key.0 as u64;
         // Temporary "before" settings must not replace the photo's cached develop hash.
         let settings_hash = if before { settings.hash64() } else { self.media.settings_hashes.get(id, &settings) };
-        let salt = self.media.denoise_salt(id, &settings);
+        let salt = self.media.denoise_salt(id, &settings) ^ self.media.camera_profile_salt(&settings);
         let key = settings_hash
             ^ ((max_w as u64) << 40)
             ^ ((max_h as u64) << 20)
@@ -1357,15 +1385,18 @@ impl crate::Session {
     pub fn preview_job(&mut self, id: PhotoId, max_w: usize, max_h: usize, apply_crop: bool, settings: &DevelopSettings) -> Option<RenderJob> {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         // the source as these settings develop it: another camera profile (or none) decodes anew
-        let mut p = (**self.catalog.photo(id)?).clone();
-        if self.media.camera_profile_of(&p).map(|c| c.0) != {
+        if self.media.camera_profile_for(settings).map(|c| c.0) != self.catalog.photo(id).and_then(|p| self.media.camera_profile_of(p)).map(|c| c.0) {
+            let mut p = (**self.catalog.photo(id)?).clone();
             p.develop = Arc::new(settings.clone());
-            self.media.camera_profile_of(&p).map(|c| c.0)
-        } {
             job.source = self.media.source_ref(&p, job.level);
         }
         job.settings = Arc::new(settings.clone());
-        job.key = settings.hash64() ^ ((max_w as u64) << 40) ^ ((max_h as u64) << 20) ^ (apply_crop as u64) ^ (job.level as u64) << 60;
+        job.key = settings.hash64()
+            ^ ((max_w as u64) << 40)
+            ^ ((max_h as u64) << 20)
+            ^ (apply_crop as u64)
+            ^ (job.level as u64) << 60
+            ^ self.media.camera_profile_salt(settings);
         Some(job)
     }
 
@@ -1393,7 +1424,11 @@ impl crate::Session {
         // decoded as these settings develop it (their camera profile, or none)
         p.develop = Arc::new(settings.clone());
         let source = self.media.source_ref(&p, level);
-        let ck = Self::variant_key(&p, settings, edge);
+        let mut ck = Self::variant_key(&p, settings, edge);
+        let salt = self.media.camera_profile_salt(settings);
+        if salt != 0 {
+            ck = Hasher128::new().u64(ck.0 as u64).u64((ck.0 >> 64) as u64).u64(salt).finish();
+        }
         Some(RenderJob {
             request_id: 0,
             cache_generation: self.media.rendered.generation(),

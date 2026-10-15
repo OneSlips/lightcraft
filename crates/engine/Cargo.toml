@@ -21,6 +21,8 @@ web-time = { workspace = true }
 lightcraft-preview = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-raw = { workspace = true }
+lightcraft-camprof = { workspace = true }
+lightcraft-tiff = { workspace = true }
 lightcraft-denoise-core = { workspace = true }
 lightcraft-denoise = { workspace = true, optional = true }
 lightcraft-meta = { workspace = true }
@@ -56,4 +58,3 @@ jxl-oxide = { workspace = true }
 # Lossless synthetic HEIC files (the import test; decoded when the codecs' `heif` feature is on).
 lightcraft-heif = { workspace = true, features = ["testdata"] }
 libc = { workspace = true }
-lightcraft-tiff = { workspace = true }

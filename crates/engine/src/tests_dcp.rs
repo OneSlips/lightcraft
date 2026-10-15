@@ -128,7 +128,7 @@ fn import_choose_cache_persist_and_delete() {
     s.open_library(&lib, false).unwrap();
     assert_eq!(s.dcp_profiles.len(), 1);
     assert!(s.media.camera_profiles.contains_key(&dcp_id));
-    assert_eq!(s.catalog.photo(id).unwrap().develop.profile.id, dcp_id);
+    assert_eq!(s.catalog.photo(id).unwrap().develop.calibration_id(), Some(dcp_id.as_str()));
     assert_eq!(s.profile_info(&dcp_id).map(|(_, g)| g), Some("Camera Profiles"));
     // deleted: photos using it develop with their file's own colour, the library's copy goes
     let file = s.dcp_profiles[0].file.clone();

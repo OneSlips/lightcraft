@@ -120,6 +120,10 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     if !model.is_empty() {
         ifd.set(t::MODEL, Value::Ascii(model.to_owned()));
     }
+    // the camera body (DNG `CameraSerialNumber`), so profiles made for a body still know it
+    if let Some(serial) = raw.metadata.serial_number.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        ifd.set(t::CAMERA_SERIAL_NUMBER, Value::Ascii(serial.to_string()));
+    }
     let model_includes_make = !make.is_empty()
         && model.get(..make.len()).is_some_and(|prefix| prefix.eq_ignore_ascii_case(make))
         && model.get(make.len()..).is_some_and(|suffix| suffix.chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_'));

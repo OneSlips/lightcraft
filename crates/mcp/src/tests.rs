@@ -501,3 +501,25 @@ fn the_clipboard_tool_cuts_copies_and_pastes_in_the_app() {
     assert!(!r.is_error, "{r:?}");
     assert_eq!(b.0, vec![("ui.clipboard".to_string(), json!({"action": "paste", "text": "travel"}))]);
 }
+
+/// LR-PROF-CREATE: a camera profile is made from a ColorChecker photo through the command's own tool.
+#[test]
+fn a_camera_profile_is_made_from_a_chart_photo_by_tool() {
+    let base = std::env::temp_dir().join(format!("lc-mcp-chart-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let corners = lightcraft_engine::chart_profiling::camprof::ChartCorners::from_rect(90.0, 60.0, 180.0, 120.0);
+    let dng = lightcraft_engine::chart_profiling::demo_chart_dng(360, 240, &corners, "D55", false).unwrap();
+    let path = base.join("chart.dng");
+    std::fs::write(&path, dng).unwrap();
+    let mut b = Headless::demo();
+    let found = call_tool(&mut b, "cmd_profile_findChart", &json!({"path": path.to_string_lossy()}));
+    assert!(!found.is_error, "{found:?}");
+    let made = call_tool(&mut b, "cmd_profile_createFromChart", &json!({"path": path.to_string_lossy(), "name": "MCP D55"}));
+    assert!(!made.is_error, "{made:?}");
+    let text = format!("{made:?}");
+    assert!(text.contains("meanDeltaE") && text.contains("dcp:"), "{text}");
+    let listed = call_tool(&mut b, "run_command", &json!({"command": "profiles.camera"}));
+    assert!(format!("{listed:?}").contains("MCP D55"));
+    let _ = std::fs::remove_dir_all(&base);
+}

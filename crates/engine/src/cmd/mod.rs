@@ -150,6 +150,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(lut_profiles::specs());
         v.extend(mask_effects::specs());
         v.extend(dcp_profiles::specs());
+        v.extend(dcp_profiles::body_specs());
         v.extend(cull::specs());
         v.extend(convert::specs());
         v.extend(convert::edit_specs());

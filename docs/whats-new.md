@@ -22,21 +22,17 @@
 - A photo whose Defringe amount was stored far past the sliders' 20 (in a damaged catalog or sidecar) no longer
   crashes LightCraft each time it renders: the amount acts as 20.
 
-### Reliability
 - Importing a preset zip that unpacks to far more than any preset (a "zip bomb") is refused with a message naming
   the file, instead of asking for gigabytes of memory, which could end LightCraft.
 
-### Reliability
 - A crop of no size (from an agent or a sidecar) no longer gives the Detail view a photo of no size to lay out
   (its width over its height was 0 / 0, which stopped debug builds); it shows as a single pixel's colour.
 
-### Reliability
 - A crop a hair wide (or of no size), set by an agent or read from a sidecar, no longer crashes or hangs the
   render with Clarity, Dehaze, Texture or Highlights / Shadows on: their blurs are held to the picture's size.
 - A crop of no size with healing spots or masks no longer crashes the render: samples outside the picture read its
   edge.
 
-### Reliability
 - A library whose catalog file was damaged (or edited by hand) in a way that still reads no longer crashes
   LightCraft when it shows a stack, or hangs it when a folder is moved: on opening, records are put back under
   their own ids, stacks keep only photos that exist (at least two), folders inside themselves move to the top,
@@ -73,20 +69,16 @@
 - Faces are kept in the thumbnail cache at a few fixed sizes, so moving the thumbnail slider no longer renders them
   all again.
 
-### Reliability
 - A raw file whose black level is stored as "not a number" (or infinity), or a floating-point DNG with such
   samples, no longer crashes LightCraft at 1:1 or on export: the bad values read as black.
 
-### Reliability
 - Exporting a photo more than 65,535 times as long as it is wide (a one-pixel strip), or opening the Export dialog's
   watermark preview for it, no longer crashes LightCraft; the export is capped at the encoders' 65,535 pixels.
 
-### Reliability
 - Dragging a Tone Curve point that sits very close to its neighbours (two clicks side by side, or a curve from a
   sidecar, a preset or an agent) no longer crashes LightCraft; the point stays between them. Curve points sent to
   `develop.curve` are kept in order, and a sidecar curve with a "NaN" or "inf" point is ignored.
 
-### Reliability
 - A demo photo whose stored size was damaged (a width of 4294967295) is rendered at its own size instead of
   one that overflows.
 
@@ -104,10 +96,50 @@
 - A Lightroom Classic catalog whose changes are all still in its `.lrcat-wal` file (a new catalog Lightroom has
   open and hasn't written back yet) imports instead of failing with "unsupported SQLite schema format".
 
-### Reliability
 - An export enlarged far past the photo's size (20000 typed for 2000 with Don't Enlarge off) no longer ends
   LightCraft: an enlargement stops at 512 megapixels, as in Lightroom, and one that needs more memory than the
   computer has is refused with the size it would take, before it starts.
+### Camera profiles: per body, and looks on top
+- LightCraft's profiles (Color, Neutral, Vivid, the creative ones…) are now looks that sit on the photo's camera
+  profile instead of replacing it: pick Neutral on your own chart-made profile and you get Neutral on your camera's
+  measured colour. The profile row shows the look, with "on Canon EOS R5 C 71 · Daylight · Photo" under it (long
+  names are shortened to fit the panel; hover for the whole name). Camera Profiles ▸ LightCraft Camera Color goes
+  back to the built-in colour.
+- A profile made from a chart remembers the camera body it was shot with. Raws from that body imported later
+  develop with it on their own (never over a profile you picked); Photo ▸ Apply Camera Body Profiles does it for
+  photos already in the library. The Camera Profiles menu shows your body's profiles; Browse Other Camera Profiles
+  shows the ones made on your other bodies, and Adopt for This Body makes one of them this body's too. A profile
+  made from a photo is always that body's own, also in libraries imported before body serials were kept (LightCraft
+  reads the serial from the file); one of the body's profiles that isn't its default offers "Make default for this
+  body".
+- Hovering a camera profile in the profile menu or browser now previews its colours.
+- The Import dialog has a Camera profile section. Automatic lists each camera body on the card ("Canon EOS R5 C 71
+  → its profile (412 photos)"); Choose… gives a body another profile for this import, and "Adopt for this body"
+  keeps it. One profile for all photos does what it says. A Look puts one of LightCraft's looks on top. Photos with
+  Lightroom settings in their XMP sidecar keep them, and the finished import says which profile went where.
+
+### Create Camera Profile from Color Chart, reworked
+- The chart photo shows developed and the right way up; zoom with the wheel, move with a right-drag or Space-drag,
+  double-click to fit, and a magnifier shows the corner you are placing.
+- Say which light the chart was photographed under: Daylight / Flash or Tungsten (the second chart starts on the
+  other). The chart's greys show what they measure, for information; the camera's own white balance is never taken
+  for the light.
+- Photographic (colours match the chart, lightness as the camera recorded it) and Reproduction (everything
+  matches the chart exactly) replace Accurate and Natural.
+- Profiles are named "Canon EOS R5 C 71 · Daylight · Photo · 2026-10-13" (camera, body, light, mode, date; a camera that records no serial number is told apart by the first two characters of its file names, as in "Sony ILCE-9 SA") until you type
+  another name. Creating one again asks whether to replace it (photos using it follow) or keep both.
+- The second chart is picked from the library, photos with a chart first.
+
+
+### Camera profiles from a color chart
+- Photo ▸ Create Camera Profile from Color Chart… makes a DNG camera profile for your own camera from a raw photo of
+  a ColorChecker 24. The chart is found on its own (drag its corners if it isn't); choose the light it was shot
+  under (or let LightCraft tell from the chart's greys), Accurate or Natural, and a name. The new profile is listed
+  under Camera Profiles like an imported `.dcp`, the chart photo uses it right away, and a report shows how close
+  each patch comes (ΔE).
+- Add a second chart photo under another light, such as tungsten, for a dual-illuminant profile: each light gets its
+  own calibration, and photos in between are rendered by their white balance between the two.
+- The profiling engine is RADcamProfiles, contributed by its author.
 
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you

@@ -107,6 +107,10 @@ pub struct SidecarData {
     /// Actionable diagnostics for foreign develop settings that were not fully carried over.
     /// These are surfaced in the photo import report and never persisted in the catalog.
     pub warnings: Vec<crate::import::ImportWarning>,
+    /// Lightroom's camera profile (`crs:CameraProfile`, other than its default ones): when it names
+    /// one of the user's camera profiles for the photo's camera, that profile is the photo's camera
+    /// calibration ([`crate::cmd::dcp_profiles::from_xmp_name`]).
+    pub camera_profile: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -174,6 +178,7 @@ pub fn parse_sidecar(xmp: &str, target: crate::crs::Target) -> std::result::Resu
             let profile = crate::crs::camera_profile_name(&d.properties)
                 .filter(|name| !matches!(name.trim(), "Adobe Standard" | "Adobe Color"))
                 .map(str::to_string);
+            out.camera_profile = profile.clone();
             if let Some(name) = profile {
                 out.warnings.push(crate::import::ImportWarning {
                     path: String::new(),
@@ -675,7 +680,10 @@ impl Session {
         let p = self.catalog.photo(id).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?;
         let sc = sc.resolve_label(&self.catalog);
         let mut q = (**p).clone();
-        let develop_changed = merge_into(&mut q, &sc, &(self.clock)());
+        let mut develop_changed = merge_into(&mut q, &sc, &(self.clock)());
+        if let Some(name) = &sc.camera_profile {
+            develop_changed |= crate::cmd::dcp_profiles::from_xmp_name(self, &mut q, name);
+        }
         let mut ops = vec![
             Op::SetRating { id, rating: q.rating },
             Op::SetFlag { id, flag: q.flag },
