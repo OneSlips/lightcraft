@@ -2,6 +2,10 @@
 
 ## 2026-10-16
 
+### Control surfaces: icons of their own
+- Invert Mask, Erase, New Brush, Previous / Next Mask, Mask On/Off, the zoom, selection, rotate
+  and Reset keys have their own icons instead of sharing one, drawn in the style of the icon pack.
+
 ### Loupedeck+
 - The **Loupedeck+** works with LightCraft through the same plugin as the MX Creative Console.
   With no setup each knob and button does what its label says. Settings ▸ Controls ▸ Loupedeck+
