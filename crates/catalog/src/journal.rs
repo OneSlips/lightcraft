@@ -511,6 +511,15 @@ impl Journal {
         Ok(())
     }
 
+    /// Write a complete copy of `catalog` into another store (a backup): a snapshot and an empty
+    /// log, which [`Journal::open`] loads as a library of its own. This journal is not changed.
+    /// `seq` is the journal's [`Journal::seq`] (the snapshot's sequence number). Any thread.
+    pub fn export(to: &mut dyn Store, seq: u64, catalog: &Catalog) -> Result<()> {
+        write_snapshot(to, seq, catalog).map_err(io)?;
+        to.write_atomic(LOG, b"").map_err(io)?;
+        Ok(())
+    }
+
     /// Write a snapshot of `catalog` (which must reflect every appended op) and reset the log.
     pub fn snapshot(&mut self, catalog: &Catalog) -> Result<()> {
         self.snapshot_with_unlogged(catalog, 0)

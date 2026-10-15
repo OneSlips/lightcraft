@@ -369,5 +369,11 @@
   "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "このコンピューターの LightCraft から「{name}」を外しますか？「内蔵ルックを復元」で戻せます。",
   "Restore Built-in Looks ({n})": "内蔵ルックを復元（{n}）",
   "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "プロファイル、プリセット（{presets}）、部分補正プリセット（{effects}）、読み込み設定、ボディの既定は LightCraft の設定フォルダーに保存されるので、どのライブラリでも使えます。",
-  "{n} photos here": "ここに {n} 枚"
+  "{n} photos here": "ここに {n} 枚",
+  "Backed up in {s} s ({size})": "{s} 秒でバックアップしました（{size}）",
+  "Last {n}": "最新 {n} 件",
+  "Library backed up to {path}": "ライブラリを {path} にバックアップしました",
+  "The last backup failed: {e}": "前回のバックアップに失敗しました：{e}",
+  "The library backup failed: {e}": "ライブラリのバックアップに失敗しました：{e}",
+  "{n} photos · {size}": "{n} 枚 · {size}"
 }

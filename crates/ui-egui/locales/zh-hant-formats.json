@@ -369,5 +369,11 @@
   "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "在此電腦上從 LightCraft 中移除「{name}」？「還原內建風格」可找回。",
   "Restore Built-in Looks ({n})": "還原內建風格（{n}）",
   "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "你的描述檔、預設（{presets}）、局部調整預設（{effects}）、匯入設定和機身預設值儲存在 LightCraft 的設定資料夾中，因此每個圖庫都有。",
-  "{n} photos here": "此處 {n} 張照片"
+  "{n} photos here": "此處 {n} 張照片",
+  "Backed up in {s} s ({size})": "已在 {s} 秒內備份（{size}）",
+  "Last {n}": "最近 {n} 個",
+  "Library backed up to {path}": "圖庫已備份到 {path}",
+  "The last backup failed: {e}": "上次備份失敗：{e}",
+  "The library backup failed: {e}": "圖庫備份失敗：{e}",
+  "{n} photos · {size}": "{n} 張照片 · {size}"
 }

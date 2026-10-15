@@ -27,6 +27,15 @@
 - **Camera Bodies**: choose the camera profile each body's raws get (…71, …74), also one of your
   own profiles made for the whole camera model, and apply it to the photos in view.
 
+### Library backups
+- Settings ▸ **Backups**: back up when LightCraft exits **every time, once a day, once a week or
+  never**, to a folder you choose (another drive or a network folder), keeping the last 3 to 50.
+  Each backup can be checked by opening its catalog.
+- **File ▸ Back Up Library Now** runs in the background; **Library Backups…** lists them, and
+  **Restore…** opens a backup as a new library beside the current one: nothing is overwritten.
+- A backup holds the catalog, the library's settings and LightCraft's settings with your presets
+  and profiles. Never the photos or the thumbnail cache, so it takes well under a second.
+
 ## 2026-10-15
 
 ### Settings window

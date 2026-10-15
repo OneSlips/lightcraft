@@ -64,6 +64,8 @@ mod tests_album_remove;
 #[cfg(test)]
 mod tests_appearance;
 #[cfg(test)]
+mod tests_backups;
+#[cfg(test)]
 mod tests_before_after;
 #[cfg(test)]
 mod tests_browse_active;
@@ -1322,6 +1324,14 @@ impl LightcraftApp {
             self.ui.known_cards = None;
         }
         self.session.persist_if_dirty();
+        // a backup that ran in the background says how it went
+        if let Some(r) = self.session.poll_backup() {
+            let text = match r {
+                Ok(v) => crate::i18n::tr_format!("Library backed up to {path}", path = v["path"].as_str().unwrap_or_default()),
+                Err(e) => crate::i18n::tr_format!("The library backup failed: {e}", e = e),
+            };
+            self.toast(ctx, text);
+        }
         panels::denoise::pump(self, ctx);
         panels::right::dust_pump(self, ctx);
         model_setup::pump(self, ctx);

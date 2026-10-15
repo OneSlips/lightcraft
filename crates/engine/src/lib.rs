@@ -19,6 +19,7 @@ pub mod app_store;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod apple_photos;
 pub mod availability;
+pub mod backup;
 pub(crate) mod camera_preview;
 pub mod camera_profiles;
 pub mod chart_profiling;
@@ -300,6 +301,8 @@ pub struct Session {
     /// The app-wide store of presets, profiles and effects shared by every library (`None`: each
     /// library keeps its own; see [`app_store`]).
     pub app_store: Option<app_store::AppStore>,
+    /// Library backups: settings and the last result ([`backup`]).
+    pub backups: backup::Backups,
     /// What the app store's presets.json was last written from.
     pub(crate) shared_presets_saved: library::PresetsSaved,
     /// Executed commands (actions / debugging / replay).
@@ -482,6 +485,7 @@ impl Session {
             profile_state: Default::default(),
             app_store: None,
             shared_presets_saved: Default::default(),
+            backups: Default::default(),
             journal: Vec::new(),
             pending_log: Vec::new(),
             media: media::MediaCache::default(),

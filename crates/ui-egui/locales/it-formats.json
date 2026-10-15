@@ -369,5 +369,11 @@
   "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Togliere «{name}» da LightCraft su questo computer? Ripristina aspetti integrati lo riporta.",
   "Restore Built-in Looks ({n})": "Ripristina aspetti integrati ({n})",
   "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "I tuoi profili, predefiniti ({presets}), predefiniti di regolazione locale ({effects}), impostazioni di importazione e predefiniti per corpo sono nella cartella delle impostazioni di LightCraft, quindi ogni libreria li ha.",
-  "{n} photos here": "{n} foto qui"
+  "{n} photos here": "{n} foto qui",
+  "Backed up in {s} s ({size})": "Backup eseguito in {s} s ({size})",
+  "Last {n}": "Ultimi {n}",
+  "Library backed up to {path}": "Backup della libreria in {path}",
+  "The last backup failed: {e}": "L’ultimo backup non è riuscito: {e}",
+  "The library backup failed: {e}": "Il backup della libreria non è riuscito: {e}",
+  "{n} photos · {size}": "{n} foto · {size}"
 }

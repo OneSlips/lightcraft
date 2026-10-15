@@ -369,5 +369,11 @@
   "Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.": "Odebrat „{name}“ z LightCraftu na tomto počítači? Obnovit vestavěné vzhledy ho vrátí.",
   "Restore Built-in Looks ({n})": "Obnovit vestavěné vzhledy ({n})",
   "Your profiles, presets ({presets}), local adjustment presets ({effects}), import settings and camera body defaults are kept in LightCraft's settings folder, so every library has them.": "Vaše profily, předvolby ({presets}), předvolby místních úprav ({effects}), nastavení importu a výchozí profily těl jsou uloženy ve složce nastavení LightCraftu, takže je má každá knihovna.",
-  "{n} photos here": "{n} fotografií zde"
+  "{n} photos here": "{n} fotografií zde",
+  "Backed up in {s} s ({size})": "Zálohováno za {s} s ({size})",
+  "Last {n}": "Posledních {n}",
+  "Library backed up to {path}": "Knihovna zálohována do {path}",
+  "The last backup failed: {e}": "Poslední záloha selhala: {e}",
+  "The library backup failed: {e}": "Záloha knihovny selhala: {e}",
+  "{n} photos · {size}": "{n} fotografií · {size}"
 }

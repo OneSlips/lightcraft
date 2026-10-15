@@ -143,6 +143,18 @@ impl eframe::App for App {
         if let Err(e) = self.0.session.close_library() {
             log::error!("saving the library failed: {e}");
         }
+        // Back up on exit (Settings ▸ Backups): a backup already running finishes first, else one
+        // is made when it is due. A copy of the catalog and settings files: well under a second
+        // on a local disk.
+        if self.0.session.backup_running() {
+            let _ = self.0.session.wait_backup(std::time::Duration::from_secs(120));
+        } else if self.0.session.backup_due() {
+            let t0 = std::time::Instant::now();
+            match self.0.session.back_up_library(false) {
+                Ok(v) => log::info!("backup on exit: {} ({:.0} ms)", v["path"].as_str().unwrap_or_default(), t0.elapsed().as_secs_f64() * 1000.0),
+                Err(e) => log::error!("backup on exit failed: {e}"),
+            }
+        }
         // last, with everything saved: no render may be inside the GPU driver when the process ends
         if !self.0.shutdown(EXIT_WAIT) {
             log::warn!("quit: background work was still running after {EXIT_WAIT:?}");
@@ -858,6 +870,7 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
             .with_default_genfill()
             .with_system_clock()
             .with_default_app_store()
+            .with_default_backups()
     };
     let Some(dir) = dir else {
         log::warn!("no library location (set --library or LIGHTCRAFT_LIBRARY)");

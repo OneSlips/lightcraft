@@ -221,6 +221,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("file.findMissing", "Find Missing Photos…", None, "File"),
     ("file.backupLibrary", "Back Up Library…", None, "File"),
     ("file.restoreLibrary", "Restore Library from Backup…", None, "File"),
+    ("app.backUpLibrary", "Back Up Library Now", None, "File"),
+    ("app.libraryBackups", "Library Backups…", None, "File"),
     ("photo.locate", "Locate Missing File…", None, ""),
     ("dialog.saveMetadataPreset", "Save Metadata Preset…", None, ""),
     ("app.quit", "Quit LightCraft", Some("Cmd+Q"), "File"),
@@ -819,6 +821,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "app.recentLibraries" => crate::panels::settings::recent_libraries(app, p),
         "app.clearRecentLibraries" => crate::panels::settings::recent_libraries(app, &json!({"clear": true})),
         "app.displayProfile" => crate::panels::settings::display_profile(app, p),
+        "app.backUpLibrary" => app.session.execute("library.backUpNow", &json!({"background": true})).map_err(|e| e.to_string()),
+        "app.libraryBackups" => {
+            app.ui.dialog = Some(Dialog::Settings { tab: "backups".into() });
+            Ok(Value::Null)
+        }
         "file.backupLibrary" | "file.restoreLibrary" => {
             let action = if id == "file.backupLibrary" { app.services.backup_library.as_mut() } else { app.services.restore_library.as_mut() };
             match action {
@@ -2247,6 +2254,10 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "app.openLibrary" | "app.newLibrary" => app.services.pick_folder.is_some() && crate::panels::settings::can_switch_library(app).is_ok(),
         "file.addFolder" => app.services.pick_folder.is_some() && !crate::lightroom_import::is_running(app),
         "file.backupLibrary" => app.services.backup_library.is_some(),
+        "app.backUpLibrary" => {
+            app.session.backups.file.is_some() && app.session.library.as_ref().is_some_and(|l| l.on_disk) && !app.session.backup_running()
+        }
+        "app.libraryBackups" => app.session.backups.file.is_some(),
         "app.openLogFolder" => app.services.reveal.is_some() && app.services.log_file.is_some(),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "app.clearRecentLibraries" => !app.ui.settings.recent_libraries.is_empty(),
