@@ -1,6 +1,6 @@
 //! Local: browse a folder on disk without adding it to the library (Lightroom's Local tab).
 //! The folder's photos are probed in place as `local` photos — only folder views list them —
-//! and edits go to the files' XMP sidecars like any photo added in place. "Add to My Photos"
+//! and edits go to the files' XMP sidecars like any photo added in place. "Import into Library"
 //! makes them ordinary library photos.
 //!
 //! Each browse records when the folders it listed were browsed. Untouched records of folders
@@ -230,7 +230,7 @@ fn add_to_library(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let n = ids.len();
     let ops = ids.into_iter().map(|id| Op::SetLocal { id, local: false }).collect();
-    s.commit("Add to My Photos", Op::Batch { ops })?;
+    s.commit("Import into Library", Op::Batch { ops })?;
     Ok(json!({"added": n}))
 }
 
@@ -306,7 +306,15 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             forget_local
         ),
-        cmd!("photo.addToLibrary", "Add to My Photos", ["Photo"], None, "{ids?} — browsed (Local) photos join the library", always, add_to_library),
+        cmd!(
+            "photo.addToLibrary",
+            "Import into Library",
+            ["Photo"],
+            None,
+            "{ids?} — browsed (Local) photos join the library",
+            always,
+            add_to_library
+        ),
     ]
 }
 

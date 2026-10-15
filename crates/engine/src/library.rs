@@ -76,7 +76,7 @@ pub struct Library {
     pub on_disk: bool,
     journal: Journal,
     /// presets.json, view.json, prefs.json.
-    files: Box<dyn Store>,
+    pub(crate) files: Box<dyn Store>,
     /// What happened when the catalog was loaded.
     pub report: LoadReport,
     /// Last persistence error (shown by the UI; ops stay pending and are retried).
@@ -232,6 +232,8 @@ struct PrefsFile {
     print_templates: Vec<crate::print::template::PrintTemplate>,
     /// Metadata presets.
     metadata_presets: Vec<crate::cmd::metadata::MetadataPreset>,
+    /// Import presets (the Import tab's settings, by name).
+    import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
     /// Filter presets.
     filter_presets: Vec<crate::cmd::filters::FilterPreset>,
     /// Point-curve presets.
@@ -541,6 +543,7 @@ impl Session {
         self.export_presets = prefs.export_presets;
         self.print_templates = prefs.print_templates;
         self.metadata_presets = prefs.metadata_presets;
+        self.import_presets = prefs.import_presets;
         self.filter_presets = prefs.filter_presets;
         self.curve_presets = prefs.curve_presets;
         self.label_sets = prefs.label_sets;
@@ -682,6 +685,8 @@ impl Session {
         if on_disk {
             crate::cmd::previews::refresh_stale_smart_previews(self);
         }
+        // an import still being finished when the app closed picks up where it stopped
+        self.load_finishing();
         self.library_identity = std::sync::Arc::new(());
         Ok(())
     }
@@ -838,6 +843,7 @@ impl Session {
             export_presets: self.export_presets.clone(),
             print_templates: self.print_templates.clone(),
             metadata_presets: self.metadata_presets.clone(),
+            import_presets: self.import_presets.clone(),
             filter_presets: self.filter_presets.clone(),
             curve_presets: self.curve_presets.clone(),
             mask_effects: self.mask_effects.clone(),

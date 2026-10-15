@@ -13,6 +13,7 @@ pub(crate) mod convert;
 mod cull;
 pub mod curves;
 pub mod dcp_profiles;
+mod delete_rejected;
 pub(crate) mod denoise;
 mod develop;
 mod edit;
@@ -24,6 +25,7 @@ pub mod filters;
 mod focus;
 mod genfill;
 pub mod geocode;
+pub mod import_tab;
 pub mod keywords;
 pub mod library;
 pub mod lut_profiles;
@@ -116,13 +118,13 @@ pub fn has_selection(s: &Session) -> std::result::Result<(), String> {
     if s.selection.ids.is_empty() && s.selection.active.is_none() { Err("no photos selected".into()) } else { Ok(()) }
 }
 /// Albums hold library photos: a selection of only browsed (Local) photos has nothing an album
-/// can take (issue #684; Add to My Photos first).
+/// can take (issue #684; import them first).
 pub fn has_library_selection(s: &Session) -> std::result::Result<(), String> {
     has_selection(s)?;
     if s.selected().iter().any(|id| s.catalog.photo(*id).is_none_or(|p| !p.local)) { Ok(()) } else { Err(LOCAL_ONLY.into()) }
 }
 /// Why an album command refused a Local-only selection.
-pub const LOCAL_ONLY: &str = "only Local photos: albums hold library photos (Add to My Photos first)";
+pub const LOCAL_ONLY: &str = "only browsed photos: albums hold library photos (import them first)";
 pub fn can_undo(s: &Session) -> std::result::Result<(), String> {
     if s.undo.is_empty() { Err("nothing to undo".into()) } else { Ok(()) }
 }
@@ -184,6 +186,8 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(print::specs());
         v.extend(before::specs());
         v.extend(browse::specs());
+        v.extend(import_tab::specs());
+        v.extend(delete_rejected::specs());
         v.extend(missing::specs());
         v.extend(recheck::specs());
         v.extend(sync::specs());

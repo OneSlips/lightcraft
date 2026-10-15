@@ -366,7 +366,7 @@ fn resetting_the_sidebar_brings_every_section_back() {
 }
 
 /// Given a section's header, when it is right-clicked and Hide This Section is chosen, then the
-/// section is hidden; and the menu of the My Photos title, which is always there, shows it again.
+/// section is hidden; and the menu of the Library title, which is always there, shows it again.
 #[test]
 fn a_section_is_hidden_from_its_header_and_brought_back_from_the_title() {
     let mut h = demo([1400.0, 1400.0], json!({"view": "photoGrid", "leftPanel": true}));
@@ -607,7 +607,7 @@ fn a_section_moves_up_and_down_from_its_menu() {
     }
 }
 
-/// Recently Deleted is one of My Photos' rows: right below the others, above every section.
+/// Recently Deleted is one of the Library rows: right below the others, above every section.
 #[test]
 fn recently_deleted_is_listed_with_my_photos() {
     let h = demo([1400.0, 1400.0], json!({"view": "photoGrid", "leftPanel": true}));
@@ -2071,8 +2071,8 @@ fn recognise_faces_stays_off_until_a_model_is_chosen() {
 }
 
 /// Issue #684: albums hold library photos. For a browsed (Local) photo the grid's right-click
-/// Add to Album is off, Photo ▸ Add to Album says to Add to My Photos first with its entries off,
-/// and a drop onto an album row is refused with that hint; once the photo is in My Photos all
+/// Add to Album is off, Photo ▸ Add to Album says to import it first with its entries off,
+/// and a drop onto an album row is refused with that hint; once the photo is imported all
 /// three work.
 #[test]
 fn local_photos_cannot_be_added_to_albums_until_they_join_my_photos() {
@@ -2092,6 +2092,10 @@ fn local_photos_cannot_be_added_to_albums_until_they_join_my_photos() {
     assert_eq!(vis.len(), 1, "{vis:?}");
     let local = vis[0];
     assert!(h.app.session.catalog.photo(local).unwrap().local);
+    // (browsing is the Import tab, whose sidebar lists sources; the library's sidebar, with its
+    // albums, is drawn beside the folder here to drop on)
+    h.app.ui.tab = crate::import_tab::Tab::Library;
+    h.settle(SETTLE);
     let thumb = widget(&h, &format!("thumb:{}", local.0));
 
     // right-click: Add to Album is there but off, so hovering opens no album entries
@@ -2140,9 +2144,9 @@ fn local_photos_cannot_be_added_to_albums_until_they_join_my_photos() {
     assert!(h.app.session.catalog.album(album_id).unwrap().photos.is_empty(), "nothing invisible was added");
     assert!(h.app.ui.dragging_photos.is_none(), "the drag ended");
     let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
-    assert!(toast.contains("Add to My Photos first"), "{toast:?}");
+    assert!(toast.contains("import these photos first"), "{toast:?}");
 
-    // in My Photos: the menu entries come on, the submenu opens, and the album takes the photo
+    // imported: the menu entries come on, the submenu opens, and the album takes the photo
     h.app.run("photo.addToLibrary", json!({"ids": [local.0]})).unwrap();
     h.step();
     let nodes = add_to_album(&h.app);

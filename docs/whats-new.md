@@ -48,6 +48,35 @@
   model is still being trained, there is nothing to download or install yet, and Luminance and
   Color under Detail reduce noise meanwhile.
 
+### Import and Library tabs
+- **Two tabs at the top right: Import and Library.** You always know where you are: Import is a
+  folder or card you are looking at (nothing is in your library yet), Library is everything you
+  imported, to edit and export.
+- **The Import tab** lists every drive of the computer (network drives and camera cards too: a
+  card opens at its DCIM folder), the usual places, your favourite and recent folders on the
+  left; the photos in the middle, with the same fast grid, loupe and eye strip for culling; and
+  the import settings on the right.
+- **One big button: "Import 312 into <your library>"**, over the grid and the loupe alike, with
+  **Picks / Selected / All** and how many each is. It imports exactly that, never everything by
+  surprise, then shows the Library tab while the photos come in.
+- **Stack presets on import**: a colour preset, then a retouch preset, then one with AI masks,
+  applied in that order (move them up or down). Destination (in place, copy or move, with folder
+  templates and renaming), camera profile per body, keywords and metadata are there too, and
+  **import presets** keep the whole setup by name.
+- **Unattended finishing**: after the import LightCraft computes the presets' AI masks, finds the
+  skin for Smooth Skin and builds the previews you chose (none, standard or 1:1), in one row of
+  the activity stack with the time left. Go for lunch: it keeps going while you browse, picks up
+  again after a restart, and says "N photos ready" when it is done.
+- **Copied or moved photos keep their culling**: flags, stars, labels and edits made while
+  browsing go with the photos into the library.
+- **Browsing writes nothing into the folder** (a client's card or archive) until you import,
+  even with automatic XMP writing on; Import ▸ While browsing can change that. **Culling saved**
+  shows that your flags and stars are kept, imported or not.
+- **No delete in Import.** Delete on a photo you are browsing does nothing but say "reject it
+  (X) instead". To remove files, **Photo ▸ Delete Rejected Files from Disk…** moves the rejected
+  files to the Recycle Bin after you type how many there are.
+- "My Photos" is now called **Library** everywhere.
+
 ### Generative Fill
 - **The upload works.** Sending a crop to OpenAI failed with "secure connection failed: failed
   to write whole buffer"; large uploads now go out whole. Tested with a real OpenAI account on
