@@ -46,10 +46,8 @@ fn app(paths: &[(PathBuf, bool)]) -> Headless {
     h
 }
 
-/// (separator-blind: the folder tree spells paths with `/`, a Windows path in a test has `\`)
 fn widget(h: &Headless, id: &str) -> Option<Rect> {
-    let norm = |s: &str| s.replace('\\', "/");
-    h.app.widgets.iter().find(|(w, _)| norm(w) == norm(id)).map(|(_, r)| *r)
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r)
 }
 
 /// `dir` as the Folders tree writes it in widget ids: with `/` on every platform.

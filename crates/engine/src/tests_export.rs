@@ -994,10 +994,6 @@ fn same_folder_as_original_exports_next_to_each_photo() {
     // (the subfolder is joined with `/` on every platform, `export::join_path`)
     let mut want = vec![format!("{}/Exports/IMG_1.jpg", a.to_string_lossy()), format!("{}/Exports/IMG_1.jpg", b.to_string_lossy())];
     let mut got: Vec<String> = written.iter().map(|p| p.to_string()).collect();
-    // (separator-blind: on Windows the folder part has `\` and the subfolder part `/`)
-    for p in want.iter_mut().chain(got.iter_mut()) {
-        *p = p.replace('\\', "/");
-    }
     want.sort();
     got.sort();
     assert_eq!(got, want);
