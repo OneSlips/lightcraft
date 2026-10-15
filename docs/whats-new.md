@@ -2,6 +2,12 @@
 
 ## 2026-10-16
 
+### The bottom bar
+- **A flat bottom bar** like its left side: icons and thin dividers, no islands.
+- **Filters with live counts** beside the stars, flags and colour labels you set: Picks, Rejects and Unflagged (combine them: Picks + Unflagged hides the rejects), a rating menu (unrated, 3 stars or more, exactly 5…), each colour label and No label. The Picks count follows every P, so you can stop when you reach your target.
+- **More filters** (the … button, or View ▸ More Filters…, Shift+F) has the rest: type, edits, camera, lens, keyword, Save as Smart Album, Clear All Filters and filter presets. The filter bar over the grid and the funnel by the search field are gone.
+- Where you are: **"1,234 / 2,233"** (and how many are selected) at the start of the middle.
+
 ### Auto Sync
 - **Auto Sync now edits all the selected photos live** while you drag a slider, and **each photo moves from its own value**: white balance on each photo's own scale, so photos with another as-shot white balance no longer turn blue.
 
