@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Live thumbnails
+- In the grid, **the thumbnails of the photos you are editing follow the slider** while you drag it, not only when you let go.
+
 ### Finding your place
 - **Scroll bars you can see and grab** on the grid and the filmstrip. While the grid scrolls, a label by the bar says where you are ("1,234 / 2,233" and the date).
 - The **filmstrip** shows "1,234 / 2,233" and, along its top edge, a tick for every pick (white) and reject (red) through the shoot.
