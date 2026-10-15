@@ -439,14 +439,47 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     app.image_rect = Some(img_rect);
     // request renders: the loupe at display resolution (drafts during drags)
-    let interacting = app.session.interaction.is_some();
-    let scale = if interacting { 0.6 } else { 1.0 };
+    let look = d.hash64();
+    let now = ui.input(|i| i.time);
+    // an edit in progress (a slider held, a control surface's gesture): drafts while the photo
+    // changes, the full render once it has been still for a moment (`region::DraftSize`)
+    let drag_open = app.session.interaction.is_some();
+    let full_ms = app.renderer.last_full_main_ms;
+    let interacting = app.draft_size.drafting(drag_open, id, look, now, full_ms);
+    if interacting && let Some(left) = app.draft_size.refine_in(now, full_ms) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(left));
+    }
     // render at the final size: a click-zoom animation only changes how the result is drawn
     let native_long = native[0].max(native[1]);
     let drawn_long = target_rect.width().max(target_rect.height()) * ppp;
-    // the whole frame at about canvas size; the zoomed part of it is a window render (below)
-    let look = d.hash64();
+    // as sharp as the measured draft cost allows: the full size on the GPU
+    let gpu = lightcraft_engine::gpu::ready() && lightcraft_engine::gpu::available();
+    if let Some(r) = app.renderer.loupe_log.back().filter(|r| r.draft && r.slot == "main") {
+        app.draft_size.observe(r.at_ms, r.width.saturating_mul(r.height), r.render_ms);
+    }
     let overlay = view_overlay(app, &d);
+    let windows = !app.ui.soft_proof && overlay_supports_window(overlay);
+    let scale = if interacting {
+        // (the whole-frame render this drag drafts: canvas-sized when zoomed in)
+        let still = crate::region::plan(
+            &app.ui.settings,
+            crate::region::ViewSizes {
+                drawn_long,
+                canvas_long: canvas.width().max(canvas.height()) * ppp,
+                native_long,
+                texture_side,
+                draft_scale: 1.0,
+                drafting: false,
+                windows,
+            },
+        );
+        let long = still.main_edge.max(1);
+        let short = if aspect >= 1.0 { long as f32 / aspect } else { long as f32 * aspect };
+        app.draft_size.scale(id, long.saturating_mul(short.max(1.0) as usize), gpu)
+    } else {
+        1.0
+    };
+    // the whole frame at about canvas size; the zoomed part of it is a window render (below)
     // Diagnostic views that need whole-frame context, soft proofing, or reads too far for one
     // window still render the whole frame at the size it is drawn. A mask overlay is window-safe.
     let sizes = crate::region::ViewSizes {
@@ -455,14 +488,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         native_long,
         texture_side,
         draft_scale: scale,
-        windows: !app.ui.soft_proof && overlay_supports_window(overlay),
+        drafting: interacting,
+        windows,
     };
     let mut plan = crate::region::plan(&app.ui.settings, sizes);
     if plan.window_edge.is_some_and(|edge| app.window_refused == Some((id, look, edge))) {
         plan = crate::region::plan(&app.ui.settings, crate::region::ViewSizes { windows: false, ..sizes });
     }
     // a pinch changes the zoom every frame: keep the sizes of before it until it is quiet
-    let now = ui.input(|i| i.time);
     let plan = app.size_hold.apply(id, now, navigating, plan);
     if app.size_hold.holding(now) {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(crate::region::HOLD_SECS));
@@ -508,7 +541,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     };
     // once this photo is on screen: prepare its neighbours in filmstrip order (source decoded and
     // kept, view render cached) so stepping to them is instant
-    if !interacting && !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id) {
+    // (not while an edit is in progress, even paused: the neighbours' decodes would hold up its drafts)
+    if !drag_open && !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id) {
         let ids = app.session.visible_cloned();
         if let Some(i) = ids.iter().position(|p| *p == id) {
             let next = ids.get(i + 1).copied();
@@ -585,6 +619,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             windows.push((v, view));
         }
     }
+    // the renderer polled before these requests: without a frame to come, a render asked for
+    // when nothing else repaints (the refine of a still photo in an open interaction) would sit
+    // finished until the next input
+    app.renderer.keep_polling(ui.ctx());
     for (slot, before) in [(Slot::Region, false), (Slot::RegionBefore, true)] {
         let shown = windows.iter().find(|(v, _)| v.before == before).map(|(_, view)| *view);
         if before {
