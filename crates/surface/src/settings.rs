@@ -14,7 +14,9 @@ use crate::profile::Profile;
 /// 2: `dial` / `roller` name the Dialpad's encoders as they are (format 1 had them the wrong
 /// way round: the Logi device's encoder 0 is the roller); format 1 files are swapped on load, so
 /// every encoder keeps doing what it did.
-pub const FORMAT_VERSION: u32 = 2;
+/// 3: the brush's Erase key is the momentary `brush.erase` (format 2 had a subtracting new brush,
+/// `tool.brush {op: subtract}`, from TactileBridge's Erase Mask Tool).
+pub const FORMAT_VERSION: u32 = 3;
 /// The port surfaces connect to by default.
 pub const DEFAULT_PORT: u16 = 7981;
 
@@ -297,6 +299,16 @@ impl SurfaceSettings {
                 }
             }
         }
+        if s.version < 3 {
+            let erase = crate::binding::Binding::command_with("tool.brush", serde_json::json!({"op": "subtract"}));
+            for p in &mut s.profiles {
+                for b in p.base.values_mut().chain(p.pages.iter_mut().flat_map(|pg| pg.bindings.values_mut())) {
+                    if *b == erase {
+                        *b = crate::binding::Binding::command("brush.erase");
+                    }
+                }
+            }
+        }
         s.sanitize();
         Ok(s)
     }
@@ -377,6 +389,15 @@ fn swap_encoders(map: &mut BTreeMap<String, crate::binding::Binding>) {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn format_2_files_get_the_momentary_erase() {
+        let mut v = serde_json::to_value(SurfaceSettings::default()).unwrap();
+        v["version"] = serde_json::json!(2);
+        v["profiles"][0]["base"]["key.2"] = serde_json::json!({"kind": "command", "command": "tool.brush", "params": {"op": "subtract"}});
+        let s = SurfaceSettings::from_json(&v.to_string()).unwrap();
+        assert_eq!(s.profiles[0].base["key.2"], crate::Binding::command("brush.erase"));
+    }
+
     #[test]
     fn format_1_files_swap_the_dial_and_the_roller() {
         let mut v = serde_json::to_value(SurfaceSettings::default()).unwrap();

@@ -540,3 +540,110 @@ fn white_balance_on_several_photos_moves_each_from_its_own_value() {
     assert_eq!(back[1], before[1]);
     assert_eq!(back[2], before[2]);
 }
+
+/// Bind `control` on the key page now showing.
+fn bind_key(h: &mut Headless, control: &str, b: lightcraft_surface::Binding) {
+    let page = h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).cloned().unwrap();
+    let s = h.app.surface.runtime.settings_mut();
+    let cur = s.profile.clone();
+    let p = s.profiles.iter_mut().find(|p| p.name == cur).unwrap();
+    p.pages.iter_mut().find(|q| q.name == page).unwrap().bindings.insert(control.into(), b);
+}
+
+#[test]
+fn console_erase_works_while_held_and_delete_needs_a_hold() {
+    use lightcraft_surface::Binding;
+    let mut h = demo();
+    open_photo(&mut h);
+    bind_key(&mut h, "key.1", Binding::command("brush.erase"));
+    bind_key(&mut h, "key.4", Binding::command_with("tool.brush", json!({"new": true})));
+    // Erase: on while the key is down (the brush comes up with it), off when it is let go
+    assert_eq!(input(&mut h, json!([{"control": "key.1", "press": true}]))["ok"], true);
+    h.settle(T);
+    assert!(h.app.ui.brush_erase, "erasing while held");
+    assert_eq!(h.app.ui.tool, "brush");
+    assert_eq!(input(&mut h, json!([{"control": "key.1", "press": false}]))["ok"], true);
+    h.settle(T);
+    assert!(!h.app.ui.brush_erase, "back to painting when let go");
+    // New Brush runs once and is never lit
+    assert_eq!(input(&mut h, json!([{"control": "key.4", "press": true}, {"control": "key.4", "press": false}]))["ok"], true);
+    h.settle(T);
+    let layout = serde_json::to_value(crate::surface::layout(&h.app, &lightcraft_surface::devices::MX_CREATIVE_CONSOLE)).unwrap();
+    let keys = layout["keys"].as_array().cloned().unwrap_or_default();
+    let new_brush = keys.iter().find(|k| k["control"] == "key.4").cloned().unwrap_or_default();
+    assert_ne!(new_brush["active"], true, "{new_brush}");
+    // Delete (on the everyday page, the brush put away): a quick press does nothing but say to
+    // hold the key
+    assert_eq!(h.request("engine.execute", json!({"command": "tool.done"}), T)["ok"], true);
+    h.settle(T);
+    bind_key(&mut h, "key.3", Binding::command("photo.delete"));
+    let n = h.app.session.visible_cloned().len();
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": true}, {"control": "key.3", "press": false}]))["ok"], true);
+    let osd = h.request("engine.execute", json!({"command": "surface.state"}), T)["result"]["osd"].clone();
+    assert!(osd["notice"].as_str().is_some_and(|t| t.starts_with("Hold the key")), "{osd}");
+    h.settle(T);
+    assert_eq!(h.app.session.visible_cloned().len(), n, "a quick press deletes nothing");
+    // held for a moment: it runs
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": true}]))["ok"], true);
+    for _ in 0..60 {
+        h.step();
+    }
+    assert_eq!(input(&mut h, json!([{"control": "key.3", "press": false}]))["ok"], true);
+    h.settle(T);
+    assert_eq!(h.app.session.visible_cloned().len(), n - 1, "held: deleted");
+}
+
+#[test]
+fn deleting_says_the_file_stays_on_disk_and_undo_brings_it_back() {
+    let mut h = demo();
+    open_photo(&mut h);
+    assert_eq!(h.request("engine.execute", json!({"command": "photo.delete"}), T)["ok"], true);
+    h.settle(T);
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+    assert!(toast.contains("Recently Deleted") && toast.contains("stays on disk") && toast.contains("Undo"), "{toast:?}");
+}
+
+#[test]
+fn a_loupedeck_plus_works_as_labelled_and_takes_a_loupedeck_profile() {
+    let mut h = demo();
+    open_photo(&mut h);
+    // no setup: the knob labelled Exposure moves Exposure
+    let before = exposure(&h);
+    assert_eq!(input(&mut h, json!([{"control": "ld.r33", "ticks": 20}]))["ok"], true);
+    finish_gesture(&mut h);
+    assert!(exposure(&h) > before, "the Exposure knob");
+    // a Loupedeck profile: that knob now moves Temperature, Undo stays on its button
+    let dir = std::env::temp_dir().join(format!("lc-surface-ld-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("ProfileInfo.json");
+    let mut rotate = vec![Value::Null; 127];
+    rotate[33] = json!("$Photo___Temperature");
+    let mut press = vec![Value::Null; 127];
+    press[95] = json!("$Photo___Undo");
+    press[76] = json!("$@Generic___@Macro___0123");
+    let profile = json!({"displayName": "Mine", "deviceType": "Loupedeck15", "layout": {"layoutModes": [
+        {"modeName": "loupe", "workspaces": [{"pressActions": press, "rotateActions": rotate}]}]}});
+    std::fs::write(&path, profile.to_string()).unwrap();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["device"], "loupedeck-plus");
+    assert_eq!(r["result"]["report"]["dropped"].as_array().map(Vec::len), Some(1), "the macro is listed as left out");
+    for p in &h.app.surface.settings().profiles {
+        assert_eq!(p.base.get("ld.r33"), Some(&lightcraft_surface::Binding::value("wb.temp")), "{}", p.name);
+    }
+    let id = h.app.session.active().unwrap();
+    let (exp, temp) = {
+        let d = h.app.session.develop_of(id).unwrap();
+        (d.light.exposure, d.wb.temp)
+    };
+    assert_eq!(input(&mut h, json!([{"control": "ld.r33", "ticks": 20}]))["ok"], true);
+    finish_gesture(&mut h);
+    let d = h.app.session.develop_of(id).unwrap();
+    assert_eq!(d.light.exposure, exp);
+    assert_ne!(d.wb.temp, temp);
+    // a damaged Loupedeck profile is an error, not a crash
+    std::fs::write(&path, r#"{"deviceType": "Loupedeck15", "layout": 7}"#).unwrap();
+    let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
+    assert_eq!(r["ok"], false);
+    let _ = std::fs::remove_dir_all(&dir);
+}

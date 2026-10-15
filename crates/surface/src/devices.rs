@@ -85,9 +85,13 @@ pub static MX_CREATIVE_CONSOLE: DeviceDef = DeviceDef {
     ],
 };
 
+/// Loupedeck+: knobs, the Control Dial and buttons, without displays (`Loupedeck15`). Its controls
+/// are Loupedeck's own numbers ([`crate::loupedeck`]).
+pub static LOUPEDECK_PLUS: DeviceDef = DeviceDef { id: "loupedeck-plus", name: "Loupedeck+", controls: crate::loupedeck::CONTROLS };
+
 /// Every built-in device.
 pub fn devices() -> &'static [&'static DeviceDef] {
-    static ALL: [&DeviceDef; 1] = [&MX_CREATIVE_CONSOLE];
+    static ALL: [&DeviceDef; 2] = [&MX_CREATIVE_CONSOLE, &LOUPEDECK_PLUS];
     &ALL
 }
 
@@ -127,6 +131,17 @@ mod tests {
         assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Key).count(), 9);
         assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Encoder).count(), 2);
         assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Button).count(), 4);
+        let mut ids: Vec<_> = d.controls.iter().map(|c| c.id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), d.controls.len(), "control ids are unique");
+    }
+
+    #[test]
+    fn loupedeck_plus_knobs_turn_and_its_buttons_press() {
+        let d = find_device("loupedeck-plus").unwrap();
+        assert!(is_encoder("ld.r33") && is_encoder("ld.r48") && !is_encoder("ld.b95"));
+        assert_eq!(group_of("ld.b95"), PageGroup::Dials);
         let mut ids: Vec<_> = d.controls.iter().map(|c| c.id).collect();
         ids.sort_unstable();
         ids.dedup();

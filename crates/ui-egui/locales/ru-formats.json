@@ -362,6 +362,7 @@
   "Move {n} photo{} to “{}”": "Переместить в «{1}» фото: {n}{0:.0}",
   "Move {n} photo{} to “{}”?": "Переместить в «{1}» фото: {n}{0:.0}?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "В «{1}» перемещено фото: {n}{0:.0}. Правка → Отменить вернёт их.",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "Перемещено фото: {n} в «Недавно удалённые». Файлы остаются на диске; «Отменить» вернёт их.",
   "Service: {name}": "Сервис: {name}",
   "Paint over what to replace, then click Generate. About ${usd} per variation.": "Закрасьте то, что нужно заменить, и нажмите «Создать». Около ${usd} за вариант.",
   "Sent as {} pieces at {}% of the photo's resolution.": "Отправляется {} частями с {}% разрешения фото.",

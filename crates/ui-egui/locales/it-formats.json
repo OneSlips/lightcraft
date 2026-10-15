@@ -362,6 +362,7 @@
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
   "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} foto spostate in Eliminate di recente. I file restano sul disco; Annulla le ripristina.",
   "Service: {name}": "Servizio: {name}",
   "Paint over what to replace, then click Generate. About ${usd} per variation.": "Dipingi su ciò da sostituire, poi fai clic su Genera. Circa ${usd} per variante.",
   "Sent as {} pieces at {}% of the photo's resolution.": "Inviato in {} parti al {}% della risoluzione della foto.",

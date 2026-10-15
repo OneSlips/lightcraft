@@ -362,6 +362,7 @@
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "「{to}」已經是另一個人。合併後成為一個人；還原會再把他們分開。",
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "已新增{what}合併照片（{mp}）：完整尺寸（{full}）所需的記憶體超過這台電腦的記憶體",
   "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已新增{what}合併照片（{mp}），這是全景圖的最大尺寸（完整尺寸：{full}）",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "已將 {n} 張照片移到「最近刪除」。檔案仍在磁碟上；復原即可還原。",
   "Service: {name}": "服務：{name}",
   "Paint over what to replace, then click Generate. About ${usd} per variation.": "塗抹要取代的部分，然後點擊「生成」。每個變體約 ${usd}。",
   "Sent as {} pieces at {}% of the photo's resolution.": "分 {} 塊傳送，為相片解析度的 {}%。",

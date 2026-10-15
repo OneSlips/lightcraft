@@ -362,6 +362,7 @@
   "Move {n} photo{} to “{}”": "Déplacer {n} photo{} vers « {} »",
   "Move {n} photo{} to “{}”?": "Déplacer {n} photo{} vers « {} » ?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place.",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} photos déplacées dans Supprimées récemment. Les fichiers restent sur le disque ; Annuler les rétablit.",
   "Service: {name}": "Service : {name}",
   "Paint over what to replace, then click Generate. About ${usd} per variation.": "Peignez ce qu’il faut remplacer, puis cliquez sur Générer. Environ ${usd} par variante.",
   "Sent as {} pieces at {}% of the photo's resolution.": "Envoyé en {} morceaux à {}% de la résolution de la photo.",
