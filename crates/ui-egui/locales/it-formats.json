@@ -373,5 +373,18 @@
   "The area is larger than {name} takes at full resolution: it will be softer than the rest of the photo ({}%).": "L’area è più grande di quanto {name} accetta a piena risoluzione: sarà più morbida del resto della foto ({}%).",
   "up to {} px at full resolution, about ${usd} per fill": "fino a {} px a piena risoluzione, circa ${usd} per riempimento",
   "Key saved (ends in {})": "Chiave salvata (termina con {})",
+  "Picks ({n})": "Scelte ({n})",
+  "Selected ({n})": "Selezionate ({n})",
+  "All ({n})": "Tutte ({n})",
+  "Import {n} into {library}": "Importa {n} in {library}",
+  "Browsing {folder}: not imported": "Sfoglia {folder}: non importato",
+  "Import preset: {name}": "Preimpostazione di importazione: {name}",
+  "Camera card ({label})": "Scheda della fotocamera ({label})",
+  "Type {n} to confirm:": "Digita {n} per confermare:",
+  "Rejected files to move to the {bin}: {n}": "File scartati da spostare nel {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Foto pronte: {n}. Maschere IA, ritocco e anteprime completati.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Foto pronte: {n}. Maschere IA e ritocco completati.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Foto sfogliate saltate: {n}{0:.0} — gli album contengono foto della libreria (importale prima)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Rifiutate {n}: {closed} con occhi chiusi, {blurry} con occhi sfocati",
   "Finding “{text}”…": "Cerco «{text}»…"
 }

@@ -23,6 +23,7 @@ pub mod headless;
 pub mod i18n;
 pub mod icons;
 pub mod import;
+pub mod import_tab;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
@@ -111,6 +112,8 @@ mod tests_grading;
 mod tests_grid;
 #[cfg(test)]
 mod tests_import_profiles;
+#[cfg(test)]
+mod tests_import_tab;
 #[cfg(test)]
 mod tests_info_dialogs;
 #[cfg(test)]
@@ -675,6 +678,7 @@ impl LightcraftApp {
         }
         if let Some(r) = menus::run_ui_command(self, id, &params) {
             if r.is_ok() {
+                import_tab::follow(self, id);
                 docking::reveal_command(self, id)?;
             }
             return r.map_err(CommandError::from);
@@ -712,6 +716,10 @@ impl LightcraftApp {
                     .and_then(|photo| self.session.develop_of(photo))
                     .map(|d| d.crop.aspect.map_or(serde_json::json!("free"), |(w, h)| serde_json::json!([w as f64 / 100.0, h as f64 / 100.0])))
             };
+        }
+        if r.is_ok() {
+            // browsing a folder is the Import tab; a library view the Library tab
+            import_tab::follow(self, id);
         }
         if r.is_ok() && id == "library.clearFilter" {
             // the search field shows the text filter: cleared from anywhere (the loupe's pill, the
@@ -757,6 +765,11 @@ impl LightcraftApp {
             Err(e) => {
                 log::warn!("{id}: {e}");
                 self.ui.status = e.message.clone();
+                // Delete on photos being browsed (Import): say what to do instead, wherever it came from
+                if e.message.contains(lightcraft_engine::cmd::library::BROWSED_NO_DELETE) {
+                    let now = self.tasks.repaint.as_ref().map(|ctx| ctx.input(|i| i.time)).unwrap_or(self.last_time);
+                    self.ui.toast = Some((i18n::tr(lightcraft_engine::cmd::library::BROWSED_NO_DELETE).to_string(), now + 6.0, None));
+                }
                 // no face model yet: offer it (its terms first) instead of only saying so
                 if id == "faces.detect"
                     && (e.kind == ErrorKind::ModelMissing(AiModel::FaceDetector)
@@ -880,6 +893,27 @@ impl LightcraftApp {
         }
     }
 
+    /// Reject Closed and Blurry Eyes (Assisted Culling) running in the background: when it ends,
+    /// its rejects are flagged in one undo step and its summary shown.
+    fn eye_cull_pump(&mut self, ctx: &egui::Context) {
+        let Ok(v) = self.session.execute("photo.rejectEyesPump", &serde_json::json!({})) else { return };
+        if v["done"] != true {
+            return;
+        }
+        let n = |k: &str| v[k].as_u64().unwrap_or(0);
+        let text = if n("rejected") == 0 {
+            crate::i18n::tr("No closed or blurry eyes to reject").to_string()
+        } else {
+            crate::i18n::tr_format!(
+                "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes",
+                n = n("rejected"),
+                closed = n("closedEyes"),
+                blurry = n("blurryEyes")
+            )
+        };
+        self.toast_for(ctx, text, 6.0);
+    }
+
     pub fn toast(&mut self, ctx: &egui::Context, text: impl Into<String>) {
         self.toast_for(ctx, text, TOAST_SECONDS);
     }
@@ -907,6 +941,20 @@ impl LightcraftApp {
     /// (`ui.detail_due`); watch the model download. Never waits for the model.
     fn ai_mask_detail(&mut self, ctx: &egui::Context) {
         let polled = self.session.segment_poll();
+        // an import being finished unattended (masks, skin, previews): its note when it is done
+        if self.session.finishing.is_some() || self.session.finish_pending.is_some() {
+            if self.session.finishing_tick().is_some()
+                && let Some((n, previews)) = self.session.finishing_done
+            {
+                let note = if previews {
+                    i18n::tr_format!("Photos ready: {n}. AI masks, retouch and previews are done.", n = n)
+                } else {
+                    i18n::tr_format!("Photos ready: {n}. AI masks and retouch are done.", n = n)
+                };
+                self.toast_for(ctx, format!("✓ {note}"), 12.0);
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
         let now = ctx.input(|i| i.time);
         if polled.changed {
             ctx.request_repaint();
@@ -1247,6 +1295,7 @@ impl LightcraftApp {
         self.save_status(ctx);
         self.slideshow_tick(ctx);
         panels::faces::pump(self, ctx);
+        self.eye_cull_pump(ctx);
         // back from an external editor: pick up the files it saved
         let focused = ctx.input(|i| i.focused);
         if focused && !self.ui.was_focused && !self.ui.external_edits.is_empty() {
@@ -1337,6 +1386,7 @@ impl LightcraftApp {
         panels::right::dust_pump(self, ctx);
         model_setup::pump(self, ctx);
         panels::faces::pump(self, ctx);
+        self.eye_cull_pump(ctx);
         focus_scan::pump(self, ctx);
         self.collect_screenshots(ctx);
         self.issue_screenshots(ctx);

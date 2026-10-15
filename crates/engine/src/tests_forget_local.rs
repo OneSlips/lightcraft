@@ -259,3 +259,44 @@ fn browsing_again_forgets_untouched_records_of_deleted_files() {
     assert_eq!(s.catalog.to_snapshot(), expect);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Culling done while browsing (Import) is never forgotten: flags, ratings and colour labels on
+/// browsed photos survive closing the library, reopening it long after (which forgets untouched
+/// records of folders not browsed for a while) and `library.forgetLocal`; only the photo nobody
+/// culled goes.
+#[test]
+fn culling_on_browsed_photos_survives_restarts_and_forgetting() {
+    let root = temp_dir("culling");
+    let (card, lib) = (root.join("card"), root.join("lib"));
+    for (i, n) in ["p.png", "r.png", "l.png", "x.png", "plain.png"].iter().enumerate() {
+        png(&card.join(n), i as u8 * 30);
+    }
+    let clock = Arc::new(Mutex::new("2026-08-01T10:00:00".to_string()));
+    let mut s = open(&lib, &clock);
+    s.execute("library.browse", &json!({"path": card.to_string_lossy()})).unwrap();
+    let id = |s: &Session, n: &str| s.catalog.photos().find(|p| p.file_name == n).unwrap().id;
+    for (n, cmd, params) in [
+        ("p.png", "photo.flag", json!({"flag": "pick"})),
+        ("x.png", "photo.flag", json!({"flag": "reject"})),
+        ("r.png", "photo.rate", json!({"rating": 5})),
+        ("l.png", "photo.label", json!({"label": "green"})),
+    ] {
+        s.selection = Selection::single(id(&s, n));
+        s.execute(cmd, &params).unwrap();
+    }
+    look_elsewhere(&mut s);
+    s.persist().unwrap();
+    drop(s);
+    // two months later: opening the library forgets untouched records of folders not browsed since
+    set(&clock, "2026-10-01T10:00:00");
+    let mut s = open(&lib, &clock);
+    assert_eq!(local_paths(&s), ["l.png", "p.png", "r.png", "x.png"], "only the photo nobody culled went");
+    let r = s.execute("library.forgetLocal", &json!({"days": 1})).unwrap();
+    assert_eq!(r["forgotten"], 0, "{r}");
+    let p = |s: &Session, n: &str| s.catalog.photo(id(s, n)).unwrap().clone();
+    assert_eq!(p(&s, "p.png").flag, lightcraft_catalog::Flag::Pick);
+    assert_eq!(p(&s, "x.png").flag, lightcraft_catalog::Flag::Reject);
+    assert_eq!(p(&s, "r.png").rating, 5);
+    assert_eq!(p(&s, "l.png").label, Some(lightcraft_catalog::ColorLabel::Green));
+    let _ = std::fs::remove_dir_all(&root);
+}

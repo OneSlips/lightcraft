@@ -373,5 +373,18 @@
   "The area is larger than {name} takes at full resolution: it will be softer than the rest of the photo ({}%).": "Oblast je větší, než {name} přijme v plném rozlišení: bude měkčí než zbytek fotografie ({}%).",
   "up to {} px at full resolution, about ${usd} per fill": "až {} px v plném rozlišení, asi ${usd} za výplň",
   "Key saved (ends in {})": "Klíč uložen (končí na {})",
+  "Picks ({n})": "Vybrané ({n})",
+  "Selected ({n})": "Označené ({n})",
+  "All ({n})": "Vše ({n})",
+  "Import {n} into {library}": "Importovat {n} do {library}",
+  "Browsing {folder}: not imported": "Procházíte {folder}: neimportováno",
+  "Import preset: {name}": "Předvolba importu: {name}",
+  "Camera card ({label})": "Paměťová karta ({label})",
+  "Type {n} to confirm:": "Pro potvrzení napište {n}:",
+  "Rejected files to move to the {bin}: {n}": "Zamítnuté soubory k přesunutí do {bin}: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Připravené fotky: {n}. AI masky, retuš a náhledy jsou hotové.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Připravené fotky: {n}. AI masky a retuš jsou hotové.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Přeskočené procházené fotky: {n}{:.0}; alba obsahují fotky z knihovny (nejprve je importujte)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odmítnuto {n}: {closed} se zavřenýma očima, {blurry} s rozmazanýma očima",
   "Finding “{text}”…": "Hledám „{text}“…"
 }

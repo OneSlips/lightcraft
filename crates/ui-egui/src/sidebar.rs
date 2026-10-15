@@ -2,12 +2,12 @@
 //! which are folded shut. No drawing here (that is `panels/left.rs`); this is the arrangement
 //! itself, saved with the UI state and changed by the `view.sidebar*` commands.
 //!
-//! My Photos (All Photos, Recently Added, Picks, Missing Photos, Recently Deleted) is not a
+//! Library (All Photos, Recently Added, Picks, Missing Photos, Recently Deleted) is not a
 //! section: it stays at the top and can't be hidden, moved or folded.
 
 use serde::{Deserialize, Serialize};
 
-/// A section of the left sidebar below My Photos.
+/// A section of the left sidebar below Library.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SidebarSection {

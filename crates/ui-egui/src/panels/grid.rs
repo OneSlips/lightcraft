@@ -73,8 +73,6 @@ pub struct GridCache {
     layout: Option<((RunsKey, u32, u32, bool), Arc<GridLayout>)>,
     /// Stack index by generation.
     stacks: Option<(u64, Arc<StackIndex>)>,
-    /// How many of the photos are browsed (Local) ones, by generation.
-    local: Option<(u64, usize)>,
 }
 
 impl GridCache {
@@ -98,17 +96,6 @@ impl GridCache {
                 let s = Arc::new(cat.stack_index());
                 self.stacks = Some((generation, s.clone()));
                 s
-            }
-        }
-    }
-
-    fn local(&mut self, cat: &Catalog, ids: &[PhotoId], generation: u64) -> usize {
-        match self.local {
-            Some((g, n)) if g == generation => n,
-            _ => {
-                let n = ids.iter().filter(|id| cat.photo(**id).is_some_and(|p| p.local)).count();
-                self.local = Some((generation, n));
-                n
             }
         }
     }
@@ -147,9 +134,10 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let counted = super::chips::count_text(ids.len(), total, !chips.is_empty());
     let cnt = if sel_n > 1 { crate::i18n::tr_format!("{sel_n} selected · {counted}", counted = counted, sel_n = sel_n) } else { counted };
     match app.session.browse.clone().filter(|_| app.session.source == lightcraft_engine::LibrarySource::Folder) {
+        // the Import tab's bar says where you are, over the grid and the loupe
+        Some(_) if crate::import_tab::importing(app) => {}
         Some(b) => {
-            let local = app.caches.grid.local(&app.session.catalog, &ids, generation);
-            folder_header(app, ui, &b, &ids, local, &cnt);
+            folder_header(app, ui, &b, &cnt);
         }
         None => {
             let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 44.0), Sense::hover());
@@ -794,8 +782,8 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
 }
 
 /// The header of a Local folder view: the path as a breadcrumb (each part opens that folder),
-/// Include subfolders, Add to My Photos.
-fn folder_header(app: &mut LightcraftApp, ui: &mut egui::Ui, b: &lightcraft_engine::Browse, ids: &[PhotoId], local_n: usize, cnt: &str) -> Rect {
+/// Include subfolders (the Import tab shows its own bar instead).
+fn folder_header(app: &mut LightcraftApp, ui: &mut egui::Ui, b: &lightcraft_engine::Browse, cnt: &str) -> Rect {
     let t = Tokens::get(ui.ctx());
     // The path/count and actions need independent rows. The frame reserves the actual height,
     // including any wrapped actions, so the grid below never paints under the header.
@@ -821,21 +809,6 @@ fn folder_header(app: &mut LightcraftApp, ui: &mut egui::Ui, b: &lightcraft_engi
             register(ui.ctx(), "check:includeSubfolders", c.rect);
             if c.changed() {
                 let _ = app.run("library.browse", json!({"path": b.path, "subfolders": sub}));
-            }
-            // Counted once per view (cached); the ids are only gathered on a click.
-            if local_n > 0 {
-                let label = crate::i18n::tr_format!("Add {local_n} to My Photos", local_n = local_n);
-                let button =
-                    ui.add(egui::Button::new(egui::RichText::new(label).font(t.semibold(11.5)).color(t.text)).wrap().min_size(vec2(37.0, 24.0)));
-                register(ui.ctx(), "button:addToLibrary", button.rect);
-                if button.clicked() {
-                    let local: Vec<u64> = ids.iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| p.local)).map(|id| id.0).collect();
-                    let n = local.len();
-                    match app.run("photo.addToLibrary", json!({"ids": local})) {
-                        Ok(_) => app.toast(ui.ctx(), crate::i18n::tr_format!("Added {n} photo{} to My Photos", if n == 1 { "" } else { "s" }, n = n)),
-                        Err(e) => app.toast(ui.ctx(), e),
-                    }
-                }
             }
         });
     });
@@ -865,7 +838,7 @@ pub(crate) fn crumbs(path: &str) -> Vec<(&str, String)> {
     out
 }
 
-fn folder_breadcrumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, path: &str) {
+pub(crate) fn folder_breadcrumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, path: &str) {
     let t = Tokens::get(ui.ctx());
     ui.spacing_mut().item_spacing.x = 4.0;
     let crumbs = crumbs(path);
@@ -948,7 +921,7 @@ pub fn local_only(app: &LightcraftApp, ids: &[PhotoId]) -> bool {
 
 /// Why an album action is off for Local photos.
 pub fn albums_hint() -> String {
-    crate::i18n::tr("Albums hold library photos: Add to My Photos first").to_string()
+    crate::i18n::tr("Albums hold library photos: import these photos first").to_string()
 }
 
 /// Tell the user when an album command skipped Local photos of the selection (`skipped` in its
@@ -958,7 +931,7 @@ pub fn toast_skipped(app: &mut LightcraftApp, ctx: &egui::Context, r: &serde_jso
         app.toast(
             ctx,
             crate::i18n::tr_format!(
-                "{n} Local photo{} skipped: albums hold library photos (Add to My Photos first)",
+                "{n} browsed photo{} skipped: albums hold library photos (import them first)",
                 if n == 1 { "" } else { "s" },
                 n = n
             ),
@@ -1101,7 +1074,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     crate::widgets::menu_button(ui, crate::i18n::tr("Set Color Label"), |ui| label_menu(app, ui));
     if local_only(app, &app.session.selected()) {
-        // albums hold library photos (issue #684): nothing here to add until they join My Photos
+        // albums hold library photos (issue #684): nothing here to add until they are imported
         let add = ui.add_enabled(false, egui::Button::new(crate::i18n::tr("Add to Album"))).on_disabled_hover_text(albums_hint());
         register(ui.ctx(), "button:contextAddToAlbum", add.rect);
     } else {

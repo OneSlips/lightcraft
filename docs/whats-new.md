@@ -54,6 +54,64 @@
   longer needed, and is still used when you have installed it. The first description on a photo
   takes a few seconds while the photo is analyzed; more descriptions on the same photo are quick.
 
+### People masks
+- **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, and has no
+  more square holes in a lace dress.
+- People are found on ordinary couple shots where the faces are small, and each person's mask stays
+  on their own outline. Clothes and people edges follow the photo's own edges more closely.
+
+### Canon focus points
+- **Show Focus Point** and **Zoom to Focus Point** work with Canon raws (CR3 and CR2): the box the
+  camera focused with, including the face it tracked. Photos already in your library get it in the
+  background.
+- Without a recorded point, Space zooms to the main subject's sharpest open eye instead of the
+  middle of the photo.
+
+### Assisted Culling by the eyes
+- **Assisted Culling** can reject photos where a main subject has closed or blurry eyes (two new
+  boxes in the dialog). It runs in the background, leaves picked photos alone, and says what it
+  rejected; one Undo puts them back.
+
+### Faces and eyes while culling
+- **Groups**: the eye strip now finds the small faces of big groups (a second, long-range face
+  finder): about 62 of 65 people on a 45-megapixel family group, where it found none before. The
+  strip takes up to 120 people.
+- **Fair sharpness**: an eye is measured at a scale that follows its size and compared with the
+  sharpest eye in the photo, so a wide-open 85 mm portrait of five people in focus reads green, not
+  red. Missed focus stays red.
+- **Closed eyes on faces turned away** (a kiss on the cheek, a 3/4 view) are marked Closed; a closed
+  eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
+- **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
+  frame.
+### Import and Library tabs
+- **Two tabs at the top right: Import and Library.** You always know where you are: Import is a
+  folder or card you are looking at (nothing is in your library yet), Library is everything you
+  imported, to edit and export.
+- **The Import tab** lists every drive of the computer (network drives and camera cards too: a
+  card opens at its DCIM folder), the usual places, your favourite and recent folders on the
+  left; the photos in the middle, with the same fast grid, loupe and eye strip for culling; and
+  the import settings on the right.
+- **One big button: "Import 312 into <your library>"**, over the grid and the loupe alike, with
+  **Picks / Selected / All** and how many each is. It imports exactly that, never everything by
+  surprise, then shows the Library tab while the photos come in.
+- **Stack presets on import**: a colour preset, then a retouch preset, then one with AI masks,
+  applied in that order (move them up or down). Destination (in place, copy or move, with folder
+  templates and renaming), camera profile per body, keywords and metadata are there too, and
+  **import presets** keep the whole setup by name.
+- **Unattended finishing**: after the import LightCraft computes the presets' AI masks, finds the
+  skin for Smooth Skin and builds the previews you chose (none, standard or 1:1), in one row of
+  the activity stack with the time left. Go for lunch: it keeps going while you browse, picks up
+  again after a restart, and says "N photos ready" when it is done.
+- **Copied or moved photos keep their culling**: flags, stars, labels and edits made while
+  browsing go with the photos into the library.
+- **Browsing writes nothing into the folder** (a client's card or archive) until you import,
+  even with automatic XMP writing on; Import ▸ While browsing can change that. **Culling saved**
+  shows that your flags and stars are kept, imported or not.
+- **No delete in Import.** Delete on a photo you are browsing does nothing but say "reject it
+  (X) instead". To remove files, **Photo ▸ Delete Rejected Files from Disk…** moves the rejected
+  files to the Recycle Bin after you type how many there are.
+- "My Photos" is now called **Library** everywhere.
+
 ### Generative Fill
 - **The upload works.** Sending a crop to OpenAI failed with "secure connection failed: failed
   to write whole buffer"; large uploads now go out whole. Tested with a real OpenAI account on

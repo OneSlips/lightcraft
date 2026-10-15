@@ -987,7 +987,7 @@ mod tests {
         let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.left_panel = true;
         let text = painted_text(&ctx, &mut app, Locale::Uk);
-        assert!(text.contains("Мої фото") && text.contains("Усі фото"), "{text}");
+        assert!(text.contains("Бібліотека") && text.contains("Усі фото"), "{text}");
         for (command, title) in [("app.about", "Про LightCraft"), ("app.shortcuts", "Клавіатурні скорочення"), ("app.settings", "Налаштування")]
         {
             app.ui.dialog = None;
@@ -1089,7 +1089,7 @@ mod tests {
         let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.left_panel = true;
         let text = painted_text(&ctx, &mut app, Locale::It);
-        assert!(text.contains("Le mie foto") && text.contains("Tutte le foto"), "{text}");
+        assert!(text.contains("Libreria") && text.contains("Tutte le foto"), "{text}");
         for (command, title) in
             [("app.about", "Informazioni su LightCraft"), ("app.shortcuts", "Scorciatoie da tastiera"), ("app.settings", "Impostazioni")]
         {
@@ -1231,7 +1231,7 @@ mod tests {
         let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.left_panel = true;
         let text = painted_text(&ctx, &mut app, Locale::De);
-        assert!(text.contains("Meine Fotos") && text.contains("Alle Fotos"), "{text}");
+        assert!(text.contains("Bibliothek") && text.contains("Alle Fotos"), "{text}");
         app.ui.view = crate::state::ViewMode::People;
         let text = painted_text(&ctx, &mut app, Locale::De);
         assert!(text.contains("Benannte Personen"), "{text}");
@@ -1360,18 +1360,18 @@ mod tests {
         let english_ids = ids(&app);
         for language in Locale::ALL {
             let text = painted_text(&ctx, &mut app, *language);
-            for label in ["My Photos", "All Photos"] {
+            for label in ["Library", "All Photos"] {
                 assert!(text.contains(language.tr(label)), "{language:?}: {label} -> {:?} not in\n{text}", language.tr(label));
             }
             assert_eq!(app.font_language, *language, "the fonts follow the language");
             assert_eq!(ids(&app), english_ids, "{language:?}: command ids are presentation-independent");
         }
         let text = painted_text(&ctx, &mut app, Locale::Ja);
-        assert!(text.contains("マイフォト") && text.contains("すべての写真"), "{text}");
+        assert!(text.contains("ライブラリ") && text.contains("すべての写真"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::ZhHans);
-        assert!(text.contains("我的照片") && text.contains("所有照片"), "{text}");
+        assert!(text.contains("图库") && text.contains("所有照片"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::PtBr);
-        assert!(text.contains("Minhas fotos") && text.contains("Todas as fotos"), "{text}");
+        assert!(text.contains("Biblioteca") && text.contains("Todas as fotos"), "{text}");
         set_language(Locale::En);
     }
 

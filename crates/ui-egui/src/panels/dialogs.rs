@@ -260,6 +260,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::ChartProfile { .. } => "Create Camera Profile from Color Chart",
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
+        Dialog::DeleteRejected { .. } => "Delete Rejected Files from Disk",
         Dialog::MovePhotos { .. } => "Move Photos",
         Dialog::LightroomCatalog { .. } => "Lightroom Classic Catalog",
         Dialog::SaveEffect { .. } => "New Effect Preset",
@@ -346,7 +347,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         egui::RichText::new(crate::i18n::tr_format!("Creates {} stacks from {} of {scope}", preview["stacks"], preview["photos"], scope = crate::i18n::tr(scope))).color(t.text_dim),
                     );
                 }
-                Dialog::Cull { reject_below, pick_best } => {
+                Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes } => {
                     let n = app.session.selection.ids.len();
                     let scope = if n > 1 { crate::i18n::tr_format!("the {n} selected photos", n = n) } else { crate::i18n::tr_format!("the {} photos in view", app.session.visible_cloned().len()) };
                     ui.label(egui::RichText::new(crate::i18n::tr_format!("Scores {scope} for focus and exposure and finds similar shots taken within seconds of each other (bursts).", scope = scope)).color(t.text_label));
@@ -356,6 +357,19 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new(crate::i18n::tr(if *reject_below > 0.0 { "Blurry photos below the score are flagged as rejects." } else { "0: nothing is rejected." })).color(t.text_dim));
                     let r = ui.checkbox(pick_best, crate::i18n::tr("Pick the sharpest photo of each burst"));
                     crate::widgets::register(ui.ctx(), "check:cullPick", r.rect);
+                    ui.add_space(6.0);
+                    let r = ui.checkbox(closed_eyes, crate::i18n::tr("Reject photos with closed eyes"));
+                    crate::widgets::register(ui.ctx(), "check:cullClosedEyes", r.rect);
+                    let r = ui.checkbox(blurry_eyes, crate::i18n::tr("Reject photos with blurry eyes"));
+                    crate::widgets::register(ui.ctx(), "check:cullBlurryEyes", r.rect);
+                    if *closed_eyes || *blurry_eyes {
+                        ui.label(
+                            egui::RichText::new(crate::i18n::tr(
+                                "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.",
+                            ))
+                            .color(t.text_dim),
+                        );
+                    }
                     ui.label(egui::RichText::new(crate::i18n::tr("Scores stay on the photos: filter or make smart albums with Focus and Best of Similar Shots.")).color(t.text_dim));
                 }
                 Dialog::WhatsNew => {
@@ -1238,6 +1252,24 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(what);
                     ui.label(egui::RichText::new(crate::i18n::tr("Masks keep their sliders. Export presets first to keep a copy.")).color(t.text_dim));
                 }
+                Dialog::DeleteRejected { count, typed } => {
+                    let n = *count;
+                    let bin = if cfg!(windows) { "Recycle Bin" } else { "Trash" };
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr_format!("Rejected files to move to the {bin}: {n}", n = n, bin = crate::i18n::tr(bin)))
+                        .font(t.semibold(14.0))
+                        .color(t.text),
+                    );
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr(
+                            "This deletes the files themselves, with their XMP sidecars, not just LightCraft's records. Undo can't bring them back: only the Recycle Bin can, until it is emptied.",
+                        ))
+                        .color(t.caution),
+                    );
+                    ui.add_space(6.0);
+                    ui.label(crate::i18n::tr_format!("Type {n} to confirm:", n = n));
+                    dialog_field(ui, "field:deleteRejectedCount", typed, "");
+                }
                 Dialog::ConfirmDelete { count } => {
                     let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
                     ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
@@ -1383,6 +1415,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
                     Dialog::FaceModel { .. } if !informational => "Install",
                     Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
+                    Dialog::DeleteRejected { .. } => "Move to Recycle Bin",
                     Dialog::SaveEffect { .. } => "Create",
                     Dialog::MovePhotos { .. } => "Move",
                     // (not "Merge": that is photo merging, HDR / panorama, in some languages)
@@ -1415,7 +1448,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                     _ => false,
                 };
+                let typed_ok = match &dlg {
+                    Dialog::DeleteRejected { count, typed } => typed.trim() == count.to_string(),
+                    _ => true,
+                };
                 let can_confirm = !rename_blocked
+                    && typed_ok
                     && (informational
                         || !matches!(
                             &dlg,
@@ -2002,12 +2040,17 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::DenoiseModel { info, accepted } => crate::panels::denoise::install(app, info, *accepted),
         Dialog::FaceModel { path, info, accepted } => crate::panels::faces::install(app, path, info, *accepted),
         Dialog::AllMetadata { .. } | Dialog::SystemInfo { .. } | Dialog::WhatsNew => Ok(serde_json::Value::Null),
-        Dialog::Cull { reject_below, pick_best } => {
+        Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes } => {
             let mut p = json!({"pickBest": pick_best});
             if *reject_below > 0.0 {
                 p["rejectBelow"] = json!(reject_below);
             }
-            app.run("photo.analyze", p)
+            let r = app.run("photo.analyze", p);
+            if r.is_ok() && (*closed_eyes || *blurry_eyes) {
+                // the eyes take longer: they are judged in the background, rejects come as one step
+                app.run("photo.rejectEyes", json!({"closed": closed_eyes, "blurry": blurry_eyes}))?;
+            }
+            r
         }
         Dialog::SmartRules { id, name, rules, parent } => {
             // refused before anything changes (not even the name)
@@ -2047,6 +2090,13 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::ChartProfile { opts } => crate::chart_profile::start_build(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
+        Dialog::DeleteRejected { count, typed } => {
+            if typed.trim() == count.to_string() {
+                app.run("import.deleteRejectedFiles", json!({"confirm": count}))
+            } else {
+                Err(crate::i18n::tr("Type the number of files to confirm").to_string())
+            }
+        }
         Dialog::MovePhotos { ids, folder, dont_ask, library, .. } => {
             // another library opened meanwhile (from the menu bar, an agent): these numbers are
             // other photos there
@@ -2429,9 +2479,11 @@ pub enum ConfirmStyle {
 
 pub fn confirm_style(dlg: &Dialog) -> ConfirmStyle {
     match dlg {
-        Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } | Dialog::RemoveFolder { .. } => {
-            ConfirmStyle::Plain
-        }
+        Dialog::ConfirmDelete { .. }
+        | Dialog::DeleteRejected { .. }
+        | Dialog::DeleteKeyword { .. }
+        | Dialog::DeleteEffects { .. }
+        | Dialog::RemoveFolder { .. } => ConfirmStyle::Plain,
         _ if only_shows(dlg) => ConfirmStyle::Plain,
         _ => ConfirmStyle::Primary,
     }

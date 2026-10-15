@@ -168,6 +168,10 @@ fn local_photos_are_refused_with_the_reason() {
     h.step_until(std::time::Duration::from_secs(20), |h| shown(h));
     let beach = id_of(&h, "beach.png");
     assert!(h.app.session.catalog.photo(lightcraft_catalog::PhotoId(beach)).unwrap().local);
+    // (the library's Folders sidebar beside the browsed folder, to drop on)
+    h.app.ui.tab = crate::import_tab::Tab::Library;
+    h.step();
+    h.step();
     let target = folder_row(&h, &home).expect("the imported folder");
     let from = widget(&h, &format!("thumb:{beach}")).unwrap().center();
     press(&mut h, from);
@@ -176,7 +180,7 @@ fn local_photos_are_refused_with_the_reason() {
     assert_eq!(hint(&h).as_deref(), Some("Can't be moved here"));
     release(&mut h, target.center());
     assert!(trip.join("beach.png").is_file() && !home.join("beach.png").exists(), "stays");
-    assert!(toast(&h).contains("Add to My Photos"), "{}", toast(&h));
+    assert!(toast(&h).contains("import them first"), "{}", toast(&h));
     let _ = std::fs::remove_dir_all(&root);
 }
 

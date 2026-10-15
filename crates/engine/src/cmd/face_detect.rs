@@ -52,7 +52,7 @@ impl Finder {
             if w == 0 || h == 0 || rgb.len() < w * h * 3 {
                 return Ok(Vec::new());
             }
-            let mut dets = self.model.detect(rgb, w, h).map_err(|e| e.to_string())?;
+            let mut dets = self.model.detect_all(rgb, w, h).map_err(|e| e.to_string())?;
             if fine && w.min(h) >= 512 {
                 // half-size tiles, overlapping by half: each is searched like a whole photo
                 let (tw, th) = (w / 2, h / 2);

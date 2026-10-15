@@ -48,6 +48,13 @@ struct Batch {
     notes: BTreeSet<String>,
 }
 
+impl SmartState {
+    /// Whether AI masks are still being computed for any of `ids` (a batch with work pending).
+    pub(crate) fn busy_with(&self, ids: &HashSet<PhotoId>) -> bool {
+        self.batches.values().any(|b| b.pending > 0 && b.photos.iter().any(|p| ids.contains(p)))
+    }
+}
+
 /// The smart-mask state of a session.
 #[derive(Default)]
 pub struct SmartState {

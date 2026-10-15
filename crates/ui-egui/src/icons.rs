@@ -119,6 +119,12 @@ pub enum Icon {
     Landscape,
     /// Luminance range: a circle half dark, half light.
     Luminance,
+    /// A disk drive (Import ▸ This PC): a flat box with a light and a slot line.
+    Drive,
+    /// A camera memory card (Import ▸ This PC): a card with a clipped corner and contacts.
+    Card,
+    /// The Import tab: an arrow going down into a tray.
+    ImportArrow,
 }
 
 struct Pen<'a> {
@@ -234,6 +240,22 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, color: Color32, turn: Option<
                 let (c, s) = (a.cos(), a.sin());
                 pen.line(&[(10.0 + 5.4 * c, 10.0 + 5.4 * s), (10.0 + 7.4 * c, 10.0 + 7.4 * s)]);
             }
+        }
+        Drive => {
+            pen.rect(2.5, 6.0, 17.5, 14.0, 1.5);
+            pen.line(&[(5.0, 10.0), (11.0, 10.0)]);
+            pen.dot(14.5, 10.0, 1.1);
+        }
+        Card => {
+            pen.closed(&[(5.0, 2.5), (12.0, 2.5), (15.5, 6.0), (15.5, 17.5), (5.0, 17.5)]);
+            for x in [7.5, 10.0, 12.5] {
+                pen.line(&[(x, 5.0), (x, 8.0)]);
+            }
+        }
+        ImportArrow => {
+            pen.line(&[(4.0, 11.0), (4.0, 16.5), (16.0, 16.5), (16.0, 11.0)]);
+            pen.line(&[(10.0, 2.5), (10.0, 12.5)]);
+            pen.line(&[(6.5, 9.0), (10.0, 12.5), (13.5, 9.0)]);
         }
         Moon => {
             // outer arc of the disc, then the inner arc of the bite, meeting at the horns

@@ -373,5 +373,18 @@
   "The area is larger than {name} takes at full resolution: it will be softer than the rest of the photo ({}%).": "Der Bereich ist größer, als {name} in voller Auflösung annimmt: Er wird weicher als der Rest des Fotos ({}%).",
   "up to {} px at full resolution, about ${usd} per fill": "bis {} px in voller Auflösung, etwa ${usd} pro Füllung",
   "Key saved (ends in {})": "Schlüssel gespeichert (endet auf {})",
+  "Picks ({n})": "Ausgewählte ({n})",
+  "Selected ({n})": "Markierte ({n})",
+  "All ({n})": "Alle ({n})",
+  "Import {n} into {library}": "{n} in {library} importieren",
+  "Browsing {folder}: not imported": "{folder} wird durchsucht: nicht importiert",
+  "Import preset: {name}": "Importvorgabe: {name}",
+  "Camera card ({label})": "Speicherkarte ({label})",
+  "Type {n} to confirm:": "Zum Bestätigen {n} eingeben:",
+  "Rejected files to move to the {bin}: {n}": "Abgelehnte Dateien, die in den {bin} verschoben werden: {n}",
+  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos bereit: {n}. KI-Masken, Retusche und Vorschauen sind fertig.",
+  "Photos ready: {n}. AI masks and retouch are done.": "Fotos bereit: {n}. KI-Masken und Retusche sind fertig.",
+  "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Übersprungen: {n} durchsuchte Fotos{0:.0} – Alben enthalten Bibliotheksfotos (zuerst importieren)",
+  "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} abgelehnt: {closed} mit geschlossenen Augen, {blurry} mit unscharfen Augen",
   "Finding “{text}”…": "Suche „{text}“…"
 }

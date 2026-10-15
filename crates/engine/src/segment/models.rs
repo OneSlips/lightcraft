@@ -185,19 +185,41 @@ impl Segmenter {
         {
             let m = lightcraft_segment::models::by_key(key).ok_or_else(|| format!("unknown AI model `{key}`"))?;
             let dir = self.model_dir_for(key).ok_or("there is no folder for AI models in this session")?;
-            if m.installed_in(&dir) {
+            let companions: Vec<_> = m.missing_companions(&dir).into_iter().map(|c| (&c.file, c.url)).collect();
+            if m.installed_in(&dir) && companions.is_empty() {
                 return Ok(false);
             }
             let mirrors = self.model_mirrors(key);
             if mirrors.is_empty() {
                 return Err(format!("no download location is configured for the {} model (set {})", m.title, m.mirrors_env));
             }
-            self.model_downloads.entry(m.key).or_default().start(m.files, mirrors, dir, m.options(), activity, m.title)
+            self.model_downloads.entry(m.key).or_default().start(m.files, companions, mirrors, dir, m.options(), activity, m.title)
         }
         #[cfg(not(feature = "sam"))]
         {
             let _ = activity;
             Err(format!("unknown AI model `{key}`"))
+        }
+    }
+
+    /// For an installed model that lacks some of its companions (installed by an older
+    /// LightCraft, or their download failed): fetch them in the background, once per session.
+    /// The user agreed to the model; its companions come from the same publisher under the same
+    /// licence. `Ok(false)` when there is nothing to do.
+    pub fn top_up_model(&mut self, key: &str, activity: &crate::activity::Activity) -> Result<bool, String> {
+        #[cfg(feature = "sam")]
+        {
+            let Some(m) = lightcraft_segment::models::by_key(key) else { return Ok(false) };
+            let Some(dir) = self.model_dir_for(key) else { return Ok(false) };
+            if !m.installed_in(&dir) || m.missing_companions(&dir).is_empty() || !self.topped_up.insert(m.key) {
+                return Ok(false);
+            }
+            self.start_model_download(key, activity)
+        }
+        #[cfg(not(feature = "sam"))]
+        {
+            let _ = (key, activity);
+            Ok(false)
         }
     }
 

@@ -104,6 +104,7 @@ impl Downloader {
     pub fn start(
         &self,
         files: &'static [fetch::FileSpec],
+        companions: Vec<(&'static fetch::FileSpec<'static>, &'static str)>,
         mirrors: Vec<String>,
         dir: PathBuf,
         opts: Options,
@@ -117,7 +118,7 @@ impl Downloader {
         s.cancel.store(false, Ordering::SeqCst);
         s.finished.store(false, Ordering::SeqCst);
         s.done.store(0, Ordering::SeqCst);
-        s.total.store(files.iter().filter_map(|f| f.size).sum(), Ordering::SeqCst);
+        s.total.store(files.iter().chain(companions.iter().map(|c| c.0)).filter_map(|f| f.size).sum(), Ordering::SeqCst);
         // nothing else runs while `running` was false
         *lock(&s.text) = Text::default();
         *lock(&self.last) = Text::default();
@@ -139,8 +140,19 @@ impl Downloader {
                     lock(&s.text).file.clone_from(&p.file);
                 }
             };
-            let r =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fetch::download(files, &mirrors, &dir, &opts, &s.cancel, &mut on_progress)));
+            let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                fetch::download(files, &mirrors, &dir, &opts, &s.cancel, &mut on_progress)?;
+                // the optional extras: the model works without them, so a failure is only logged
+                for (file, url) in &companions {
+                    if let Err(e) = fetch::download_url(file, url, &dir, &opts, &s.cancel, &mut on_progress) {
+                        if matches!(e, fetch::DownloadError::Cancelled) {
+                            return Err(e);
+                        }
+                        log::warn!("{name}: {} not downloaded ({e})", file.name);
+                    }
+                }
+                Ok(())
+            }));
             let cancelled = matches!(r, Ok(Err(fetch::DownloadError::Cancelled)));
             let error = match r {
                 Ok(Ok(())) => {
