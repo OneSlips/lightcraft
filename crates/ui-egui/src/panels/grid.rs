@@ -1204,10 +1204,10 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     // a photo that doesn't work: the frames around it in its folder, imported or not
     let alt = ui.button(crate::i18n::tr("Show Alternatives"));
     register(ui.ctx(), "menu:showAlternatives", alt.rect);
-    if alt.clicked() {
-        if let Err(e) = app.run("photo.showAlternatives", json!({"id": id.0})) {
-            app.toast(ui.ctx(), e);
-        }
+    if alt.clicked()
+        && let Err(e) = app.run("photo.showAlternatives", json!({"id": id.0}))
+    {
+        app.toast(ui.ctx(), e);
     }
     // Photo ▸ Edit In: a copy with this photo's edits, opened in PhotoCraft or another editor
     // (desktop only: the web can't start programs)
