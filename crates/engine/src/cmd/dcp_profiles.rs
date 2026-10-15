@@ -51,8 +51,9 @@ pub fn is_dcp_id(id: &str) -> bool {
     id.starts_with(DCP_PREFIX)
 }
 
+/// Where imported profile files are kept: the app store's `Profiles/`, else the library's.
 fn profiles_dir(s: &Session) -> Option<PathBuf> {
-    s.library.as_ref().filter(|l| l.on_disk).map(|l| l.dir.join("Profiles"))
+    s.profiles_dir()
 }
 
 /// Parse every imported camera profile again and hand them to the decoder (missing or damaged

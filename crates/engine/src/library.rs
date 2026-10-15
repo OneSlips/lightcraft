@@ -24,9 +24,9 @@
 use std::path::{Path, PathBuf};
 
 use lightcraft_catalog::{FsStore, Journal, LibraryLock, LoadReport, Store};
-use lightcraft_develop::Preset;
 use serde::{Deserialize, Serialize};
 
+use crate::app_store::PresetsFile;
 use crate::{EngineError, LibrarySource, Result, Selection, Session};
 
 /// Library directory name inside the user's Pictures folder.
@@ -97,6 +97,16 @@ pub struct Library {
     warnings_reported: usize,
     /// Settings files that couldn't be read or set aside: never overwritten this session.
     blocked: Vec<&'static str>,
+    /// The library keeps its own presets, profiles and effects (its `prefs.json` says so, or there
+    /// is no app store): they are read from and saved to its files. Otherwise the app store holds
+    /// them ([`crate::app_store`]).
+    pub own_store: bool,
+    /// The library asked to keep its own ("Store with this library"; `prefs.json` →
+    /// `storeWithLibrary`).
+    pub store_with_library: bool,
+    /// While the app store holds them: the library's own shared-settings keys of `prefs.json` as
+    /// read, written back unchanged.
+    frozen: serde_json::Map<String, serde_json::Value>,
     /// Keeps other processes out of this library while it's open (last: released after the
     /// journal's background snapshot has landed).
     lock: Option<LibraryLock>,
@@ -114,31 +124,21 @@ pub struct LibraryStores {
     pub on_disk: bool,
 }
 
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct PresetsFile {
-    user: Vec<Preset>,
-    favorites: Vec<String>,
-    /// Favourite profiles, and the recently applied ones (newest first).
-    profile_favorites: Vec<String>,
-    profile_recent: Vec<String>,
-}
-
 /// The state presets.json was last written (or read) from. Saving checks the preset list's
 /// generation and the small profile lists before serializing anything: with a 10 000-preset
 /// collection presets.json is ~40 MB, and serializing it after every command made each slider
 /// tick take seconds.
 #[derive(Default)]
-struct PresetsSaved {
+pub(crate) struct PresetsSaved {
     generation: u64,
     profile_favorites: Vec<String>,
     profile_recent: Vec<String>,
     /// Hash of the bytes written: a list borrowed mutably but left as it was isn't rewritten.
-    hash: u64,
+    pub(crate) hash: u64,
 }
 
 impl PresetsSaved {
-    fn state_of(s: &Session) -> PresetsSaved {
+    pub(crate) fn state_of(s: &Session) -> PresetsSaved {
         PresetsSaved {
             generation: s.presets.generation(),
             profile_favorites: s.profile_favorites.clone(),
@@ -148,12 +148,12 @@ impl PresetsSaved {
     }
 
     /// `s` changed its presets or profile lists since this state.
-    fn differs(&self, s: &Session) -> bool {
+    pub(crate) fn differs(&self, s: &Session) -> bool {
         self.generation != s.presets.generation() || self.profile_favorites != s.profile_favorites || self.profile_recent != s.profile_recent
     }
 }
 
-fn bytes_hash(b: &[u8]) -> u64 {
+pub(crate) fn bytes_hash(b: &[u8]) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     b.hash(&mut h);
@@ -199,6 +199,17 @@ impl Library {
     #[cfg(test)]
     pub(crate) fn journal_mut(&mut self) -> &mut Journal {
         &mut self.journal
+    }
+    /// presets.json is saved at the next persist, whatever it holds.
+    pub(crate) fn reset_presets_saved(&mut self) {
+        self.presets_saved = PresetsSaved::default();
+    }
+    /// The shared-settings keys of the library's prefs.json as they are on disk now.
+    pub(crate) fn freeze_shared(&mut self) -> serde_json::Map<String, serde_json::Value> {
+        read_frozen(self.files.as_mut())
+    }
+    pub(crate) fn set_frozen(&mut self, frozen: serde_json::Map<String, serde_json::Value>) {
+        self.frozen = frozen;
     }
     pub fn thumbs_dir(&self) -> PathBuf {
         self.dir.join("thumbs")
@@ -258,9 +269,15 @@ struct PrefsFile {
     slide_titles: crate::slide_title::TitleSettings,
     /// A view holds the photos it shows until it is refreshed (`library.holdView`).
     hold_view: bool,
+    /// The Profile Manager's choices (while the library keeps its own; else in the app store).
+    #[serde(skip_serializing_if = "crate::app_store::ProfileState::is_default")]
+    profiles: crate::app_store::ProfileState,
+    /// Keep presets, profiles and effects with this library instead of the app store.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    store_with_library: bool,
 }
 
-fn presets_json(s: &Session) -> String {
+pub(crate) fn presets_json(s: &Session) -> String {
     #[cfg(test)]
     PRESETS_SERIALIZED.with(|c| c.set(c.get() + 1));
     let presets = &s.presets;
@@ -300,6 +317,25 @@ fn program_name() -> String {
         Some("lightcraft") | None => "LightCraft".into(),
         Some(other) => other.to_string(),
     }
+}
+
+/// The keys of prefs.json the app store holds, as `store` has them.
+fn read_frozen(store: &mut dyn Store) -> serde_json::Map<String, serde_json::Value> {
+    let mut frozen = serde_json::Map::new();
+    if let Ok(Some(raw)) = store.read("prefs.json")
+        && let Ok(serde_json::Value::Object(map)) = serde_json::from_slice::<serde_json::Value>(&raw)
+    {
+        for k in crate::app_store::SHARED_PREFS_KEYS.iter().chain(["import"].iter()) {
+            if let Some(v) = map.get(*k) {
+                frozen.insert((*k).to_string(), v.clone());
+            }
+        }
+    }
+    frozen
+}
+
+fn json_or_null<T: Serialize>(v: &T) -> serde_json::Value {
+    serde_json::to_value(v).unwrap_or(serde_json::Value::Null)
 }
 
 /// Problems reading the settings files (`presets.json`, `prefs.json`, `view.json`) when the library
@@ -507,17 +543,10 @@ impl Session {
         self.metadata_presets = prefs.metadata_presets;
         self.filter_presets = prefs.filter_presets;
         self.curve_presets = prefs.curve_presets;
-        self.mask_effects = prefs.mask_effects;
-        self.mask_tool_effects = prefs.mask_tool_effects;
         self.label_sets = prefs.label_sets;
-        self.lut_profiles = prefs.lut_profiles;
-        crate::cmd::lut_profiles::register_all(self);
-        self.dcp_profiles = prefs.dcp_profiles;
-        crate::cmd::dcp_profiles::register_all(self);
         self.keyword_sets = prefs.keyword_sets;
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
-        self.import_defaults = prefs.import;
         self.cache_mb = prefs.cache_mb;
         self.slideshow = prefs.slideshow.sanitized();
         self.slide_layout = prefs.slide_layout.sanitized();
@@ -530,20 +559,48 @@ impl Session {
         if let Some(d) = &self.smart_previews_dir {
             self.media.smart_dir = Some(d.clone());
         }
-        // presets
-        if let Some(f) = settings.read::<PresetsFile>(files.as_mut(), "presets.json") {
-            for p in &mut self.presets {
-                p.favorite = p.builtin && f.favorites.contains(&p.id) || (!p.builtin && p.favorite);
+        // presets, profiles, effects, import defaults: the app store's, or the library's own
+        let store_with_library = prefs.store_with_library;
+        let own_store = store_with_library || self.app_store.is_none();
+        let mut frozen = serde_json::Map::new();
+        let mut merged_now = None;
+        if own_store {
+            self.mask_effects = prefs.mask_effects;
+            self.mask_tool_effects = prefs.mask_tool_effects;
+            self.lut_profiles = prefs.lut_profiles;
+            crate::cmd::lut_profiles::register_all(self);
+            self.dcp_profiles = prefs.dcp_profiles;
+            crate::cmd::dcp_profiles::register_all(self);
+            self.import_defaults = prefs.import;
+            self.profile_state = prefs.profiles;
+            let f = settings.read::<PresetsFile>(files.as_mut(), "presets.json").unwrap_or_default();
+            self.set_presets_from(f);
+            if let Some(st) = self.app_store.as_mut() {
+                // the session holds this library's now
+                st.in_session = false;
             }
-            let mut ids: std::collections::HashSet<String> = self.presets.iter().map(|p| p.id.clone()).collect();
-            for u in f.user {
-                if ids.insert(u.id.clone()) {
-                    self.presets.push(u);
-                }
+        } else {
+            self.load_app_store();
+            // what the store holds is kept in the library's prefs.json as it was read
+            frozen = read_frozen(files.as_mut());
+            // auto import stays with the library
+            self.import_defaults.auto_folder = prefs.import.auto_folder.clone();
+            self.import_defaults.auto_copy = prefs.import.auto_copy;
+            self.import_defaults.auto_album = prefs.import.auto_album.clone();
+            // first time with the store: its presets and profiles join the store (read only)
+            if self.app_store.as_ref().is_some_and(|st| !st.has_merged(&dir)) && on_disk {
+                let presets = settings.read::<PresetsFile>(files.as_mut(), "presets.json");
+                let shared = crate::app_store::LibraryShared {
+                    lut_profiles: prefs.lut_profiles,
+                    dcp_profiles: prefs.dcp_profiles,
+                    mask_effects: prefs.mask_effects,
+                    mask_tool_effects: prefs.mask_tool_effects,
+                    import: prefs.import,
+                    profiles: prefs.profiles,
+                    store_with_library: false,
+                };
+                merged_now = Some(self.merge_library_content(&dir, crate::app_store::LibraryContent { shared, presets }));
             }
-            let known = |id: &String| crate::presets::profile(id).is_some() || self.lut_profiles.iter().any(|p| &p.id == id);
-            self.profile_favorites = f.profile_favorites.into_iter().filter(known).collect();
-            self.profile_recent = f.profile_recent.into_iter().filter(known).take(crate::presets::RECENT_PROFILES).collect();
         }
         // view state
         if let Some(v) = settings.read::<ViewFile>(files.as_mut(), "view.json") {
@@ -593,8 +650,21 @@ impl Session {
             settings_warnings: unlocked_warning(lock.as_ref()).into_iter().chain(settings.warnings).collect(),
             warnings_reported: 0,
             blocked: settings.blocked,
+            own_store,
+            store_with_library,
+            frozen,
             lock: lock.take(),
         });
+        if !own_store {
+            if let Some(r) = merged_now {
+                log::info!("store: library merged into the shared store: {} presets, {} profiles, {} effects", r.presets, r.profiles, r.effects);
+                crate::profile_refs::refresh(self);
+            }
+            self.apply_store_remap();
+            if let Err(e) = self.save_app_store().and_then(|()| self.save_shared_presets()) {
+                log::error!("store: {e}");
+            }
+        }
         // forget untouched Local records of folders not browsed for a while (journaled at once)
         if self.forget_local_days > 0 {
             let plan = self.forget_local(false, None);
@@ -649,6 +719,13 @@ impl Session {
         {
             log::error!("library: compaction: {e}");
             lib.last_error = Some(format!("compaction: {e}"));
+        }
+        if self.uses_app_store() {
+            // the presets live in the app store: the library's presets.json stays as it was
+            if let Err(e) = self.save_shared_presets() {
+                log::error!("store: presets: {e}");
+            }
+            return Ok(());
         }
         let due = self.library.as_ref().is_some_and(|l| l.presets_saved.differs(self) && !l.blocked.contains(&"presets.json"));
         if !due {
@@ -755,7 +832,7 @@ impl Session {
 
     /// Save the library preferences (no-op for in-memory sessions).
     pub fn save_prefs(&mut self) -> Result<()> {
-        let v = serde_json::to_vec_pretty(&PrefsFile {
+        let v = serde_json::to_value(PrefsFile {
             xmp: self.xmp,
             last_export: self.last_export.clone(),
             export_presets: self.export_presets.clone(),
@@ -780,24 +857,52 @@ impl Session {
             slide_overlays: self.slide_overlays.clone(),
             slide_titles: self.slide_titles.clone(),
             hold_view: self.hold_view,
-        })
-        .unwrap_or_default();
-        let Some(lib) = self.library.as_mut() else { return Ok(()) };
+            profiles: self.profile_state.clone(),
+            store_with_library: self.library.as_ref().is_some_and(|l| l.store_with_library),
+        });
+        // while the app store holds them, the library's own copies are written back as read
+        let store = self.save_app_store();
+        let v = match (v, self.library.as_ref()) {
+            (Ok(serde_json::Value::Object(mut map)), Some(lib)) if !lib.own_store => {
+                for k in crate::app_store::SHARED_PREFS_KEYS {
+                    match lib.frozen.get(k) {
+                        Some(old) => map.insert(k.to_string(), old.clone()),
+                        None => map.remove(k),
+                    };
+                }
+                let mut import = lib.frozen.get("import").cloned().unwrap_or_else(|| json_or_null(&crate::import::ImportDefaults::default()));
+                if let serde_json::Value::Object(im) = &mut import {
+                    im.insert("autoFolder".into(), json_or_null(&self.import_defaults.auto_folder));
+                    im.insert("autoCopy".into(), serde_json::Value::Bool(self.import_defaults.auto_copy));
+                    im.insert("autoAlbum".into(), json_or_null(&self.import_defaults.auto_album));
+                }
+                map.insert("import".into(), import);
+                serde_json::to_vec_pretty(&serde_json::Value::Object(map)).unwrap_or_default()
+            }
+            (Ok(v), _) => serde_json::to_vec_pretty(&v).unwrap_or_default(),
+            (Err(_), _) => Vec::new(),
+        };
+        let Some(lib) = self.library.as_mut() else { return store };
+        if v.is_empty() {
+            return Err(EngineError::Other("prefs: couldn't be serialized".into()));
+        }
         if lib.blocked.contains(&"prefs.json") {
             return Err(EngineError::Other(
                 "prefs: prefs.json couldn't be read when the library opened, so it isn't overwritten; reopen the library to save preferences".into(),
             ));
         }
-        lib.files.write_atomic("prefs.json", &v).map_err(|e| EngineError::Other(format!("prefs: {e}")))
+        lib.files.write_atomic("prefs.json", &v).map_err(|e| EngineError::Other(format!("prefs: {e}")))?;
+        store
     }
 
     /// Warnings about the open library not handed out yet: its settings files, and a lock that
     /// couldn't be taken (the UI shows each once; the CLI and MCP print them on stderr).
     pub fn take_library_warnings(&mut self) -> Vec<String> {
-        let Some(lib) = self.library.as_mut() else { return vec![] };
-        let new = lib.settings_warnings[lib.warnings_reported..].to_vec();
+        let mut out = self.app_store.as_mut().map(crate::app_store::AppStore::take_warnings).unwrap_or_default();
+        let Some(lib) = self.library.as_mut() else { return out };
+        out.extend(lib.settings_warnings.get(lib.warnings_reported..).unwrap_or_default().iter().cloned());
         lib.warnings_reported = lib.settings_warnings.len();
-        new
+        out
     }
 
     /// The thumbnail disk cache budget in bytes ([`Session::cache_mb`], else the default).

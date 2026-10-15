@@ -1,5 +1,18 @@
 # What's new in LightCraft
 
+## 2026-10-16
+
+### Presets and profiles in every library
+- **Your profiles and presets are shared by all your libraries**, as in Lightroom Classic: camera
+  profiles (`.dcp`), LUT profiles, develop presets, local adjustment presets, import settings and
+  the default profile of each camera body now live in LightCraft's settings folder. Start a new
+  library for the next wedding and everything is there.
+- **Nothing to move by hand.** The first time LightCraft opens a library (and the libraries in
+  Open Recent Library), its presets and profiles join the shared ones; the same preset or profile
+  is kept once. The library's own copies stay where they were, untouched.
+- Want one library to keep its own? Settings ▸ Profiles ▸ **Store presets and profiles with this
+  library instead**.
+
 ## 2026-10-15
 
 ### Settings window

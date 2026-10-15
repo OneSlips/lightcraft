@@ -15,6 +15,7 @@
 extern crate lightcraft_denoise_core as lightcraft_denoise;
 
 pub mod activity;
+pub mod app_store;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod apple_photos;
 pub mod availability;
@@ -293,6 +294,13 @@ pub struct Session {
     pub profile_favorites: Vec<String>,
     /// Recently applied profile ids, newest first (at most [`presets::RECENT_PROFILES`]).
     pub profile_recent: Vec<String>,
+    /// The Profile Manager's choices: hidden, removed, renamed, regrouped and reordered profiles.
+    pub profile_state: app_store::ProfileState,
+    /// The app-wide store of presets, profiles and effects shared by every library (`None`: each
+    /// library keeps its own; see [`app_store`]).
+    pub app_store: Option<app_store::AppStore>,
+    /// What the app store's presets.json was last written from.
+    pub(crate) shared_presets_saved: library::PresetsSaved,
     /// Executed commands (actions / debugging / replay).
     pub journal: Vec<(String, Value)>,
     /// Ops applied since the last `drain_log` (for persistence).
@@ -470,6 +478,9 @@ impl Session {
             presets: presets::PresetList::new(presets::builtin()),
             profile_favorites: Vec::new(),
             profile_recent: Vec::new(),
+            profile_state: Default::default(),
+            app_store: None,
+            shared_presets_saved: Default::default(),
             journal: Vec::new(),
             pending_log: Vec::new(),
             media: media::MediaCache::default(),
@@ -1369,6 +1380,8 @@ mod tests_album_order;
 mod tests_album_remove;
 #[cfg(test)]
 mod tests_albums_local;
+#[cfg(test)]
+mod tests_app_store;
 #[cfg(test)]
 mod tests_body_profiles;
 #[cfg(test)]

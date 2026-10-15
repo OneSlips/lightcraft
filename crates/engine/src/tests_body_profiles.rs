@@ -335,3 +335,37 @@ fn a_profile_listing_only_the_serial_matches_once_the_serial_is_read() {
     assert_eq!(dp::photo_profile_status(&s, id).unwrap().0, "body");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Culling a card in place (Browse) develops each body's raws with the body's default camera profile,
+/// also a model-wide one the user made the body's default (the user's own `.dcp`, kept in the shared
+/// store): the render that follows the camera preview is the body's look, not LightCraft's plain colour.
+#[test]
+fn browsing_develops_each_body_with_its_default_profile() {
+    let dir = temp_dir("browse-default");
+    let mut s = Session::new().with_fs().with_app_store(&dir.join("store"));
+    s.open_library(dir.join("lib"), false).unwrap();
+    // a model-wide profile of the camera (the user's own .dcp, no bodies)
+    let made = chart(&dir, "MADE.dng", "D65", Some("SN71"));
+    let r = s.execute("profile.createFromChart", &json!({"path": made, "illuminant": "D65", "apply": false})).unwrap();
+    let file = r["file"].as_str().unwrap().to_string();
+    let copy = dir.join("Wedding.dcp");
+    std::fs::copy(&file, &copy).unwrap();
+    s.execute("profile.deleteCamera", &json!({"id": r["id"]})).unwrap();
+    let r = s.execute("profile.import", &json!({"paths": [copy.to_string_lossy()]})).unwrap();
+    let pid = r["imported"][0]["id"].as_str().unwrap().to_string();
+    assert!(s.dcp_profiles.iter().all(|e| e.bodies.is_empty()));
+    s.execute("profile.setBodyDefault", &json!({"profile": pid, "serial": "SN74"})).unwrap();
+    // a card of two bodies, looked at in place
+    let card = dir.join("card");
+    std::fs::create_dir_all(&card).unwrap();
+    chart(&card, "A74.dng", "D65", Some("SN74"));
+    chart(&card, "B71.dng", "D65", Some("SN71"));
+    s.execute("library.browse", &json!({"path": card.to_string_lossy()})).unwrap();
+    let of = |s: &Session, name: &str| {
+        let p = s.catalog.photos().find(|p| p.file_name == name).unwrap();
+        profile_of(s, p.id)
+    };
+    assert_eq!(of(&s, "A74.dng"), pid);
+    assert_eq!(of(&s, "B71.dng"), "lc.color", "a body without a default keeps LightCraft's colour");
+    let _ = std::fs::remove_dir_all(&dir);
+}

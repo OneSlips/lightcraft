@@ -363,6 +363,8 @@ fn mcp(args: &[String]) -> Result<(), String> {
             let mut h = match &library {
                 Some(dir) => {
                     let mut h = Headless::default();
+                    // the presets and profiles every library shares (the settings folder's Library Store)
+                    h.session.use_default_app_store();
                     let r = h.session.open_library(dir, demo).map_err(|e| library_error(dir, e))?;
                     eprintln!("lightcraft-cli mcp: opened library {dir} ({r:?})");
                     library_warnings(&mut h.session, "lightcraft-cli mcp");
@@ -601,6 +603,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 let mut h = match &library {
                     Some(dir) => {
                         let mut h = Headless::default();
+                        h.session.use_default_app_store();
                         h.session.open_library(dir, demo).map_err(|e| library_error(dir, e))?;
                         library_warnings(&mut h.session, "lightcraft-cli");
                         h
@@ -818,7 +821,8 @@ fn snapshot(args: &[String]) -> Result<(), String> {
                 .with_default_genfill()
                 .with_system_clock()
                 .with_default_face_models()
-                .with_default_slide_templates();
+                .with_default_slide_templates()
+                .with_default_app_store();
             s.open_library(dir, false).map_err(|e| library_error(dir, e))?;
             s
         }
