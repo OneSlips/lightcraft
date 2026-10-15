@@ -132,7 +132,8 @@ fn main() {
             s.execute("genfill.consent", &json!({"provider": provider, "accept": true})).unwrap();
             let prompt = std::env::var("PROMPT").unwrap_or_default();
             s.execute("spot.add", &json!({"mode": "generate", "points": pts, "size": size, "feather": 30})).unwrap();
-            let plan = s.execute("genfill.plan", &json!({"provider": provider, "prompt": prompt, "previewPath": format!("{prefix}-sent.png")})).unwrap();
+            let plan =
+                s.execute("genfill.plan", &json!({"provider": provider, "prompt": prompt, "previewPath": format!("{prefix}-sent.png")})).unwrap();
             println!("plan: {plan}");
             if std::env::var("PLAN_ONLY").is_ok() {
                 return;

@@ -779,8 +779,8 @@ sQ6l5HDDBbhGkYuLCq/Hs2w/8suhRANCAATfwLLDsrJ+pxUuCMLz7sTkEYam3ozL\
         let body: Vec<u8> = (0..6_000_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8).collect();
         let sum: u64 = body.iter().enumerate().map(|(i, b)| (i as u64 % 251) * u64::from(*b)).sum();
         let url = Url::parse(&format!("https://localhost:{port}/v1/images/edits")).unwrap();
-        let mut r = request_with("POST", &url, &[("Content-Type", "application/octet-stream".into())], Some(&body), &limits, Some(client_cfg))
-            .unwrap();
+        let mut r =
+            request_with("POST", &url, &[("Content-Type", "application/octet-stream".into())], Some(&body), &limits, Some(client_cfg)).unwrap();
         assert_eq!(r.status, 200);
         let got = String::from_utf8(r.read_to_end(1 << 20, &limits).unwrap()).unwrap();
         assert_eq!(got, format!("{{\"len\":6000000,\"sum\":{sum}}}"));

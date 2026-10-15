@@ -69,9 +69,11 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
     // only services with a key show here; Settings → Generative Fill sets them up
     let Some(current) = current(app, &configured) else {
         ui.label(
-            RichText::new(crate::i18n::tr("Replaces the painted area using an online image service, with your own account. No service is set up yet."))
-                .size(11.0)
-                .color(t.text_dim),
+            RichText::new(crate::i18n::tr(
+                "Replaces the painted area using an online image service, with your own account. No service is set up yet.",
+            ))
+            .size(11.0)
+            .color(t.text_dim),
         );
         if text_button(ui, "genfillSetUp", crate::i18n::tr("Set Up a Service…"), false).clicked() {
             app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "genfill".into() });
@@ -116,9 +118,12 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
     });
     let Some((index, sp)) = spot else {
         ui.label(
-            RichText::new(crate::i18n::tr_format!("Paint over what to replace, then click Generate. About ${usd} per variation.", usd = format!("{usd_each:.2}")))
-                .size(11.0)
-                .color(t.text_dim),
+            RichText::new(crate::i18n::tr_format!(
+                "Paint over what to replace, then click Generate. About ${usd} per variation.",
+                usd = format!("{usd_each:.2}")
+            ))
+            .size(11.0)
+            .color(t.text_dim),
         );
         error_box(app, ui, &t, None);
         return;
@@ -175,7 +180,9 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
             );
         }
         if requests > u64::from(lightcraft_engine::genfill::MAX_REQUESTS) {
-            ui.label(RichText::new(crate::i18n::tr("Too many requests: ask for fewer variations or paint a smaller area.")).size(11.0).color(t.caution));
+            ui.label(
+                RichText::new(crate::i18n::tr("Too many requests: ask for fewer variations or paint a smaller area.")).size(11.0).color(t.caution),
+            );
         }
     }
     let running = app.session.genfill.running();
@@ -227,9 +234,11 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
         }
         if sp.shown_gen().is_none() {
             ui.label(
-                RichText::new(crate::i18n::tr("The spot was moved or resized since it was generated: the photo shows through until you generate it again."))
-                    .size(11.0)
-                    .color(t.caution),
+                RichText::new(crate::i18n::tr(
+                    "The spot was moved or resized since it was generated: the photo shows through until you generate it again.",
+                ))
+                .size(11.0)
+                .color(t.caution),
             );
         } else if app.session.genfill_missing(photo, index) {
             ui.label(
@@ -241,9 +250,12 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
             );
         } else if g.scale < 0.95 {
             ui.label(
-                RichText::new(crate::i18n::tr_format!("Generated at {}% of the photo's resolution: softer than the rest.", format!("{:.0}", g.scale * 100.0)))
-                    .size(11.0)
-                    .color(t.caution),
+                RichText::new(crate::i18n::tr_format!(
+                    "Generated at {}% of the photo's resolution: softer than the rest.",
+                    format!("{:.0}", g.scale * 100.0)
+                ))
+                .size(11.0)
+                .color(t.caution),
             );
         }
     }
@@ -255,7 +267,8 @@ fn error_box(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, retry: Opti
     let Some(e) = last_error(app) else { return };
     egui::Frame::new().stroke(egui::Stroke::new(1.0, t.caution)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
-        let r = ui.add(egui::Label::new(RichText::new(crate::i18n::tr_format!("Generative Fill failed: {e}", e = e)).size(11.0).color(t.caution)).wrap());
+        let r =
+            ui.add(egui::Label::new(RichText::new(crate::i18n::tr_format!("Generative Fill failed: {e}", e = e)).size(11.0).color(t.caution)).wrap());
         register(ui.ctx(), "genfill:error", r.rect);
         ui.horizontal(|ui| {
             if let Some((index, provider)) = retry
@@ -275,7 +288,10 @@ fn error_box(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, retry: Opti
 fn generate(app: &mut LightcraftApp, ctx: &egui::Context, index: usize, provider: &Value) {
     let pid = provider["id"].as_str().unwrap_or("openai").to_string();
     if provider["configured"] != true {
-        app.toast(ctx, crate::i18n::tr_format!("Add your {} API key in Settings → Generative Fill first.", provider["name"].as_str().unwrap_or_default()));
+        app.toast(
+            ctx,
+            crate::i18n::tr_format!("Add your {} API key in Settings → Generative Fill first.", provider["name"].as_str().unwrap_or_default()),
+        );
         app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "genfill".into() });
         return;
     }
@@ -360,7 +376,10 @@ pub fn consent_body(app: &mut LightcraftApp, ui: &mut egui::Ui, provider: &str, 
     };
     ui.label(RichText::new(what).color(t.text));
     if let Some(usd) = plan["usd"].as_f64() {
-        ui.label(RichText::new(crate::i18n::tr_format!("About ${usd}, billed to your {name} account.", usd = format!("{usd:.2}"), name = name)).color(t.text_label));
+        ui.label(
+            RichText::new(crate::i18n::tr_format!("About ${usd}, billed to your {name} account.", usd = format!("{usd:.2}"), name = name))
+                .color(t.text_label),
+        );
     }
     // a warning only when it matters
     if plan["soft"] == true {
@@ -468,7 +487,12 @@ fn provider_card(ui: &mut egui::Ui, t: &Tokens, p: &Value) {
     row(
         ui,
         "Trains on uploads:",
-        crate::i18n::tr(if p["policy"]["trainsByDefault"] == true { "Yes, unless you opt out where the service allows it (see Data policy)" } else { "No" }).to_string(),
+        crate::i18n::tr(if p["policy"]["trainsByDefault"] == true {
+            "Yes, unless you opt out where the service allows it (see Data policy)"
+        } else {
+            "No"
+        })
+        .to_string(),
     );
     if let Some(pv) = p["policy"]["provenance"].as_str().filter(|v| !v.is_empty()) {
         row(ui, "Marks added:", pv.to_string());
@@ -575,7 +599,13 @@ pub fn frame(app: &mut LightcraftApp, ctx: &egui::Context) {
 /// On the photo while a spot is generating: a spinner and "Generating…" over the area, so it is
 /// clear the result is on its way (the photo shows through until it arrives; the outline is the
 /// Remove tool's own). `screen` maps normalized photo coordinates to the screen.
-pub fn canvas(app: &LightcraftApp, ui: &egui::Ui, painter: &egui::Painter, screen: &dyn Fn(lightcraft_geom::Point) -> egui::Pos2, d: &lightcraft_develop::DevelopSettings) {
+pub fn canvas(
+    app: &LightcraftApp,
+    ui: &egui::Ui,
+    painter: &egui::Painter,
+    screen: &dyn Fn(lightcraft_geom::Point) -> egui::Pos2,
+    d: &lightcraft_develop::DevelopSettings,
+) {
     let Some(job) = app.session.genfill.job.as_ref().filter(|_| app.session.genfill.running()) else { return };
     if app.session.active() != Some(job.photo) {
         return;

@@ -400,7 +400,8 @@ pub fn plan(
         for (x, y, _) in &dabs {
             (hx0, hy0, hx1, hy1) = (hx0.min(x - grow), hy0.min(y - grow), hx1.max(x + grow), hy1.max(y + grow));
         }
-        let area = [clampx(hx0.floor()).max(rect[0]), clampy(hy0.floor()).max(rect[1]), clampx(hx1.ceil()).min(rect[2]), clampy(hy1.ceil()).min(rect[3])];
+        let area =
+            [clampx(hx0.floor()).max(rect[0]), clampy(hy0.floor()).max(rect[1]), clampx(hx1.ceil()).min(rect[2]), clampy(hy1.ceil()).min(rect[3])];
         // tiles of each of the provider's sizes (the one that needs the fewest wins)
         let shapes: Vec<(usize, usize)> =
             if lim.sizes.is_empty() { vec![tile] } else { lim.sizes.iter().map(|&(a, b)| (a as usize, b as usize)).collect() };
@@ -426,7 +427,10 @@ pub fn plan(
                         if near_hole(core) {
                             let crop = crop_around(tw, th, (core[0] + core[2]) as f64 / 2.0, (core[1] + core[3]) as f64 / 2.0);
                             let send = if lim.sizes.is_empty() {
-                                (((crop[2] - crop[0]) as f64 * s).round().max(1.0) as usize, ((crop[3] - crop[1]) as f64 * s).round().max(1.0) as usize)
+                                (
+                                    ((crop[2] - crop[0]) as f64 * s).round().max(1.0) as usize,
+                                    ((crop[3] - crop[1]) as f64 * s).round().max(1.0) as usize,
+                                )
                             } else {
                                 tile
                             };
@@ -613,7 +617,13 @@ fn tile_mask_open(p: &Plan, field: &Plane, t: &Tile, filled: &[bool]) -> Vec<u8>
 /// what was sent where nothing was to change (each request drifts a little on its own; tiles
 /// side by side would show it).
 #[cfg(not(target_arch = "wasm32"))]
-fn receive_matched(img: &lightcraft_genfill::cloud::Image, neutral: lightcraft_genfill::Neutral, t: &Tile, sent: &Rgb32f, mask: &[u8]) -> Option<Rgb32f> {
+fn receive_matched(
+    img: &lightcraft_genfill::cloud::Image,
+    neutral: lightcraft_genfill::Neutral,
+    t: &Tile,
+    sent: &Rgb32f,
+    mask: &[u8],
+) -> Option<Rgb32f> {
     let mut lin = neutral.decode(img.width, img.height, &img.rgb)?;
     if (lin.width, lin.height) != (sent.width, sent.height) {
         lin = lightcraft_raster::resample::resize(&lin, sent.width, sent.height, lightcraft_raster::resample::Filter::Mitchell);
@@ -652,7 +662,11 @@ fn paste_tile(p: &Plan, field: &Plane, t: &Tile, res: &Rgb32f, gen_img: &mut Rgb
                 continue;
             }
             let Some(v) = res.data.get((y - t.crop[1]) * res.width + (x - t.crop[0])).copied() else { continue };
-            let out = t.core[0].saturating_sub(x).max(x.saturating_sub(t.core[2].saturating_sub(1))).max(t.core[1].saturating_sub(y)).max(y.saturating_sub(t.core[3].saturating_sub(1)));
+            let out = t.core[0]
+                .saturating_sub(x)
+                .max(x.saturating_sub(t.core[2].saturating_sub(1)))
+                .max(t.core[1].saturating_sub(y))
+                .max(y.saturating_sub(t.core[3].saturating_sub(1)));
             let inside = x >= t.core[0] && x < t.core[2] && y >= t.core[1] && y < t.core[3];
             let Some(g) = gen_img.data.get_mut(i) else { continue };
             if inside {
@@ -979,7 +993,13 @@ impl crate::Session {
     }
 
     /// [`Session::genfill_preview`] by provider id (an error where generative fill isn't available).
-    pub fn genfill_preview_by_id(&mut self, id: PhotoId, index: usize, provider: &str, sharp: bool) -> Result<(usize, usize, Vec<u8>, Vec<u8>), String> {
+    pub fn genfill_preview_by_id(
+        &mut self,
+        id: PhotoId,
+        index: usize,
+        provider: &str,
+        sharp: bool,
+    ) -> Result<(usize, usize, Vec<u8>, Vec<u8>), String> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let pr = lightcraft_genfill::cloud::Provider::from_id(provider).ok_or("unknown provider")?;
