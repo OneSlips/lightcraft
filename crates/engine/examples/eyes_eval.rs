@@ -165,6 +165,8 @@ fn main() {
                 _ => [40, 255, 40, 255],
             };
             rect(&mut ov, e.face, c, 3);
+            let (dx, dy) = (eyes::CROP_W as f32 / 2.0 / img.width as f32, eyes::CROP_H as f32 / 2.0 / img.height as f32);
+            rect(&mut ov, [e.center[0] - dx, e.center[1] - dy, e.center[0] + dx, e.center[1] + dy], [255, 255, 0, 255], 1);
         }
         save_jpeg(&ov, &out.join(format!("{stem}-faces.jpg")));
         // each eye's look, marked: white of the eye green, dark red (LC_EYES_DUMP)

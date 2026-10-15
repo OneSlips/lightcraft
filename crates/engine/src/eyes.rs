@@ -775,7 +775,9 @@ pub fn lids_of_eye(openness: Option<f32>, iris: Option<f32>, contrast: Option<f3
         };
     }
     let l = lids_from(openness, iris);
-    if turned && l != Lids::Closed && iris.is_some_and(|i| i >= TURNED_IRIS_HIDDEN) {
+    // (a lid gap FaceMesh calls half closed needs less to be closed)
+    let hidden = |i: f32| i >= TURNED_IRIS_HIDDEN || (Lids::of(openness) == Lids::Half && i >= TURNED_IRIS_HALF);
+    if turned && l != Lids::Closed && iris.is_some_and(hidden) {
         return Lids::Closed;
     }
     l
@@ -785,6 +787,8 @@ pub fn lids_of_eye(openness: Option<f32>, iris: Option<f32>, contrast: Option<f3
 pub const SMALL_EYE: f32 = 22.0;
 /// On a face turned away, [`iris_showing`] at or above this: the lid covers the iris.
 pub const TURNED_IRIS_HIDDEN: f32 = 0.22;
+/// The same with a lid gap FaceMesh already calls half closed.
+pub const TURNED_IRIS_HALF: f32 = 0.15;
 /// [`iris_contrast`] below this, with a dark socket: a lens.
 pub const LENS_CONTRAST: f32 = 0.06;
 /// [`EyeLook::under`] below this: the top of the cheek is behind a lens too. Closed eyes with
@@ -1478,7 +1482,7 @@ mod tests {
         assert_eq!(lids_of_eye(Some(0.2), None, Some(0.2), None, 12.0, false), Lids::Unknown);
         assert_eq!(lids_of_eye(Some(0.02), None, Some(0.2), None, 12.0, false), Lids::Closed);
         // the user's kissing frame: side-on closed eyes FaceMesh drew 0.35–0.75 open
-        for (o, i) in [(0.47, 0.35), (0.35, 0.40), (0.40, 0.35), (0.75, 0.24)] {
+        for (o, i) in [(0.47, 0.35), (0.35, 0.40), (0.40, 0.35), (0.75, 0.24), (0.31, 0.21)] {
             assert_eq!(lids_of_eye(Some(o), Some(i), Some(0.05), None, 90.0, true), Lids::Closed, "{o} {i}");
         }
         // the same values on a face seen whole are a squint (the iris shows a little)
