@@ -79,6 +79,8 @@ fn the_review_shows_each_body_and_imports_with_the_choices() {
     assert_eq!(review(&mut h).adopt, ["file:SA"]);
     assert_eq!(h.request("ui.dialog.confirm", json!({}), T)["ok"], true);
     assert!(h.step_until(T, |h| h.app.import.is_none() && h.app.session.catalog.len() == 4));
+    // (read the timed toast as soon as the import is done: settling first could outlast it on a busy machine)
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     h.settle(T);
     let cal = |h: &Headless, name: &str| {
         let p = h.app.session.catalog.photos().find(|p| p.file_name == name).unwrap();
@@ -88,7 +90,6 @@ fn the_review_shows_each_body_and_imports_with_the_choices() {
     assert_eq!(cal(&h, "_SA0001.dng"), p71, "the per-body choice");
     assert_eq!(cal(&h, "_SA0002.dng"), "", "the sidecar's settings win");
     assert_eq!(h.app.session.dcp_profiles[0].bodies, ["SN71", "file:SA"], "adopted");
-    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     assert!(toast.contains("Camera profiles:") && toast.contains("(3)"), "{toast}");
     assert!(toast.contains("1 kept from sidecar") && toast.contains("adopted for SA"), "{toast}");
     let _ = std::fs::remove_dir_all(&dir);
