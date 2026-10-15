@@ -386,6 +386,43 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 m(linear, L { noise: -60.0, moire: -40.0, ..Default::default() }),
             ];
         }),
+        ("masks (local curve, point color)", |s| {
+            use lightcraft_develop::{PointColor, ToneCurve};
+            let radial = MaskShape::Radial { center: Point::new(0.4, 0.6), rx: 0.3, ry: 0.25, angle: 0.0, feather: 50.0, invert: false };
+            let linear = MaskShape::Linear { start: Point::new(0.5, 0.0), end: Point::new(0.5, 0.7) };
+            let p = |x: f64, y: f64| Point::new(x, y);
+            let m = |shape, curve, point_colors, amount| Mask {
+                components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape }],
+                adjust: lightcraft_develop::LocalAdjustments { amount, ..Default::default() },
+                curve,
+                point_colors,
+                ..Default::default()
+            };
+            s.curve.master = vec![p(0.0, 0.0), p(0.5, 0.55), p(1.0, 1.0)];
+            s.masks = vec![
+                m(
+                    radial,
+                    ToneCurve { master: vec![p(0.0, 0.05), p(0.3, 0.22), p(0.7, 0.8), p(1.0, 0.95)], refine_saturation: 50.0, ..Default::default() },
+                    vec![PointColor {
+                        lum: 0.62,
+                        chroma: 0.09,
+                        hue: 60.0,
+                        hue_shift: 40.0,
+                        sat_shift: -30.0,
+                        lum_shift: 20.0,
+                        range: 80.0,
+                        ..Default::default()
+                    }],
+                    100.0,
+                ),
+                m(
+                    linear,
+                    ToneCurve { blue: vec![p(0.0, 0.1), p(1.0, 0.9)], ..Default::default() },
+                    vec![PointColor { lum: 0.5, chroma: 0.12, hue: 270.0, variance: -60.0, sat_shift: 40.0, hue_range: 80.0, ..Default::default() }],
+                    70.0,
+                ),
+            ];
+        }),
         ("masks (auto mask brush)", |s| {
             let st = |pts: &[(f64, f64)], auto_mask, erase| BrushStroke {
                 points: pts.iter().map(|p| Point::new(p.0, p.1)).collect(),

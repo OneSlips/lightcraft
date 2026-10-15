@@ -106,6 +106,8 @@ mod tests_lights_out;
 #[cfg(test)]
 mod tests_mask_effects;
 #[cfg(test)]
+mod tests_mask_local;
+#[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
 mod tests_masking;

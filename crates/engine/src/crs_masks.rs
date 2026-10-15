@@ -258,12 +258,48 @@ fn component(m: &XmpValue, aspect: f64) -> Result<Value, String> {
     Ok(json!({"op": op, "invert": invert, "shape": shape}))
 }
 
-/// Whether a local curve (`"x, y"` points, 0..1) is something other than the straight line.
-fn curve_moved(v: &XmpValue) -> bool {
-    v.items().iter().filter_map(XmpValue::text).any(|p| {
-        let q: Vec<f64> = p.split(',').filter_map(|t| t.trim().parse().ok()).collect();
-        matches!(q[..], [x, y] if (x - y).abs() > 1e-3)
-    })
+/// A local point curve (`"x,y"` items on 0..255) → our points on 0..1: `[]` for the straight line, `None`
+/// when absent or unreadable.
+fn local_curve(c: &XmpValue, k: &str) -> Option<Value> {
+    let mut pts = Vec::new();
+    for it in c.field(k)?.items().iter().filter_map(XmpValue::text).take(64) {
+        let (x, y) = it.split_once(',')?;
+        let n = |t: &str| t.trim().parse::<f64>().ok().filter(|v| v.is_finite());
+        let (x, y) = ((n(x)? / 255.0).clamp(0.0, 1.0), (n(y)? / 255.0).clamp(0.0, 1.0));
+        pts.push((x, y));
+    }
+    if pts.len() < 2 {
+        return None;
+    }
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let identity = pts.iter().all(|(x, y)| (x - y).abs() < 1e-9);
+    Some(if identity { json!([]) } else { Value::Array(pts.into_iter().map(|(x, y)| pt(x, y)).collect()) })
+}
+
+/// A correction's local Curve (`MainCurve`, `RedCurve`, `GreenCurve`, `BlueCurve` and
+/// `LocalCurveRefineSaturation`) as our `ToneCurve` JSON, when a channel is bent.
+fn local_curves(c: &XmpValue) -> Option<Value> {
+    let mut o = serde_json::Map::new();
+    for (k, ch) in [("crs:MainCurve", "master"), ("crs:RedCurve", "red"), ("crs:GreenCurve", "green"), ("crs:BlueCurve", "blue")] {
+        if let Some(v) = local_curve(c, k).filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
+            o.insert(ch.into(), v);
+        }
+    }
+    if o.is_empty() {
+        return None;
+    }
+    if let Some(r) = num(c, "crs:LocalCurveRefineSaturation") {
+        o.insert("refine_saturation".into(), json!(r.clamp(0.0, 100.0)));
+    }
+    Some(Value::Object(o))
+}
+
+/// A correction's local Point Color samples (`LocalPointColors`, with `LocalColorVariance`) as our
+/// `PointColor` JSON ([`crate::crs_point_color`]).
+fn local_points(c: &XmpValue) -> Vec<Value> {
+    let texts = |k: &str| -> Vec<&str> { c.field(k).map(XmpValue::items).unwrap_or_default().iter().filter_map(XmpValue::text).collect() };
+    let var = crate::crs_point_color::variances(texts("crs:LocalColorVariance"));
+    crate::crs_point_color::read(texts("crs:LocalPointColors"), &var).iter().filter_map(|p| serde_json::to_value(p).ok()).collect()
 }
 
 /// Masks in `values` (JSON for `DevelopSettings::masks`), plus the kinds of component that
@@ -279,12 +315,6 @@ pub fn masks(values: &Values, aspect: f64) -> (Vec<Value>, Vec<String>) {
             }
             let comps = c.field("crs:CorrectionMasks").map(XmpValue::items).unwrap_or_default();
             // local adjustments LightCraft's masks don't have yet: say so rather than drop them silently
-            if c.field("crs:LocalPointColors").is_some_and(|v| !v.items().is_empty()) {
-                skipped.push("adjustment: Point Color (in a mask)".to_string());
-            }
-            if ["crs:MainCurve", "crs:RedCurve", "crs:GreenCurve", "crs:BlueCurve"].iter().any(|k| c.field(k).is_some_and(curve_moved)) {
-                skipped.push("adjustment: Curve (in a mask)".to_string());
-            }
             if num(c, "crs:LocalGrain").is_some_and(|g| g.abs() > 1e-6) {
                 skipped.push("adjustment: Grain (in a mask)".to_string());
             }
@@ -313,7 +343,15 @@ pub fn masks(values: &Values, aspect: f64) -> (Vec<Value>, Vec<String>) {
             }
             let n = out.len() + 1;
             let name = text(c, "crs:CorrectionName").map(str::to_string).unwrap_or_else(|| format!("Mask {n}"));
-            out.push(json!({"id": n, "name": name, "visible": true, "invert": false, "components": merged, "adjust": adjust(c)}));
+            let mut mask = json!({"id": n, "name": name, "visible": true, "invert": false, "components": merged, "adjust": adjust(c)});
+            if let Some(curve) = local_curves(c) {
+                mask["curve"] = curve;
+            }
+            let points = local_points(c);
+            if !points.is_empty() {
+                mask["point_colors"] = Value::Array(points);
+            }
+            out.push(mask);
         }
     }
     skipped.sort();
@@ -639,7 +677,10 @@ mod tests {
         assert_eq!(parts, vec!["Lips".to_string(), "Eyebrows".to_string()], "by id, else by name");
         assert_eq!(s.masks[3].components[0].shape, MaskShape::Landscape { class: "water".into(), seg: None });
         assert!(unmapped.iter().any(|u| u.contains("Objects")), "{unmapped:?}");
-        assert!(unmapped.iter().any(|u| u.contains("Point Color")), "{unmapped:?}");
+        // local Point Color carries over (a blue, fully desaturated)
+        assert!(!unmapped.iter().any(|u| u.contains("Point Color")), "{unmapped:?}");
+        assert_eq!(suit.point_colors.len(), 1);
+        assert_eq!(suit.point_colors[0].sat_shift, -100.0);
         assert!(!unmapped.iter().any(|u| u.contains("AI mask (0") || u.contains("AI mask (3")), "{unmapped:?}");
     }
 

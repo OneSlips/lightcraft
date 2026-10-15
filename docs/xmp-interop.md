@@ -187,6 +187,8 @@ mask: `CorrectionName` → name, `CorrectionAmount` → Amount, inactive correct
 | `Mask/Image` `MaskSubType` 1 / 2 | Subject / Sky | other AI selections are reported, not guessed |
 | `Mask/RangeMask` `Type` 2 / 3 (`LumRange`, `DepthRange`) | luminance / depth range | lightness converted to our range scale; colour ranges are reported |
 | `MaskBlendMode` 0 / 1 / 2, `MaskInverted` | add / subtract / intersect, invert | |
+| `MainCurve`, `RedCurve`, `GreenCurve`, `BlueCurve` (`"x,y"` on 0..255), `LocalCurveRefineSaturation` | `curve.master` / `red` / `green` / `blue` (0..1), `curve.refine_saturation` | the mask's own point curves; a straight channel is no curve. Written back by `preset.exportXmp` |
+| `LocalPointColors`, `LocalColorVariance` | `point_colors` | the mask's own Point Color, see *Point Color samples* below. Written back by `preset.exportXmp` |
 
 Applying a preset adds its masks to the photo's own (masks the photo already has are not added twice), and the Amount
 slider scales them. A sidecar's masks replace the photo's, because a sidecar holds the whole edit. Components we can't
@@ -223,6 +225,22 @@ Applying (`mask.applyEffect {name, id? | ids? | all?, photos?: "selected"}`) set
 all of them for an imported preset (unnamed ones to 0, as Lightroom does), or only the ones chosen when it was saved
 (`mask.saveEffect {fields: "changed" | [..]}`) — and Amount only if it carries it. The effect is remembered for the
 mask's kind: the next brush / linear / radial / … mask starts with it (`mask.toolEffect`).
+### Point Color samples
+
+`crs:PointColors` / `crs:ColorVariance` (global) and `crs:LocalPointColors` / `crs:LocalColorVariance` (in a mask
+correction) hold one `rdf:li` per sample, read from presets made with Lightroom Classic (no public specification):
+19 comma-separated numbers — the sampled hue (radians), saturation and linear luminance; hue, saturation and
+luminance shift (−1..1); range (0..1, 0.5 by default); then three trapezoids (fade start, full start, full end, fade
+end) for the hue range (on 0..1 across a window centred on the sample; (0, ⅓, ⅔, 1) by default), the saturation range
+and the luminance range (luminance encoded with gamma 2.2; sample ± 0.18 fading over 0.55 by default). An unused slot
+is nineteen −1. Variance is stored apart, −100..100 per sample.
+
+LightCraft keeps a sample as an OkLCh colour with symmetric range sliders (`crates/engine/src/crs_point_color.rs`):
+the sampled hue is read as an sRGB hue (a dry-grass sample reads yellow) at the stated luminance and converted to
+OkLCh; the trapezoids' full-strength widths, relative to Lightroom's defaults, set Hue / Saturation / Luminance Range
+(Lightroom's defaults give ours, 50), and their centres move the sample. Approximate: the two colour models differ,
+and asymmetric ranges become centred ones. Writing does the reverse with symmetric trapezoids, so a sample
+LightCraft writes reads back as it was. A global slot of another shape stays reported as `PointColors`.
 
 ## Preset files
 

@@ -29,6 +29,7 @@ pub mod lut_profiles;
 pub mod manage;
 pub mod mask_effect_files;
 pub mod mask_effects;
+mod mask_local;
 mod masks;
 mod merge;
 pub mod metadata;
@@ -151,6 +152,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(masks::specs());
         v.extend(retouch::specs());
         v.extend(genfill::specs());
+        v.extend(mask_local::specs());
         v.extend(people::specs());
         v.extend(concepts::specs());
         v.extend(organize::specs());

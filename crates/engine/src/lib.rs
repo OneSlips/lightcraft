@@ -27,6 +27,7 @@ pub mod config;
 pub mod contact_sheet;
 pub mod crs;
 pub mod crs_masks;
+pub mod crs_point_color;
 pub mod demo;
 pub mod denoise;
 pub mod devices;
@@ -1136,6 +1137,8 @@ mod tests_library;
 mod tests_lightroom_folder;
 #[cfg(test)]
 mod tests_mask_effects;
+#[cfg(test)]
+mod tests_mask_local;
 #[cfg(test)]
 mod tests_merge;
 #[cfg(test)]

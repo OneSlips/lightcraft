@@ -3,7 +3,7 @@
 use lightcraft_color::luminance_2020;
 use lightcraft_color::spline::{Lut1, MonotoneCurve};
 use lightcraft_color::transfer::linear_to_srgb;
-use lightcraft_develop::{DevelopSettings, LocalAdjustments, Process, ToneCurve, VignetteStyle};
+use lightcraft_develop::{DevelopSettings, LocalAdjustments, Mask, Process, ToneCurve, VignetteStyle};
 use lightcraft_geom::Point;
 use lightcraft_raster::Rgba8;
 
@@ -128,6 +128,51 @@ pub fn mask_terms(j: &LocalAdjustments) -> [f32; MASK_TERMS] {
     ]
 }
 
+/// A mask's local Curve and Point Color, resolved for the per-pixel stage. They apply where the
+/// global ones do, weighted by the mask's opacity: Point Color after the global colour tools (on
+/// OkLCh), the curve after the global curves (on encoded values).
+#[derive(Clone, Debug, Default)]
+pub struct MaskLocal {
+    /// The mask's tone curves (as [`FinishParams::curves`]), `None` when they change nothing.
+    pub curves: Option<[Lut1; 3]>,
+    /// The mask's Refine Saturation as 0..1.
+    pub refine_sat: f32,
+    /// The mask's Point Color samples that change something.
+    pub points: Vec<crate::colorops::PointK>,
+}
+
+impl MaskLocal {
+    /// `bw`: a black-and-white rendition (Point Color does nothing there, as globally).
+    pub fn new(m: &Mask, bw: bool) -> MaskLocal {
+        MaskLocal {
+            curves: if m.curve.is_identity() { None } else { curve_luts(&m.curve) },
+            refine_sat: (m.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
+            points: if bw {
+                Vec::new()
+            } else {
+                m.point_colors
+                    .iter()
+                    .take(lightcraft_develop::MAX_POINT_COLORS)
+                    .filter(|p| !p.is_neutral())
+                    .map(crate::colorops::PointK::new)
+                    .collect()
+            },
+        }
+    }
+
+    pub fn is_identity(&self) -> bool {
+        self.curves.is_none() && self.points.is_empty()
+    }
+}
+
+/// The local Curve and Point Color of the masks the per-pixel stage evaluates (visible, with
+/// components: the order of [`crate::masks::evaluate`]); empty when none has any.
+pub fn mask_locals(s: &DevelopSettings) -> Vec<MaskLocal> {
+    let bw = crate::is_bw(s);
+    let v: Vec<MaskLocal> = s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).map(|m| MaskLocal::new(m, bw)).collect();
+    if v.iter().all(MaskLocal::is_identity) { Vec::new() } else { v }
+}
+
 /// Everything the per-pixel stage computes once per render: the CPU loop below and the GPU kernel
 /// (`lightcraft-gpu`) both read their parameters from here, so the two cannot drift apart.
 pub struct FinishParams {
@@ -142,6 +187,8 @@ pub struct FinishParams {
     pub curves: Option<[Lut1; 3]>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
+    /// The masks' local Curve and Point Color (one per evaluated mask; empty when none has any).
+    pub local: Vec<MaskLocal>,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
@@ -211,6 +258,7 @@ impl FinishParams {
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
+            local: mask_locals(s),
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
             out_luma: space.luma(),
@@ -367,6 +415,8 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     let (hl, sh, clar, tex, dehaze, sharpen, sharpen_mask, air, air_pre, gain, ev) =
         (*hl, *sh, *clar, *tex, *dehaze, *sharpen, *sharpen_mask, *air, *air_pre, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
+    // (only when it lines up with the evaluated masks, which it does unless a caller mixed settings)
+    let local: &[MaskLocal] = if fp.local.len() == p.masks.len() { &fp.local } else { &[] };
     let out_to_norm = fp.out_to_norm;
     let long = fp.ow.max(fp.oh);
     let [vx, vy, vw, vh] = fp.view;
@@ -529,6 +579,10 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
             // --- colour
             d = ops.apply(d, l_sat, l_hue);
+            // local Point Color: each mask's samples at the mask's opacity
+            if !local.is_empty() {
+                d = local_point_colors(d, i, &p.masks, local);
+            }
             if let Some((dir, amt)) = tint_col {
                 let lab = lightcraft_color::perceptual::oklab_from_2020(d);
                 d = lightcraft_color::perceptual::oklab_to_2020([lab[0], lab[1] + dir[0] * 0.08 * amt, lab[2] + dir[1] * 0.08 * amt]);
@@ -620,6 +674,10 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                     e = refine_saturation(e0, e, fp.refine_sat);
                 }
             }
+            // local curves: each mask's curve, blended in by the mask's opacity
+            if !local.is_empty() {
+                e = local_curves(e, i, hdr, &p.masks, local);
+            }
             enc.push((e, warn));
         }
         if let Some(gp) = grain {
@@ -654,6 +712,48 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
         }
     });
     out
+}
+
+/// The masks' local Point Color on display-linear Rec.2020 colour `d` of pixel `i`.
+#[inline]
+fn local_point_colors(d: [f32; 3], i: usize, masks: &[crate::masks::Evaluated], local: &[MaskLocal]) -> [f32; 3] {
+    use lightcraft_color::perceptual::{lab_to_lch, lch_to_lab, oklab_from_2020, oklab_to_2020};
+    let mut lch: Option<[f32; 3]> = None;
+    for (m, ml) in masks.iter().zip(local) {
+        if ml.points.is_empty() {
+            continue;
+        }
+        let a = m.alpha.data.get(i).copied().unwrap_or(0.0).min(1.0);
+        if a <= 0.0 {
+            continue;
+        }
+        let mut v = lch.unwrap_or_else(|| lab_to_lch(oklab_from_2020(d)));
+        for k in &ml.points {
+            v = k.apply_scaled(v, a);
+        }
+        lch = Some(v);
+    }
+    lch.map_or(d, |v| oklab_to_2020(lch_to_lab(v)))
+}
+
+/// The masks' local curves on encoded colour `e` of pixel `i` (`hdr`: values above 1 continue
+/// with slope 1, as for the global curves).
+#[inline]
+fn local_curves(mut e: [f32; 3], i: usize, hdr: bool, masks: &[crate::masks::Evaluated], local: &[MaskLocal]) -> [f32; 3] {
+    for (m, ml) in masks.iter().zip(local) {
+        let Some(l) = &ml.curves else { continue };
+        let a = m.alpha.data.get(i).copied().unwrap_or(0.0).min(1.0);
+        if a <= 0.0 {
+            continue;
+        }
+        let e0 = e;
+        let mut c: [f32; 3] = std::array::from_fn(|k| if hdr && e[k] > 1.0 { l[k].eval(1.0) + (e[k] - 1.0) } else { l[k].eval(e[k]) });
+        if ml.refine_sat < 1.0 {
+            c = refine_saturation(e0, c, ml.refine_sat);
+        }
+        e = if a >= 1.0 { c } else { std::array::from_fn(|k| e0[k] + (c[k] - e0[k]) * a) };
+    }
+    e
 }
 
 /// A colour needing more desaturation than this (scale < `GAMUT_WARN`) to fit is out of gamut for

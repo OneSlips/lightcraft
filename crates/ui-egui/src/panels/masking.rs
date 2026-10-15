@@ -239,16 +239,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     };
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
-    // further sections of the mask's adjustments (Curve, Point Color…) go here
-    mask_sections(app, ui, &m);
+    // further sections of the mask's adjustments: its own Curve and Point Color
+    mask_sections(app, ui, id, &m);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
 }
 
-/// Sections of a mask's adjustments below its sliders: the place for the mask's own Curve and
-/// Point Color (a branch of their own adds them here), each a collapsible section like the Edit
-/// panel's.
-fn mask_sections(_app: &mut LightcraftApp, _ui: &mut egui::Ui, _m: &lightcraft_develop::Mask) {}
+/// Sections of a mask's adjustments below its sliders: the mask's own Curve and Point Color, each a
+/// collapsible section like the Edit panel's (`mask_local`).
+fn mask_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: PhotoId, m: &lightcraft_develop::Mask) {
+    super::mask_local::sections(app, ui, photo, m);
+}
 
 /// Translate fixed action labels, but never mutate or translate user-entered mask names.
 fn menu_label(source: &str) -> &str {

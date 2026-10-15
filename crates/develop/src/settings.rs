@@ -421,6 +421,21 @@ impl ToneCurve {
     pub fn point_curve_is_identity(pts: &[Point]) -> bool {
         pts.is_empty() || pts.iter().all(|p| (p.x - p.y).abs() < 1e-9)
     }
+
+    /// True when the curve is at its defaults (nothing set, Refine Saturation 100).
+    pub fn is_default(&self) -> bool {
+        *self == ToneCurve::default()
+    }
+
+    /// True when the curve changes nothing: no parametric region moved and every point curve the
+    /// straight line (Refine Saturation alone does nothing).
+    pub fn is_identity(&self) -> bool {
+        self.highlights == 0.0
+            && self.lights == 0.0
+            && self.darks == 0.0
+            && self.shadows == 0.0
+            && [&self.master, &self.red, &self.green, &self.blue].iter().all(|p| Self::point_curve_is_identity(p))
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -1108,6 +1123,15 @@ pub struct Mask {
     /// The preset that added it (applying that preset again refreshes it instead of adding a copy).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,
+    /// Local tone curve: point curves (RGB, red, green, blue) and Refine Saturation, applied within
+    /// the mask where the global curve applies (Lightroom's masks have no parametric curve; its
+    /// region fields stay at zero). Not written while at its defaults.
+    #[serde(skip_serializing_if = "ToneCurve::is_default")]
+    pub curve: ToneCurve,
+    /// Local Point Color: up to [`MAX_POINT_COLORS`] samples, applied within the mask after the
+    /// global colour tools. Not written while empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub point_colors: Vec<PointColor>,
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -1125,6 +1149,8 @@ impl Default for Mask {
             adjust: LocalAdjustments::default(),
             refine: 0.0,
             preset: None,
+            curve: ToneCurve::default(),
+            point_colors: Vec::new(),
         }
     }
 }
