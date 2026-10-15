@@ -592,3 +592,13 @@ fn console_erase_works_while_held_and_delete_needs_a_hold() {
     h.settle(T);
     assert_eq!(h.app.session.visible_cloned().len(), n - 1, "held: deleted");
 }
+
+#[test]
+fn deleting_says_the_file_stays_on_disk_and_undo_brings_it_back() {
+    let mut h = demo();
+    open_photo(&mut h);
+    assert_eq!(h.request("engine.execute", json!({"command": "photo.delete"}), T)["ok"], true);
+    h.settle(T);
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+    assert!(toast.contains("Recently Deleted") && toast.contains("stays on disk") && toast.contains("Undo"), "{toast:?}");
+}
