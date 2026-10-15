@@ -691,6 +691,20 @@ impl LightcraftApp {
             params
         };
         let r = self.session.execute(id, &params).map_err(CommandError::from);
+        // a delete says plainly what happened and how to take it back (from the console too,
+        // where a stray press is easy): the file itself is never touched
+        if id == "photo.delete"
+            && let Ok(v) = &r
+            && let Some(ctx) = self.tasks.repaint.clone()
+        {
+            let n = v.get("changed").and_then(Value::as_u64).unwrap_or(1);
+            let text = if n == 1 {
+                crate::i18n::tr("Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.").to_string()
+            } else {
+                crate::i18n::tr_format!("Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.", n = n)
+            };
+            self.toast_for(&ctx, text, 8.0);
+        }
         if r.is_ok() && matches!(id, "crop.aspect" | "crop.rotateAspect") {
             self.ui.crop_default_aspect = if id == "crop.aspect" && params.get("aspect").and_then(Value::as_str) == Some("original") {
                 Some(serde_json::json!("original"))

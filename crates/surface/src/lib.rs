@@ -15,6 +15,8 @@
 //! - [`motion`]: ticks to value deltas — speed, acceleration curve, fine/coarse modifiers, invert.
 //! - [`runtime`]: the live engine — coalescing, one undo step per dial gesture, dial focus, pages.
 //! - [`settings`]: everything the user tunes, stored as `control-surfaces.json`.
+//! - [`loupedeck`]: the Loupedeck+ console's controls, their defaults, and importing a Loupedeck
+//!   profile's layout.
 //! - [`tactilebridge`]: imports a TactileBridge `settings.json` and its Logi profiles (`.lp5`).
 //! - [`catalog`]: every action in categories (the editor's picker; plugins list them in their app).
 //! - [`protocol`]: pairing tokens and the message shapes of the surface protocol.
@@ -28,6 +30,7 @@ pub mod defaults;
 pub mod devices;
 pub mod icons;
 pub mod layout;
+pub mod loupedeck;
 pub mod motion;
 pub mod profile;
 pub mod protocol;
