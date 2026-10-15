@@ -19,7 +19,7 @@ pub fn fill_small_holes(cov: &mut [f32], side: usize, max_cells: usize) {
     if side == 0 || cov.len() < n {
         return;
     }
-    let low = |c: f32| !(c >= 0.5);
+    let low = |c: f32| c.is_nan() || c < 0.5;
     // 0 unvisited, 1 outside, 2 visited hole
     let mut seen = vec![0u8; n];
     let mut q = VecDeque::new();
