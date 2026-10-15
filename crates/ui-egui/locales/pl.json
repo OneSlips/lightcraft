@@ -2174,5 +2174,9 @@
   "Select No Label": "Zaznacz bez etykiety",
   "Reset Straighten": "Resetuj prostowanie",
   "No Mask": "Brak maski",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Przeniesiono zdjęcie do Ostatnio usuniętych. Plik zostaje na dysku; Cofnij je przywraca."
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Przeniesiono zdjęcie do Ostatnio usuniętych. Plik zostaje na dysku; Cofnij je przywraca.",
+  "Previous Mask": "Poprzednia maska",
+  "Next Mask": "Następna maska",
+  "Select Previous Mask": "Zaznacz poprzednią maskę",
+  "Select Next Mask": "Zaznacz następną maskę"
 }

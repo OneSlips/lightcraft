@@ -2661,5 +2661,9 @@
   "Select No Label": "Selecionar sem rótulo",
   "Reset Straighten": "Redefinir endireitamento",
   "No Mask": "Sem máscara",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto movida para Apagadas recentemente. O arquivo continua no disco; Desfazer a traz de volta."
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto movida para Apagadas recentemente. O arquivo continua no disco; Desfazer a traz de volta.",
+  "Previous Mask": "Máscara anterior",
+  "Next Mask": "Próxima máscara",
+  "Select Previous Mask": "Selecionar a máscara anterior",
+  "Select Next Mask": "Selecionar a próxima máscara"
 }

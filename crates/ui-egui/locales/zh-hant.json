@@ -2623,5 +2623,9 @@
   "Select No Label": "選取無標籤",
   "Reset Straighten": "重設拉直",
   "No Mask": "無遮色片",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "已將照片移到「最近刪除」。檔案仍在磁碟上；復原即可還原。"
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "已將照片移到「最近刪除」。檔案仍在磁碟上；復原即可還原。",
+  "Previous Mask": "上一個遮色片",
+  "Next Mask": "下一個遮色片",
+  "Select Previous Mask": "選取上一個遮色片",
+  "Select Next Mask": "選取下一個遮色片"
 }

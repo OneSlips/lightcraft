@@ -2821,5 +2821,9 @@
   "Select No Label": "ラベルなしを選択",
   "Reset Straighten": "角度補正をリセット",
   "No Mask": "マスクなし",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "写真を「最近削除した項目」に移動しました。ファイルはディスクに残ります。取り消すと元に戻ります。"
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "写真を「最近削除した項目」に移動しました。ファイルはディスクに残ります。取り消すと元に戻ります。",
+  "Previous Mask": "前のマスク",
+  "Next Mask": "次のマスク",
+  "Select Previous Mask": "前のマスクを選択",
+  "Select Next Mask": "次のマスクを選択"
 }

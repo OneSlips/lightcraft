@@ -2660,5 +2660,9 @@
   "Select No Label": "选择无标签",
   "Reset Straighten": "重置拉直",
   "No Mask": "无蒙版",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "已将照片移到“最近删除”。文件仍在磁盘上；撤销可恢复。"
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "已将照片移到“最近删除”。文件仍在磁盘上；撤销可恢复。",
+  "Previous Mask": "上一个蒙版",
+  "Next Mask": "下一个蒙版",
+  "Select Previous Mask": "选择上一个蒙版",
+  "Select Next Mask": "选择下一个蒙版"
 }

@@ -2821,5 +2821,9 @@
   "Select No Label": "Seleccionar sin etiqueta",
   "Reset Straighten": "Restablecer enderezado",
   "No Mask": "Sin máscara",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto movida a Eliminadas recientemente. El archivo sigue en el disco; Deshacer la recupera."
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto movida a Eliminadas recientemente. El archivo sigue en el disco; Deshacer la recupera.",
+  "Previous Mask": "Máscara anterior",
+  "Next Mask": "Máscara siguiente",
+  "Select Previous Mask": "Seleccionar la máscara anterior",
+  "Select Next Mask": "Seleccionar la máscara siguiente"
 }

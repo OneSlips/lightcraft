@@ -2819,5 +2819,9 @@
   "Select No Label": "Вибрати без мітки",
   "Reset Straighten": "Скинути вирівнювання",
   "No Mask": "Без маски",
-  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Фото переміщено до «Нещодавно видалених». Файл лишається на диску; «Скасувати» поверне його."
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Фото переміщено до «Нещодавно видалених». Файл лишається на диску; «Скасувати» поверне його.",
+  "Previous Mask": "Попередня маска",
+  "Next Mask": "Наступна маска",
+  "Select Previous Mask": "Вибрати попередню маску",
+  "Select Next Mask": "Вибрати наступну маску"
 }
