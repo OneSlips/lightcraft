@@ -21,10 +21,45 @@ pub fn apply_slider_out(
     app: &mut LightcraftApp,
     spec: &ControlSpec,
     out: SliderOut,
+    set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
+) {
+    slider_interaction(app, spec, out, set, false);
+}
+
+/// [`apply_slider_out`] for a develop slider (`develop.set`): with Auto Sync on and several photos
+/// selected, the drag edits all of them live, each moving from its own value by as much as the
+/// active photo (white balance on each photo's own scale), as one undo step, the way the
+/// console's dials do; not the active photo's numbers copied over when the drag ends.
+pub fn apply_develop_slider_out(
+    app: &mut LightcraftApp,
+    spec: &ControlSpec,
+    out: SliderOut,
+    set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
+) {
+    slider_interaction(app, spec, out, set, true);
+}
+
+/// The photos a develop slider drag edits along with the active one: the rest of the selection
+/// with Auto Sync on, else none.
+pub fn synced_along(app: &LightcraftApp) -> Vec<u64> {
+    if !app.session.auto_sync || app.session.selection.ids.len() < 2 {
+        return Vec::new();
+    }
+    let active = app.session.active();
+    app.session.selection.ids.iter().filter(|id| Some(**id) != active).map(|id| id.0).collect()
+}
+
+fn slider_interaction(
+    app: &mut LightcraftApp,
+    spec: &ControlSpec,
+    out: SliderOut,
     mut set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
+    develop: bool,
 ) {
     if out.drag_started && !out.reset {
-        let _ = app.run("develop.beginInteraction", json!({"label": spec.label}));
+        let along = if develop { synced_along(app) } else { Vec::new() };
+        let params = if along.is_empty() { json!({"label": spec.label}) } else { json!({"label": spec.label, "ids": along}) };
+        let _ = app.run("develop.beginInteraction", params);
         app.ui.dragging_control = Some(spec.id.to_string());
     }
     if let Some(v) = out.value {
@@ -40,7 +75,7 @@ pub(crate) fn control(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSet
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
     let out = slider(ui, spec, v, enabled, None);
-    apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
+    apply_develop_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
 }
 
 /// Relative temperature scale for rendered (non-raw) files: −100..100 ↔ Kelvin via mired shift.
@@ -303,9 +338,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             control(app, ui, d, "wb.tint", true);
         } else {
             let out = slider(ui, &REL_TEMP, k_to_rel(d.wb.temp), true, None);
-            apply_slider_out(app, &REL_TEMP, out, |app, v| app.run("develop.set", json!({"control": "wb.temp", "value": rel_to_k(v)})));
+            apply_develop_slider_out(app, &REL_TEMP, out, |app, v| app.run("develop.set", json!({"control": "wb.temp", "value": rel_to_k(v)})));
             let out = slider(ui, &REL_TINT, d.wb.tint.clamp(-100.0, 100.0), true, None);
-            apply_slider_out(app, &REL_TINT, out, |app, v| app.run("develop.set", json!({"control": "wb.tint", "value": v})));
+            apply_develop_slider_out(app, &REL_TINT, out, |app, v| app.run("develop.set", json!({"control": "wb.tint", "value": v})));
         }
         control(app, ui, d, "color.vibrance", true);
         control(app, ui, d, "color.saturation", true);

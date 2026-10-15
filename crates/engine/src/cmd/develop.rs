@@ -45,6 +45,17 @@ fn nudge(info: &lightcraft_pipeline::SourceInfo, dims: (f64, f64), d: &DevelopSe
     nd
 }
 
+/// The value control `ctl` has on a photo as its sliders show it: white balance as the Kelvin and
+/// tint in effect (As Shot reads the file's own), everything else as stored. What a live
+/// multi-photo edit measures the active photo's move from.
+fn own_value(info: &lightcraft_pipeline::SourceInfo, d: &DevelopSettings, ctl: &str) -> f64 {
+    if ctl == "wb.temp" || ctl == "wb.tint" {
+        let (temp, tint) = lightcraft_pipeline::local::effective_wb(info, d);
+        return if ctl == "wb.temp" { temp } else { tint };
+    }
+    controls::get(d, ctl).unwrap_or_else(|| controls::find(ctl).map_or(0.0, |c| c.default))
+}
+
 fn section_param(p: &Value, c: &str) -> Result<Section> {
     let v = p.get("section").cloned().ok_or_else(|| bad(c, "missing `section`"))?;
     serde_json::from_value(v).map_err(|e| bad(c, e.to_string()))
@@ -241,10 +252,53 @@ pub fn specs() -> Vec<CommandSpec> {
                 let id = active(s, "develop.set")?;
                 let info = s.source_info(id);
                 let dims = crop_dims(s, id);
-                edit(s, "develop.set", &label, |d| {
+                // a multi-photo interaction (a slider dragged with Auto Sync on, the console's dials):
+                // the others move by as much as the active photo did, each from its own value and
+                // white balance on its own scale, live (`nudge`), never to the active photo's numbers
+                // Auto Sync outside a drag (a typed value, a reset, an arrow key): the same, as its
+                // own one-step interaction
+                let own_step = s.interaction.is_none() && s.auto_sync && s.selection.ids.len() >= 2;
+                if own_step {
+                    let along: Vec<PhotoId> = s.selection.ids.iter().copied().filter(|x| *x != id).collect();
+                    s.begin_interaction_with(&label, &along)?;
+                }
+                let others = s.interaction_others();
+                let before: Vec<(String, f64)> = if others.is_empty() {
+                    Vec::new()
+                } else {
+                    let d = s.develop_of(id).unwrap_or_default();
+                    vals.iter().map(|(k, _)| (k.clone(), own_value(&info, &d, k))).collect()
+                };
+                let moved = edit(s, "develop.set", &label, |d| {
                     apply(d, &info, dims);
                     Ok(())
                 })
+                .and_then(|_| {
+                    for other in &others {
+                        let Some(mut d) = s.develop_of(*other).map(|d| (*d).clone()) else { continue };
+                        let (oinfo, odims) = (s.source_info(*other), crop_dims(s, *other));
+                        for ((k, v), (_, was)) in vals.iter().zip(&before) {
+                            let delta = v - was;
+                            if delta.is_finite() && delta != 0.0 {
+                                let default = controls::find(k).map_or(0.0, |c| c.default);
+                                d = nudge(&oinfo, odims, &d, k, delta, default);
+                            }
+                        }
+                        s.set_develop_silent(*other, d, &label)?;
+                    }
+                    Ok(())
+                });
+                if own_step {
+                    match moved {
+                        Ok(()) => s.end_interaction()?,
+                        Err(e) => {
+                            s.cancel_interaction()?;
+                            return Err(e);
+                        }
+                    }
+                }
+                moved?;
+                ok()
             }
         ),
         cmd!("develop.adjust", "Nudge Develop Value", [], None, "{control, delta}", has_active, |s, p| {
