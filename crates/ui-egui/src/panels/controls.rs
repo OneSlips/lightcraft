@@ -33,6 +33,8 @@ enum Drawing {
     Dialpad,
     /// Set up in its maker's app with LightCraft's actions.
     Elsewhere,
+    /// The Loupedeck+: knobs and buttons without pages, Loupedeck's own numbers.
+    LoupedeckPlus,
     /// Support is still to come.
     Later,
 }
@@ -42,6 +44,7 @@ const DEVICES: &[(&str, &str, Drawing)] = &[
     ("keypad", "MX Creative Keypad", Drawing::Keypad),
     ("dialpad", "MX Creative Dialpad", Drawing::Dialpad),
     ("ring", "Actions Ring", Drawing::Elsewhere),
+    ("loupedeck-plus", "Loupedeck+", Drawing::LoupedeckPlus),
     ("loupedeck", "Loupedeck Live / CT", Drawing::Later),
     ("midi", "MIDI controllers", Drawing::Later),
     ("tangent", "Tangent panels", Drawing::Later),
@@ -52,7 +55,13 @@ const DIALPAD: [&str; 6] = ["dial", "roller", "pad.1", "pad.2", "pad.3", "pad.4"
 
 /// The device bar entry a control belongs to.
 fn device_of(control: &str) -> &'static str {
-    if KEYPAD.contains(&control) { "keypad" } else { "dialpad" }
+    if KEYPAD.contains(&control) {
+        "keypad"
+    } else if control.starts_with("ld.") {
+        "loupedeck-plus"
+    } else {
+        "dialpad"
+    }
 }
 
 fn current_device(app: &LightcraftApp) -> (&'static str, &'static str, Drawing) {
@@ -68,7 +77,7 @@ fn console_connected(app: &LightcraftApp) -> bool {
 /// (connected, status text) of a device bar entry.
 fn device_status(app: &LightcraftApp, drawing: Drawing) -> (bool, &'static str) {
     match drawing {
-        Drawing::Keypad | Drawing::Dialpad => {
+        Drawing::Keypad | Drawing::Dialpad | Drawing::LoupedeckPlus => {
             if !app.surface.settings().enabled {
                 (false, "Off")
             } else if console_connected(app) {
@@ -325,6 +334,10 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
             hint(ui, t, "Support for this surface comes later. Its keys and dials will be set up here, like the MX Creative Console's.");
             return;
         }
+        Drawing::LoupedeckPlus => {
+            loupedeck_section(app, ui, t, max_h);
+            return;
+        }
         _ => {}
     }
     let Some(profile) = app.surface.settings().active_profile().cloned() else { return };
@@ -430,6 +443,118 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         if let Some(p) = own.get(next) {
             app.surface.editor.page = Some(p.name.clone());
         }
+    }
+}
+
+/// The Loupedeck+: every knob and button as Loupedeck numbers them, what each does (its label's
+/// own job until set here or imported), Loupedeck's profiles found on this computer to import,
+/// and the editor beside them. The console has no pages: its controls hold on every page.
+fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h: f32) {
+    heading(ui, t, "Loupedeck+");
+    hint(
+        ui,
+        t,
+        "The Loupedeck+ works through the LightCraft plugin. Every knob and button does what its label says until you set it here, or bring over your own Loupedeck profile (only the layout comes along).",
+    );
+    ui.horizontal_wrapped(|ui| {
+        // Loupedeck's own profiles on this computer, the last changed first: pick one, Import
+        let found = crate::surface::loupedeck_profiles();
+        if !found.is_empty() {
+            let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
+            ui.label(RichText::new(tr("Loupedeck profile")).color(t.text_label));
+            let r = egui::ComboBox::from_id_salt("surfaceLoupedeckProfile").selected_text(found[pick].0.clone()).width(240.0).show_ui(ui, |ui| {
+                for (i, (name, path)) in found.iter().enumerate() {
+                    if ui.selectable_label(i == pick, name).on_hover_text(path.to_string_lossy()).clicked() {
+                        pick = i;
+                    }
+                }
+            });
+            register(ui.ctx(), "combo:surfaceLoupedeckProfile", r.response.rect);
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("surfaceLoupedeckPick"), pick));
+            if button(ui, "surfaceImportLoupedeck", "Import") {
+                let r = app_run_import(app, &found[pick].1.to_string_lossy());
+                report(app, r);
+                app.surface.editor.device = "loupedeck-plus".into();
+            }
+        }
+        if app.services.pick_surface_file.is_some() && button(ui, "surfaceImportLoupedeckFile", "Import a Loupedeck profile…") {
+            let files = app.services.pick_surface_file.as_mut().map(|f| f()).unwrap_or_default();
+            for f in files {
+                let r = app_run_import(app, &f);
+                report(app, r);
+                app.surface.editor.device = "loupedeck-plus".into();
+            }
+        }
+    });
+    if let Some(m) = app.surface.editor.message.clone() {
+        ui.label(RichText::new(m).color(t.text_label));
+    }
+    let Some(profile) = app.surface.settings().active_profile().cloned() else { return };
+    let selected = app.surface.editor.control.clone();
+    let mut clicked: Option<String> = None;
+    let sections: [(&str, &dyn Fn(&str) -> bool); 6] = [
+        ("Knobs", &|c: &str| ls::devices::is_encoder(c) && c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n > 32)),
+        ("P1–P8 (Hue)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (1..=8).contains(&n))),
+        ("P1–P8 (Sat)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (9..=16).contains(&n))),
+        ("P1–P8 (Lum)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (17..=24).contains(&n))),
+        ("P1–P8 (B&W)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (25..=32).contains(&n))),
+        ("Buttons", &|c: &str| c.starts_with("ld.b")),
+    ];
+    let mut grid = |app: &LightcraftApp, ui: &mut egui::Ui| {
+        for (title, keep) in &sections {
+            ui.label(RichText::new(tr(title)).font(t.semibold(12.0)).color(t.text_label));
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                for c in ls::loupedeck::CONTROLS.iter().filter(|c| keep(c.id)) {
+                    let own = profile.base.get(c.id).cloned();
+                    let inherited = own.is_none();
+                    let b = own.or_else(|| ls::loupedeck::default_binding(c.id));
+                    let label = b.as_ref().map(|b| short_label(app, b)).unwrap_or_default();
+                    let icon = b.as_ref().and_then(ls::icons::icon_for);
+                    let (cell, _) = ui.allocate_exact_size(vec2(64.0, 80.0), Sense::hover());
+                    let face = Rect::from_min_size(cell.min, vec2(64.0, 64.0));
+                    if draw_control(
+                        ui,
+                        t,
+                        face,
+                        c.id,
+                        (&label, icon, inherited),
+                        selected.as_deref() == Some(c.id),
+                        c.kind == ls::ControlKind::Encoder,
+                    ) {
+                        clicked = Some(c.id.to_string());
+                    }
+                    ui.painter().text(
+                        pos2(cell.center().x, cell.bottom() - 7.0),
+                        egui::Align2::CENTER_CENTER,
+                        tr(c.label),
+                        FontId::proportional(9.5),
+                        t.text_dim,
+                    );
+                }
+            });
+            ui.add_space(4.0);
+        }
+    };
+    let wide = ui.available_width() >= 760.0;
+    if wide {
+        ui.horizontal_top(|ui| {
+            let w = (ui.available_width() - 310.0).max(300.0);
+            ui.vertical(|ui| {
+                ui.set_width(w);
+                egui::ScrollArea::vertical().id_salt("surfaceLoupedeck").max_height(max_h).show(ui, |ui| grid(app, ui));
+            });
+            ui.add_space(10.0);
+            ui.vertical(|ui| editor_panel(app, ui, t, BASE, max_h));
+        });
+    } else {
+        egui::ScrollArea::vertical().id_salt("surfaceLoupedeck").max_height(max_h * 0.6).show(ui, |ui| grid(app, ui));
+        ui.add_space(6.0);
+        editor_panel(app, ui, t, BASE, max_h);
+    }
+    if let Some(c) = clicked {
+        app.surface.editor.control = Some(c);
+        app.surface.editor.params_text.clear();
     }
 }
 

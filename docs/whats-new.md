@@ -48,6 +48,49 @@
   model is still being trained, there is nothing to download or install yet, and Luminance and
   Color under Detail reduce noise meanwhile.
 
+### Generative Fill
+- **The upload works.** Sending a crop to OpenAI failed with "secure connection failed: failed
+  to write whole buffer"; large uploads now go out whole. Tested with a real OpenAI account on
+  wedding photos.
+- **Painting only marks the area.** With the Generative tool, painting no longer runs a heal or a
+  content-aware fill that looked like a poor AI result: the photo stays as it is until the
+  generated result arrives, with a spinner over the area while it is on its way.
+- **Large areas stay sharper.** Instead of one crop at 20–30 % of the photo's resolution, a large
+  area is sent as a few tiles at about half resolution or more (**Sharper result for a large
+  area**, with the number of requests and the cost); untick it for one cheaper, softer crop.
+- **Variations** is 1 unless you choose more, and LightCraft remembers it; the price per
+  variation shows before you generate.
+- **Only the services you set up** appear in the Remove panel.
+- **A short, calm first-use dialog**: what is sent, its size and the cost, Generate or Cancel; the
+  data policy and watermarks are behind Details.
+- **Failures are clear**: the message stays in the Remove panel with Retry.
+- **Which service for what**: Settings ▸ Generative Fill has a card per service (best at, weak
+  spots, size and price, training on uploads, marks added) and a recommendation.
+
+### Deleting photos
+- Deleting photos now says plainly what happened: they went to **Recently Deleted**, the files
+  stay on disk, and **Undo** brings them back.
+
+### Control surfaces: safer keys, Erase while held
+- **Erase** works while its key is held, like Alt with the brush, and lights up only then. New
+  Brush runs once and never stays lit. A key lit because its value is on the dial, because it is
+  held, or because a mode is on now looks different for each.
+- **Delete, Reset and other keys that undo work need a short hold** (0.7 s) on the console; a
+  quick press only shows "Hold the key". The built-in layouts have no Delete key any more.
+- The brush page has **Brush Size** and **Feather** keys; Mask Above / Below are now **Previous
+  Mask** / **Next Mask**.
+
+### Control surfaces: icons of their own
+- Invert Mask, Erase, New Brush, Previous / Next Mask, Mask On/Off, the zoom, selection, rotate
+  and Reset keys have their own icons instead of sharing one, drawn in the style of the icon pack.
+
+### Loupedeck+
+- The **Loupedeck+** works with LightCraft through the same plugin as the MX Creative Console.
+  With no setup each knob and button does what its label says. Settings ▸ Controls ▸ Loupedeck+
+  shows every control and lets you change it, and **imports your own Loupedeck profile**: the
+  profiles on this computer are listed, one click each. Only the layout comes over; the report
+  lists what didn't (macros, presets LightCraft doesn't have).
+
 ## 2026-10-15
 
 ### Settings window
