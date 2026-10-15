@@ -204,10 +204,11 @@ fn main() {
                     for x in 0..tw {
                         let sx = cx + (x as f32 / tw as f32 - 0.5) * span;
                         let sy = cy + (y as f32 / th as f32 - 0.5) * span / 2.0;
-                        if sx >= 0.0 && sy >= 0.0 {
-                            if let Some(p) = img.data.get(sy as usize * img.width + sx as usize) {
-                                t.data[y * tw + x] = *p;
-                            }
+                        if sx >= 0.0
+                            && sy >= 0.0
+                            && let Some(p) = img.data.get(sy as usize * img.width + sx as usize)
+                        {
+                            t.data[y * tw + x] = *p;
                         }
                     }
                 }
