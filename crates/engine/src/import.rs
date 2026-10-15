@@ -90,8 +90,10 @@ pub struct ImportOptions {
     /// A file that is in Recently Deleted: restore (default), skip, or import afresh.
     pub on_deleted: OnDeleted,
     pub mode: ImportMode,
-    /// Applied to every imported photo (one History entry).
-    pub preset: Option<lightcraft_develop::Preset>,
+    /// Applied to every imported photo, in order (one History entry each): a stack such as a
+    /// colour preset, then a retouch preset, then one with AI masks. Each sets its settings and
+    /// adds its masks, as applying it by hand does.
+    pub presets: Vec<lightcraft_develop::Preset>,
     /// Added to every imported photo.
     pub keywords: Vec<String>,
     /// Browsing a folder: photos come in as `local` (not in the library), and a file with the
@@ -881,6 +883,9 @@ struct ReadyFile {
     info: ProbeInfo,
     sidecar: Option<crate::sidecar::SidecarData>,
     placed: Option<crate::import_move::Placed>,
+    /// A Local (browsed) record whose file was copied or moved: the record follows the copy and
+    /// joins the library, keeping its culling and edits, instead of a new photo being added.
+    promote: Option<PhotoId>,
 }
 
 impl Prepared {
@@ -924,9 +929,15 @@ impl Prepared {
                 items.push(item);
                 continue;
             };
-            let ReadyFile { path, stored, info, sidecar, placed } = *ready;
-            let existing_path = paths.get(&normalize_import_path(&stored)).copied().or_else(|| paths.get(&normalize_import_path(&path)).copied());
-            let existing_hash = info.content_hash.as_ref().and_then(|hash| hashes.get(hash).copied());
+            let ReadyFile { path, stored, info, sidecar, placed, promote } = *ready;
+            // (a browsed record that follows its copy is itself the photo with that path and content)
+            let other = |id: &PhotoId| Some(*id) != promote;
+            let existing_path = paths
+                .get(&normalize_import_path(&stored))
+                .copied()
+                .filter(other)
+                .or_else(|| paths.get(&normalize_import_path(&path)).copied().filter(other));
+            let existing_hash = info.content_hash.as_ref().and_then(|hash| hashes.get(hash).copied()).filter(other);
             if let Some(existing) = existing_path.or(existing_hash) {
                 if let Some(placed) = &placed {
                     crate::import_move::rollback(placed);
@@ -938,7 +949,7 @@ impl Prepared {
                     hash: info.content_hash,
                 });
             } else {
-                items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed })));
+                items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed, promote })));
             }
         }
         self.items = items;
@@ -1012,6 +1023,15 @@ impl ImportJob {
         files
     }
 
+    /// Whether `path` is copied or moved into the destination (else it is added where it is).
+    fn transfers(&self, path: &str) -> bool {
+        matches!(self.mode, ImportMode::Copy | ImportMode::Move)
+            && self.copy_root.as_ref().is_some_and(|root| {
+                !crate::import_move::inside(Path::new(path), root)
+                    && !self.lib_dir.as_ref().is_some_and(|l| crate::import_move::inside(Path::new(path), l))
+            })
+    }
+
     /// When the import started ([`Session::clock`]), for [`commit_prepared`].
     pub fn now(&self) -> &str {
         &self.now
@@ -1043,8 +1063,15 @@ impl ImportJob {
         let mode = self.mode;
         let mut out = Prepared { scanned: files.len(), items: Vec::new() };
         let mut todo = Vec::new();
+        // browsed (Local) records whose files are copied or moved: the record follows its file
+        let mut follow: HashMap<String, PhotoId> = HashMap::new();
         for f in files {
             match self.by_path.get(f.as_str()).copied() {
+                Some((id, true)) if !opts.local && self.transfers(&f) => {
+                    self.by_path.insert(f.clone(), (id, false));
+                    follow.insert(f.clone(), id);
+                    todo.push(f);
+                }
                 Some((id, true)) if !opts.local => {
                     // a file that was only browsed (Local) joins the library when it is imported for real
                     self.by_path.insert(f, (id, false));
@@ -1095,6 +1122,7 @@ impl ImportJob {
                     continue;
                 }
             };
+            let promote = follow.get(&path).copied();
             // a copy of a file whose transfer is still pending: a duplicate only if that one succeeds
             if !opts.local
                 && let Some(h) = &info.content_hash
@@ -1108,6 +1136,8 @@ impl ImportJob {
             if let Some(h) = &info.content_hash
                 && !opts.local
                 && let Some(existing) = self.by_hash.get(h)
+                // (the browsed record of this very file is not a duplicate of it)
+                && !(promote.is_some() && *existing == promote)
             {
                 self.done.fetch_add(1, Relaxed);
                 plan.slots.push(Slot::Item(PreparedItem::Duplicate { path, existing: *existing, reason: "content", hash: Some(h.clone()) }));
@@ -1173,7 +1203,7 @@ impl ImportJob {
                     // Copy as DNG: the copied raw becomes a DNG (the copy is ours to replace)
                     let dng = opts.convert_dng && mode == ImportMode::Copy && raw && !info.format.eq_ignore_ascii_case("DNG");
                     plan.slots.push(Slot::Transfer);
-                    plan.transfers.push(Transfer { path, info, sidecar, dir, how, dng, family });
+                    plan.transfers.push(Transfer { path, info, sidecar, dir, how, dng, family, promote });
                     continue;
                 }
                 (ImportMode::Move, _) => {
@@ -1187,7 +1217,11 @@ impl ImportJob {
                 self.by_hash.insert(h.clone(), None);
             }
             self.done.fetch_add(1, Relaxed);
-            plan.slots.push(Slot::Item(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed: None }))));
+            plan.slots.push(Slot::Item(match promote {
+                // (planned for a transfer that turned out not to need one: joins where it is)
+                Some(id) => PreparedItem::Promote(id),
+                None => PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed: None, promote: None })),
+            }));
         }
         self.run_plan(&mut plan, &mut out, cancel);
         out
@@ -1237,6 +1271,8 @@ struct Transfer {
     how: How,
     /// Copy as DNG.
     dng: bool,
+    /// The browsed record that follows the copy ([`ReadyFile::promote`]).
+    promote: Option<PhotoId>,
     /// The folder (lowercase) and [`name_family`]: transfers of one family can take each other's
     /// names, so they never run at the same time.
     family: (String, String),
@@ -1349,7 +1385,7 @@ fn run_transfers(
 
 /// Copy or move one planned file (and Copy as DNG); its item.
 fn run_transfer(t: Transfer, file_bytes: Option<&crate::merge::ByteReader>) -> PreparedItem {
-    let Transfer { path, mut info, sidecar, dir, how, dng, .. } = t;
+    let Transfer { path, mut info, sidecar, dir, how, dng, promote, .. } = t;
     let mut placed = None;
     let mut stored = match how {
         How::Place { name } => match crate::import_move::place(Path::new(&path), &dir, &name) {
@@ -1378,7 +1414,7 @@ fn run_transfer(t: Transfer, file_bytes: Option<&crate::merge::ByteReader>) -> P
             Err(e) => log::warn!("import {path}: copy as DNG: {e}"),
         }
     }
-    PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed }))
+    PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed, promote }))
 }
 
 /// A trashed photo's file is not where the library had it (never on the web, where paths are
@@ -1421,6 +1457,8 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
             PreparedItem::Promote(id) => {
                 if s.catalog.photo(id).is_some_and(|p| p.local) {
                     ops.push(Op::SetLocal { id, local: false });
+                    // what the import sets (camera profile, presets, keywords…) on the browsed photo
+                    promote_ops(s, id, opts, &now, None, &mut report, &mut ops);
                 }
                 report.imported.push(id.0);
             }
@@ -1448,8 +1486,20 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
             }
             PreparedItem::Failed(path, e) => report.failed.push((path, e)),
             PreparedItem::Kept(k) => report.kept.push(k),
+            PreparedItem::Ready(r) if r.promote.is_some_and(|id| s.catalog.photo(id).is_some_and(|p| p.local)) => {
+                // a browsed photo copied or moved: its record follows the file into the library
+                let ReadyFile { stored, info, placed: pl, promote, .. } = *r;
+                placed.extend(pl);
+                let Some(id) = promote else { continue };
+                let file_name = Path::new(&stored).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| stored.clone());
+                let format = s.catalog.photo(id).filter(|p| p.format != info.format).map(|_| info.format.clone());
+                ops.push(Op::Relink { id, file_name, source: Source::File { path: stored.clone() }, format });
+                ops.push(Op::SetLocal { id, local: false });
+                promote_ops(s, id, opts, &now, Some(&stored), &mut report, &mut ops);
+                report.imported.push(id.0);
+            }
             PreparedItem::Ready(r) => {
-                let ReadyFile { path, stored, info, sidecar, placed: pl } = *r;
+                let ReadyFile { path, stored, info, sidecar, placed: pl, .. } = *r;
                 placed.extend(pl);
                 let id = s.catalog.alloc_photo_id();
                 if let Some(h) = &info.content_hash {
@@ -1498,37 +1548,8 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     ));
                 }
                 // the camera profile chosen for its body (a sidecar's settings win)
-                let body = crate::import_profiles::body_of(&p.meta.serial, &path);
                 let decided = sidecar.as_ref().is_some_and(crate::import_profiles::sidecar_sets);
-                let applied = crate::import_profiles::apply(s, &mut p, &opts.camera_profile, body.as_deref(), decided);
-                report.camera_profiles.add(s, &applied, body.as_deref());
-                if let Some(look) = &opts.look {
-                    let mut d = (*p.develop).clone();
-                    crate::cmd::dcp_profiles::choose(s, &mut d, look);
-                    let d = std::sync::Arc::new(d);
-                    if d != p.develop {
-                        let name = s.profile_info(look).map_or(look.as_str(), |(n, _)| n);
-                        p.history.push(lightcraft_catalog::HistoryStep { label: format!("Profile: {name}"), settings: d.clone() });
-                        p.develop = d;
-                        p.edited = Some(now.clone());
-                    }
-                }
-                if let Some(mp) = opts.metadata_preset.as_ref().and_then(|n| s.metadata_presets.iter().find(|m| m.name.eq_ignore_ascii_case(n))) {
-                    crate::cmd::metadata::apply_to(&mut p.meta, &mp.fields);
-                }
-                for k in &opts.keywords {
-                    let k = lightcraft_catalog::keywords::clean(k);
-                    if !k.is_empty() && !p.meta.keywords.iter().any(|x| x.eq_ignore_ascii_case(&k)) {
-                        p.meta.keywords.push(k);
-                    }
-                }
-                if let Some(preset) = &opts.preset {
-                    let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0, crate::smart_masks::aspect_of(&p)));
-                    let label = format!("Preset: {}", preset.name);
-                    p.develop = d.clone();
-                    p.edited = Some(now.clone());
-                    p.history.push(lightcraft_catalog::HistoryStep { label, settings: d });
-                }
+                apply_settings(s, &mut p, opts, &now, &path, decided, &mut report);
                 report.imported.push(id.0);
                 p.local = opts.local;
                 if opts.local {
@@ -1583,6 +1604,69 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
         }
     }
     Ok(report)
+}
+
+/// What an import sets on each photo it adds: the camera profile chosen for its body (unless
+/// `decided`: its sidecar or the user set one), a look, a metadata preset, keywords and the preset
+/// stack, in that order. `path` is the file as found (its name keys the body when there is no serial).
+fn apply_settings(s: &Session, p: &mut Photo, opts: &ImportOptions, now: &str, path: &str, decided: bool, report: &mut ImportReport) {
+    let body = crate::import_profiles::body_of(&p.meta.serial, path);
+    let applied = crate::import_profiles::apply(s, p, &opts.camera_profile, body.as_deref(), decided);
+    report.camera_profiles.add(s, &applied, body.as_deref());
+    if let Some(look) = &opts.look {
+        let mut d = (*p.develop).clone();
+        crate::cmd::dcp_profiles::choose(s, &mut d, look);
+        let d = std::sync::Arc::new(d);
+        if d != p.develop {
+            let name = s.profile_info(look).map_or(look.as_str(), |(n, _)| n);
+            p.history.push(lightcraft_catalog::HistoryStep { label: format!("Profile: {name}"), settings: d.clone() });
+            p.develop = d;
+            p.edited = Some(now.to_string());
+        }
+    }
+    if let Some(mp) = opts.metadata_preset.as_ref().and_then(|n| s.metadata_presets.iter().find(|m| m.name.eq_ignore_ascii_case(n))) {
+        crate::cmd::metadata::apply_to(&mut p.meta, &mp.fields);
+    }
+    for k in &opts.keywords {
+        let k = lightcraft_catalog::keywords::clean(k);
+        if !k.is_empty() && !p.meta.keywords.iter().any(|x| x.eq_ignore_ascii_case(&k)) {
+            p.meta.keywords.push(k);
+        }
+    }
+    for preset in &opts.presets {
+        let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0, crate::smart_masks::aspect_of(p)));
+        let label = format!("Preset: {}", preset.name);
+        p.develop = d.clone();
+        p.edited = Some(now.to_string());
+        p.history.push(lightcraft_catalog::HistoryStep { label, settings: d });
+    }
+}
+
+/// The ops that give a browsed (Local) photo joining the library what the import sets
+/// ([`apply_settings`]): its develop settings and their History entries, and its metadata. A
+/// photo already edited while browsing keeps its camera profile. `stored`: where its file went
+/// (copied or moved), for the body key.
+fn promote_ops(s: &Session, id: PhotoId, opts: &ImportOptions, now: &str, stored: Option<&str>, report: &mut ImportReport, ops: &mut Vec<Op>) {
+    let Some(old) = s.catalog.photo(id) else { return };
+    let path = match (&old.source, stored) {
+        (_, Some(st)) => st.to_string(),
+        (Source::File { path }, None) => path.clone(),
+        (Source::Demo { .. }, None) => old.file_name.clone(),
+    };
+    let mut p = (**old).clone();
+    let history0 = p.history.len();
+    apply_settings(s, &mut p, opts, now, &path, old.edited.is_some(), report);
+    if p.develop != old.develop {
+        // (the History steps the settings added, then the settings themselves)
+        let label = p.history.last().map(|h| h.label.clone()).unwrap_or_else(|| "Import".into());
+        for step in p.history.iter().skip(history0) {
+            ops.push(Op::PushHistory { id, step: step.clone() });
+        }
+        ops.push(Op::SetDevelop { id, settings: p.develop.clone(), label, edited: p.edited.clone() });
+    }
+    if p.meta != old.meta {
+        ops.push(Op::SetMeta { id, meta: Box::new(p.meta) });
+    }
 }
 
 /// Move, after the commit: save the library, then remove each source whose destination is
@@ -1719,6 +1803,7 @@ mod prepared_tests {
             info: ProbeInfo { format: "JPG".into(), ..ProbeInfo::default() },
             sidecar: None,
             placed: None,
+            promote: None,
         };
         let mut prepared = Prepared {
             scanned: 2,

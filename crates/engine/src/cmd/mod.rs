@@ -24,6 +24,7 @@ pub mod filters;
 mod focus;
 mod genfill;
 pub mod geocode;
+pub mod import_tab;
 pub mod keywords;
 pub mod library;
 pub mod lut_profiles;
@@ -180,6 +181,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(print::specs());
         v.extend(before::specs());
         v.extend(browse::specs());
+        v.extend(import_tab::specs());
         v.extend(missing::specs());
         v.extend(recheck::specs());
         v.extend(sync::specs());
