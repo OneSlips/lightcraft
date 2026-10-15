@@ -639,10 +639,15 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
 /// [`lightcraft_engine::media::Session::embedded_thumb_is_final`]), which for a folder of raws on a
 /// network share is the difference between reading every file whole and reading a preview each.
 pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority: u32) {
-    // A slider drag changes the photo every frame: its thumbnail follows once the drag ends, so its
-    // renders (a raw decode the first time) don't compete with the loupe's drafts.
-    if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) && app.renderer.thumb(id).is_some() {
-        return;
+    // A slider drag changes the photos it edits every frame. Under the loupe their thumbnails follow
+    // once the drag ends, so their renders (a raw decode the first time) don't compete with the
+    // loupe's drafts. In a grid the thumbnails are what the user watches: they follow live, one
+    // render at a time per photo (the newest settings when the last one is in).
+    if app.session.interaction.as_ref().is_some_and(|i| i.photo == id) || app.session.interaction_others().contains(&id) {
+        let loupe = matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare);
+        if drag_waits(loupe, app.renderer.thumb(id).is_some(), app.renderer.is_pending(Slot::Thumb(id))) {
+            return;
+        }
     }
     let bucket = lightcraft_engine::media::thumb_bucket(size);
     if let Some(photo) = app.session.catalog.photo(id)
@@ -684,6 +689,13 @@ pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority
         }
         None => app.renderer.request(Slot::Thumb(id), job, priority),
     }
+}
+
+/// During a slider drag, whether a photo it edits skips asking for a new thumbnail this frame:
+/// under the loupe (`loupe`) while it has one, anywhere while one is being rendered (`pending`);
+/// in a grid it follows the drag.
+pub(crate) fn drag_waits(loupe: bool, has_thumb: bool, pending: bool) -> bool {
+    (loupe && has_thumb) || pending
 }
 
 /// Whether a photo's grid thumbnail is already the picture it should show, so the render of the raw
@@ -1543,6 +1555,16 @@ mod tests {
             }
             assert_eq!(layout_with_footer(&aspects, &[], 600.0, 150.0, square, f32::NAN).cells, plain.cells);
         }
+    }
+
+    /// A grid's thumbnails follow a slider drag (one render at a time); under the loupe they wait
+    /// for the drag to end.
+    #[test]
+    fn grid_thumbnails_follow_a_drag() {
+        assert!(!drag_waits(false, true, false), "a grid asks for the new picture");
+        assert!(drag_waits(false, true, true), "one render at a time");
+        assert!(drag_waits(true, true, false), "under the loupe it waits");
+        assert!(!drag_waits(true, false, false), "a photo without a thumbnail gets one");
     }
 
     /// One flag set everywhere: picked, rejected and unflagged differ in shape, not only colour.
