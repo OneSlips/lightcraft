@@ -2838,5 +2838,13 @@
   "Where the photo is in the view, and how many it shows": "Де фото в перегляді і скільки всього показано",
   "Auto Advance after rating or flagging (or Caps Lock)": "Автоперехід після оцінки чи прапорця (або Caps Lock)",
   "Eye focus strip while importing (Shift+T)": "Смуга різкості очей під час імпорту (Shift+T)",
-  "Eye focus strip in the library (Shift+T)": "Смуга різкості очей у бібліотеці (Shift+T)"
+  "Eye focus strip in the library (Shift+T)": "Смуга різкості очей у бібліотеці (Shift+T)",
+  "Delete Rejected Photos": "Видалити відхилені фото",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "Вилучити з бібліотеки (до «Нещодавно видалених»; файли лишаються на диску)",
+  "Remove, and move the files to the Recycle Bin": "Вилучити й перемістити файли до кошика",
+  "Remove, and move the files to the Trash": "Вилучити й перемістити файли до смітника",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Файли та їхні XMP потрапляють до кошика, звідки їх можна повернути; фото залишають бібліотеку (без скасування).",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Редагування → Скасувати поверне їх; «Нещодавно видалені» зберігають їх, доки не очищено.",
+  "Move to Recycle Bin": "До кошика",
+  "No rejected photos here": "Тут немає відхилених фото"
 }

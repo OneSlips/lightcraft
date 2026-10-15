@@ -2833,5 +2833,13 @@
   "Where the photo is in the view, and how many it shows": "Где фото в просмотре и сколько всего показано",
   "Auto Advance after rating or flagging (or Caps Lock)": "Автопереход после оценки или флажка (или Caps Lock)",
   "Eye focus strip while importing (Shift+T)": "Полоса резкости глаз при импорте (Shift+T)",
-  "Eye focus strip in the library (Shift+T)": "Полоса резкости глаз в библиотеке (Shift+T)"
+  "Eye focus strip in the library (Shift+T)": "Полоса резкости глаз в библиотеке (Shift+T)",
+  "Delete Rejected Photos": "Удалить отклонённые фото",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "Убрать из библиотеки (в «Недавно удалённые»; файлы остаются на диске)",
+  "Remove, and move the files to the Recycle Bin": "Убрать и переместить файлы в корзину",
+  "Remove, and move the files to the Trash": "Убрать и переместить файлы в корзину",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Файлы и их XMP попадают в корзину, откуда их можно вернуть; фото уходят из библиотеки (без отмены).",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Правка → Отменить вернёт их; «Недавно удалённые» хранят их, пока не очищены.",
+  "Move to Recycle Bin": "В корзину",
+  "No rejected photos here": "Здесь нет отклонённых фото"
 }

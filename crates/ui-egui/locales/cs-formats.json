@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name} (dalším kliknutím zrušíte)",
   "Show photos labelled {}": "Zobrazit fotky se štítkem {}",
   "{n} stars or more": "{n} hvězdičky a více",
-  "Exactly {n} stars": "Přesně {n} hvězdičky"
+  "Exactly {n} stars": "Přesně {n} hvězdičky",
+  "Delete the {n} rejected photos of this view?": "Smazat {n} zamítnutých fotek tohoto zobrazení?",
+  "{n} rejected photos moved to the Recycle Bin": "Zamítnuté fotky přesunuty do koše: {n}",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "Odebráno zamítnutých fotek: {n} (Úpravy → Zpět je vrátí)"
 }

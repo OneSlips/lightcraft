@@ -1313,6 +1313,12 @@ pub enum Dialog {
     ConfirmDelete {
         count: usize,
     },
+    /// Photo ▸ Delete Rejected Photos…: how many rejects the view has, and whether their files go
+    /// to the Recycle Bin too (`library.deleteRejected`).
+    DeleteRejected {
+        count: usize,
+        recycle: bool,
+    },
     /// Confirm moving photos dropped on a Folders row into that folder on disk
     /// (`photo.moveToFolder`). `name`: the folder's name, as the question says it.
     MovePhotos {

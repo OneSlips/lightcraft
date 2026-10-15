@@ -939,6 +939,24 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"deleted": ids.len()}))
             }
         ),
+        cmd!(
+            "library.deleteRejected",
+            "Delete Rejected Photos",
+            ["Photo"],
+            None,
+            "{files?: keep|recycle} → {removed, recycled: [paths]} — the rejected photos of the view (its source and filters, whatever the stars / flags / labels filter shows) leave the library in one go: `keep` (default) moves them to Recently Deleted as one undo step, files untouched; `recycle` moves their files and their own XMP sidecars to the system's Recycle Bin (Trash) and removes the photos (not undoable; the files can be put back from the bin)",
+            always,
+            |s, p| {
+                const C: &str = "library.deleteRejected";
+                let files = match str_param(p, "files") {
+                    None | Some("keep") => crate::recycle::Files::Keep,
+                    Some("recycle" | "trash") => crate::recycle::Files::Recycle,
+                    Some(other) => return Err(bad(C, format!("`files` is keep or recycle, not `{other}`"))),
+                };
+                let (removed, recycled) = s.delete_rejected(files)?;
+                Ok(json!({"removed": removed, "recycled": recycled}))
+            }
+        ),
         cmd!("photo.deletePermanently", "Delete Permanently", ["Photo"], None, "{ids?}", has_selection, |s, p| {
             let before = s.visible_cloned();
             let t = s.targets(p)?;

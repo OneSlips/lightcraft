@@ -2840,5 +2840,13 @@
   "Where the photo is in the view, and how many it shows": "表示内でのこの写真の位置と表示枚数",
   "Auto Advance after rating or flagging (or Caps Lock)": "評価・フラグの後に自動で次へ（または Caps Lock）",
   "Eye focus strip while importing (Shift+T)": "読み込み中の目のピント帯（Shift+T）",
-  "Eye focus strip in the library (Shift+T)": "ライブラリでの目のピント帯（Shift+T）"
+  "Eye focus strip in the library (Shift+T)": "ライブラリでの目のピント帯（Shift+T）",
+  "Delete Rejected Photos": "除外写真を削除",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "ライブラリから取り除く（最近削除した項目へ。ファイルはディスクに残ります）",
+  "Remove, and move the files to the Recycle Bin": "取り除いてファイルをごみ箱に移動",
+  "Remove, and move the files to the Trash": "取り除いてファイルをゴミ箱に移動",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "ファイルとその XMP サイドカーはごみ箱に移り、そこから戻せます。写真はライブラリから外れます（取り消し不可）。",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "編集 → 取り消しで戻せます。最近削除した項目は空にするまで保持します。",
+  "Move to Recycle Bin": "ごみ箱に移動",
+  "No rejected photos here": "ここには除外写真がありません"
 }

@@ -861,6 +861,10 @@ pub fn run_item(app: &mut LightcraftApp, id: &str, params: Value) -> Result<Valu
     if id == "photo.delete" && crate::menus::confirm_delete(app) {
         return Ok(Value::Null);
     }
+    if id == "library.deleteRejected" && params.get("files").is_none() {
+        // always asked: it can move files to the Recycle Bin
+        return crate::menus::ask_delete_rejected(app);
+    }
     let r = app.run(id, params);
     if culling_cmd && r.is_ok() && app.auto_advance_on() {
         crate::panels::compare::advance(app);

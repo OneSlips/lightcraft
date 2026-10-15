@@ -2642,5 +2642,13 @@
   "Where the photo is in the view, and how many it shows": "相片在檢視中的位置及檢視中的相片數",
   "Auto Advance after rating or flagging (or Caps Lock)": "評級或加旗標後自動前進（或大寫鎖定）",
   "Eye focus strip while importing (Shift+T)": "匯入時的眼部對焦條（Shift+T）",
-  "Eye focus strip in the library (Shift+T)": "圖庫中的眼部對焦條（Shift+T）"
+  "Eye focus strip in the library (Shift+T)": "圖庫中的眼部對焦條（Shift+T）",
+  "Delete Rejected Photos": "刪除排除的相片",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "從圖庫移除（移到最近刪除；檔案留在磁碟上）",
+  "Remove, and move the files to the Recycle Bin": "移除，並將檔案移到資源回收筒",
+  "Remove, and move the files to the Trash": "移除，並將檔案移到垃圾桶",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "檔案及其 XMP 附屬檔進入資源回收筒，可從那裡還原；相片離開圖庫（無法復原）。",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "編輯 → 復原可恢復；最近刪除會保留它們直到清空。",
+  "Move to Recycle Bin": "移到資源回收筒",
+  "No rejected photos here": "這裡沒有排除的相片"
 }

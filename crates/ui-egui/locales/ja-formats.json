@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name}（もう一度クリックで解除）",
   "Show photos labelled {}": "{}ラベルの写真を表示",
   "{n} stars or more": "星{n}つ以上",
-  "Exactly {n} stars": "星ちょうど{n}つ"
+  "Exactly {n} stars": "星ちょうど{n}つ",
+  "Delete the {n} rejected photos of this view?": "この表示の除外写真{n}枚を削除しますか？",
+  "{n} rejected photos moved to the Recycle Bin": "除外写真{n}枚をごみ箱に移動しました",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "除外写真{n}枚を取り除きました（編集 → 取り消しで戻せます）"
 }

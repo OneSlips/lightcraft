@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name} (клацніть ще раз, щоб зняти)",
   "Show photos labelled {}": "Показати фото з міткою «{}»",
   "{n} stars or more": "{n} зірки й більше",
-  "Exactly {n} stars": "Рівно {n} зірки"
+  "Exactly {n} stars": "Рівно {n} зірки",
+  "Delete the {n} rejected photos of this view?": "Видалити відхилені фото цього перегляду ({n})?",
+  "{n} rejected photos moved to the Recycle Bin": "Відхилені фото переміщено до кошика: {n}",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "Вилучено відхилених фото: {n} (Редагування → Скасувати поверне їх)"
 }

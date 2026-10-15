@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name} (щёлкните ещё раз, чтобы снять)",
   "Show photos labelled {}": "Показать фото с меткой «{}»",
   "{n} stars or more": "{n} звезды и больше",
-  "Exactly {n} stars": "Ровно {n} звезды"
+  "Exactly {n} stars": "Ровно {n} звезды",
+  "Delete the {n} rejected photos of this view?": "Удалить отклонённые фото этого просмотра ({n})?",
+  "{n} rejected photos moved to the Recycle Bin": "Отклонённые фото перемещены в корзину: {n}",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "Удалено отклонённых фото: {n} (Правка → Отменить вернёт их)"
 }

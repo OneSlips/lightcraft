@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name}（再按一下可清除）",
   "Show photos labelled {}": "顯示帶{}標籤的相片",
   "{n} stars or more": "{n} 星及以上",
-  "Exactly {n} stars": "恰好 {n} 星"
+  "Exactly {n} stars": "恰好 {n} 星",
+  "Delete the {n} rejected photos of this view?": "刪除此檢視中 {n} 張排除的相片？",
+  "{n} rejected photos moved to the Recycle Bin": "已將 {n} 張排除的相片移到資源回收筒",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "已移除 {n} 張排除的相片（編輯 → 復原可恢復）"
 }

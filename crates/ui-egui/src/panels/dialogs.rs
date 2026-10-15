@@ -260,6 +260,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::ChartProfile { .. } => "Create Camera Profile from Color Chart",
         Dialog::Settings { .. } => "Settings",
         Dialog::ConfirmDelete { .. } => "Delete Photos",
+        Dialog::DeleteRejected { .. } => "Delete Rejected Photos",
         Dialog::MovePhotos { .. } => "Move Photos",
         Dialog::LightroomCatalog { .. } => "Lightroom Classic Catalog",
         Dialog::SaveEffect { .. } => "New Effect Preset",
@@ -1238,6 +1239,21 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(what);
                     ui.label(egui::RichText::new(crate::i18n::tr("Masks keep their sliders. Export presets first to keep a copy.")).color(t.text_dim));
                 }
+                Dialog::DeleteRejected { count, recycle } => {
+                    ui.label(crate::i18n::tr_format!("Delete the {n} rejected photos of this view?", n = crate::i18n::group_digits(*count)));
+                    ui.add_space(6.0);
+                    let keep = ui.radio_value(recycle, false, crate::i18n::tr("Remove from the library (to Recently Deleted; the files stay on disk)"));
+                    crate::widgets::register(ui.ctx(), "radio:rejectsKeep", keep.rect);
+                    let bin = ui.radio_value(recycle, true, crate::i18n::tr(crate::panels::dialogs::recycle_words()));
+                    crate::widgets::register(ui.ctx(), "radio:rejectsRecycle", bin.rect);
+                    ui.add_space(4.0);
+                    let note = if *recycle {
+                        "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo)."
+                    } else {
+                        "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied."
+                    };
+                    ui.label(egui::RichText::new(crate::i18n::tr(note)).color(t.text_dim));
+                }
                 Dialog::ConfirmDelete { count } => {
                     let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
                     ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
@@ -1383,6 +1399,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
                     Dialog::FaceModel { .. } if !informational => "Install",
                     Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
+                    Dialog::DeleteRejected { recycle: true, .. } => "Move to Recycle Bin",
+                    Dialog::DeleteRejected { .. } => "Remove",
                     Dialog::SaveEffect { .. } => "Create",
                     Dialog::MovePhotos { .. } => "Move",
                     // (not "Merge": that is photo merging, HDR / panorama, in some languages)
@@ -2030,6 +2048,21 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::ChartProfile { opts } => crate::chart_profile::start_build(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
+        Dialog::DeleteRejected { recycle, .. } => {
+            let r = app.run("library.deleteRejected", json!({"files": if *recycle { "recycle" } else { "keep" }}));
+            if let Ok(v) = &r {
+                let n = v["removed"].as_u64().unwrap_or(0);
+                let text = if *recycle {
+                    crate::i18n::tr_format!("{n} rejected photos moved to the Recycle Bin", n = n)
+                } else {
+                    crate::i18n::tr_format!("{n} rejected photos removed (Edit → Undo brings them back)", n = n)
+                };
+                if let Some(ctx) = app.tasks.repaint.clone() {
+                    app.toast(&ctx, text);
+                }
+            }
+            r
+        }
         Dialog::MovePhotos { ids, folder, dont_ask, library, .. } => {
             // another library opened meanwhile (from the menu bar, an agent): these numbers are
             // other photos there
@@ -2412,12 +2445,19 @@ pub enum ConfirmStyle {
 
 pub fn confirm_style(dlg: &Dialog) -> ConfirmStyle {
     match dlg {
-        Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } | Dialog::RemoveFolder { .. } => {
-            ConfirmStyle::Plain
-        }
+        Dialog::ConfirmDelete { .. }
+        | Dialog::DeleteKeyword { .. }
+        | Dialog::DeleteEffects { .. }
+        | Dialog::RemoveFolder { .. }
+        | Dialog::DeleteRejected { .. } => ConfirmStyle::Plain,
         _ if only_shows(dlg) => ConfirmStyle::Plain,
         _ => ConfirmStyle::Primary,
     }
+}
+
+/// The platform's name for where deleted files go.
+pub fn recycle_words() -> &'static str {
+    if cfg!(target_os = "windows") { "Remove, and move the files to the Recycle Bin" } else { "Remove, and move the files to the Trash" }
 }
 
 /// A dialog that only shows something: one Close, nothing to confirm or cancel.

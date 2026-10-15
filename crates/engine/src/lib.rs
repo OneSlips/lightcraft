@@ -76,6 +76,7 @@ pub mod print_color;
 pub mod print_pdf;
 pub mod profile_refs;
 pub mod proof;
+pub mod recycle;
 pub mod rename;
 pub mod segment;
 pub mod sensor_maps;
@@ -315,6 +316,8 @@ pub struct Session {
     pub(crate) library_identity: Arc<()>,
     /// XMP sidecar preferences (persisted with the library).
     pub xmp: sidecar::XmpPrefs,
+    /// Where Delete Rejected Photos sends files: the system's Recycle Bin ([`recycle::system_bin`]).
+    pub recycle: recycle::RecycleFn,
     /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
     pub last_export: Option<serde_json::Value>,
     /// The user's export presets (built-ins: [`export::builtin_presets`]), persisted in prefs.json.
@@ -484,6 +487,7 @@ impl Session {
             library: None,
             library_identity: Arc::new(()),
             xmp: sidecar::XmpPrefs::default(),
+            recycle: recycle::system_bin,
             last_export: None,
             export_presets: Vec::new(),
             print: Default::default(),

@@ -368,5 +368,8 @@
   "{name} (click again to clear)": "{name} (erneut klicken zum Entfernen)",
   "Show photos labelled {}": "Fotos mit Etikett {} zeigen",
   "{n} stars or more": "{n} Sterne und mehr",
-  "Exactly {n} stars": "Genau {n} Sterne"
+  "Exactly {n} stars": "Genau {n} Sterne",
+  "Delete the {n} rejected photos of this view?": "Die {n} abgelehnten Fotos dieser Ansicht löschen?",
+  "{n} rejected photos moved to the Recycle Bin": "{n} abgelehnte Fotos in den Papierkorb verschoben",
+  "{n} rejected photos removed (Edit → Undo brings them back)": "{n} abgelehnte Fotos entfernt (Bearbeiten → Rückgängig holt sie zurück)"
 }

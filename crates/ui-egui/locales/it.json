@@ -2026,5 +2026,13 @@
   "Where the photo is in the view, and how many it shows": "Dove si trova la foto nella vista e quante ne mostra",
   "Auto Advance after rating or flagging (or Caps Lock)": "Avanzamento automatico dopo valutazione o bandierina (o Bloc Maiusc)",
   "Eye focus strip while importing (Shift+T)": "Striscia di messa a fuoco degli occhi durante l’importazione (Maiusc+T)",
-  "Eye focus strip in the library (Shift+T)": "Striscia di messa a fuoco degli occhi nella libreria (Maiusc+T)"
+  "Eye focus strip in the library (Shift+T)": "Striscia di messa a fuoco degli occhi nella libreria (Maiusc+T)",
+  "Delete Rejected Photos": "Elimina foto scartate",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "Rimuovi dalla libreria (in Eliminati di recente; i file restano sul disco)",
+  "Remove, and move the files to the Recycle Bin": "Rimuovi e sposta i file nel cestino",
+  "Remove, and move the files to the Trash": "Rimuovi e sposta i file nel cestino",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "I file e i loro file XMP vanno nel cestino, da cui si possono ripristinare; le foto lasciano la libreria (senza annullamento).",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Modifica → Annulla le ripristina; Eliminati di recente le tiene finché non viene svuotato.",
+  "Move to Recycle Bin": "Sposta nel cestino",
+  "No rejected photos here": "Nessuna foto scartata qui"
 }

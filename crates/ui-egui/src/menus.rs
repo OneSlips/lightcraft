@@ -2334,6 +2334,20 @@ pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
     true
 }
 
+/// Photo ▸ Delete Rejected Photos…: ask how (remove, or remove and recycle the files), with the
+/// number of rejects the view has; with none, say so.
+pub fn ask_delete_rejected(app: &mut LightcraftApp) -> Result<Value, String> {
+    let count = app.session.rejects_in_view().len();
+    if count == 0 {
+        if let Some(ctx) = app.tasks.repaint.clone() {
+            app.toast(&ctx, crate::i18n::tr("No rejected photos here"));
+        }
+        return Ok(json!({"removed": 0}));
+    }
+    app.ui.dialog = Some(Dialog::DeleteRejected { count, recycle: false });
+    Ok(json!({"asking": count}))
+}
+
 /// Platform-appropriate label for revealing a file in the system file manager.
 pub fn reveal_label() -> &'static str {
     if cfg!(target_os = "macos") {

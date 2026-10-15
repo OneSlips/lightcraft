@@ -2098,5 +2098,13 @@
   "Where the photo is in the view, and how many it shows": "Kde je fotka v zobrazení a kolik jich zobrazení ukazuje",
   "Auto Advance after rating or flagging (or Caps Lock)": "Automaticky dál po hodnocení či označení (nebo Caps Lock)",
   "Eye focus strip while importing (Shift+T)": "Pruh ostrosti očí při importu (Shift+T)",
-  "Eye focus strip in the library (Shift+T)": "Pruh ostrosti očí v knihovně (Shift+T)"
+  "Eye focus strip in the library (Shift+T)": "Pruh ostrosti očí v knihovně (Shift+T)",
+  "Delete Rejected Photos": "Smazat zamítnuté fotky",
+  "Remove from the library (to Recently Deleted; the files stay on disk)": "Odebrat z knihovny (do Nedávno smazaných; soubory zůstanou na disku)",
+  "Remove, and move the files to the Recycle Bin": "Odebrat a přesunout soubory do koše",
+  "Remove, and move the files to the Trash": "Odebrat a přesunout soubory do koše",
+  "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Soubory a jejich postranní soubory XMP jdou do koše, odkud je lze vrátit; fotky opustí knihovnu (bez možnosti vrácení).",
+  "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Úpravy → Zpět je vrátí; Nedávno smazané je uchovají, dokud se nevyprázdní.",
+  "Move to Recycle Bin": "Přesunout do koše",
+  "No rejected photos here": "Žádné zamítnuté fotky"
 }
