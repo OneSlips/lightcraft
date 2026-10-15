@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Delete Rejected Photos
+- Photo ▸ **Delete Rejected Photos…** takes all the rejects of the view in one go. It asks: remove them from the library (Edit ▸ Undo brings them back), or remove them and **move the files to the Recycle Bin**, with their XMP sidecars.
+
 ### The bottom bar
 - **A flat bottom bar** like its left side: icons and thin dividers, no islands.
 - **Filters with live counts** beside the stars, flags and colour labels you set: Picks, Rejects and Unflagged (combine them: Picks + Unflagged hides the rejects), a rating menu (unrated, 3 stars or more, exactly 5…), each colour label and No label. The Picks count follows every P, so you can stop when you reach your target.
