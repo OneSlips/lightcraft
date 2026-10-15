@@ -114,7 +114,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Export Presets as XMP",
             [],
             None,
-            "{id | ids: [presetId], folder} — Lightroom-style .xmp presets: AI masks (Subject, Sky, Background, People parts), gradients, luminance ranges and the mask sliders as Lightroom reads them; the full LightCraft preset in lc:PresetSettings (read back on import) → {written: [{id, path, notes}]} (notes: what Lightroom can't hold)",
+            "{id | ids: [presetId], folder} — Lightroom-style .xmp presets: AI masks (Subject, Sky, Background, People parts), gradients, luminance ranges, the mask sliders and each mask's Curve and Point Color as Lightroom reads them; the full LightCraft preset in lc:PresetSettings (read back on import) → {written: [{id, path, notes}]} (notes: what Lightroom can't hold)",
             always,
             export_xmp
         ),

@@ -1,7 +1,8 @@
 //! Write presets as Lightroom-style XMP preset files (`preset.exportXmp`), masks included:
 //! Subject, Sky, Background and People parts become Lightroom AI masks (`Mask/Image`, which
 //! Lightroom recomputes on each photo, as LightCraft does), gradients `Mask/Gradient` /
-//! `Mask/CircularGradient`, luminance ranges `Mask/RangeMask`, with the `Local*` sliders.
+//! `Mask/CircularGradient`, luminance ranges `Mask/RangeMask`, with the `Local*` sliders and the
+//! mask's own Curve (`MainCurve`…) and Point Color (`LocalPointColors`).
 //!
 //! What Lightroom has no equivalent for — People by name or role, remembered objects, anchored
 //! gradients, Landscape, colour ranges, brushes, and the global settings (LightCraft has no

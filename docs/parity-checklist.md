@@ -1,6 +1,6 @@
 # Lightroom parity checklist
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (smart AI-mask presets: LR-PRE-ADAPTIVE 🟡, LR-MASK-PEOPLE, LR-MASK-UPDATE, LR-PRE-PANEL, LR-PRE-MANAGE, LR-PRE-PREMIUM, LR-PRE-ONIMPORT, LR-SYNC-PASTE, LRC-LIB-PEOPLE, new LR-MASK-REMEMBERED and LR-MASK-ROLES; AI masks on openly licensed models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (LR-MASK-CURVE and LR-MASK-POINTCOLOR added: a mask's own Curve and Point Color, with Lightroom XMP interop; smart AI-mask presets: LR-PRE-ADAPTIVE 🟡, LR-MASK-PEOPLE, LR-MASK-UPDATE, LR-PRE-PANEL, LR-PRE-MANAGE, LR-PRE-PREMIUM, LR-PRE-ONIMPORT, LR-SYNC-PASTE, LRC-LIB-PEOPLE, new LR-MASK-REMEMBERED and LR-MASK-ROLES; AI masks on openly licensed models: LR-MASK-SUBJECT, SKY, BACKGROUND, PEOPLE, LANDSCAPE, UPDATE, OBJECTS; LR-MERGE-HDR: merges of raws without colour matrices keep their colour (#965); rapid slider entry; LR-PROF-CAMERACOLOR: tone curve from black-and-white camera JPEGs; LR-VIEW-ZOOM, LR-VIEW-COMPARE: Compare and Reference zoom windows; LR-IMP-FORMATS, LR-IMP-CAMERA-COVERAGE: EOS R5 Mark II CR3 decodes; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md; filesystem history retry/Undo/Redo evidence; renamed from `parity.md`; Top gaps moved to gaps.md, shortcut notes to ui-parity.md) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 The measured, row-by-row checklist: one row per Lightroom feature, menu item and shortcut, what we
 have and what is missing. It answers *does the feature exist?* (feature breadth). Whether it is good
@@ -36,7 +36,7 @@ cited here still exists. Formerly docs/parity.md.
 | H. Crop & rotate (CROP) | 9 | 0 | 0 | 1 | 6/6 (100%) | 3/3 (100%) |
 | I. Remove / healing (REM) | 8 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
 | J. Red eye (EYE) | 2 | 0 | 0 | 0 | — | 1/1 (100%) |
-| K. Masking (MASK) | 14 | 10 | 2 | 0 | 7/8 (88%) | 6/6 (100%) |
+| K. Masking (MASK) | 15 | 11 | 2 | 0 | 7/8 (88%) | 7/8 (88%) |
 | L. Presets (PRE) | 6 | 1 | 0 | 1 | 2/2 (100%) | 2/2 (100%) |
 | M. Versions & history (VER) | 5 | 0 | 0 | 0 | 1/1 (100%) | 3/3 (100%) |
 | N. Copy / paste / sync (SYNC) | 5 | 0 | 0 | 0 | 3/3 (100%) | 1/1 (100%) |
@@ -53,9 +53,9 @@ cited here still exists. Formerly docs/parity.md.
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 76 | 3 | 3 | 1 | 49/52 (94%) | 23/24 (96%) |
 | Lightroom Classic extras | 34 | 16 | 35 | 8 | — | 24/26 (92%) |
-| **Total** | 409 | 58 | 68 | 35 | 193/201 (96%) | 146/158 (92%) |
+| **Total** | 410 | 59 | 68 | 35 | 193/201 (96%) | 147/160 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.9%** of 535 in-scope rows — P0 98.0% of 201 · P1 95.3% of 158 · P2 51.1% of 175.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **81.8%** of 537 in-scope rows — P0 98.0% of 201 · P1 95.0% of 160 · P2 51.1% of 175.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -196,7 +196,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-EDIT-COLOR-SATURATION | Saturation | P0 | ✅ | `ctl:color.saturation` | |
 | LR-EDIT-COLOR-MIXER-HSL | 8-band colour mixer | P0 | ✅ | `ctl:mixer.*` | no targeted (drag-on-image) mode |
 | LR-EDIT-COLOR-MIXER-BW | B&W mix | P1 | ✅ | `ctl:bw.*`, `cmd:develop.autoBwMix` | eight bands; Auto pushes each hue band's colourful pixels away from the mean lightness (own rule) |
-| LR-EDIT-COLOR-POINTCOLOR | Point colour | P1 | ✅ | `cmd:pointColor.pick`, `cmd:pointColor.delete` | |
+| LR-EDIT-COLOR-POINTCOLOR | Point colour | P1 | ✅ | `cmd:pointColor.pick`, `cmd:pointColor.delete` | Lightroom's `crs:PointColors` / `ColorVariance` import (`crates/engine/src/crs_point_color.rs`, approximate mapping) |
 | LR-EDIT-COLOR-GRADING | Colour grading wheels | P0 | ✅ | `ctl:grading.*`, `crates/ui-egui/src/panels/edit.rs` (`grading`) | 3-Way / Shadows / Midtones / Highlights tabs; a range tab shows one large wheel with Hue, Saturation and Luminance sliders; Blending and Balance in every tab; 3-Way shows the hovered wheel's hue and saturation; every wheel marks its neutral centre; wheel modifiers as in Lightroom: Shift-drag keeps the puck's hue and changes saturation only (the spoke is the guide; a puck at the centre has no hue, so it takes the angle where the pointer pressed), Cmd/Ctrl-drag keeps the saturation and changes hue only (the circle is the guide), Alt/Option-drag fine-adjusts at 0.1x and combines with either lock, and a hover tooltip lists them (issues #559, #1160; tests `shift_dragging_across_the_tangent_keeps_the_hue_and_moves_saturation`, `shift_drag_keeps_the_pucks_hue_wherever_the_pointer_grabs`, `cmd_drag_keeps_the_saturation_and_changes_only_the_hue`, `alt_drag_fine_adjusts_to_a_tenth_of_the_pointers_travel`, `alt_works_with_shift_and_cmd_constraints` in `crates/ui-egui/src/tests_grading.rs`); the large wheel adds 25/50/75 % saturation rings (issue #559); each wheel's eye hides its effect for viewing only (`RenderJob::with_hidden_grading`, not saved, export unaffected) (issue #737). No Global wheel tab yet |
 | LR-EDIT-EFFECTS-TEXTURE | Texture | P0 | ✅ | `ctl:effects.texture` | |
 | LR-EDIT-EFFECTS-CLARITY | Clarity | P0 | ✅ | `ctl:effects.clarity` | |
@@ -302,7 +302,9 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-MASK-INVERT | Invert | P0 | ✅ | `cmd:mask.invert` | |
 | LR-MASK-AMOUNT | Mask amount | P1 | ✅ | `cmd:mask.adjust` (`amount`), `crates/ui-egui/src/panels/masking.rs` | |
 | LR-MASK-FEATHER-EDGE | Refine mask edges | P2 | ✅ | `cmd:mask.refine`, `crates/pipeline/src/masks.rs` (`evaluate_one`) | Refine Edges slider per mask: guided filter on the photo's luminance snaps soft mask edges to the photo's edges (rendered on the CPU) |
-| LR-MASK-SLIDERS | Local adjustment sliders | P0 | ✅ | `cmd:mask.adjust`, `crates/pipeline/src/finish.rs` | every slider renders (CPU + GPU), incl. Noise, Moiré, Defringe (negative Defringe has no effect); no local curve or effect presets |
+| LR-MASK-SLIDERS | Local adjustment sliders | P0 | ✅ | `cmd:mask.adjust`, `crates/pipeline/src/finish.rs` | every slider renders (CPU + GPU), incl. Noise, Moiré, Defringe (negative Defringe has no effect); no effect presets; the mask's own Curve and Point Color: LR-MASK-CURVE, LR-MASK-POINTCOLOR |
+| LR-MASK-CURVE | Curve in a mask | P1 | ✅ | `cmd:mask.curve`, `crates/pipeline/src/finish.rs` (`MaskLocal`), `crates/ui-egui/src/panels/mask_local.rs`, `crates/engine/src/crs_masks.rs` (`local_curves`) | point curves RGB / red / green / blue and Refine Saturation per mask, applied after the global curve and blended by the mask's opacity (CPU + GPU, within 1 LSB); a full mask renders exactly as the global curve; the Edit panel's curve graph in the mask's Curve section (no parametric part, as in Lightroom); Lightroom's `MainCurve` / `RedCurve` / `GreenCurve` / `BlueCurve` / `LocalCurveRefineSaturation` read from and written to XMP presets |
+| LR-MASK-POINTCOLOR | Point Color in a mask | P1 | 🟡 | `cmd:mask.pickPointColor`, `cmd:mask.setPointColor`, `cmd:mask.deletePointColor`, `crates/engine/src/crs_point_color.rs`, `crates/ui-egui/src/panels/mask_local.rs` | up to 8 samples per mask (eyedropper, swatches, the global Point Color's sliders), applied after the global colour tools within the mask; a full mask renders exactly as the global Point Color; Lightroom's `LocalPointColors` / `LocalColorVariance` (and global `PointColors` / `ColorVariance`) read and written. Partial: Lightroom's sample format is read from presets made with it (no specification) and mapped onto our OkLCh model — hue read as sRGB hue, range widths relative to its defaults, asymmetric ranges centred; not compared against Lightroom renders; no Visualize range for a mask's samples |
 | LR-MASK-OVERLAY | Mask overlay | P0 | ✅ | `cmd:view.maskOverlay`, `cmd:view.maskOverlayMode`, `cmd:view.maskOverlayColor`, `crates/pipeline/src/visualize.rs` | rendered alpha of the selected mask (CPU + GPU): colour, colour on B&W, image on black/white, white on black; ⇧O cycles while masking; successful local adjustments (including Amount) hide the overlay until manually shown again with O / the eye; shape/edge edits retain it; zoomed in, the overlay is rendered on the same sharp window as the plain view (zoom and pan unchanged; `crates/ui-egui/src/tests_preview_limit.rs`, `crates/pipeline/src/tests_window.rs`); no auto-show on hover |
 | LR-MASK-OVERLAYALL | Show all mask overlays | P1 | ✅ | `cmd:view.maskOverlayAll`, `crates/ui-egui/src/panels/masking.rs`, `crates/pipeline/src/visualize.rs` | one diagnostic tint over every visible mask at once (CPU + GPU): the masks still stack their adjustments as before — this only paints each mask's region together, so you can see all masked areas at a glance (⌘⇧O / Ctrl+Shift+O) |
 | LR-MASK-PINS | Pins | P1 | ✅ | `cmd:view.maskPins`, `crates/ui-egui/src/panels/detail.rs` | a pin per radial/linear/brush component: click selects its mask, drag moves it; no pins for range/AI components, no Auto mode |
@@ -791,6 +793,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | New LR-MASK-CURVE (✅) and LR-MASK-POINTCOLOR (🟡): point curves and Point Color samples per mask (CPU + GPU, UI sections under the mask, commands, Lightroom XMP read and write); LR-EDIT-COLOR-POINTCOLOR imports Lightroom's global Point Color; LR-MASK-SLIDERS note updated |
 | 2026-10-14 | minor | Smart AI-mask presets: AI masks in presets are recipes computed per photo (LR-PRE-ADAPTIVE ⬜ → 🟡); People by name and role with face thumbnails (LR-MASK-PEOPLE); remembered objects (LR-MASK-REMEMBERED) and roles (LR-MASK-ROLES) added; batch recompute, hover preview with AI masks, XMP preset export |
 | 2026-10-11 | minor | LR-MERGE-HDR: HDR and panorama merges of raws without colour matrices (CR2, NEF, ARW…) write the colour they open with as DNG tags (issue #965); status unchanged |
 | 2026-10-12 | minor | LR-META-XMP: Read Metadata from File no longer auto-writes the sidecar it has just read, which added `lc:settings` and hid another app's later `crs:` edits (#934); status unchanged (✅) |
