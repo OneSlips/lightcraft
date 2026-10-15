@@ -294,6 +294,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("surface.input", "Control Surface Input", None, ""),
     ("surface.state", "Control Surface State", None, ""),
     ("surface.settings", "Control Surface Settings", None, ""),
+    ("surface.forget", "Forget a Paired Surface", None, ""),
     ("surface.import", "Import Control Surface Setup", None, ""),
     ("surface.export", "Export Control Surface Layout", None, ""),
     ("surface.plugin", "Surface Plugin Status", None, ""),

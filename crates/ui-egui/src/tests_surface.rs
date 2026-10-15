@@ -159,8 +159,9 @@ fn pairing_then_subscribe_and_turn_over_a_connection() {
     let after = exposure(&h);
     assert_eq!(h.request("engine.execute", json!({"command": "edit.undo"}), T)["ok"], true);
     assert!((exposure(&h) - before).abs() < 1e-9, "one undo puts the whole turn back: {} vs {before} (was {after})", exposure(&h));
-    // forget it: the token stops working
-    h.app.surface.unpair("test");
+    // forget it (the command Forget runs): the token stops working
+    assert_eq!(h.request("engine.execute", json!({"command": "surface.forget", "params": {"client": "nobody"}}), T)["ok"], false);
+    assert_eq!(h.request("engine.execute", json!({"command": "surface.forget", "params": {"client": "test"}}), T)["ok"], true);
     let r = request_on(&mut h, 10, &sink2, "surface.hello", json!({"token": token}));
     assert_eq!(r["result"]["paired"], false);
 }

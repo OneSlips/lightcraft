@@ -924,6 +924,16 @@ pub fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Va
         "surface.state" => Ok(state(app)),
         "surface.import" => import(app, p),
         "surface.export" => export(app, p),
+        "surface.forget" => match p.get("client").and_then(Value::as_str) {
+            // what Forget does in Settings > Controls: the client's token stops working
+            Some(c) if app.surface.settings().paired.iter().any(|x| x.client == c) => {
+                let c = c.to_string();
+                app.surface.unpair(&c);
+                Ok(Value::Null)
+            }
+            Some(c) => Err(format!("surface.forget: no paired surface `{}`", ls::protocol::clean(c))),
+            None => Err("surface.forget: give `client`".into()),
+        },
         "surface.settings" => match p.get("settings") {
             // replace the whole settings file content (agents, tests); keeps pairings
             Some(v) => match ls::SurfaceSettings::from_json(&v.to_string()) {
