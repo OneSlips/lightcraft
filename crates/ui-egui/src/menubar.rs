@@ -134,6 +134,8 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "@Sidebar Sections",
             "view.photoCounts",
             "view.faceBoxes",
+            "view.focusPoint",
+            "view.zoomToFocus",
             "view.filmstrip",
             "view.histogram",
             "view.navigator",
@@ -210,6 +212,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "photo.saveMetadataToFile",
             "photo.readMetadataFromFile",
             "photo.reload",
+            "photo.readFocusPoints",
             "app.showInFinder",
             "dialog.rename",
             "dialog.captureTime",
@@ -334,6 +337,8 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
         "view.reference" => Some(u.view == ViewMode::Reference),
         "view.leftPanel" => Some(u.left_panel),
         "view.faceBoxes" => Some(u.face_boxes),
+        "view.focusPoint" => Some(u.settings.focus_point),
+        "view.zoomToFocus" => Some(u.settings.zoom_to_focus),
         "view.filmstrip" => Some(u.filmstrip),
         "view.shotInfo" => Some(u.shot_info),
         "view.eyeFocus" => Some(u.eye_focus),
@@ -710,7 +715,7 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
             v
         }
         "Add to Album" => {
-            let targets = app.session.targets(&Value::Null);
+            let targets = app.session.selected();
             let sel = !targets.is_empty();
             // albums hold library photos (issue #684): a Local-only selection is told what to do first
             let local_only = crate::panels::grid::local_only(app, &targets);

@@ -179,7 +179,7 @@ fn detect(s: &mut Session, p: &Value) -> Result<Value> {
     })?;
     let started = Instant::now();
     let (mut results, mut ops) = (Vec::new(), Vec::new());
-    for id in s.targets(p) {
+    for id in s.targets(p)? {
         let (rgb, width, height) = match render_rgb(s, id, LOOK_EDGE) {
             Ok(r) => r,
             Err(e) => {

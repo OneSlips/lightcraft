@@ -93,7 +93,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "{ids?, force?: bool} — compute the AI parts of the masks on the photos that don't have them yet (a preset's, a paste's, ones made before a model was installed); `force` recomputes all of them (after the photo changed). In the app in the background (one activity row) → {queued, updated, approximate, notes}",
             always,
             |s, p| {
-                let ids = s.targets(p);
+                let ids = s.targets(p)?;
                 if ids.len() > 50_000 {
                     return Err(bad("masks.recompute", "at most 50000 photos at a time"));
                 }

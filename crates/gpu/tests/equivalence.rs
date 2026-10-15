@@ -22,7 +22,7 @@ fn gpu() -> bool {
         let why = lightcraft_gpu::unavailable_reason().unwrap_or_default();
         // no adapter (CI) skips; an adapter whose kernels don't build is a bug in them
         assert!(!why.contains("kernels failed to build"), "{why}");
-        eprintln!("skipped: no GPU adapter ({why})");
+        lightcraft_testkit::skip!(Gpu, "no GPU adapter");
     }
     ok
 }

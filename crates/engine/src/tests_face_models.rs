@@ -179,7 +179,7 @@ fn hostile_ids_unsupported_models_and_odd_folders_are_handled() {
 /// and pass.
 fn demo_with_face_model() -> Option<Session> {
     let Some(root) = std::env::var_os("LIGHTCRAFT_AI_MODELS_TEST_DIR") else {
-        eprintln!("LIGHTCRAFT_AI_MODELS_TEST_DIR is not set: skipping");
+        lightcraft_testkit::skip!(Model, "LIGHTCRAFT_AI_MODELS_TEST_DIR is not set: skipping");
         return None;
     };
     let mut s = Session::with_demo();

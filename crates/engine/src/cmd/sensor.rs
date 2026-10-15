@@ -76,8 +76,8 @@ impl SensorJob {
 }
 
 /// The photos a build or a batch covers: `ids`, else the selection (more than one), else every photo in view.
-fn photos(s: &mut Session, p: &Value) -> Vec<PhotoId> {
-    if p.get("ids").is_some() || p.get("id").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { s.visible_cloned() }
+fn photos(s: &mut Session, p: &Value) -> Result<Vec<PhotoId>> {
+    if p.get("ids").is_some() || p.get("id").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { Ok(s.visible_cloned()) }
 }
 
 /// A body named in `p` (`body`), else the active photo's.
@@ -215,7 +215,7 @@ fn pixel_build(s: &mut Session, p: &Value, rebuild: bool) -> Result<Value> {
     let c = if rebuild { "camera.pixelMap.rebuild" } else { "camera.pixelMap.learn" };
     let only = str_param(p, "body").map(str::to_string);
     let clear = rebuild && p.get("clear").and_then(Value::as_bool).unwrap_or(true);
-    let mut items: Vec<(PhotoId, String, Option<String>)> = photos(s, p)
+    let mut items: Vec<(PhotoId, String, Option<String>)> = photos(s, p)?
         .into_iter()
         .filter_map(|id| {
             let ph = s.catalog.photo(id)?;
@@ -411,7 +411,7 @@ fn spot_json(sp: &lightcraft_develop::Spot) -> Value {
 fn find_dust(s: &mut Session, p: &Value) -> Result<Value> {
     let c = "spot.findDust";
     let ids =
-        if p.get("ids").is_some() || p.get("id").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { s.active().into_iter().collect() };
+        if p.get("ids").is_some() || p.get("id").is_some() || s.selection.ids.len() > 1 { s.targets(p)? } else { s.active().into_iter().collect() };
     if ids.len() > 1 {
         return remove_dust_batch(s, p, ids);
     }
@@ -480,7 +480,7 @@ fn calibrate(_s: &mut Session, p: &Value) -> Result<Value> {
 fn pixel_defects(s: &mut Session, p: &Value) -> Result<Value> {
     use lightcraft_raw::defects::{Thresholds, detect, refine};
     let c = "photo.pixelDefects";
-    let id = s.targets(p).first().copied().ok_or_else(|| bad(c, "no photo"))?;
+    let id = s.targets(p)?.first().copied().ok_or_else(|| bad(c, "no photo"))?;
     let ph = s.catalog.photo(id).ok_or_else(|| bad(c, "no such photo"))?;
     let Source::File { path } = &ph.source else { return Err(bad(c, "not a file")) };
     let on = ph.develop.sensor.fixes_pixels();
@@ -650,7 +650,7 @@ fn dust_rebuild(s: &mut Session, p: &Value, rebuild: bool) -> Result<Value> {
     let c = if rebuild { "camera.dustMap.rebuild" } else { "camera.dustMap.learn" };
     let only = str_param(p, "body").map(str::to_string);
     let clear = rebuild && p.get("clear").and_then(Value::as_bool).unwrap_or(true);
-    let ids: Vec<PhotoId> = photos(s, p).into_iter().filter(|id| s.catalog.photo(*id).is_some_and(|ph| ph.develops_raw())).collect();
+    let ids: Vec<PhotoId> = photos(s, p)?.into_iter().filter(|id| s.catalog.photo(*id).is_some_and(|ph| ph.develops_raw())).collect();
     if ids.is_empty() {
         return Err(bad(c, "no raw photos to read (select some, or show the folder or album that holds them)"));
     }

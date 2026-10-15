@@ -144,7 +144,7 @@ fn load(app: &mut LightcraftApp, slot: usize, photo: Option<PhotoId>, path: Stri
 /// Open the dialog on the active photo (a raw photo of a ColorChecker); with exactly two photos
 /// selected, the other becomes the second chart.
 pub fn open(app: &mut LightcraftApp) -> Result<Value, String> {
-    let mut ids = app.session.targets(&json!({}));
+    let mut ids = app.session.targets(&json!({})).map_err(|e| e.to_string())?;
     if let Some(active) = app.session.active()
         && let Some(i) = ids.iter().position(|x| *x == active)
     {

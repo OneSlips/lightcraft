@@ -3123,6 +3123,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-surface",
  "lightcraft-sysmem",
+ "lightcraft-testkit",
  "lightcraft-ui-egui",
  "log",
  "muda",
@@ -3196,6 +3197,7 @@ dependencies = [
  "lightcraft-geom",
  "lightcraft-heif",
  "lightcraft-raster",
+ "lightcraft-testkit",
  "moxcms 0.9.1",
  "png 0.18.1",
  "proptest",
@@ -3295,6 +3297,7 @@ dependencies = [
  "lightcraft-scenes",
  "lightcraft-segment",
  "lightcraft-slideshow",
+ "lightcraft-testkit",
  "lightcraft-tiff",
  "log",
  "miniz_oxide 0.8.9",
@@ -3310,6 +3313,7 @@ dependencies = [
 name = "lightcraft-faces"
 version = "0.8.0"
 dependencies = [
+ "lightcraft-testkit",
  "matrixmultiply",
  "ndarray",
  "proptest",
@@ -3373,6 +3377,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-raw",
  "lightcraft-scenes",
+ "lightcraft-testkit",
  "log",
  "pollster 1.0.1",
  "wgpu",
@@ -3489,12 +3494,14 @@ dependencies = [
 name = "lightcraft-raw"
 version = "0.8.0"
 dependencies = [
+ "dhat",
  "jpeg-encoder",
  "jxl-oxide",
  "lightcraft-color",
  "lightcraft-geom",
  "lightcraft-meta",
  "lightcraft-raster",
+ "lightcraft-testkit",
  "lightcraft-tiff",
  "miniz_oxide 0.8.9",
  "proptest",
@@ -3527,6 +3534,7 @@ dependencies = [
  "candle-nn",
  "image",
  "lightcraft-fetch",
+ "lightcraft-testkit",
  "log",
  "rayon",
  "serde",
@@ -3556,6 +3564,10 @@ dependencies = [
 
 [[package]]
 name = "lightcraft-sysmem"
+version = "0.8.0"
+
+[[package]]
+name = "lightcraft-testkit"
 version = "0.8.0"
 
 [[package]]
@@ -3589,6 +3601,7 @@ dependencies = [
  "lightcraft-raster",
  "lightcraft-slideshow",
  "lightcraft-surface",
+ "lightcraft-testkit",
  "log",
  "resvg",
  "serde",

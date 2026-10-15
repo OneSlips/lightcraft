@@ -658,6 +658,8 @@ pub fn demo_chart_dng_of_body(
             serial_number: serial.map(str::to_string),
             ..Default::default()
         },
+        pixel_aspect: 1.0,
+        lens_metadata: Default::default(),
     };
     lightcraft_raw::write_dng(&raw, &DngWriteOptions::default()).map_err(|e| e.to_string())
 }

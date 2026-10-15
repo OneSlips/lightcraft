@@ -35,7 +35,7 @@ pub(crate) fn setup(d: &std::path::Path, dim: u64) -> (Session, String) {
 /// need to find faces run only then.
 pub(crate) fn install_face_model(s: &mut Session) -> bool {
     let Some(root) = std::env::var_os("LIGHTCRAFT_AI_MODELS_TEST_DIR") else {
-        eprintln!("LIGHTCRAFT_AI_MODELS_TEST_DIR is not set: skipping the face-finding part");
+        lightcraft_testkit::skip!(Model, "LIGHTCRAFT_AI_MODELS_TEST_DIR is not set: skipping the face-finding part");
         return false;
     };
     s.segmenter.models_root = Some(root.into());

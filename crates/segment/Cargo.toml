@@ -27,3 +27,5 @@ candle-nn = { workspace = true, features = ["metal"] }
 
 [dev-dependencies]
 image = { workspace = true }
+# tests record why they skip (`cargo xtask ci` lists the skips)
+lightcraft-testkit = { workspace = true }

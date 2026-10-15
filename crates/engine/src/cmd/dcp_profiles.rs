@@ -351,7 +351,7 @@ fn chart_source(s: &Session, p: &Value, c: &str) -> Result<(Option<lightcraft_ca
     if let Some(path) = str_param(p, "path") {
         return Ok((None, path.to_string()));
     }
-    let id = s.targets(p).into_iter().next().ok_or_else(|| bad(c, "no photo: select the chart photo or give `id` or `path`"))?;
+    let id = s.targets(p)?.into_iter().next().ok_or_else(|| bad(c, "no photo: select the chart photo or give `id` or `path`"))?;
     let ph = s.catalog.photo(id).ok_or_else(|| bad(c, format!("no photo {}", id.0)))?;
     match &ph.source {
         lightcraft_catalog::Source::File { path } => Ok((Some(id), path.clone())),
@@ -798,7 +798,7 @@ fn set_body_default(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// `profile.applyBodyDefaults`: photos still on the default profile take their body's profile.
 fn apply_body_defaults(s: &mut Session, p: &Value) -> Result<Value> {
-    let mut ids = s.targets(p);
+    let mut ids = s.targets(p)?;
     if ids.is_empty() {
         ids = s.visible_cloned();
     }

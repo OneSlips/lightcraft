@@ -457,7 +457,7 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             |s, p| {
                 let c = "people.recognize";
-                let ids = s.targets(p);
+                let ids = s.targets(p)?;
                 if ids.len() > 20_000 {
                     return Err(bad(c, "at most 20000 photos at a time"));
                 }
@@ -527,7 +527,7 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             |s, p| {
                 let c = "people.cluster";
-                let ids = s.targets(p);
+                let ids = s.targets(p)?;
                 #[cfg(feature = "sam")]
                 {
                     let threshold = p.get("threshold").and_then(Value::as_f64).map_or(0.6, |t| t.clamp(0.2, 0.99) as f32);

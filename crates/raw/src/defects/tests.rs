@@ -54,6 +54,8 @@ fn mosaic(w: usize, h: usize, cfa: Option<Cfa>, cpp: usize, sigma: f32, scene: i
         linearized: false,
         opcodes: OpcodeLists::default(),
         metadata: Metadata::default(),
+        pixel_aspect: 1.0,
+        lens_metadata: Default::default(),
     }
 }
 
