@@ -404,3 +404,83 @@ fn a_plugin_lists_the_actions_runs_them_and_watches_their_values() {
     assert_eq!(last["layout"]["values"]["light.contrast"]["value"], "0", "{last}");
     assert!(last["layout"]["values"].get("nope").is_none());
 }
+
+/// A Logi Options+ install with the LightCraft plugin, in memory: its data folder's token and port.
+#[derive(Default)]
+struct FakeLogi {
+    token: std::sync::Mutex<Option<String>>,
+    port: std::sync::Mutex<Option<u16>>,
+}
+
+impl crate::surface_plugin::PluginInstaller for FakeLogi {
+    fn name(&self) -> String {
+        "test plugin".into()
+    }
+    fn status(&self) -> crate::surface_plugin::PluginStatus {
+        crate::surface_plugin::PluginStatus { host: Some("Logi Options+".into()), installed: Some("1.0.2".into()), package: None, package_path: None }
+    }
+    fn install(&self, _port: u16) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn uninstall(&self) -> Result<String, String> {
+        Ok(String::new())
+    }
+    fn plugin_token(&self) -> Option<String> {
+        self.token.lock().unwrap().clone()
+    }
+    fn provision(&self, token: Option<&str>, port: u16) -> Result<(), String> {
+        if let Some(t) = token {
+            *self.token.lock().unwrap() = Some(t.to_string());
+        }
+        *self.port.lock().unwrap() = Some(port);
+        Ok(())
+    }
+}
+
+#[test]
+fn an_installed_logi_plugin_works_with_no_setup_and_settings_show_the_edited_page() {
+    // first run: no settings file, the plugin installed
+    let store = MemStore::default();
+    let logi = Arc::new(FakeLogi::default());
+    let services = Services { png: None, surface_store: Some(Box::new(store.clone())), surface_plugin: Some(logi.clone()), ..Default::default() };
+    let app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+    let mut h = Headless::new(app, [1400.0, 900.0], 1.0);
+    h.settle(T);
+    open_photo(&mut h);
+    assert!(h.app.surface.settings().enabled, "on by itself");
+    let token = logi.token.lock().unwrap().clone().expect("the plugin got a token");
+    assert_eq!(*logi.port.lock().unwrap(), Some(lightcraft_surface::settings::DEFAULT_PORT));
+    for _ in 0..40 {
+        h.step();
+    }
+    assert!(store.load().unwrap().unwrap().contains("lightcraft-logi"), "trusted and saved");
+    // the plugin connects with it: paired at once, no code to approve
+    let (s, events) = sink();
+    let r = request_on(&mut h, 31, &s, "surface.hello", json!({"protocol": 1, "client": "lightcraft-logi", "token": token}));
+    assert_eq!(r["result"]["paired"], true, "{r}");
+    assert_eq!(request_on(&mut h, 31, &s, "surface.subscribe", json!({}))["ok"], true);
+    assert_eq!(h.app.surface.pairing.waiting().count(), 0);
+    // a second start keeps the same token (nothing rewritten)
+    crate::surface_plugin::auto_setup(&mut h.app);
+    assert_eq!(logi.token.lock().unwrap().as_deref(), Some(token.as_str()));
+    // a dialog doesn't take over the keys (dialog pages are opt-in)
+    let page_before = h.app.surface.runtime.pages().clone();
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "general".into() });
+    h.settle(T);
+    assert!(!h.app.surface.runtime.context().starts_with("dialog"), "{}", h.app.surface.runtime.context());
+    assert_eq!(h.app.surface.runtime.pages(), &page_before);
+    // Settings ▸ Controls shows the device the page being edited, live
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "controls".into() });
+    h.app.surface.editor.page = Some("Page 2".into());
+    h.settle(T);
+    assert_eq!(h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).map(String::as_str), Some("Page 2"));
+    let pushed: Vec<Value> = events.try_iter().collect();
+    let last = pushed.iter().rev().find(|e| e["event"] == "surface.layout").expect("pushed");
+    assert_eq!(last["layout"]["keyPage"], "Page 2", "the console follows the editor");
+    // turned off by the user: stays off on the next start
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "check:surface.enabled"}), T)["ok"], true);
+    h.settle(T);
+    assert!(!h.app.surface.settings().enabled && h.app.surface.settings().off_by_user);
+    crate::surface_plugin::auto_setup(&mut h.app);
+    assert!(!h.app.surface.settings().enabled, "off stays off");
+}

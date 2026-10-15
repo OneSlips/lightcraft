@@ -15,6 +15,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
+use lightcraft_surface as ls;
 
 /// Where a surface plugin stands.
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
@@ -58,6 +59,56 @@ pub trait PluginInstaller: Send + Sync {
     /// happens next ("Click Continue in Logi Options+…").
     fn install(&self, port: u16) -> Result<String, String>;
     fn uninstall(&self) -> Result<String, String>;
+    /// The trust token the installed plugin reads (its data folder), if there is one.
+    fn plugin_token(&self) -> Option<String> {
+        None
+    }
+    /// Hand the installed plugin a trust token (`Some`) and the port LightCraft listens on, in
+    /// its data folder, which only this user can read. Only what differs is written.
+    fn provision(&self, _token: Option<&str>, _port: u16) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The client id of the LightCraft plugin for Logi Options+.
+pub const LOGI_CLIENT: &str = "lightcraft-logi";
+
+/// Zero setup for the plugin LightCraft knows how to install: when it is installed for this
+/// user, control surfaces turn on by themselves (unless the user turned them off) and the plugin
+/// is trusted at once, through a token in its data folder (no pairing code to compare). Runs
+/// when the settings load, before the surface listener starts, and after an install.
+pub fn auto_setup(app: &mut LightcraftApp) {
+    let Some(i) = installer(app) else { return };
+    let status = i.status();
+    app.surface.plugin.status = Some(status.clone());
+    if status.installed.is_none() {
+        return;
+    }
+    let s = app.surface.settings();
+    if s.off_by_user {
+        return;
+    }
+    if !s.enabled {
+        app.surface.runtime.settings_mut().enabled = true;
+        app.surface.changed();
+        log::info!("control surfaces turned on: the Logi Options+ plugin is installed");
+    }
+    let port = app.surface.settings().port;
+    let trusted = i.plugin_token().is_some_and(|t| ls::protocol::verify(app.surface.settings(), t.trim()).is_some_and(|c| c.client == LOGI_CLIENT));
+    let token = if trusted {
+        None
+    } else {
+        let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let mut s = app.surface.settings().clone();
+        let t = app.surface.pairing.trust(LOGI_CLIENT, "LightCraft plugin for Logi Options+", &mut s, now);
+        app.surface.runtime.settings_mut().paired = s.paired;
+        app.surface.changed();
+        Some(t)
+    };
+    if let Err(e) = i.provision(token.as_deref(), port) {
+        log::warn!("Logi plugin: {e}");
+        app.surface.plugin.message = Some(Err(e));
+    }
 }
 
 /// An install or uninstall on its way.
@@ -135,9 +186,13 @@ pub fn poll(app: &mut LightcraftApp) {
         Err(TryRecvError::Empty) => return,
         Err(TryRecvError::Disconnected) => Err("the installer stopped without an answer".into()),
     };
+    let installed = job.installing && r.is_ok();
     app.surface.plugin.job = None;
     app.surface.plugin.message = Some(r);
     refresh(app, true);
+    if installed {
+        auto_setup(app);
+    }
 }
 
 /// `surface.plugin*` commands; `None` for other ids.

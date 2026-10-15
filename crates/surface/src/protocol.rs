@@ -167,6 +167,20 @@ impl Pairing {
         Ok(token)
     }
 
+    /// Trust a local client without asking (a plugin LightCraft installed or found installed for
+    /// this user): a new token, its hash saved in `settings` (any earlier token of the client
+    /// stops working). The host hands the token to the plugin through a file only this user can
+    /// read; the port stays loopback-only and the token stays required.
+    pub fn trust(&mut self, client: &str, name: &str, settings: &mut SurfaceSettings, now_s: u64) -> String {
+        let client = clean(client);
+        let token = hex(&self.random(b"trust"));
+        settings.paired.retain(|c| c.client != client);
+        settings.paired.push(PairedClient { client: client.clone(), name: clean(name), token_sha256: token_hash(&token), approved_at: now_s });
+        // a request the client may have left waiting is answered by the token instead
+        self.requests.retain(|r| r.client != client);
+        token
+    }
+
     pub fn deny(&mut self, id: &str) -> bool {
         match self.requests.iter_mut().find(|r| r.request == id && matches!(r.state, PairState::Pending { .. })) {
             Some(r) => {
@@ -181,6 +195,21 @@ impl Pairing {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn trusted_local_client() {
+        let mut p = Pairing::new(b"seed");
+        let mut s = SurfaceSettings::default();
+        let waiting = p.ask("lightcraft-logi", "plugin", 0).unwrap();
+        let t1 = p.trust("lightcraft-logi", "LightCraft plugin", &mut s, 5);
+        assert_eq!(verify(&s, &t1).map(|c| c.client.as_str()), Some("lightcraft-logi"));
+        assert!(p.poll(&waiting.request, 1).is_none(), "its waiting request is gone");
+        let t2 = p.trust("lightcraft-logi", "LightCraft plugin", &mut s, 6);
+        assert_ne!(t1, t2);
+        assert!(verify(&s, &t1).is_none(), "the old token stops working");
+        assert_eq!(s.paired.len(), 1);
+        assert!(!s.to_json().contains(&t2));
+    }
 
     #[test]
     fn pair_approve_verify() {

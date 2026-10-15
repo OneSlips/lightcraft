@@ -2804,5 +2804,8 @@
   "Show in Library": "In Bibliothek anzeigen",
   "Lightroom catalogs import into the open library; no separate catalog folder is created.": "Lightroom-Kataloge werden in die geöffnete Bibliothek importiert; es wird kein eigener Katalogordner erstellt.",
   "These photos are only in memory. Open a library on disk and import the catalog again to save them.": "Diese Fotos befinden sich nur im Arbeitsspeicher. Öffne eine Bibliothek auf dem Datenträger und importiere den Katalog erneut, um sie zu speichern.",
-  "Playback": "Wiedergabe"
+  "Playback": "Wiedergabe",
+  "Dialogs show their own page (OK, Cancel…)": "Dialogfenster zeigen ihre eigene Seite (OK, Abbrechen …)",
+  "Switch pages with what LightCraft shows (Crop, Masking…)": "Seiten mit dem wechseln, was LightCraft zeigt (Freistellen, Maskieren …)",
+  "Logi Options+ asks to install the plugin: click Continue there. The console then works by itself.": "Logi Options+ fragt nach der Installation: Klicken Sie dort auf Fortfahren. Danach funktioniert die Konsole von selbst."
 }
