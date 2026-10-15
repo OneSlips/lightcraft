@@ -85,3 +85,73 @@ mod tests {
         }
     }
 }
+
+/// Where an icon really draws, in its own viewBox units, found on a canvas twice its size (so a
+/// drawing that spills over the viewBox shows): (left, top, right, bottom, viewBox width, height).
+pub fn drawn_box(svg: &str) -> Option<(f32, f32, f32, f32, f32, f32)> {
+    let tree = resvg::usvg::Tree::from_str(svg, &resvg::usvg::Options::default()).ok()?;
+    let (w, h) = (tree.size().width(), tree.size().height());
+    if !(w > 0.0 && h > 0.0) {
+        return None;
+    }
+    let px = 256u32;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(px, px)?;
+    // the viewBox in the middle half of the canvas
+    let s = (px as f32 / 2.0) / w.max(h);
+    let off = px as f32 / 4.0;
+    resvg::render(&tree, resvg::tiny_skia::Transform::from_row(s, 0.0, 0.0, s, off, off), &mut pixmap.as_mut());
+    let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);
+    for (i, p) in pixmap.pixels().iter().enumerate() {
+        if p.alpha() > 24 {
+            let (x, y) = (i as u32 % px, i as u32 / px);
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x + 1);
+            y1 = y1.max(y + 1);
+        }
+    }
+    if x0 > x1 {
+        return None;
+    }
+    let u = |v: u32| (v as f32 - off) / s;
+    Some((u(x0), u(y0), u(x1), u(y1), w, h))
+}
+
+#[cfg(test)]
+mod placement {
+    /// Every icon draws fully inside its key with a margin, horizontally centred, and not tiny:
+    /// the keys show the whole drawing at about the same size (`assets/surface-icons`).
+    #[test]
+    fn every_icon_is_inside_centred_and_full_size() {
+        let mut bad = Vec::new();
+        for n in lightcraft_surface::icons::names() {
+            let Some((l, t, r, b, w, h)) = super::drawn_box(lightcraft_surface::icons::svg(n).unwrap_or_default()) else {
+                bad.push(format!("{n}: draws nothing"));
+                continue;
+            };
+            if l < 0.5 || t < 0.5 || r > w - 0.5 || b > h - 0.5 {
+                bad.push(format!("{n}: outside the key ({l:.1} {t:.1} {r:.1} {b:.1})"));
+            }
+            if ((l + r) / 2.0 - w / 2.0).abs() > 1.0 {
+                bad.push(format!("{n}: off-centre ({:.1})", (l + r) / 2.0));
+            }
+            if (r - l).max(b - t) < 0.45 * w {
+                bad.push(format!("{n}: small ({:.2})", (r - l).max(b - t) / w));
+            }
+        }
+        assert!(bad.is_empty(), "{bad:#?}");
+    }
+}
+
+#[cfg(test)]
+mod survey {
+    #[test]
+    #[ignore]
+    fn print_icon_boxes() {
+        for n in lightcraft_surface::icons::names() {
+            if let Some((l, t, r, b, w, h)) = super::drawn_box(lightcraft_surface::icons::svg(n).unwrap_or_default()) {
+                println!("DBOX {n} {l} {t} {r} {b} {w} {h}");
+            }
+        }
+    }
+}
