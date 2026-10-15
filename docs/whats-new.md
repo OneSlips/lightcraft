@@ -2,6 +2,10 @@
 
 ## 2026-10-16
 
+### Eye focus strip
+- **On while you import, off in the library**: two switches, one for each side; the eye button on the bottom bar (and Shift+T) switches the one where you are.
+- **Bigger type** under the eye crops, and **big groups wrap** into rows; when they don't all fit, the closed and soft eyes come first.
+
 ### Culling with Caps Lock
 - **Caps Lock turns Auto Advance on**: with it on, every pick, reject, rating or label moves to the next photo, as in Lightroom. Photo ▸ Auto Advance still switches it on for good.
 
