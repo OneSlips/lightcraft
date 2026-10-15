@@ -9,6 +9,8 @@
   way and the Masking panel says it is approximate, with a button to get the model.
 - **People**: pick everyone or one person and the parts — face skin, body skin, hair, clothes,
   eyebrows, eye whites, irises, lips, teeth.
+- **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, with no square
+  holes in a lace dress; people and clothes edges follow the photo's own edges more closely.
 - **Landscape**: sky, water, vegetation, mountains, architecture, natural or artificial ground.
 - **Update** recomputes a mask made before its model was installed.
 - Everything runs on your computer, in LightCraft's own code; nothing is uploaded.
