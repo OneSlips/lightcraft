@@ -241,7 +241,7 @@ such a keypad sends `page` with its presses.
 a value moves it (one undo step per turn, with the value's dial feel), pressing a value resets it, pressing anything
 else does what a key bound to it does (a modifier holds until the action is released). An unknown key is refused.
 
-**Devices and controls.** `mx-creative-console`: `key.1`–`key.9` (Keypad LCD keys, row by row), `dial`, `roller`,
+**Devices and controls.** `mx-creative-console`: `key.1`–`key.9` (Keypad LCD keys, row by row), `dial` (the Dialpad's big dial, Logi encoder 1), `roller` (Logi encoder 0),
 `pad.1`–`pad.4` (Dialpad buttons). A dial press is `{control: "dial", press: true}`; it runs `dial.press` if a page
 binds it, else resets the dial's value. Logi's device types: `Loupedeck70` = MX Creative Keypad, `Loupedeck71` = MX
 Creative Dialpad, `Loupedeck72` = the Actions Ring (TactileBridge's `…70` / `…71` / `…72` profile variants).
@@ -607,3 +607,4 @@ every dropped action says why).
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
+| 2026-10-15 | minor | Zero setup for the Logi plugin (on by itself, trusted through its data folder); the console shows the page being edited; dialog pages opt-in; `dial` / `roller` are the real big dial / roller (settings format 2 swaps older files), so a value key's value lands on the big dial |
