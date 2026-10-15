@@ -758,7 +758,7 @@ fn person_instances(
     job.dir = keep;
     match out {
         Ok(people) => {
-            let seeds: Vec<[f32; 2]> = faces.iter().map(|f| centre(f)).map(|(x, y, _)| [x, y]).collect();
+            let seeds: Vec<[f32; 2]> = faces.iter().map(&centre).map(|(x, y, _)| [x, y]).collect();
             Some(lightcraft_segment::people::Instances::new(SAM2_MASK_SIDE, people, &seeds))
         }
         Err(e) => {
