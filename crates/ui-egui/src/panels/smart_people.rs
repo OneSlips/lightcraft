@@ -320,6 +320,11 @@ pub fn person_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
         super::dialogs::prompt(app, "Rename Person", "New name (an existing name merges them)", name, "people.rename", json!({"from": name}), "to");
         ui.close();
     }
+    forget_menu(app, ui, name);
+}
+
+/// Forget This Person: delete how LightCraft recognises them (and, if asked, their name on photos).
+pub fn forget_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, name: &str) {
     ui.menu_button(crate::i18n::tr("Forget This Person"), |ui| {
         ui.label(crate::i18n::tr("Deletes how LightCraft recognises them (biometric data) and their roles."));
         if ui.button(crate::i18n::tr("Forget, Keep Their Name on Photos")).clicked() {

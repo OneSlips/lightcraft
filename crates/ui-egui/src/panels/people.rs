@@ -201,11 +201,11 @@ fn card(app: &mut LightcraftApp, ui: &mut egui::Ui, person: &Person, r: Rect, ed
         if r.clicked() {
             open_rename(app, &full);
         }
+        super::smart_people::forget_menu(app, ui, &full);
     });
     if resp.clicked() {
         let _ = app.run("view.person", json!({"name": person.name}));
     }
-    resp.context_menu(|ui| super::smart_people::person_menu(app, ui, &person.name));
 }
 
 /// The Rename Person dialog, prefilled with the name the card shows.

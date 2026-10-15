@@ -488,6 +488,8 @@ mod in_the_loupe {
     /// Drag Exposure in the loupe and return the long edge of the whole-frame draft shown, with
     /// the largest a small (CPU-sized) draft of the photo as drawn can be.
     fn drag_exposure(h: &mut Headless) -> (usize, usize) {
+        // (the drafts while the drag goes on: held still, the view would refine to full size)
+        h.app.draft_size.no_refine = true;
         h.app.session.begin_interaction("Exposure").unwrap();
         h.request("engine.execute", json!({"command": "develop.set", "params": {"control": "light.exposure", "value": 0.5}}), T);
         h.settle(SETTLE);

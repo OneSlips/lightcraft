@@ -295,6 +295,10 @@ pub struct DraftSize {
     over: u32,
     /// When the newest draft taken into account reached the screen ([`crate::render::LoupeRender::at_ms`]).
     last_draft_at: f64,
+    /// Tests of the draft size itself: every frame of an open interaction drafts (no refine while
+    /// it is held still).
+    #[cfg(test)]
+    pub(crate) no_refine: bool,
 }
 
 impl DraftSize {
@@ -310,6 +314,10 @@ impl DraftSize {
             self.held = None;
             self.over = 0;
             return false;
+        }
+        #[cfg(test)]
+        if self.no_refine {
+            return true;
         }
         let since = self.seen.map_or(f64::NEG_INFINITY, |(_, _, t)| t);
         now - since < Self::refine_after(full_ms)

@@ -2899,6 +2899,7 @@ pub(crate) fn film_thumb_px(cell_w: f32, ppp: f32) -> usize {
 fn film_resize(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let edge = Rect::from_min_size(r.min - vec2(0.0, 2.0), vec2(r.width(), 7.0));
     let resp = ui.interact(edge, egui::Id::new("film-resize"), Sense::drag());
+    crate::widgets::announce(&resp, crate::i18n::tr("Filmstrip height"));
     register(ui.ctx(), "filmstrip:resize", edge);
     if resp.hovered() || resp.dragged() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
