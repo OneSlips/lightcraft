@@ -105,6 +105,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 Stroke::new(1.0, if focused { t.accent } else { t.field_border }),
                 StrokeKind::Inside,
             );
+            register(ui.ctx(), "field:search", sr);
             let mut child =
                 ui.new_child(egui::UiBuilder::new().max_rect(sr.shrink2(vec2(10.0, 4.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
             let empty = app.ui.search.is_empty();
@@ -126,39 +127,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if resp.changed() {
                 let q = app.ui.search.clone();
                 let _ = app.run("library.filter", json!({"text": q}));
-            }
-            // filter icon right of the search field
-            let fr = Rect::from_center_size(pos2(sr.right() + 22.0, sr.center().y), vec2(28.0, 28.0));
-            let fresp = ui.interact(fr, egui::Id::new("filter-btn"), Sense::click());
-            crate::widgets::announce(&fresp, crate::i18n::tr("Filters"));
-            register(ui.ctx(), "icon:filter", fr);
-            let filtering = app.session.filter != Default::default() || app.ui.filter_bar;
-            paint(
-                ui.painter(),
-                fr.shrink(6.0),
-                Icon::Filter,
-                if filtering {
-                    t.accent
-                } else if fresp.hovered() {
-                    t.text
-                } else {
-                    t.icon
-                },
-            );
-            // badge: how many filters are on, even with the filter bar closed
-            let active = lightcraft_engine::filter_chips(&app.session.filter, &app.session.catalog).len();
-            if active > 0 {
-                let c = fr.right_top() + vec2(-3.0, 8.0);
-                ui.painter().circle_filled(c, 7.0, t.accent);
-                ui.painter().text(c, Align2::CENTER_CENTER, active.to_string(), t.semibold(9.5), t.canvas);
-            }
-            let fresp = fresp.on_hover_text(if active > 0 {
-                crate::i18n::tr_format!("Filter bar — {active} active filter{}", if active == 1 { "" } else { "s" }, active = active)
-            } else {
-                crate::i18n::tr("Filter bar").into()
-            });
-            if fresp.clicked() {
-                let _ = app.run("view.filterBar", json!({}));
             }
             // right icons
             let mut x = full.right() - 18.0;

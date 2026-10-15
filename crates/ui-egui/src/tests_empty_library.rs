@@ -169,7 +169,7 @@ fn recently_deleted_is_not_the_empty_library() {
 }
 
 #[test]
-fn the_import_button_leaves_the_filter_and_appearance_icons_apart() {
+fn the_import_button_leaves_the_search_field_and_appearance_icon_apart() {
     // the search field is centred: a seventh icon on the right must not push it into them
     // with the menus in the window (Windows, Linux, web) and in the native menu bar (macOS)
     for (width, native_menu) in [900.0, 906.0, 1024.0, 1200.0, 1600.0].into_iter().flat_map(|w| [(w, false), (w, true)]) {
@@ -181,7 +181,7 @@ fn the_import_button_leaves_the_filter_and_appearance_icons_apart() {
         h.step();
         h.step();
         let rect = |id: &str| h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("{id} at {width}"));
-        let (filter, appearance, import) = (rect("icon:filter"), rect("icon:appearance"), rect("icon:import"));
+        let (filter, appearance, import) = (rect("field:search"), rect("icon:appearance"), rect("icon:import"));
         assert!(!filter.intersects(appearance), "{width} (native menu {native_menu}): filter {filter:?} meets appearance {appearance:?}");
         assert!(!filter.intersects(import), "{width} (native menu {native_menu}): filter {filter:?} meets import {import:?}");
     }

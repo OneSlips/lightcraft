@@ -363,5 +363,10 @@
   "Move {n} photo{} to “{}”?": "Переместить в «{1}» фото: {n}{0:.0}?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "В «{1}» перемещено фото: {n}{0:.0}. Правка → Отменить вернёт их.",
   "+{} more, all sharp and open": "ещё {}, все резкие и с открытыми глазами",
-  " · {n} selected": " · выбрано: {n}"
+  " · {n} selected": " · выбрано: {n}",
+  "{} label": "Метка «{}»",
+  "{name} (click again to clear)": "{name} (щёлкните ещё раз, чтобы снять)",
+  "Show photos labelled {}": "Показать фото с меткой «{}»",
+  "{n} stars or more": "{n} звезды и больше",
+  "Exactly {n} stars": "Ровно {n} звезды"
 }

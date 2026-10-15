@@ -363,5 +363,10 @@
   "{} with eyes closed": "Se zavřenýma očima: {}",
   "“{name}” added to Camera Profiles": "„{name}“ přidán do profilů fotoaparátu",
   "+{} more, all sharp and open": "+{} dalších, všichni ostří a s otevřenýma očima",
-  " · {n} selected": " · vybráno: {n}"
+  " · {n} selected": " · vybráno: {n}",
+  "{} label": "Štítek {}",
+  "{name} (click again to clear)": "{name} (dalším kliknutím zrušíte)",
+  "Show photos labelled {}": "Zobrazit fotky se štítkem {}",
+  "{n} stars or more": "{n} hvězdičky a více",
+  "Exactly {n} stars": "Přesně {n} hvězdičky"
 }

@@ -925,7 +925,9 @@ pub struct UiState {
     /// Remove tool: Visualize Spots (high-pass black/white view) and its threshold 0..100.
     pub visualize_spots: bool,
     pub spots_threshold: f32,
-    /// The library filter bar above the grid.
+    /// View ▸ More Filters… (Shift+F) asked for the bottom bar's More filters popover: it opens
+    /// next frame (the stars, flags and labels filters are always on the bar).
+    #[serde(skip)]
     pub filter_bar: bool,
     /// Folders kept in Local (Browse Folder…, Keep in Local / Add to Local; `local.addRoot`):
     /// listed after the built-in locations, across restarts, whatever is browsed.

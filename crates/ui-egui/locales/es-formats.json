@@ -363,5 +363,10 @@
   "Move {n} photo{} to “{}”?": "¿Mover {n} foto{0} a “{1}”?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} foto{0} movida{0} a “{1}”. Editar → Deshacer las devuelve.",
   "+{} more, all sharp and open": "+{} más, todos nítidos y con los ojos abiertos",
-  " · {n} selected": " · {n} seleccionadas"
+  " · {n} selected": " · {n} seleccionadas",
+  "{} label": "Etiqueta {}",
+  "{name} (click again to clear)": "{name} (vuelva a hacer clic para quitarla)",
+  "Show photos labelled {}": "Mostrar fotos con la etiqueta {}",
+  "{n} stars or more": "{n} estrellas o más",
+  "Exactly {n} stars": "Exactamente {n} estrellas"
 }

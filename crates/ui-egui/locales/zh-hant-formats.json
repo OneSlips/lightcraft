@@ -363,5 +363,10 @@
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "已新增{what}合併照片（{mp}）：完整尺寸（{full}）所需的記憶體超過這台電腦的記憶體",
   "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "已新增{what}合併照片（{mp}），這是全景圖的最大尺寸（完整尺寸：{full}）",
   "+{} more, all sharp and open": "另有 {} 人，都清晰且睜眼",
-  " · {n} selected": " · 已選 {n} 張"
+  " · {n} selected": " · 已選 {n} 張",
+  "{} label": "{}標籤",
+  "{name} (click again to clear)": "{name}（再按一下可清除）",
+  "Show photos labelled {}": "顯示帶{}標籤的相片",
+  "{n} stars or more": "{n} 星及以上",
+  "Exactly {n} stars": "恰好 {n} 星"
 }

@@ -119,7 +119,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.cropOverlayOrientation", "Cycle Crop Overlay Orientation", None, "View"),
     ("view.back", "Back to Grid", Some("Escape"), ""),
     ("tool.done", "Done", Some("Enter"), ""),
-    ("view.filterBar", "Filter Bar", Some("Shift+F"), "View"),
+    ("view.filterBar", "More Filters…", Some("Shift+F"), "View"),
     ("local.addRoot", "Add Folder to Local", None, ""),
     ("local.hide", "Remove from Local", None, ""),
     ("local.restoreHidden", "Show Hidden Local Locations", None, ""),
@@ -1164,11 +1164,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             json!({"soloSections": app.ui.single_panel})
         }),
         "view.filterBar" => {
-            app.ui.filter_bar = !app.ui.filter_bar;
-            if app.ui.filter_bar && !matches!(app.ui.view, ViewMode::PhotoGrid | ViewMode::SquareGrid) {
-                app.ui.view = ViewMode::PhotoGrid;
-            }
-            Ok(json!({"filterBar": app.ui.filter_bar}))
+            // the stars, flags and labels filters are always on the bottom bar: this opens its
+            // More filters popover (next frame)
+            app.ui.filter_bar = true;
+            Ok(json!({"moreFilters": true}))
         }
         "panel.edit" => {
             panel(app, &ctx, RightPanel::Edit, "Edit");

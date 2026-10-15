@@ -21,7 +21,8 @@ fn demo(size: [f32; 2], ui: serde_json::Value) -> Headless {
 /// and discard its choices. Their own controls work, and closing restores background input.
 #[test]
 fn modal_dialogs_block_background_clicks_and_preserve_choices() {
-    let mut h = demo([1400.0, 1000.0], json!({"view": "detail", "right": "edit"}));
+    // (wide enough for the bottom bar to show Copy Edit Settings beside the culling filters)
+    let mut h = demo([2200.0, 1000.0], json!({"view": "detail", "right": "edit"}));
     let active = h.app.session.active().unwrap();
     let rating = h.app.session.catalog.photo(active).unwrap().rating;
     h.app.run("dialog.copySettings", json!({})).unwrap();

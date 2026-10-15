@@ -43,8 +43,23 @@ pub(crate) fn display_label(chip: &FilterChip, filter: &lightcraft_catalog::Filt
     if chip.clear.get("label").is_some() {
         let mut labels = filter.labels.clone();
         labels.extend(filter.label.filter(|label| !labels.contains(label)));
-        let names = labels.iter().map(|label| crate::i18n::color_label(catalog, *label)).collect::<Vec<_>>();
+        let mut names = labels.iter().map(|label| crate::i18n::color_label(catalog, *label)).collect::<Vec<_>>();
+        if filter.unlabeled {
+            names.push(tr("No Label").to_string());
+        }
         return format!("{}: {}", tr("Label"), names.join(&format!(" {} ", tr("or"))));
+    }
+    if chip.clear.get("flags").is_some() {
+        let names: Vec<&str> = filter
+            .flags
+            .iter()
+            .map(|f| match f {
+                lightcraft_catalog::Flag::Pick => tr("Picked"),
+                lightcraft_catalog::Flag::Reject => tr("Rejected"),
+                lightcraft_catalog::Flag::None => tr("Unflagged"),
+            })
+            .collect();
+        return format!("{}: {}", tr("Flag"), names.join(&format!(" {} ", tr("or"))));
     }
     if chip.clear.get("dateFrom").is_some() || chip.clear.get("dateTo").is_some() {
         return match (&filter.date_from, &filter.date_to) {

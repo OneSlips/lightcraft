@@ -363,5 +363,10 @@
   "Generated {} variations": "Varianti generate: {}",
   "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
   "+{} more, all sharp and open": "+{} altri, tutti nitidi e con gli occhi aperti",
-  " · {n} selected": " · {n} selezionate"
+  " · {n} selected": " · {n} selezionate",
+  "{} label": "Etichetta {}",
+  "{name} (click again to clear)": "{name} (fai di nuovo clic per toglierla)",
+  "Show photos labelled {}": "Mostra le foto con etichetta {}",
+  "{n} stars or more": "{n} stelle o più",
+  "Exactly {n} stars": "Esattamente {n} stelle"
 }

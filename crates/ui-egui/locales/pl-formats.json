@@ -363,5 +363,10 @@
   "{} with eyes closed": "Z zamkniętymi oczami: {}",
   "“{name}” added to Camera Profiles": "Dodano „{name}” do profili aparatu",
   "+{} more, all sharp and open": "+{} więcej, wszyscy ostrzy i z otwartymi oczami",
-  " · {n} selected": " · zaznaczono: {n}"
+  " · {n} selected": " · zaznaczono: {n}",
+  "{} label": "Etykieta {}",
+  "{name} (click again to clear)": "{name} (kliknij ponownie, aby usunąć)",
+  "Show photos labelled {}": "Pokaż zdjęcia z etykietą {}",
+  "{n} stars or more": "{n} gwiazdki lub więcej",
+  "Exactly {n} stars": "Dokładnie {n} gwiazdki"
 }

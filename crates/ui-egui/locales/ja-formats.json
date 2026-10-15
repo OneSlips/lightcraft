@@ -363,5 +363,10 @@
   "{what} merge added at {mp}: its full size, {full}, needs more memory than this computer has": "{what}合成を{mp}で追加しました：フルサイズ（{full}）にはこのコンピューターのメモリが足りません",
   "{what} merge added at {mp}, the largest a panorama can be (its full size is {full})": "{what}合成を{mp}で追加しました。パノラマの最大サイズです（フルサイズ：{full}）",
   "+{} more, all sharp and open": "ほか{}人（すべてシャープで目が開いています）",
-  " · {n} selected": " · {n}枚選択"
+  " · {n} selected": " · {n}枚選択",
+  "{} label": "{}ラベル",
+  "{name} (click again to clear)": "{name}（もう一度クリックで解除）",
+  "Show photos labelled {}": "{}ラベルの写真を表示",
+  "{n} stars or more": "星{n}つ以上",
+  "Exactly {n} stars": "星ちょうど{n}つ"
 }

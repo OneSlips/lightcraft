@@ -353,7 +353,6 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
         "view.beforeAfter" => Some(u.before_after == crate::state::BeforeAfter::SideBySide),
         "view.beforeAfterSplit" => Some(u.before_after == crate::state::BeforeAfter::Split),
         "view.autoAdvance" => Some(u.auto_advance),
-        "view.filterBar" => Some(u.filter_bar),
         "view.soloSections" => Some(u.single_panel),
         "view.navigator" => Some(u.navigator),
         "view.layoutImage" => Some(u.layout_image.show && !u.layout_image.path.trim().is_empty()),

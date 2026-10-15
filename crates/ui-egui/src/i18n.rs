@@ -1314,9 +1314,12 @@ mod tests {
                     for id in ["button:exportNamingTags", "button:exportChooseFolder", "button:exportSavePreset"] {
                         assert!(dialog.contains_rect(rect(id)), "{id} spills outside {dialog:?}: {:?}", rect(id));
                     }
-                } else {
-                    let button = rect("button:copySettings");
-                    let (_, text) = bounds.iter().find(|entry| entry.0 == language.tr("Copy Edit Settings")).unwrap();
+                } else if let Some((_, button)) = app.widgets.iter().find(|entry| entry.0 == "button:copySettings") {
+                    // (on a narrow bar the caption is the short one, or the button gives way)
+                    let (_, text) = bounds
+                        .iter()
+                        .find(|entry| entry.0 == language.tr("Copy Edit Settings") || entry.0 == language.tr("Copy"))
+                        .expect("the copy button's caption");
                     assert!(button.contains_rect(*text), "{language:?} copy caption overflows its button: {text:?} vs {button:?}");
                     assert!(!button.intersects(rect("icon:copyGear")));
                 }
