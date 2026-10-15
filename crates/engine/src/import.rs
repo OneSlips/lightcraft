@@ -1532,6 +1532,7 @@ impl Session {
             stages: None,
             view_cache: None,
             display: None,
+            on_screen: false,
             preview_cut: None,
         };
         let embedded = match (&self.media.preview_loader, c.kind) {
