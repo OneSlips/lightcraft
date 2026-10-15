@@ -101,3 +101,13 @@ fn resize_cursors_follow_the_direction() {
     assert_eq!(resize_cursor(vec2(1.0, -1.0)), ResizeNeSw);
     let _ = resize_cursor(vec2(f32::NAN, 0.0));
 }
+
+#[test]
+fn the_live_auto_mask_stroke_goes_out_throttled() {
+    assert!(!live_due(None, 1, 0.0), "a single point is not a stroke yet");
+    assert!(live_due(None, 2, 0.0));
+    assert!(!live_due(Some((1.0, 10)), 12, 1.05), "too soon");
+    assert!(live_due(Some((1.0, 10)), 12, 1.0 + LIVE_AUTO_MASK_EVERY));
+    assert!(!live_due(Some((1.0, 10)), 10, 5.0), "nothing new");
+    assert!(live_due(Some((1.0, 10)), 11, f64::NAN), "a broken clock never stalls it");
+}

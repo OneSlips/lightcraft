@@ -391,7 +391,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full)}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), continue?: bool (the stroke being painted, sent again as it grows: it replaces the mask's last stroke, so Auto Mask shows live)}",
             has_active,
             |s, p| {
                 let pts: Vec<Point> = p
@@ -416,6 +416,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let want = p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(s.active_mask);
                 let adjust = super::mask_effects::new_mask_adjust(s, "brush");
+                let again = bool_or(p, "continue", false);
                 masks_edit(s, "mask.brushStroke", "Brush", |masks, active| {
                     let i = match want.and_then(|m| masks.iter().position(|x| x.id == m)) {
                         Some(i) => i,
@@ -429,7 +430,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     if let Some(MaskComponent { shape: MaskShape::Brush { strokes }, .. }) =
                         m.components.iter_mut().rev().find(|c| matches!(c.shape, MaskShape::Brush { .. }))
                     {
-                        strokes.push(stroke);
+                        match strokes.last_mut() {
+                            Some(last) if again => *last = stroke,
+                            _ => strokes.push(stroke),
+                        }
                     } else {
                         m.components.push(MaskComponent {
                             anchor: None,

@@ -142,3 +142,29 @@ fn add_subtract_and_intersect_offer_every_mask_kind() {
     assert_eq!(m.components.len(), before + 1);
     assert!(matches!(m.components.last().map(|c| (&c.shape, c.op)), Some((MaskShape::Background { .. }, lightcraft_develop::MaskOp::Subtract))));
 }
+
+/// Auto Mask while painting: the stroke goes to the photo as it grows (the render shows the real,
+/// edge-aware coverage), replacing itself, and the whole stroke is one undo step.
+#[test]
+fn auto_mask_strokes_show_live_and_undo_in_one_step() {
+    let mut h = detail("panel.masking");
+    click(&mut h, "maskNew:brush");
+    h.app.ui.brush_auto_mask = true;
+    let strokes = |h: &Headless| match develop(h).masks.first().and_then(|m| m.components.first()).map(|c| c.shape.clone()) {
+        Some(MaskShape::Brush { strokes }) => strokes.iter().map(|s| s.points.len()).collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.5}, {"kind": "drag", "x": 0.25, "y": 0.5}, {"kind": "drag", "x": 0.3, "y": 0.5}]));
+    let live = strokes(&h);
+    assert_eq!(live.len(), 1, "the stroke is on the photo before the button is let go: {live:?}");
+    assert!(h.app.session.interaction.is_some(), "its undo step is open");
+    // later points replace it (one stroke, longer), once the throttle allows
+    std::thread::sleep(Duration::from_millis(150));
+    pointer(&mut h, json!([{"kind": "drag", "x": 0.4, "y": 0.5}, {"kind": "drag", "x": 0.5, "y": 0.5}, {"kind": "up", "x": 0.5, "y": 0.5}]));
+    let done = strokes(&h);
+    assert_eq!(done.len(), 1, "{done:?}");
+    assert!(done[0] > live[0], "{done:?} after {live:?}");
+    assert!(h.app.session.interaction.is_none(), "the step is closed on release");
+    exec(&mut h, "edit.undo", json!({}));
+    assert!(strokes(&h).is_empty(), "one undo removes the whole stroke");
+}

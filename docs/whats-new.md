@@ -22,6 +22,11 @@
   (they stay parallel).
 - A **Radial** gradient has an **inner feather ring**: drag its handle in or out to set how soft
   the edge is. A **Feather** slider under the radial does the same; both stay in step.
+- **Auto Mask follows the edges while you paint**: the stroke goes to the photo every eighth of a
+  second as it grows, so the edge-aware result shows live, not only after you let go. The whole
+  stroke is still one undo step.
+- The **brush cursor has a small crosshair at its centre**: that is where Auto Mask samples the
+  colour and texture to follow, so you can aim it.
 
 ## 2026-10-15
 

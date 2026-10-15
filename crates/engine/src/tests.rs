@@ -331,6 +331,22 @@ fn brush_strokes_keep_pen_pressure_and_refuse_bad_lists() {
 }
 
 #[test]
+fn a_stroke_sent_again_as_it_grows_replaces_itself() {
+    let mut s = demo();
+    s.execute("mask.add", &json!({"kind": "brush"})).unwrap();
+    s.execute("mask.brushStroke", &json!({"points": [[0.1, 0.1]]})).unwrap();
+    // the live Auto Mask stroke: sent at 2 points, then 3, then (released) 4
+    s.execute("mask.brushStroke", &json!({"points": [[0.2, 0.2], [0.3, 0.3]], "autoMask": true})).unwrap();
+    for n in [3, 4] {
+        let pts: Vec<[f64; 2]> = (0..n).map(|i| [0.2 + 0.1 * i as f64, 0.2]).collect();
+        s.execute("mask.brushStroke", &json!({"points": pts, "autoMask": true, "continue": true})).unwrap();
+    }
+    let lightcraft_develop::MaskShape::Brush { strokes } = &active_dev(&s).masks[0].components[0].shape else { panic!("a brush") };
+    assert_eq!(strokes.iter().map(|s| s.points.len()).collect::<Vec<_>>(), vec![1, 4], "the earlier stroke stays, the live one is replaced");
+    assert!(strokes[1].auto_mask);
+}
+
+#[test]
 fn masks_crop_and_render() {
     let mut s = demo();
     s.execute("mask.add", &json!({"kind": "radial", "center": [0.5, 0.5]})).unwrap();
