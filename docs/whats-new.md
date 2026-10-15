@@ -2,6 +2,15 @@
 
 ## 2026-10-16
 
+### Control surfaces: safer keys, Erase while held
+- **Erase** works while its key is held, like Alt with the brush, and lights up only then. New
+  Brush runs once and never stays lit. A key lit because its value is on the dial, because it is
+  held, or because a mode is on now looks different for each.
+- **Delete, Reset and other keys that undo work need a short hold** (0.7 s) on the console; a
+  quick press only shows "Hold the key". The built-in layouts have no Delete key any more.
+- The brush page has **Brush Size** and **Feather** keys; Mask Above / Below are now **Previous
+  Mask** / **Next Mask**.
+
 ### Control surfaces: icons of their own
 - Invert Mask, Erase, New Brush, Previous / Next Mask, Mask On/Off, the zoom, selection, rotate
   and Reset keys have their own icons instead of sharing one, drawn in the style of the icon pack.
