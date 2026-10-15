@@ -43,8 +43,15 @@ fn run_typed_keeps_the_kind_and_run_the_message() {
     let dir = std::env::temp_dir().join(format!("lc-ui-error-kinds-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     h.app.session.face_models_dir = Some(dir.join("models"));
+    // (the app keeps the AI models and the face model in the same folder)
+    h.app.session.segmenter.models_root = Some(dir.join("models"));
     let typed = h.app.run_typed("faces.detect", json!({})).unwrap_err();
-    assert_eq!(typed.kind, ErrorKind::ModelMissing(AiModel::FaceDetector), "{typed}");
+    if lightcraft_engine::segment::Segmenter::AVAILABLE {
+        assert_eq!(typed.kind, ErrorKind::ModelMissing(AiModel::FaceDetector), "{typed}");
+    } else {
+        // a build without the open AI models has no face model to download
+        assert_ne!(typed.kind, ErrorKind::ModelMissing(AiModel::FaceDetector), "{typed}");
+    }
     h.app.ui.dialog = None;
     let text = h.app.run("faces.detect", json!({})).unwrap_err();
     assert_eq!(text, typed.message);

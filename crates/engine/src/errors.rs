@@ -9,7 +9,7 @@ use crate::EngineError;
 /// A model a feature needs and LightCraft downloads only when the person agrees.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AiModel {
-    /// YuNet, which finds faces (`faces.detect`; installed in Settings ▸ Faces).
+    /// The face model (MediaPipe's, `faces.detect`; `ai.models.download {"id": "face"}`).
     FaceDetector,
     /// SAM 3, behind Object and Describe masks (`segment.model.download`).
     Sam3,

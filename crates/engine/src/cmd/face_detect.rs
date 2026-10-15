@@ -168,7 +168,15 @@ fn detect(s: &mut Session, p: &Value) -> Result<Value> {
     let score = p.get("score").and_then(Value::as_f64).filter(|v| v.is_finite()).map_or(DEFAULT_SCORE, |v| v as f32);
     let max_faces = p.get("maxFaces").and_then(Value::as_u64).map_or(DEFAULT_MAX_FACES, |v| usize::try_from(v).unwrap_or(DEFAULT_MAX_FACES));
     let fine = p.get("fine").and_then(Value::as_bool).unwrap_or(true);
-    let detector = detector(s).map_err(|e| bad(C, e))?;
+    let detector = detector(s).map_err(|e| {
+        // not downloaded yet: a frontend offers it on the kind (#1046); the message is unchanged
+        let msg = bad(C, &e).to_string();
+        if crate::segment::missing_model_in(&e) == Some("face") {
+            crate::EngineError::ModelMissing { model: crate::AiModel::FaceDetector, msg }
+        } else {
+            bad(C, e)
+        }
+    })?;
     let started = Instant::now();
     let (mut results, mut ops) = (Vec::new(), Vec::new());
     for id in s.targets(p) {
