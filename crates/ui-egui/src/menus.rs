@@ -163,6 +163,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("tool.none", "No Tool", None, ""),
     // brush size / feather of the active brush (Masking brush, Remove tool and its selected spot)
     ("brush.smaller", "Decrease Brush Size", Some("["), "Window>Tools"),
+    // the brush's Erase mode; {on} sets it (a console key holds it like Alt), none toggles
+    ("brush.erase", "Erase", None, ""),
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
@@ -281,8 +283,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("photo.tagFromTracklog", "Auto-Tag from Tracklog…", None, "Photo"),
     ("app.exportPrevious", "Export with Previous", Some("Cmd+Alt+Shift+E"), "File"),
     // control surfaces (`surface`): what their keys run, and their settings for agents
-    ("surface.maskPrevious", "Select Mask Above", None, ""),
-    ("surface.maskNext", "Select Mask Below", None, ""),
+    ("surface.maskPrevious", "Select Previous Mask", None, ""),
+    ("surface.maskNext", "Select Next Mask", None, ""),
     ("surface.dialogConfirm", "Confirm Dialog", None, ""),
     ("surface.dialogCancel", "Cancel Dialog", None, ""),
     ("surface.pageNext", "Next Surface Page", None, ""),
@@ -1076,6 +1078,17 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             let [r, g, b] = app.ui.mask_overlay_color;
             Ok(json!({"color": format!("#{r:02x}{g:02x}{b:02x}"), "opacity": app.ui.mask_overlay_opacity}))
+        }
+        "brush.erase" => {
+            let on = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.brush_erase);
+            if on && app.ui.tool != "brush" {
+                // erasing needs the brush: pick it up on the selected mask
+                if let Err(e) = app.run("tool.brush", json!({})) {
+                    return Some(Err(e));
+                }
+            }
+            app.ui.brush_erase = on;
+            Ok(json!({"on": on}))
         }
         "brush.smaller" | "brush.larger" | "brush.featherLess" | "brush.featherMore" => {
             let (k, df) = match id {

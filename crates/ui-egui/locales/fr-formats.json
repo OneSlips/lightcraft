@@ -362,5 +362,6 @@
   "Move {n} photo{} to “{}”": "Déplacer {n} photo{} vers « {} »",
   "Move {n} photo{} to “{}”?": "Déplacer {n} photo{} vers « {} » ?",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n} photo{} déplacée(s) vers « {} ». Modifier → Annuler les remet en place.",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} photos déplacées dans Supprimées récemment. Les fichiers restent sur le disque ; Annuler les rétablit.",
   "Finding “{text}”…": "Recherche de « {text} »…"
 }
