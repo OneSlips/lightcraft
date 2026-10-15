@@ -12,6 +12,7 @@
 
 use std::path::Path;
 
+use crate::matte;
 use crate::mediapipe::{self, Detection, FacePart, Grid};
 use crate::tflite;
 use crate::{Error, Result};
@@ -326,6 +327,11 @@ impl PeopleRequest {
         Some(r)
     }
 
+    /// The entire person (every class, or the request with no parts), face parts aside.
+    pub fn is_whole_person(&self) -> bool {
+        self.classes == [1, 2, 3, 4, 5]
+    }
+
     pub fn needs_people(&self) -> bool {
         !self.classes.is_empty()
     }
@@ -346,31 +352,84 @@ pub struct MaskGrid {
     pub faces_without_features: usize,
 }
 
+/// A class matte made from the 256-pixel class map, refined on the photo: specks the coarse map
+/// leaves inside a person (lace, sequins: `fill`, for clothes and the entire person) filled, then
+/// a guided filter on the photo's luminance at the grid's resolution, so the edge follows the
+/// garment's or the body's own edge instead of the class map's blur.
+fn refine(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], fill: bool) {
+    let side = grid.side;
+    if fill {
+        // at most 1/2000 of the grid: a 23-cell square at 1024
+        matte::fill_small_holes(cov, side, (side * side / 2000).max(4));
+    }
+    if rgb.len() < grid.w.saturating_mul(grid.h).saturating_mul(3) || grid.w == 0 || grid.h == 0 {
+        return;
+    }
+    let guide: Vec<f32> = (0..side * side)
+        .map(|c| {
+            let [x, y] = grid.centre(c % side, c / side);
+            let (x, y) = ((x.max(0.0) as usize).min(grid.w - 1), (y.max(0.0) as usize).min(grid.h - 1));
+            let p = rgb.get((y * grid.w + x) * 3..(y * grid.w + x) * 3 + 3).unwrap_or(&[0, 0, 0]);
+            (0.299 * f32::from(p[0]) + 0.587 * f32::from(p[1]) + 0.114 * f32::from(p[2])) / 255.0
+        })
+        .collect();
+    // a radius of about 1/170 of the grid (6 cells at 1024): wide enough to pull a 256-map's
+    // blur onto the edge, narrow enough not to cross to the next person
+    let r = (side / 170).max(2);
+    *cov = matte::guided_filter(cov, &guide, side, side, r, 2e-3);
+}
+
 /// Selfie Multiclass's skin classes (body skin, face skin).
 const SKIN: [usize; 2] = [2, 3];
 
-/// One person's silhouette: `side²` logits over the image stretched to a square (SAM's output).
 /// Everyone's silhouettes (one per face, in the faces' order): `side²` logits each over the image
-/// stretched to a square (SAM's output).
+/// stretched to a square (SAM's output), and who owns each cell once cleaned up.
 pub struct Instances {
     pub side: usize,
     pub people: Vec<Vec<f32>>,
+    /// Each cell's owner ([`matte::NOBODY`] for no one), islands removed ([`matte::clean_owners`]).
+    owners: Vec<u16>,
 }
 
 impl Instances {
-    /// Whose silhouette claims normalized point (u, v) most strongly; `None` where none does
-    /// (logit ≤ −1 everywhere: a little generous, so a sleeve's fringe stays its owner's).
+    /// The silhouettes of the faces whose centres are `seeds` (normalized; same order as
+    /// `people`). Whose a cell is goes to the strongest claim (logit above −1: a little generous,
+    /// so a sleeve's fringe stays its owner's); a claim cut off from its face (a silhouette leaking
+    /// onto a neighbour's lace, in square specks of SAM's grid) is dropped and the cell goes to
+    /// whoever surrounds it.
+    pub fn new(side: usize, people: Vec<Vec<f32>>, seeds: &[[f32; 2]]) -> Instances {
+        let s = side.max(1);
+        let mut owners: Vec<u16> = (0..side * side)
+            .map(|c| {
+                people
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, l)| l.get(c).map(|v| (i, *v)))
+                    .filter(|(_, v)| *v > -1.0)
+                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                    .and_then(|(i, _)| u16::try_from(i).ok())
+                    .unwrap_or(matte::NOBODY)
+            })
+            .collect();
+        let cell = |p: &[f32; 2]| -> Option<usize> {
+            if !p.iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            let x = ((p[0].clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
+            let y = ((p[1].clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
+            Some(y * s + x)
+        };
+        let seeds: Vec<Option<usize>> = seeds.iter().map(cell).collect();
+        matte::clean_owners(&mut owners, side, &seeds);
+        Instances { side, people, owners }
+    }
+
+    /// Whose cell normalized point (u, v) is; `None` where no one's.
     pub fn owner(&self, u: f32, v: f32) -> Option<usize> {
         let s = self.side.max(1);
         let x = ((u.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
         let y = ((v.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
-        self.people
-            .iter()
-            .enumerate()
-            .filter_map(|(i, l)| l.get(y * s + x).map(|v| (i, *v)))
-            .filter(|(_, v)| *v > -1.0)
-            .max_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
+        self.owners.get(y * s + x).filter(|o| **o != matte::NOBODY).map(|o| usize::from(*o))
     }
 }
 
@@ -416,10 +475,13 @@ pub fn people_mask_with(
     };
     let mut rect = None;
     let side;
-    let skin = req.classes.iter().any(|c| SKIN.contains(c));
+    // the entire person: everything that isn't background (eyes, mouth, hair, clothes, what they
+    // hold), with nothing cut out of the face
+    let whole = req.is_whole_person();
+    let skin = !whole && req.classes.iter().any(|c| SKIN.contains(c));
     if req.needs_people() {
         // the whole image: classes cover bodies; finer when face features are drawn or cut out
-        side = if req.face_parts.is_empty() && !(skin && !faces.is_empty()) { 512 } else { 1024 };
+        side = 1024;
     } else {
         // only face parts: a grid over the chosen faces
         let boxes: Vec<&Detection> = chosen.iter().filter_map(|i| faces.get(*i)).map(|f| &f.detection).collect();
@@ -468,14 +530,22 @@ pub fn people_mask_with(
                 if req.person > 0 && instances.and_then(|i| i.owner(u, v)).or_else(|| owner(u, v)).is_none_or(|o| !chosen.contains(&o)) {
                     continue;
                 }
-                let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
-                let skin = if skin_classes.is_empty() { 0.0 } else { map.at(&skin_classes, u, v) * (1.0 - hole) };
-                let other = if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) };
+                let value = if whole {
+                    1.0 - map.at(&[0], u, v)
+                } else {
+                    let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
+                    let skin = if skin_classes.is_empty() { 0.0 } else { map.at(&skin_classes, u, v) * (1.0 - hole) };
+                    let other = if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) };
+                    skin + other
+                };
                 if let Some(c) = cov.get_mut(j * side + i) {
-                    *c = (skin + other).clamp(0.0, 1.0);
+                    *c = value.clamp(0.0, 1.0);
                 }
             }
         }
+    }
+    if map.is_some() && req.needs_people() {
+        refine(&grid, &mut cov, rgb, whole || req.classes.contains(&4));
     }
     for i in &chosen {
         let Some(lm) = faces.get(*i).and_then(|f| f.landmarks.as_ref()) else { continue };
@@ -500,14 +570,14 @@ mod tests {
         let side = 4;
         let left: Vec<f32> = (0..16).map(|i| if i % 4 < 3 { 2.0 } else { -5.0 }).collect();
         let right: Vec<f32> = (0..16).map(|i| if i % 4 >= 2 { 6.0 } else { -5.0 }).collect();
-        let s = Instances { side, people: vec![left, right] };
+        let s = Instances::new(side, vec![left, right], &[]);
         assert_eq!(s.owner(0.1, 0.5), Some(0));
         assert_eq!(s.owner(0.6, 0.5), Some(1), "the overlap is the stronger claim's");
         assert_eq!(s.owner(0.9, 0.5), Some(1));
         // nobody's: nearest face decides (None here); out-of-range and empty are safe
-        let none = Instances { side, people: vec![vec![-5.0; 16]] };
+        let none = Instances::new(side, vec![vec![-5.0; 16]], &[]);
         assert_eq!(none.owner(0.5, 0.5), None);
-        assert_eq!(Instances { side: 0, people: vec![Vec::new()] }.owner(2.0, f32::NAN), None);
+        assert_eq!(Instances::new(0, vec![Vec::new()], &[]).owner(2.0, f32::NAN), None);
     }
 
     #[test]
@@ -540,8 +610,8 @@ mod tests {
         assert!((map.person_share() - 0.5).abs() < 1e-6);
         let req = PeopleRequest::parse(0, &["Hair".into()]).unwrap();
         let m = people_mask(&req, &[], 100, 100, Some(&map), &[]).unwrap();
-        assert_eq!(m.side, 512);
-        assert!(m.logits[256 * 512 + 50] > 4.0 && m.logits[256 * 512 + 450] < -4.0);
+        assert_eq!(m.side, 1024);
+        assert!(m.logits[512 * 1024 + 100] > 4.0 && m.logits[512 * 1024 + 900] < -4.0);
         // two faces: person 2 (the right one) owns the right half, where there is no hair
         let face = |x: f32| Face {
             detection: Detection { x0: x - 5.0, y0: 10.0, x1: x + 5.0, y1: 20.0, score: 1.0, keypoints: [[0.0; 2]; 6] },
@@ -550,7 +620,7 @@ mod tests {
         let faces = [face(25.0), face(75.0)];
         assert!(people_mask(&PeopleRequest::parse(2, &["Hair".into()]).unwrap(), &[], 100, 100, Some(&map), &faces).is_none());
         let m = people_mask(&PeopleRequest::parse(1, &["Hair".into()]).unwrap(), &[], 100, 100, Some(&map), &faces).unwrap();
-        assert!(m.logits[256 * 512 + 50] > 4.0);
+        assert!(m.logits[512 * 1024 + 100] > 4.0);
         // no such person, or face parts without landmarks: nothing
         assert!(people_mask(&PeopleRequest::parse(3, &["Hair".into()]).unwrap(), &[], 100, 100, Some(&map), &faces).is_none());
         assert!(people_mask(&PeopleRequest::parse(0, &["Lips".into()]).unwrap(), &[], 100, 100, None, &faces).is_none());
@@ -597,6 +667,52 @@ mod tests {
             px[3] = 1.0;
         }
         PeopleMap { side, probs }
+    }
+
+    /// Regression (the user's bug): "Entire person" took face skin's cut-outs and lost the eyes,
+    /// brows and mouth; and the 256-cell class map's specks of background in a lace dress showed
+    /// as square holes. The entire person includes every feature of the face and has no specks.
+    #[test]
+    fn entire_person_keeps_the_eyes_and_mouth_and_has_no_square_holes() {
+        let lm = synthetic_face();
+        let rgb = vec![150u8; 1000 * 1000 * 3];
+        let det = Detection { x0: 200.0, y0: 100.0, x1: 800.0, y1: 900.0, score: 1.0, keypoints: [[0.0; 2]; 6] };
+        let faces = [Face { detection: det, landmarks: Some(lm) }];
+        // face skin above, clothes below with a few one-cell specks of background (lace)
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for y in 0..side {
+            for x in 0..side {
+                let c = if [(20, 50), (40, 55), (33, 60)].contains(&(x, y)) {
+                    0
+                } else if y < 45 {
+                    3
+                } else {
+                    4
+                };
+                probs[(y * side + x) * 6 + c] = 1.0;
+            }
+        }
+        let map = PeopleMap { side, probs };
+        for parts in [vec![], vec!["Entire Person".to_string()]] {
+            let req = PeopleRequest::parse(1, &parts).unwrap();
+            assert!(req.is_whole_person());
+            let m = people_mask(&req, &rgb, 1000, 1000, Some(&map), &faces).unwrap();
+            let at = |x: usize, y: usize| m.logits[(y * m.side / 1000) * m.side + x * m.side / 1000];
+            for (what, x, y) in
+                [("eye", 380, 400), ("iris", 620, 400), ("brow", 380, 342), ("lips", 500, 650), ("mouth", 500, 680), ("cheek", 300, 560)]
+            {
+                assert!(at(x, y) > 2.0, "{what} is part of the entire person: {}", at(x, y));
+            }
+            // the specks (cells of 1000/64 pixels) are filled
+            for (x, y) in [(20, 50), (40, 55), (33, 60)] {
+                let (px, py) = ((x * 1000 + 500) / side, (y * 1000 + 500) / side);
+                assert!(at(px, py) > 0.0, "no hole at {px},{py}: {}", at(px, py));
+            }
+        }
+        // face skin still leaves the eyes out
+        let m = people_mask(&PeopleRequest::parse(1, &["Face Skin".into()]).unwrap(), &rgb, 1000, 1000, Some(&map), &faces).unwrap();
+        assert!(m.logits[(400 * m.side / 1000) * m.side + 380 * m.side / 1000] < -2.0);
     }
 
     /// Face skin has holes where the eyes, brows and mouth are, and keeps the cheeks and forehead;

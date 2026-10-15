@@ -2,6 +2,12 @@
 
 ## 2026-10-16
 
+### People masks
+- **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, and has no
+  more square holes in a lace dress.
+- People are found on ordinary couple shots where the faces are small, and each person's mask stays
+  on their own outline. Clothes and people edges follow the photo's own edges more closely.
+
 ### Canon focus points
 - **Show Focus Point** and **Zoom to Focus Point** work with Canon raws (CR3 and CR2): the box the
   camera focused with, including the face it tracked. Photos already in your library get it in the

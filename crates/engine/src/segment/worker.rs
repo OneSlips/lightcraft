@@ -757,7 +757,10 @@ fn person_instances(
     });
     job.dir = keep;
     match out {
-        Ok(people) => Some(lightcraft_segment::people::Instances { side: SAM2_MASK_SIDE, people }),
+        Ok(people) => {
+            let seeds: Vec<[f32; 2]> = faces.iter().map(|f| centre(f)).map(|(x, y, _)| [x, y]).collect();
+            Some(lightcraft_segment::people::Instances::new(SAM2_MASK_SIDE, people, &seeds))
+        }
         Err(e) => {
             log::warn!("people: no silhouettes from SAM 2.1 ({e})");
             None
