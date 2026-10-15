@@ -116,17 +116,18 @@ const GROUPS: [&[Part]; 4] = [
 ];
 
 /// How the middle gives way when the bar is narrow, step by step until it fits: first the parts
-/// drop their counts and captions, then the least needed parts go. The flags and their counts (the
-/// Picks count is the culling target the photographer watches) go last.
+/// drop their counts and captions, then the least needed parts go (the position also shows on the
+/// filmstrip; the colour chips stay longer). The flags and their counts (the Picks count is the
+/// culling target the photographer watches) go last.
 const GIVE_WAY: [(Part, bool); 12] = [
     (Part::FilterLabels, true),
     (Part::Copy, true),
     (Part::FilterFlags, true),
     (Part::Copy, false),
     (Part::FilterLabels, false),
-    (Part::Labels, false),
-    (Part::FilterStars, false),
     (Part::Position, false),
+    (Part::FilterStars, false),
+    (Part::Labels, false),
     (Part::MoreFilters, false),
     (Part::Stars, false),
     (Part::Flags, false),
