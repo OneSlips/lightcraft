@@ -2,6 +2,10 @@
 
 ## 2026-10-16
 
+### Deleting photos
+- Deleting photos now says plainly what happened: they went to **Recently Deleted**, the files
+  stay on disk, and **Undo** brings them back.
+
 ### Control surfaces: safer keys, Erase while held
 - **Erase** works while its key is held, like Alt with the brush, and lights up only then. New
   Brush runs once and never stays lit. A key lit because its value is on the dial, because it is
