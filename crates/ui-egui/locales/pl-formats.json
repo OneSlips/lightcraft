@@ -371,5 +371,8 @@
   "Exactly {n} stars": "Dokładnie {n} gwiazdki",
   "Delete the {n} rejected photos of this view?": "Usunąć odrzucone zdjęcia tego widoku ({n})?",
   "{n} rejected photos moved to the Recycle Bin": "Przeniesiono odrzucone zdjęcia do kosza: {n}",
-  "{n} rejected photos removed (Edit → Undo brings them back)": "Usunięto odrzucone zdjęcia: {n} (Edycja → Cofnij je przywraca)"
+  "{n} rejected photos removed (Edit → Undo brings them back)": "Usunięto odrzucone zdjęcia: {n} (Edycja → Cofnij je przywraca)",
+  "Alternatives to {name}": "Alternatywy dla {name}",
+  "Import {n} Selected": "Importuj zaznaczone ({n})",
+  "{n} alternatives in the library": "Alternatywy w bibliotece: {n}"
 }

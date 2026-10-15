@@ -318,6 +318,8 @@ pub struct Session {
     pub xmp: sidecar::XmpPrefs,
     /// Where Delete Rejected Photos sends files: the system's Recycle Bin ([`recycle::system_bin`]).
     pub recycle: recycle::RecycleFn,
+    /// Show Alternatives is on: the original photo, and the view to go back to.
+    pub alternatives: Option<cmd::alternatives::Alternatives>,
     /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
     pub last_export: Option<serde_json::Value>,
     /// The user's export presets (built-ins: [`export::builtin_presets`]), persisted in prefs.json.
@@ -488,6 +490,7 @@ impl Session {
             library_identity: Arc::new(()),
             xmp: sidecar::XmpPrefs::default(),
             recycle: recycle::system_bin,
+            alternatives: None,
             last_export: None,
             export_presets: Vec::new(),
             print: Default::default(),

@@ -371,5 +371,8 @@
   "Exactly {n} stars": "恰好 {n} 星",
   "Delete the {n} rejected photos of this view?": "刪除此檢視中 {n} 張排除的相片？",
   "{n} rejected photos moved to the Recycle Bin": "已將 {n} 張排除的相片移到資源回收筒",
-  "{n} rejected photos removed (Edit → Undo brings them back)": "已移除 {n} 張排除的相片（編輯 → 復原可恢復）"
+  "{n} rejected photos removed (Edit → Undo brings them back)": "已移除 {n} 張排除的相片（編輯 → 復原可恢復）",
+  "Alternatives to {name}": "{name} 的備選",
+  "Import {n} Selected": "匯入所選 {n} 張",
+  "{n} alternatives in the library": "已將 {n} 張備選加入圖庫"
 }

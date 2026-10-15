@@ -5,6 +5,7 @@
 //! `edit.*` (undo/redo), and queries (`catalog.query`, `photo.inspect`, `develop.get`…).
 
 mod activity;
+pub mod alternatives;
 mod before;
 pub(crate) mod browse;
 mod color;
@@ -180,6 +181,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(print::specs());
         v.extend(before::specs());
         v.extend(browse::specs());
+        v.extend(alternatives::specs());
         v.extend(missing::specs());
         v.extend(recheck::specs());
         v.extend(sync::specs());

@@ -371,5 +371,8 @@
   "Exactly {n} stars": "星ちょうど{n}つ",
   "Delete the {n} rejected photos of this view?": "この表示の除外写真{n}枚を削除しますか？",
   "{n} rejected photos moved to the Recycle Bin": "除外写真{n}枚をごみ箱に移動しました",
-  "{n} rejected photos removed (Edit → Undo brings them back)": "除外写真{n}枚を取り除きました（編集 → 取り消しで戻せます）"
+  "{n} rejected photos removed (Edit → Undo brings them back)": "除外写真{n}枚を取り除きました（編集 → 取り消しで戻せます）",
+  "Alternatives to {name}": "{name} の代わり",
+  "Import {n} Selected": "選択した{n}枚を読み込む",
+  "{n} alternatives in the library": "代わりの写真{n}枚をライブラリに追加しました"
 }

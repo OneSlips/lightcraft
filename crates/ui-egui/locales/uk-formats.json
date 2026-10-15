@@ -371,5 +371,8 @@
   "Exactly {n} stars": "Рівно {n} зірки",
   "Delete the {n} rejected photos of this view?": "Видалити відхилені фото цього перегляду ({n})?",
   "{n} rejected photos moved to the Recycle Bin": "Відхилені фото переміщено до кошика: {n}",
-  "{n} rejected photos removed (Edit → Undo brings them back)": "Вилучено відхилених фото: {n} (Редагування → Скасувати поверне їх)"
+  "{n} rejected photos removed (Edit → Undo brings them back)": "Вилучено відхилених фото: {n} (Редагування → Скасувати поверне їх)",
+  "Alternatives to {name}": "Альтернативи для {name}",
+  "Import {n} Selected": "Імпортувати вибрані ({n})",
+  "{n} alternatives in the library": "Альтернатив у бібліотеці: {n}"
 }

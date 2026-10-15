@@ -2106,5 +2106,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Soubory a jejich postranní soubory XMP jdou do koše, odkud je lze vrátit; fotky opustí knihovnu (bez možnosti vrácení).",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Úpravy → Zpět je vrátí; Nedávno smazané je uchovají, dokud se nevyprázdní.",
   "Move to Recycle Bin": "Přesunout do koše",
-  "No rejected photos here": "Žádné zamítnuté fotky"
+  "No rejected photos here": "Žádné zamítnuté fotky",
+  "Show Alternatives": "Zobrazit alternativy",
+  "Apply the same edit": "Použít stejné úpravy",
+  "Frames around it in its folder: select the ones to bring into the library": "Snímky kolem ní v její složce: vyberte ty, které přidat do knihovny",
+  "Import Alternatives": "Importovat alternativy",
+  "Close Alternatives": "Zavřít alternativy"
 }

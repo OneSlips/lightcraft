@@ -2034,5 +2034,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "I file e i loro file XMP vanno nel cestino, da cui si possono ripristinare; le foto lasciano la libreria (senza annullamento).",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Modifica → Annulla le ripristina; Eliminati di recente le tiene finché non viene svuotato.",
   "Move to Recycle Bin": "Sposta nel cestino",
-  "No rejected photos here": "Nessuna foto scartata qui"
+  "No rejected photos here": "Nessuna foto scartata qui",
+  "Show Alternatives": "Mostra alternative",
+  "Apply the same edit": "Applica la stessa modifica",
+  "Frames around it in its folder: select the ones to bring into the library": "Gli scatti vicini nella sua cartella: seleziona quelli da portare nella libreria",
+  "Import Alternatives": "Importa alternative",
+  "Close Alternatives": "Chiudi alternative"
 }

@@ -2841,5 +2841,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Файлы и их XMP попадают в корзину, откуда их можно вернуть; фото уходят из библиотеки (без отмены).",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Правка → Отменить вернёт их; «Недавно удалённые» хранят их, пока не очищены.",
   "Move to Recycle Bin": "В корзину",
-  "No rejected photos here": "Здесь нет отклонённых фото"
+  "No rejected photos here": "Здесь нет отклонённых фото",
+  "Show Alternatives": "Показать альтернативы",
+  "Apply the same edit": "Применить ту же правку",
+  "Frames around it in its folder: select the ones to bring into the library": "Кадры рядом в её папке: выберите, какие добавить в библиотеку",
+  "Import Alternatives": "Импортировать альтернативы",
+  "Close Alternatives": "Закрыть альтернативы"
 }

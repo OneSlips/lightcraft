@@ -93,3 +93,33 @@ fn choosing_an_album_keeps_or_picks_the_active_photo() {
     exec(&mut h, "library.source", json!({"kind": "album", "id": album.0}));
     assert_eq!(active(&h), Some(vis[1]));
 }
+
+/// Show Alternatives from the library: the frames around the photo in its folder come up under a
+/// bar; Import Selected brings the chosen ones in (with the same edit unless unticked) and goes
+/// back to the library.
+#[test]
+fn alternatives_bar_imports_the_chosen_frames_and_goes_back() {
+    let mut h = demo();
+    let dir = folder("alternatives", 6);
+    let file = |i: u8| dir.join(format!("p{i}.png")).to_string_lossy().into_owned();
+    exec(&mut h, "library.import", json!({"paths": [file(3)]}));
+    let original = h.app.session.catalog.photos().find(|p| p.file_name == "p3.png").map(|p| p.id).unwrap();
+    exec(&mut h, "library.select", json!({"ids": [original.0]}));
+    exec(&mut h, "photo.showAlternatives", json!({"around": 2}));
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "alternatives:bar"), "the bar shows");
+    assert_eq!(h.app.session.visible_cloned().len(), 5);
+    let other = h.app.session.catalog.photos().find(|p| p.file_name == "p2.png").map(|p| p.id).unwrap();
+    exec(&mut h, "library.select", json!({"ids": [other.0], "mode": "toggle"}));
+    let r = h.request("ui.clickWidget", json!({"id": "check:alternativesSameEdit"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(!h.app.ui.alternatives_same_edit);
+    let r = h.request("ui.clickWidget", json!({"id": "button:alternativesImport"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(h.app.session.alternatives.is_none(), "back to the library");
+    assert!(!h.app.importing());
+    let shown = h.app.session.visible_cloned();
+    assert!(shown.contains(&other) && shown.contains(&original));
+    let _ = std::fs::remove_dir_all(&dir);
+}

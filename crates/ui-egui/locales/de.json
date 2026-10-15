@@ -2849,5 +2849,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Die Dateien und ihre XMP-Filialdateien kommen in den Papierkorb und lassen sich von dort zurücklegen; die Fotos verlassen die Bibliothek (kein Rückgängig).",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Bearbeiten → Rückgängig holt sie zurück; „Zuletzt gelöscht“ behält sie, bis es geleert wird.",
   "Move to Recycle Bin": "In den Papierkorb",
-  "No rejected photos here": "Hier gibt es keine abgelehnten Fotos"
+  "No rejected photos here": "Hier gibt es keine abgelehnten Fotos",
+  "Show Alternatives": "Alternativen zeigen",
+  "Apply the same edit": "Dieselbe Bearbeitung anwenden",
+  "Frames around it in its folder: select the ones to bring into the library": "Aufnahmen daneben in ihrem Ordner: die auswählen, die in die Bibliothek sollen",
+  "Import Alternatives": "Alternativen importieren",
+  "Close Alternatives": "Alternativen schließen"
 }

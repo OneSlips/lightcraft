@@ -2848,5 +2848,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "ファイルとその XMP サイドカーはごみ箱に移り、そこから戻せます。写真はライブラリから外れます（取り消し不可）。",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "編集 → 取り消しで戻せます。最近削除した項目は空にするまで保持します。",
   "Move to Recycle Bin": "ごみ箱に移動",
-  "No rejected photos here": "ここには除外写真がありません"
+  "No rejected photos here": "ここには除外写真がありません",
+  "Show Alternatives": "代わりの写真を表示",
+  "Apply the same edit": "同じ編集を適用",
+  "Frames around it in its folder: select the ones to bring into the library": "同じフォルダーの前後のコマ：ライブラリに入れるものを選択",
+  "Import Alternatives": "代わりの写真を読み込む",
+  "Close Alternatives": "代わりの写真を閉じる"
 }

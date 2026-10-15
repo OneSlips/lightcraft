@@ -2688,5 +2688,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "Os arquivos e seus XMP vão para a lixeira, de onde podem ser restaurados; as fotos saem da biblioteca (sem desfazer).",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "Editar → Desfazer as traz de volta; Apagadas recentemente as guarda até ser esvaziada.",
   "Move to Recycle Bin": "Mover para a lixeira",
-  "No rejected photos here": "Nenhuma foto rejeitada aqui"
+  "No rejected photos here": "Nenhuma foto rejeitada aqui",
+  "Show Alternatives": "Mostrar alternativas",
+  "Apply the same edit": "Aplicar a mesma edição",
+  "Frames around it in its folder: select the ones to bring into the library": "Quadros ao redor na pasta: selecione os que levar para a biblioteca",
+  "Import Alternatives": "Importar alternativas",
+  "Close Alternatives": "Fechar alternativas"
 }

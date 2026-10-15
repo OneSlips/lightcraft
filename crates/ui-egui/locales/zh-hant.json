@@ -2650,5 +2650,10 @@
   "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo).": "檔案及其 XMP 附屬檔進入資源回收筒，可從那裡還原；相片離開圖庫（無法復原）。",
   "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied.": "編輯 → 復原可恢復；最近刪除會保留它們直到清空。",
   "Move to Recycle Bin": "移到資源回收筒",
-  "No rejected photos here": "這裡沒有排除的相片"
+  "No rejected photos here": "這裡沒有排除的相片",
+  "Show Alternatives": "顯示備選",
+  "Apply the same edit": "套用相同編輯",
+  "Frames around it in its folder: select the ones to bring into the library": "同一資料夾中前後的影格：選擇要加入圖庫的",
+  "Import Alternatives": "匯入備選",
+  "Close Alternatives": "關閉備選"
 }
