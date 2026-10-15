@@ -2173,5 +2173,6 @@
   "Select Unrated": "Zaznacz bez oceny",
   "Select No Label": "Zaznacz bez etykiety",
   "Reset Straighten": "Resetuj prostowanie",
-  "No Mask": "Brak maski"
+  "No Mask": "Brak maski",
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Przeniesiono zdjęcie do Ostatnio usuniętych. Plik zostaje na dysku; Cofnij je przywraca."
 }

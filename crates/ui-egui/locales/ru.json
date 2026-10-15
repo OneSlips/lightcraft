@@ -2813,5 +2813,6 @@
   "Select Unrated": "Выбрать без рейтинга",
   "Select No Label": "Выбрать без метки",
   "Reset Straighten": "Сбросить выравнивание",
-  "No Mask": "Без маски"
+  "No Mask": "Без маски",
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Фото перемещено в «Недавно удалённые». Файл остаётся на диске; «Отменить» вернёт его."
 }

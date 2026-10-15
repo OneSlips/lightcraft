@@ -2818,5 +2818,6 @@
   "Select Unrated": "Sélectionner les non notées",
   "Select No Label": "Sélectionner sans étiquette",
   "Reset Straighten": "Réinitialiser le redressement",
-  "No Mask": "Aucun masque"
+  "No Mask": "Aucun masque",
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Photo déplacée dans Supprimées récemment. Le fichier reste sur le disque ; Annuler la rétablit."
 }

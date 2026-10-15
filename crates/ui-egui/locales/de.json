@@ -2821,5 +2821,6 @@
   "Select Unrated": "Unbewertete auswählen",
   "Select No Label": "Ohne Farbe auswählen",
   "Reset Straighten": "Gerade ausrichten zurücksetzen",
-  "No Mask": "Keine Maske"
+  "No Mask": "Keine Maske",
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto in „Zuletzt gelöscht“ verschoben. Die Datei bleibt auf dem Datenträger; Rückgängig holt es zurück."
 }

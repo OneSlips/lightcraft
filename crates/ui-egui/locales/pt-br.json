@@ -2660,5 +2660,6 @@
   "Select Unrated": "Selecionar sem classificação",
   "Select No Label": "Selecionar sem rótulo",
   "Reset Straighten": "Redefinir endireitamento",
-  "No Mask": "Sem máscara"
+  "No Mask": "Sem máscara",
+  "Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.": "Foto movida para Apagadas recentemente. O arquivo continua no disco; Desfazer a traz de volta."
 }
