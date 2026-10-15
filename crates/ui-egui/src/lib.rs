@@ -38,6 +38,9 @@ pub mod shortcuts;
 pub mod sidebar;
 pub mod softpaint;
 pub mod state;
+pub mod surface;
+pub mod surface_icons;
+pub mod surface_plugin;
 pub mod sync;
 pub mod tasks;
 pub mod text_field;
@@ -134,6 +137,8 @@ mod tests_scroll;
 #[cfg(test)]
 mod tests_smart_presets;
 #[cfg(test)]
+mod tests_surface;
+#[cfg(test)]
 mod tests_switch_library;
 #[cfg(test)]
 mod tests_sync;
@@ -192,6 +197,9 @@ pub type CheckEditorFn = Box<dyn Fn(&str) -> Result<(), String>>;
 /// Something the host does with the session (web: back up or restore the library in browser
 /// storage); the work may finish asynchronously.
 pub type HostAction = Box<dyn FnMut(&mut Session) -> Result<Value, String>>;
+
+/// Start or stop the control-surface listener (see [`Services::surface_listener`]).
+pub type SurfaceListenerFn = Box<dyn FnMut(Option<u16>) -> Result<(), String>>;
 
 /// The system's dark/light appearance where egui doesn't report one (Linux desktops whose
 /// windowing layer says nothing, e.g. many Wayland compositors). The host answers from what it
@@ -265,6 +273,18 @@ pub struct Services {
     pub restore_library: Option<HostAction>,
     /// The system appearance for Appearance Mode ▸ Auto, ahead of egui's own report.
     pub system_theme: Option<SystemThemeFn>,
+    /// Where control-surface settings are kept (`control-surfaces.json`; none: in memory).
+    pub surface_store: Option<Box<dyn surface::SurfaceStore>>,
+    /// Open dialog for control-surface files (TactileBridge `settings.json`, `.lp5`, `.lcsurface`).
+    pub pick_surface_file: Option<PickFiles>,
+    /// Save dialog for an exported `.lcsurface` layout file.
+    pub save_surface_file: Option<SaveFile>,
+    /// Start (`Some(port)`) or stop (`None`) the loopback listener control surfaces connect to
+    /// (desktop only); it serves `surface.*` methods only.
+    pub surface_listener: Option<SurfaceListenerFn>,
+    /// Installs a surface's plugin into its maker's app (the LightCraft plugin for Logi
+    /// Options+; desktop only): Settings ▸ Controls, `surface.installPlugin`.
+    pub surface_plugin: Option<std::sync::Arc<dyn surface_plugin::PluginInstaller>>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -452,6 +472,8 @@ pub struct LightcraftApp {
     pub library_problem: Option<panels::library_problem::LibraryProblem>,
     /// The activity stack shows every task, not just the first few ("+N more" was clicked).
     pub activity_expanded: bool,
+    /// Control surfaces: their engine, pairing and subscribers (`surface`).
+    pub surface: surface::SurfaceHost,
 }
 
 impl LightcraftApp {
@@ -537,6 +559,7 @@ impl LightcraftApp {
             screen_profile_read: None,
             library_problem: None,
             activity_expanded: false,
+            surface: Default::default(),
             model_setup: Default::default(),
         }
     }
@@ -546,6 +569,13 @@ impl LightcraftApp {
         if !bytes.is_empty() {
             self.chinese_font = Some(std::sync::Arc::new(egui::FontData::from_owned(bytes)));
         }
+        self
+    }
+
+    /// Take requests from `rx` (the desktop app's control-surface listener) without the extra
+    /// screenshot support of [`Self::with_control`].
+    pub fn with_requests(mut self, rx: Receiver<ControlRequest>) -> Self {
+        self.control_rx = Some(rx);
         self
     }
 
@@ -1120,6 +1150,7 @@ impl LightcraftApp {
         }
         self.last_time = now;
         self.drain_control(ctx);
+        surface::tick(self, ctx);
         self.apply_settings(ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
@@ -1433,6 +1464,7 @@ impl LightcraftApp {
             panels::notices::show(self, &ctx);
             panels::dialogs::show(self, &ctx);
             panels::library_problem::show(self, &ctx);
+            panels::surface_osd::show(self, &ctx);
             panels::toast(self, &ctx);
             self.widgets = widgets::take_registry(&ctx);
             self.end_frame(&ctx, t0);
@@ -1458,6 +1490,7 @@ impl LightcraftApp {
         panels::left::album_drag_feedback(self, &ctx);
         panels::left::section_drag_feedback(self, &ctx);
         panels::keyword_list::drag_feedback(self, &ctx);
+        panels::surface_osd::show(self, &ctx);
         panels::toast(self, &ctx);
         self.widgets = widgets::take_registry(&ctx);
         self.text_focus = ctx.egui_wants_keyboard_input();

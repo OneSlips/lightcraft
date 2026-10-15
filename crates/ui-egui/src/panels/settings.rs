@@ -1,4 +1,5 @@
-//! The Settings dialog (⌘,): General, Import, Performance, Display, Interface, Faces, AI Denoise.
+//! The Settings dialog (⌘,): General, Import, Performance, Display, Interface, Faces, AI Denoise,
+//! Controls (control surfaces, `panels::controls`).
 //!
 //! Changes apply immediately (no OK/Cancel). Where they are stored:
 //! - **app settings** ([`crate::state::AppSettings`]: startup view, delete confirmation, GPU,
@@ -27,6 +28,7 @@ pub const TABS: &[(&str, &str)] = &[
     ("faces", "Faces"),
     ("denoise", "AI Denoise"),
     ("genfill", "Generative Fill"),
+    ("controls", "Controls"),
 ];
 
 /// Thumbnail cache sizes offered (MB).
@@ -37,7 +39,9 @@ const LABEL_W: f32 = 150.0;
 /// The dialog body for `tab` (the tab bar switches `tab`).
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
     let t = Tokens::get(ui.ctx());
-    ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(240.0, 560.0));
+    // Controls draws the device beside its editor: it takes more room
+    let widest = if tab == "controls" { 900.0 } else { 560.0 };
+    ui.set_width((ui.ctx().content_rect().width() - 64.0).clamp(240.0, widest));
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for (id, label) in TABS {
@@ -56,6 +60,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
         "faces" => super::faces::settings_tab(app, ui, &t),
         "denoise" => super::denoise::settings_tab(app, ui, &t),
         "genfill" => super::genfill::settings_tab(app, ui, &t),
+        "controls" => super::controls::settings_tab(app, ui, &t),
         _ => general_tab(app, ui, &t),
     }
 }
@@ -65,7 +70,7 @@ pub(super) fn heading(ui: &mut egui::Ui, t: &Tokens, text: &str) {
     ui.label(RichText::new(crate::i18n::tr(text)).font(t.semibold(12.5)).color(t.text));
 }
 
-fn row<R>(ui: &mut egui::Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+pub(super) fn row<R>(ui: &mut egui::Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     ui.horizontal(|ui| {
         ui.allocate_ui_with_layout(egui::vec2(LABEL_W, 24.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
             ui.set_min_width(LABEL_W);

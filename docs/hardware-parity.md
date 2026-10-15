@@ -1,6 +1,6 @@
 # Hardware parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (monitor profile from colord on Linux); previously major (created from the code, gpu-pipeline.md and the parity checklist) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (control surfaces: Settings ▸ Controls around the device, the Logi plugin installs from LightCraft); previously minor (control surfaces: the engine ported from TactileBridge, the MX Creative Console) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 What Lightroom does with the machine's hardware, per platform, and what LightCraft does. Sources:
 [gpu-pipeline.md](gpu-pipeline.md), [display-profiles.md](display-profiles.md), [denoise.md](denoise.md),
@@ -19,7 +19,7 @@ What Lightroom does with the machine's hardware, per platform, and what LightCra
 | Card readers / cameras as import sources | ✅ (devices panel, eject after import) | ✅ mounted volumes with DCIM | ✅ | ✅ | — | 🟡 no eject-after-import check, no MTP / PTP phones |
 | Tethered capture | ✅ Classic (Canon, Nikon, Sony, Leica) | ⬜ | ⬜ | ⬜ | — | ⬜ |
 | Printers | ✅ Print module, printer colour management | ⬜ (PDF contact sheets only) | ⬜ | ⬜ | — | ⬜ |
-| Control surfaces (MIDI / Loupedeck via plug-ins) | via SDK plug-ins | control channel and MCP can drive every command | same | same | — | 🟡 different mechanism; no MIDI mapping |
+| Control surfaces (MIDI / Loupedeck via plug-ins) | via SDK plug-ins | built-in surface engine ([control-surfaces.md](control-surfaces.md)): profiles and pages, pages that follow the tool, dial feel and acceleration, one undo step per turn, apply to every selected photo, on-screen readout, Settings ▸ Controls built around a drawing of each device (action picker by category, learn mode), pairing; Logitech MX Creative Console through the LightCraft Logi plugin, installed from Settings ▸ Controls, with LightCraft's actions listed in Logi Options+; TactileBridge setups import | same (plugin verified on Windows) | engine and protocol, no Logi Options+ there | — | 🟡 MX Creative Console ✅; MIDI and Tangent panels not yet |
 | Multi-core CPU | ✅ | ✅ worker pools, parallel JPEG decode, parallel import copy | ✅ | ✅ | single thread | ✅ |
 | Memory pressure | managed | ✅ memory budget, `crates/sysmem` returns allocator pages on macOS | ✅ budget | ✅ budget | — | ✅ |
 
@@ -43,12 +43,15 @@ NVIDIA, Intel and Windows DX12 still rely on user reports.
 | Tethered capture (PTP over USB in pure Rust, Canon / Nikon / Sony first) | 25–45 | cameras (human) |
 | Printing with colour management | 15–25 | printers (human) |
 | Neural-engine / DirectML inference for AI features | 10–20 | depends on the AI model decision |
-| **Total** | **80–150 h** (the core set for beta, HDR display + monitor profile + pen pressure: 20–40 h) | |
+| Control surfaces: MIDI (pure-Rust input backend, relative encoders, feedback) and Tangent panels (from Tangent's public docs) on the existing engine | 10–20 | a MIDI controller and a Tangent panel (human) |
+| **Total** | **90–170 h** (the core set for beta, HDR display + monitor profile + pen pressure: 20–40 h) | |
 
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Control surfaces: the built-in engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol, the MX Creative Console via the LightCraft Logi plugin; MIDI and Tangent still to come |
+| 2026-10-15 | minor | Control surfaces: Settings ▸ Controls rebuilt around the device; the Logi plugin installs from LightCraft; LightCraft's actions in Logi Options+ |
 | 2026-10-12 | minor | Monitor profile: Linux reads the display profile from colord; macOS row reflects #787 |
 | 2026-10-12 | minor | CPU ↔ GPU equivalence suite run on an AMD Radeon 8060S (Vulkan, RADV, Linux): 16 tests / 135 cases pass, max 2 LSB, mean ≤ 0.0003; first GPU verified outside Apple |
 | 2026-10-10 | major | Created |

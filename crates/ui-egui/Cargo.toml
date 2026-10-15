@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 craft-ui = { workspace = true }
+resvg = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-meta = { workspace = true }
 lightcraft-color = { workspace = true }
@@ -20,6 +21,7 @@ lightcraft-pipeline = { workspace = true }
 lightcraft-catalog = { workspace = true }
 web-time = { workspace = true }
 lightcraft-engine = { workspace = true }
+lightcraft-surface = { workspace = true }
 lightcraft-preview = { workspace = true }
 egui = { workspace = true }
 serde = { workspace = true }
