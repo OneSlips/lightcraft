@@ -85,6 +85,7 @@ pairing request (with its code, **Approve** / **Deny**) and, when Logi Options+ 
 | MX Creative Keypad | a drawing of the 3 × 3 keys and the page buttons; connected / offline |
 | MX Creative Dialpad | the dial, the roller and the four buttons; connected / offline |
 | Actions Ring | set up in Logi Options+ with LightCraft's actions (see above) |
+| Loupedeck+ | every knob and button, what each does, Loupedeck's profiles found on this computer to import (see [Loupedeck+](#loupedeck)) |
 | Loupedeck Live / CT, MIDI controllers, Tangent panels | coming later |
 
 The sections under the device bar:
@@ -98,6 +99,27 @@ The sections under the device bar:
 | Profiles and Setup | the Logi Options+ plugin (found / installed version / connected; Install, Update, Reinstall, Remove); profiles (Duplicate / Rename / Delete, Add the built-in profiles, **Bring over my TactileBridge setup** when `%LOCALAPPDATA%\TactileBridge\settings.json` exists, Import… `settings.json` / `.lp5` / `.lcsurface`, Export… `.lcsurface`, the last import's report); connection (port, connected surfaces, paired surfaces with Forget) |
 
 Profiles are shared by the Keypad and the Dialpad (one MX Creative Console); surfaces that come later get their own.
+
+### Loupedeck+
+
+The Loupedeck+ (knobs, the Control Dial and buttons, no displays; Loupedeck's device type `Loupedeck15`) works through
+the same plugin. Its controls are Loupedeck's own numbers: `ld.r<n>` turns (P1–P8 send 1–8, 9–16, 17–24 or 25–32 by
+the console's Hue / Sat / Lum / B&W mode; the labelled knobs 33–47; the Control Dial 48) and `ld.b<n>` presses (a
+knob's press is its number; C1–C6 49–54; the rating keys 66–70, with Fn 71–75; the arrows 78 / 79; P1–P8's presses
+80–87; Copy, Paste, Undo, Redo, Screen Mode, Hue, Sat, Lum, Col/BW and Before/After 92–102; Custom Mode 110; L1–L3
+114–116). The plugin's `DefaultProfile15.lp5` forwards every one of them, and is picked whenever LightCraft is the app
+in front.
+
+**No setup:** a control nothing binds does what its label says (Loupedeck's own default layout: the Exposure knob
+moves Exposure, P1–P8 the colour mixer, Undo undoes, the rating keys rate …). **Import:** Settings ▸ Controls ▸
+Loupedeck+ lists the profiles Loupedeck's software keeps for the console on this computer
+(`%LOCALAPPDATA%\Loupedeck\Applications\Loupedeck15\<app>\Profiles\<id>\ProfileInfo.json`, read only) with an
+**Import** button each, and **Import a Loupedeck profile…** takes a `ProfileInfo.json` or an exported `.lp5`;
+`cmd:surface.import` takes either too. The editor mode's layout (Loupedeck's `loupe` mode: its first workspace, then
+the Fn workspace for what that leaves empty) goes into every LightCraft profile (the console has no pages), replacing
+an earlier import; presets match LightCraft presets by name. Only the mapping is read: no icons or images. The report
+lists what was left out (Loupedeck macros, presets LightCraft doesn't have, Loupedeck's own Custom Mode button, the
+Hue / Sat / Lum mode buttons). Code: `crates/surface/src/loupedeck.rs`.
 
 ### Installing the Logi plugin
 
@@ -619,6 +641,7 @@ every dropped action says why).
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
+| 2026-10-16 | minor | Loupedeck+: a device of its own (`ld.r<n>` / `ld.b<n>`), works as labelled with no setup, imports a Loupedeck profile's layout (`surface.import`, Settings ▸ Controls ▸ Loupedeck+) |
 | 2026-10-16 | minor | 13 icons of LightCraft's own in the pack's style for functions that shared a generic icon |
 | 2026-10-16 | minor | Erase while held (`brush.erase`), key states (focus / held / on), destructive keys need a 0.7 s hold, no Delete key on built-in layouts, Previous / Next Mask, the brush page's size and feather keys; settings format 3 |
 | 2026-10-15 | minor | Zero setup for the Logi plugin (on by itself, trusted through its data folder); the console shows the page being edited; dialog pages opt-in; `dial` / `roller` are the real big dial / roller (settings format 2 swaps older files), so a value key's value lands on the big dial |
