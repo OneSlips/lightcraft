@@ -132,3 +132,28 @@ fn a_painted_spot_has_one_outline_not_a_ring_per_dab() {
     assert!(union_arcs(&line, f32::INFINITY).is_empty());
     assert!(union_arcs(&line, 0.0).is_empty());
 }
+
+#[test]
+fn the_crop_view_turns_the_photo_level_and_fits_it() {
+    let mut d = DevelopSettings::default();
+    d.crop.geometry.angle = 10.0;
+    let frame = Frame::new(400, 300, &d, false);
+    let img = Rect::from_min_size(Pos2::ZERO, vec2(400.0, 300.0));
+    let turn = crop_view_turn(&d, &frame, img);
+    assert!((turn.to_degrees().abs() - 10.0).abs() < 0.01, "{}", turn.to_degrees());
+    // turned that way, the box is level
+    let map = CanvasMap::new(&frame, img).turned(turn);
+    let q = frame_crop_quad(&d, &frame);
+    let (a, b) = (map.screen(q[0]), map.screen(q[1]));
+    assert!((a.y - b.y).abs() < 0.01, "{a:?} {b:?}");
+    // and the turned photo fits the area it was fitted to
+    let fitted = fit_turned(img, img, turn);
+    let (s, c) = turn.sin_cos();
+    assert!(fitted.width() * c.abs() + fitted.height() * s.abs() <= 400.0 + 0.01);
+    assert!(fitted.width() * s.abs() + fitted.height() * c.abs() <= 300.0 + 0.01);
+    // a level crop doesn't turn anything
+    assert_eq!(crop_view_turn(&DevelopSettings::default(), &Frame::new(400, 300, &DevelopSettings::default(), false), img), 0.0);
+    // the mapping turns back exactly
+    let p = pos2(123.0, 77.0);
+    assert!((map.screen(map.norm(p)) - p).length() < 0.01);
+}
