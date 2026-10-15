@@ -31,10 +31,12 @@ fn keys(name: &str, tb: [&str; 9]) -> Page {
     p
 }
 
-/// A dial page from TactileBridge dial values (dial, roller).
-fn dials(name: &str, dial: &str, roller: &str) -> Page {
+/// A dial page from TactileBridge dial values in its order: encoder 0 (the roller), then
+/// encoder 1 (the big dial) — TactileBridge's Wedding layout keeps Exposure on the roller and
+/// Kelvin on the dial.
+fn dials(name: &str, roller: &str, dial: &str) -> Page {
     let mut p = Page { name: name.to_string(), groups: vec![PageGroup::Dials], ..Default::default() };
-    for (slot, k) in [("dial", dial), ("roller", roller)] {
+    for (slot, k) in [("roller", roller), ("dial", dial)] {
         if let Some(b) = binding_of(k) {
             p.bindings.insert(slot.to_string(), b);
         }

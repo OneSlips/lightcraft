@@ -467,13 +467,13 @@ mod tests {
             assert_eq!(read(&mut r, 5, &mut events)["result"]["paired"], true);
             send(&mut c, 6, "surface.subscribe", json!({"device": "mx-creative-console"}));
             let v = read(&mut r, 6, &mut events);
-            assert_eq!(v["result"]["layout"]["dials"][0]["binding"]["target"], "light.exposure", "{v}");
-            send(&mut c, 7, "surface.input", json!({"events": [{"control": "dial", "ticks": 25}]}));
+            assert_eq!(v["result"]["layout"]["dials"][1]["binding"]["target"], "light.exposure", "{v}");
+            send(&mut c, 7, "surface.input", json!({"events": [{"control": "roller", "ticks": 25}]}));
             assert_eq!(read(&mut r, 7, &mut events)["ok"], true);
             // the new value arrives as a pushed layout
             let t0 = Instant::now();
             loop {
-                if events.iter().any(|e| e["layout"]["dials"][0]["value"] == "+0.25") {
+                if events.iter().any(|e| e["layout"]["dials"][1]["value"] == "+0.25") {
                     break;
                 }
                 assert!(t0.elapsed() < Duration::from_secs(30), "no pushed value: {events:?}");

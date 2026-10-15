@@ -809,7 +809,8 @@ pub fn import_settings(s: &mut SurfaceSettings, text: &str) -> Result<Report, St
                 }
             }
             let encoders = field(m, "encoders").and_then(Value::as_array).cloned().unwrap_or_default();
-            let slots = ["dial", "roller", "knob.3", "knob.4"];
+            // the Dialpad's encoder 0 is its roller, 1 its big dial
+            let slots = ["roller", "dial", "knob.3", "knob.4"];
             for (slot, k) in slots.iter().zip(encoders.iter().filter_map(Value::as_str)) {
                 if let Some(b) = r.note(format!("{tool}: {slot} ({k})"), k) {
                     bindings.insert((*slot).to_string(), b);
@@ -878,8 +879,9 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
                         // "$<Plugin>___<Action class>___<key>"
                         let Some(key) = action.rsplit("___").next().filter(|k| !k.is_empty() && *k != action) else { continue };
                         let slot = match (rotate, device, id) {
-                            (true, _, 0) => "dial".to_string(),
-                            (true, _, 1) => "roller".to_string(),
+                            // Logi's encoder 0 on the Dialpad is the roller, 1 the big dial
+                            (true, _, 0) => "roller".to_string(),
+                            (true, _, 1) => "dial".to_string(),
                             (true, _, n) => format!("knob.{}", n + 1),
                             (false, "Loupedeck71", n) => format!("pad.{}", n + 1),
                             (false, _, n) => format!("key.{}", n + 1),
@@ -975,11 +977,11 @@ mod tests {
         assert_eq!(p.name, "TactileBridge");
         let crop = p.page("Tool: Crop").unwrap();
         assert_eq!(crop.bindings["key.1"], Binding::command("crop.rotateAspect"));
-        assert_eq!(crop.bindings["dial"], Binding::value("ui.zoom"));
+        assert_eq!(crop.bindings["roller"], Binding::value("ui.zoom"));
         assert!(!crop.bindings.contains_key("key.3"), "ToggleOverlay has no counterpart");
         assert_eq!(p.contexts["crop"], ["Tool: Crop"]);
         let def = p.page("Tool: Default").unwrap();
-        assert_eq!(def.bindings["roller"], Binding::value("wb.temp"));
+        assert_eq!(def.bindings["dial"], Binding::value("wb.temp"));
         assert!(!def.auto && p.pages[0].name == "Tool: Default", "TactileBridge's default layout is the first ordinary page");
         assert_eq!(p.contexts["default"], ["Tool: Default"]);
         assert!(p.page("Tool: Crop").unwrap().auto);
@@ -1040,7 +1042,8 @@ mod tests {
         let hdr = p.page("HDR").unwrap();
         assert_eq!(
             (hdr.groups.as_slice(), &hdr.bindings["dial"], &hdr.bindings["roller"]),
-            ([PageGroup::Dials].as_slice(), &Binding::value("light.highlights"), &Binding::value("light.shadows"))
+            // encoder 0 (Highlight) is the roller, encoder 1 (Shadow) the big dial
+            ([PageGroup::Dials].as_slice(), &Binding::value("light.shadows"), &Binding::value("light.highlights"))
         );
         assert!(import_lp5(b"not a zip").is_err());
         assert!(import_lp5(&make_zip(&[("ProfileInfo.json", b"{\"layout\": 5}", false)])).is_err());

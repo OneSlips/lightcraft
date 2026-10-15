@@ -198,11 +198,12 @@ mod tests {
         assert_eq!(l.dials.len(), 2);
         assert_eq!(l.key_pages.len(), DEVICE_KEY_PAGES);
         assert_eq!(l.key_pages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Page 1", "Page 2", "Page 3"]);
-        let dial = &l.dials[0];
-        assert_eq!((dial.label.as_str(), dial.value.as_deref(), dial.position), ("Exposure", Some("+0.50"), Some(0.55)));
+        // TactileBridge's default: Exposure on the roller (encoder 0), Contrast on the big dial
+        let roller = l.dials.iter().find(|d| d.control == "roller").unwrap();
+        assert_eq!((roller.label.as_str(), roller.value.as_deref(), roller.position), ("Exposure", Some("+0.50"), Some(0.55)));
         assert_eq!(l.keys[0].icon, Some("previous-image"));
         assert_eq!(l.buttons[3].binding, Some(Binding::PageNext { group: Some(PageGroup::Dials) }));
         let json = serde_json::to_value(&l).unwrap();
-        assert_eq!(json["dials"][0]["binding"]["target"], "light.exposure");
+        assert_eq!(json["dials"][1]["binding"]["target"], "light.exposure");
     }
 }

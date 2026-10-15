@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use crate::profile::Profile;
 
 /// The settings file's format version.
-pub const FORMAT_VERSION: u32 = 1;
+/// 2: `dial` / `roller` name the Dialpad's encoders as they are (format 1 had them the wrong
+/// way round: the Logi device's encoder 0 is the roller); format 1 files are swapped on load, so
+/// every encoder keeps doing what it did.
+pub const FORMAT_VERSION: u32 = 2;
 /// The port surfaces connect to by default.
 pub const DEFAULT_PORT: u16 = 7981;
 
@@ -286,6 +289,14 @@ impl SurfaceSettings {
         if s.version > FORMAT_VERSION {
             return Err(format!("control-surfaces.json is from a newer LightCraft (format {}, this one reads {FORMAT_VERSION})", s.version));
         }
+        if s.version < 2 {
+            for p in &mut s.profiles {
+                swap_encoders(&mut p.base);
+                for pg in &mut p.pages {
+                    swap_encoders(&mut pg.bindings);
+                }
+            }
+        }
         s.sanitize();
         Ok(s)
     }
@@ -350,8 +361,38 @@ impl SurfaceSettings {
     }
 }
 
+/// Exchange the dial's and the roller's bindings (format 1 → 2).
+fn swap_encoders(map: &mut BTreeMap<String, crate::binding::Binding>) {
+    for (a, b) in [("dial", "roller"), ("dial.press", "roller.press")] {
+        let x = map.remove(a);
+        let y = map.remove(b);
+        if let Some(v) = x {
+            map.insert(b.to_string(), v);
+        }
+        if let Some(v) = y {
+            map.insert(a.to_string(), v);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn format_1_files_swap_the_dial_and_the_roller() {
+        let mut v = serde_json::to_value(SurfaceSettings::default()).unwrap();
+        v["version"] = serde_json::json!(1);
+        let p = v["profiles"][0]["pages"].as_array_mut().unwrap().iter_mut().find(|p| p["name"] == "Dial Page").unwrap();
+        p["bindings"] = serde_json::json!({"dial": {"kind": "value", "target": "light.exposure"}, "roller": {"kind": "value", "target": "wb.temp"}});
+        let s = SurfaceSettings::from_json(&v.to_string()).unwrap();
+        let pg = s.profiles[0].page("Dial Page").unwrap();
+        assert_eq!(pg.bindings["roller"], crate::Binding::value("light.exposure"), "what encoder 0 did, it still does");
+        assert_eq!(pg.bindings["dial"], crate::Binding::value("wb.temp"));
+        assert_eq!(s.version, FORMAT_VERSION);
+        // a format 2 file is left alone
+        let again = SurfaceSettings::from_json(&s.to_json()).unwrap();
+        assert_eq!(again.profiles[0].page("Dial Page").unwrap().bindings["roller"], crate::Binding::value("light.exposure"));
+    }
+
     use super::*;
 
     #[test]

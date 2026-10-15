@@ -137,11 +137,11 @@ fn pairing_then_subscribe_and_turn_over_a_connection() {
     let r = request_on(&mut h, 8, &sink2, "surface.subscribe", json!({"device": "mx-creative-console"}));
     assert_eq!(r["ok"], true, "{r}");
     let layout = &r["result"]["layout"];
-    assert_eq!(layout["dials"][0]["binding"]["target"], "light.exposure");
+    assert_eq!(layout["dials"][1]["binding"]["target"], "light.exposure");
     assert_eq!(layout["keys"].as_array().unwrap().len(), 9);
     // turn the dial: exposure moves, the readout shows it, the plugin hears the new value
     let before = exposure(&h);
-    let r = request_on(&mut h, 8, &sink2, "surface.input", json!({"events": [{"control": "dial", "ticks": 3}, {"control": "dial", "ticks": 2}]}));
+    let r = request_on(&mut h, 8, &sink2, "surface.input", json!({"events": [{"control": "roller", "ticks": 3}, {"control": "roller", "ticks": 2}]}));
     assert_eq!(r["ok"], true, "{r}");
     for _ in 0..3 {
         h.step();
@@ -150,7 +150,7 @@ fn pairing_then_subscribe_and_turn_over_a_connection() {
     assert!(h.painted_text().iter().any(|t| t == "Exposure"), "the on-screen readout");
     let pushed: Vec<Value> = events2.try_iter().collect();
     let last = pushed.iter().rev().find(|e| e["event"] == "surface.layout").unwrap_or_else(|| panic!("no layout pushed: {pushed:?}"));
-    let shown: f64 = last["layout"]["dials"][0]["value"].as_str().unwrap().trim_start_matches('+').parse().unwrap();
+    let shown: f64 = last["layout"]["dials"][1]["value"].as_str().unwrap().trim_start_matches('+').parse().unwrap();
     assert!((shown - exposure(&h)).abs() < 0.006, "the pushed value is the photo's: {shown} vs {}", exposure(&h));
     // the first connection never subscribed: nothing pushed to it
     assert!(events1.try_iter().next().is_none());
@@ -176,7 +176,7 @@ fn apply_to_selected_changes_every_selected_photo_in_one_step() {
     assert_eq!(r["result"]["on"], true, "{r}");
     let exp = |h: &Headless, id: u64| h.app.session.develop_of(lightcraft_catalog::PhotoId(id)).unwrap().light.exposure;
     let before: Vec<f64> = ids.iter().map(|i| exp(&h, *i)).collect();
-    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 10}]))["ok"], true);
+    assert_eq!(input(&mut h, json!([{"control": "roller", "ticks": 10}]))["ok"], true);
     finish_gesture(&mut h);
     for (i, id) in ids.iter().enumerate() {
         assert!((exp(&h, *id) - before[i] - 0.10).abs() < 1e-6, "photo {id}: {} vs {}", exp(&h, *id), before[i]);
