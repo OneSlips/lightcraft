@@ -345,6 +345,29 @@ pub(crate) fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: u
                 }
             }
         }
+        MaskShape::Radial { feather, .. } => {
+            // the softness of the edge, as the inner ring on the photo shows it (both stay in step)
+            let spec = ControlSpec {
+                id: "feather",
+                label: "Feather",
+                section: Section::Light,
+                min: 0.0,
+                max: 100.0,
+                default: 50.0,
+                step: 1.0,
+                decimals: 0,
+                track: Track::Plain,
+            };
+            let out = slider(ui, &spec, *feather, true, None);
+            let base = shape.clone();
+            apply_slider_out(app, &spec, out, |app, v| {
+                let mut s = base.clone();
+                if let MaskShape::Radial { feather, .. } = &mut s {
+                    *feather = v.clamp(0.0, 100.0);
+                }
+                app.run("mask.update", json!({"component": comp, "shape": s}))
+            });
+        }
         MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } => {
             // Edge: how crisp the selection's border is (−100 hard … 0 as computed … 100 soft)
             let spec = ControlSpec {

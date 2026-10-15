@@ -14,6 +14,14 @@
   and lights up in the overlay's colour while the overlay is switched on to stay; the photo then
   says "Overlay on · O". Its settings menu has a **Show overlay** switch, and choosing how the
   overlay looks there no longer switches it on for good.
+- **Gradients show what a drag will do**: the pointer becomes a move arrow over a gradient's body
+  or pin, a resize arrow over its edges, lines and handles, and a turning arrow just outside a
+  Radial or on a Linear's middle line.
+- A **Linear** gradient has its **middle line** (the 50 % point) with the pin on it, as in
+  Lightroom Classic: drag it to turn the gradient; drag the outer lines to widen or narrow the fade
+  (they stay parallel).
+- A **Radial** gradient has an **inner feather ring**: drag its handle in or out to set how soft
+  the edge is. A **Feather** slider under the radial does the same; both stay in step.
 
 ## 2026-10-15
 
