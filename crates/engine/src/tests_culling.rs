@@ -84,7 +84,7 @@ fn delete_rejected_photos_keeps_or_recycles_the_files() {
     assert!(paths.iter().all(|p| p.exists()), "the files stay");
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(s.visible_cloned().len(), 4, "one undo step brings them back");
-    assert_eq!(s.execute("library.deleteRejected", &json!({"files": "bin"})).unwrap_err().to_string().contains("keep or recycle"), true);
+    assert!(s.execute("library.deleteRejected", &json!({"files": "bin"})).unwrap_err().to_string().contains("keep or recycle"));
     let _ = std::fs::remove_dir_all(&dir);
 
     let (mut s, dir, paths) = library_of_jpegs("recycle", 3);
