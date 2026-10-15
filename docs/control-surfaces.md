@@ -1,6 +1,6 @@
 # Control surfaces
 
-> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** major (Settings ▸ Controls rebuilt around the device; installing the Logi plugin from LightCraft; LightCraft's actions in Logi Options+) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-16 · **Change:** minor (Erase while held; destructive keys need a hold; no Delete on built-in layouts; lit keys say why they are lit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 Hardware dials, keys and buttons that drive LightCraft: the **Logitech MX Creative Console** (Keypad + Dialpad) first,
 MIDI controllers and Tangent panels later. LightCraft owns the whole engine — layouts, what each control does, dial
@@ -54,8 +54,20 @@ What happens then:
   context in Settings ▸ Controls ▸ *Pages that follow the app*.
 - **The on-screen readout** (TactileBridge's OSD) shows the value being turned (name, value, a bar) or the command a
   key ran, at the top or bottom of the photo, with its opacity, colour and display time.
-- **The surface** shows each key's icon (TactileBridge's hand-drawn pack), label and live value; a lit border marks
-  the value on the dial, a held modifier and toggles that are on. While LightCraft isn't running the keys keep the
+- **The surface** shows each key's icon (TactileBridge's hand-drawn pack), label and live value. A key is lit for one
+  of three reasons, each drawn its own way by the plugin: its value is on the dial (`focus`: the white key), it is
+  held down (`held`: a held modifier, or Erase), or a mode it switches is on (`on`: the brush, Before / After, Auto
+  Sync …). One-shot keys (New Brush, Add / Subtract) are never lit.
+- **Own icons** for functions that shared one of the pack's generic drawings (Invert Mask, Erase, New Brush,
+  Previous / Next Mask, Mask On/Off, Zoom To Fit, Zoom 100%, Select All / None, Rotate Left / Right, Reset): drawn
+  for LightCraft in the pack's style, next to the pack's originals, which stay as they are.
+- **Erase works while held**, like Alt with the brush: `cmd:brush.erase` with `{on}` (a console key sends on at the
+  press and off at the release; without `on` it toggles). The brush page has it, plus Brush Size and Feather keys.
+- **Destructive keys need a hold.** Delete, Delete Permanently, Clear History, Delete All Masks, Reset, deleting a
+  version or a preset run from a console key only after it is held for 0.7 s; a quick press runs nothing and the
+  readout says *Hold the key: …*. The built-in layouts have no Delete key (their old Delete key clears the colour
+  label). Deleting photos, from anywhere, says they went to Recently Deleted, that the files stay on disk, and that
+  Undo brings them back. While LightCraft isn't running the keys keep the
   icons they last showed, dimmed. Logi Options+ shows the same keys in its editor.
 - **LightCraft's actions in Logi Options+.** Besides the keys LightCraft sets, the plugin lists every LightCraft
   action and value in Options+'s actions panel, in numbered categories with their icons (*1. Light*, *2. Color* …,
@@ -73,6 +85,7 @@ pairing request (with its code, **Approve** / **Deny**) and, when Logi Options+ 
 | MX Creative Keypad | a drawing of the 3 × 3 keys and the page buttons; connected / offline |
 | MX Creative Dialpad | the dial, the roller and the four buttons; connected / offline |
 | Actions Ring | set up in Logi Options+ with LightCraft's actions (see above) |
+| Loupedeck+ | every knob and button, what each does, Loupedeck's profiles found on this computer to import (see [Loupedeck+](#loupedeck)) |
 | Loupedeck Live / CT, MIDI controllers, Tangent panels | coming later |
 
 The sections under the device bar:
@@ -86,6 +99,27 @@ The sections under the device bar:
 | Profiles and Setup | the Logi Options+ plugin (found / installed version / connected; Install, Update, Reinstall, Remove); profiles (Duplicate / Rename / Delete, Add the built-in profiles, **Bring over my TactileBridge setup** when `%LOCALAPPDATA%\TactileBridge\settings.json` exists, Import… `settings.json` / `.lp5` / `.lcsurface`, Export… `.lcsurface`, the last import's report); connection (port, connected surfaces, paired surfaces with Forget) |
 
 Profiles are shared by the Keypad and the Dialpad (one MX Creative Console); surfaces that come later get their own.
+
+### Loupedeck+
+
+The Loupedeck+ (knobs, the Control Dial and buttons, no displays; Loupedeck's device type `Loupedeck15`) works through
+the same plugin. Its controls are Loupedeck's own numbers: `ld.r<n>` turns (P1–P8 send 1–8, 9–16, 17–24 or 25–32 by
+the console's Hue / Sat / Lum / B&W mode; the labelled knobs 33–47; the Control Dial 48) and `ld.b<n>` presses (a
+knob's press is its number; C1–C6 49–54; the rating keys 66–70, with Fn 71–75; the arrows 78 / 79; P1–P8's presses
+80–87; Copy, Paste, Undo, Redo, Screen Mode, Hue, Sat, Lum, Col/BW and Before/After 92–102; Custom Mode 110; L1–L3
+114–116). The plugin's `DefaultProfile15.lp5` forwards every one of them, and is picked whenever LightCraft is the app
+in front.
+
+**No setup:** a control nothing binds does what its label says (Loupedeck's own default layout: the Exposure knob
+moves Exposure, P1–P8 the colour mixer, Undo undoes, the rating keys rate …). **Import:** Settings ▸ Controls ▸
+Loupedeck+ lists the profiles Loupedeck's software keeps for the console on this computer
+(`%LOCALAPPDATA%\Loupedeck\Applications\Loupedeck15\<app>\Profiles\<id>\ProfileInfo.json`, read only) with an
+**Import** button each, and **Import a Loupedeck profile…** takes a `ProfileInfo.json` or an exported `.lp5`;
+`cmd:surface.import` takes either too. The editor mode's layout (Loupedeck's `loupe` mode: its first workspace, then
+the Fn workspace for what that leaves empty) goes into every LightCraft profile (the console has no pages), replacing
+an earlier import; presets match LightCraft presets by name. Only the mapping is read: no icons or images. The report
+lists what was left out (Loupedeck macros, presets LightCraft doesn't have, Loupedeck's own Custom Mode button, the
+Hue / Sat / Lum mode buttons). Code: `crates/surface/src/loupedeck.rs`.
 
 ### Installing the Logi plugin
 
@@ -607,4 +641,7 @@ every dropped action says why).
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
+| 2026-10-16 | minor | Loupedeck+: a device of its own (`ld.r<n>` / `ld.b<n>`), works as labelled with no setup, imports a Loupedeck profile's layout (`surface.import`, Settings ▸ Controls ▸ Loupedeck+) |
+| 2026-10-16 | minor | 13 icons of LightCraft's own in the pack's style for functions that shared a generic icon |
+| 2026-10-16 | minor | Erase while held (`brush.erase`), key states (focus / held / on), destructive keys need a 0.7 s hold, no Delete key on built-in layouts, Previous / Next Mask, the brush page's size and feather keys; settings format 3 |
 | 2026-10-15 | minor | Zero setup for the Logi plugin (on by itself, trusted through its data folder); the console shows the page being edited; dialog pages opt-in; `dial` / `roller` are the real big dial / roller (settings format 2 swaps older files), so a value key's value lands on the big dial |

@@ -362,6 +362,7 @@
   "{name} API key": "Chiave API {name}",
   "Generated {} variations": "Varianti generate: {}",
   "Generative Fill failed: {e}": "Riempimento generativo non riuscito: {e}",
+  "Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.": "{n} foto spostate in Eliminate di recente. I file restano sul disco; Annulla le ripristina.",
   "+{} more, all sharp and open": "+{} altri, tutti nitidi e con gli occhi aperti",
   " · {n} selected": " · {n} selezionate",
   "{} label": "Etichetta {}",

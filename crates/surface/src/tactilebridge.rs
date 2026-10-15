@@ -516,7 +516,7 @@ pub fn map_key(key: &str) -> Mapped {
         "KeystoneVertical" => cpn("geometry.upright", json!({"mode": "vertical"}), "Upright: Vertical"),
         "KeystoneHorizontal" => cpn("geometry.upright", json!({"mode": "level"}), "Upright: Level"),
         "DrawMaskTool" => c("tool.brush"),
-        "EraseMaskTool" => cpn("tool.brush", json!({"op": "subtract"}), "a subtracting brush on the selected mask"),
+        "EraseMaskTool" => cn("brush.erase", "erases while the key is held, like Alt"),
         "LinearGradientTool" => c("tool.linear"),
         "RadialGradientTool" => c("tool.radial"),
         "Process" | "ExportOriginals" | "ExportVariants" => cn("dialog.export", "the Export dialog"),
