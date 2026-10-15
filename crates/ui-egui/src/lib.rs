@@ -143,6 +143,8 @@ mod tests_mask_local;
 #[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
+mod tests_mask_tools;
+#[cfg(test)]
 mod tests_masking;
 #[cfg(test)]
 mod tests_masking_layout;
@@ -728,11 +730,8 @@ impl LightcraftApp {
             // a preset's masks come with their adjustments: show the effect, not an overlay
             self.ui.mask_overlay = false;
         }
-        if r.is_ok() && id == "mask.adjust" {
-            // Judge local adjustments on the photo, without the selection overlay obscuring them.
-            // Keep it hidden after release; O / the overlay eye can show it again.
-            self.ui.mask_overlay = false;
-        }
+        // (a mask's sliders don't switch the overlay off: it hides while they move and comes back
+        // as it was, see `panels::detail::adjusting`)
         if r.is_ok() {
             // These commands finish synchronously, so their completion would otherwise
             // be invisible once the activity stack is gone. Never show success on error.
@@ -1764,7 +1763,7 @@ fn sam_download_ended(download: &lightcraft_engine::segment::DownloadStatus) -> 
             Some((crate::i18n::tr("SAM 3 download stopped: it resumes where it left off next time.").to_string(), false))
         }
         Some(e) => Some((crate::i18n::tr_format!("The SAM 3 download failed: {e}", e = e), true)),
-        None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks are ready.").to_string(), true)),
+        None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks use it.").to_string(), true)),
         None => None,
     }
 }

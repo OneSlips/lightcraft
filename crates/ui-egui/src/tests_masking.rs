@@ -161,7 +161,7 @@ fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
     assert!(panel.contains_rect(slider), "exposure is visible before clicking: {slider:?} in {panel:?}");
     let r = h.request("ui.clickWidget", json!({"id": "slider:exposure", "fx": 0.7}), T);
     assert_eq!(r["ok"], true, "{r}");
-    assert!(!h.app.ui.mask_overlay, "the exposure slider hides the overlay after release");
+    assert!(!h.app.ui.mask_overlay, "the overlay stays as it was (off)");
     let d = develop(&h);
     assert!(d.masks[0].adjust.exposure > 0.0);
     assert!(d.masks[0].visible, "hiding the overlay must not disable the mask");
@@ -189,11 +189,12 @@ fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
     exec(&mut h, "develop.set", json!({"control": "light.exposure", "value": 0.5}));
     assert!(h.app.ui.mask_overlay);
 
-    // Numeric edits/resets and Amount use the same command path as the sliders.
+    // Numeric edits/resets and Amount leave an overlay switched on as it was (the user's
+    // standard: it hides only while a slider or dial moves, then comes back)
     for values in [json!({"exposure": 0.0}), json!({"saturation": 20.0}), json!({"amount": 50.0})] {
         exec(&mut h, "view.maskOverlay", json!({"show": true}));
         exec(&mut h, "mask.adjust", json!({"values": values}));
-        assert!(!h.app.ui.mask_overlay);
+        assert!(h.app.ui.mask_overlay);
     }
     h.settle(SETTLE);
 }

@@ -400,5 +400,6 @@
   "Import {n} Selected": "Імпортувати вибрані ({n})",
   "{n} alternatives in the library": "Альтернатив у бібліотеці: {n}",
   "{n} people, {k} to look at first": "Людей: {n}, спершу переглянути: {k}",
-  "Rows {a}–{b} of {c}: scroll for more": "Ряди {a}–{b} із {c}: прокрутіть, щоб побачити решту"
+  "Rows {a}–{b} of {c}: scroll for more": "Ряди {a}–{b} із {c}: прокрутіть, щоб побачити решту",
+  "Finding “{text}”…": "Шукаю «{text}»…"
 }

@@ -400,5 +400,6 @@
   "Import {n} Selected": "Импортировать выбранные ({n})",
   "{n} alternatives in the library": "Альтернатив в библиотеке: {n}",
   "{n} people, {k} to look at first": "Людей: {n}, сначала посмотреть: {k}",
-  "Rows {a}–{b} of {c}: scroll for more": "Ряды {a}–{b} из {c}: прокрутите, чтобы увидеть остальные"
+  "Rows {a}–{b} of {c}: scroll for more": "Ряды {a}–{b} из {c}: прокрутите, чтобы увидеть остальные",
+  "Finding “{text}”…": "Ищу «{text}»…"
 }

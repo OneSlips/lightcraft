@@ -32,6 +32,7 @@ pub mod people;
 pub mod person;
 pub mod presets;
 pub mod profiles;
+pub mod range_pick;
 pub mod retouch;
 pub mod right;
 pub mod rules_editor;

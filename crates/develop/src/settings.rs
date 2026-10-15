@@ -996,6 +996,26 @@ impl Default for BrushStroke {
     }
 }
 
+/// The place of a colour range sample picked before its pins existed (no pin shows for it).
+pub const UNKNOWN_COLOR_AREA: [f64; 4] = [-1.0, -1.0, -1.0, -1.0];
+
+/// A colour range's pins: each place its samples were picked (`areas`, one per sample, see
+/// [`MaskShape::ColorRange`]) and the samples it gave (consecutive ones from the same place make
+/// one pin). Places not known (or not on the photo) have no pin.
+pub fn color_range_pins(areas: &[[f64; 4]]) -> Vec<([f64; 4], std::ops::Range<usize>)> {
+    let mut out: Vec<([f64; 4], std::ops::Range<usize>)> = Vec::new();
+    for (i, a) in areas.iter().enumerate() {
+        if !a.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)) {
+            continue;
+        }
+        match out.last_mut() {
+            Some((last, r)) if last == a && r.end == i => r.end = i + 1,
+            _ => out.push((*a, i..i + 1)),
+        }
+    }
+    out
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum MaskShape {
@@ -1020,6 +1040,12 @@ pub enum MaskShape {
     ColorRange {
         samples: Vec<[f64; 3]>,
         refine: f64,
+        /// Where each of `samples` was picked (normalized `[x0, y0, x1, y1]`; a click is a point,
+        /// `x0 == x1`), one per sample: the photo shows a pin per picked place (an area dragged
+        /// gives up to three samples, one pin), which can be moved or removed. Empty for samples
+        /// picked before the pins existed (no pins then).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        areas: Vec<[f64; 4]>,
     },
     /// Luminance range (0..1 bounds with feathered falloff 0..1).
     LuminanceRange {

@@ -22,6 +22,9 @@ pub enum Gesture {
         /// Pen pressure (0..1) at each point; empty when no pen pressure was reported (a mouse) or the
         /// brush's Pen Pressure switch is off.
         pressure: Vec<f32>,
+        /// Auto Mask's live stroke: when (app time) the stroke last went to the photo and how many
+        /// points it had then; `None` until it first does (its undo step is open meanwhile).
+        live: Option<(f64, usize)>,
     },
     Spot {
         points: Vec<Point>,
@@ -69,6 +72,15 @@ pub enum Gesture {
         at: Point,
         acc: f32,
     },
+    /// Colour / Luminance Range: an area being dragged from `a` (normalized) to sample.
+    RangeArea {
+        a: Point,
+    },
+    /// Colour Range: pin `index` of component `comp` being dragged to another place.
+    ColorPin {
+        comp: usize,
+        index: usize,
+    },
 }
 
 /// Screen ↔ normalized-image mapping for the displayed frame.
@@ -78,6 +90,9 @@ pub struct CanvasMap {
     to_norm: Affine,
     from_norm: Affine,
     k: f32,
+    /// The photo is drawn turned by this much (radians, clockwise on screen) about the centre of
+    /// `rect`: the crop tool turns the photo under a level crop frame.
+    turn: f32,
 }
 
 impl CanvasMap {
@@ -85,15 +100,75 @@ impl CanvasMap {
         let k = 8.0f32;
         let (w, h) = ((rect.width() * k).round().max(1.0) as usize, (rect.height() * k).round().max(1.0) as usize);
         let to_norm = frame.out_to_norm(w, h);
-        CanvasMap { rect, to_norm, from_norm: to_norm.inverse().unwrap_or(Affine::IDENTITY), k }
+        CanvasMap { rect, to_norm, from_norm: to_norm.inverse().unwrap_or(Affine::IDENTITY), k, turn: 0.0 }
+    }
+    /// The same mapping with the photo drawn turned by `turn` radians about its rectangle's centre.
+    fn turned(self, turn: f32) -> CanvasMap {
+        CanvasMap { turn: if turn.is_finite() { turn } else { 0.0 }, ..self }
+    }
+    fn spin(&self, p: Pos2, turn: f32) -> Pos2 {
+        if turn == 0.0 {
+            return p;
+        }
+        let c = self.rect.center();
+        let (s, co) = turn.sin_cos();
+        let v = p - c;
+        c + vec2(v.x * co - v.y * s, v.x * s + v.y * co)
     }
     pub fn norm(&self, p: Pos2) -> Point {
+        let p = self.spin(p, -self.turn);
         self.to_norm.apply(Point::new(((p.x - self.rect.left()) * self.k) as f64, ((p.y - self.rect.top()) * self.k) as f64))
     }
     pub fn screen(&self, n: Point) -> Pos2 {
         let q = self.from_norm.apply(n);
-        pos2(self.rect.left() + q.x as f32 / self.k, self.rect.top() + q.y as f32 / self.k)
+        self.spin(pos2(self.rect.left() + q.x as f32 / self.k, self.rect.top() + q.y as f32 / self.k), self.turn)
     }
+}
+
+/// The crop tool turns the photo under a level crop frame: how far (radians, clockwise on
+/// screen) to turn the uncropped photo drawn in `img` so the crop box `d` asks for is level.
+fn crop_view_turn(d: &DevelopSettings, frame: &Frame, img: Rect) -> f32 {
+    let map = CanvasMap::new(frame, img);
+    let q = frame_crop_quad(d, frame);
+    let (a, b) = (map.screen(q[0]), map.screen(q[1]));
+    let along = b - a;
+    if along.length() < 1e-3 {
+        return 0.0;
+    }
+    // the top edge, left to right on screen (a horizontally flipped photo shows it right to left)
+    let along = if frame.flip_h { -along } else { along };
+    -along.y.atan2(along.x)
+}
+
+/// `img` shrunk about its centre so the photo drawn in it, turned by `turn`, still fits `area`
+/// (the fitted view; a zoomed one keeps its size).
+fn fit_turned(img: Rect, area: Rect, turn: f32) -> Rect {
+    let (s, c) = turn.sin_cos();
+    let (w, h) = (img.width(), img.height());
+    let (bw, bh) = (w * c.abs() + h * s.abs(), w * s.abs() + h * c.abs());
+    let k = (area.width() / bw.max(1.0)).min(area.height() / bh.max(1.0)).min(1.0);
+    if !k.is_finite() || k <= 0.0 {
+        return img;
+    }
+    Rect::from_center_size(img.center(), img.size() * k)
+}
+
+/// Draw texture `tex` into `r` turned by `turn` radians about the centre of `r`.
+fn image_turned(p: &egui::Painter, tex: egui::TextureId, r: Rect, turn: f32) {
+    let (s, co) = turn.sin_cos();
+    let c = r.center();
+    let at = |q: Pos2| {
+        let v = q - c;
+        c + vec2(v.x * co - v.y * s, v.x * s + v.y * co)
+    };
+    let mut mesh = egui::epaint::Mesh::with_texture(tex);
+    let corners =
+        [(r.left_top(), pos2(0.0, 0.0)), (r.right_top(), pos2(1.0, 0.0)), (r.right_bottom(), pos2(1.0, 1.0)), (r.left_bottom(), pos2(0.0, 1.0))];
+    for (q, uv) in corners {
+        mesh.vertices.push(egui::epaint::Vertex { pos: at(q), uv, color: Color32::WHITE });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    p.add(mesh);
 }
 
 pub(crate) fn fit_rect(area: Rect, aspect: f32, zoom: Zoom, img_px: [usize; 2], ppp: f32, pan: (f32, f32)) -> Rect {
@@ -508,6 +583,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let resp = ui.interact(canvas, egui::Id::new("loupe"), Sense::click_and_drag());
     crate::widgets::announce(&resp, crate::i18n::tr("Photo"));
     let mut target_rect = fit_rect(main_area, display_aspect, app.ui.zoom, native, ppp, app.ui.pan);
+    // the crop tool: the photo turns under a level crop frame (as Lightroom Classic and Capture
+    // One do), smaller so it still fits
+    let crop_turn = if crop_tool && !split && !split_view { crop_view_turn(&d, &frame, target_rect) } else { 0.0 };
+    if crop_turn != 0.0 && matches!(app.ui.zoom, Zoom::Fit) {
+        target_rect = fit_turned(target_rect, main_area, crop_turn);
+    }
     let mut img_rect = animated_rect(ui.ctx(), &mut app.ui.zoom_anim, target_rect);
     let in_pane = |pane: Rect, image: Rect| image.translate(pane.center() - main_area.center());
     let mut navigating = false;
@@ -658,7 +739,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let window_ctx = WindowCtx {
         id,
         overlay,
-        frame_edge: plan.window_edge.filter(|_| windowable_view),
+        // (a turned photo in the crop tool is drawn whole: windows are level)
+        frame_edge: plan.window_edge.filter(|_| windowable_view && crop_turn == 0.0),
         drawn_long,
         aspect,
         ppp,
@@ -738,7 +820,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             return "none";
         };
         let image_rect = fit_texture_rect(r, tex.size);
-        p.with_clip_rect(clip).image(tex.id(), image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        if crop_turn != 0.0 {
+            image_turned(&p.with_clip_rect(clip), tex.id(), image_rect, crop_turn);
+        } else {
+            p.with_clip_rect(clip).image(tex.id(), image_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        }
         what
     };
     // soft proofing: a paper-white surround and the proof's name, as Lightroom shows it
@@ -857,7 +943,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // View ▸ Loupe Overlay ▸ Layout Image, over the photo (the After view in a before/after)
     super::layout_overlay::draw(app, &p, img_rect);
     register(ui.ctx(), "canvas:image", img_rect);
-    let map = CanvasMap::new(&frame, img_rect);
+    let map = CanvasMap::new(&frame, img_rect).turned(crop_turn);
     info_overlay(app, &p, canvas, &photo);
     if app.ui.shot_info {
         shot_info_strip(ui, canvas, img_rect, &shot_info(&photo.meta, native));
@@ -937,8 +1023,30 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
         }
     }
+    // the overlay switched on to stay (O) overrides showing it only when useful: say so on the photo
+    if right == RightPanel::Masking && app.ui.mask_overlay && !adjusting(app) && !fullscreen {
+        overlay_on_hint(ui, canvas, app.ui.mask_overlay_color);
+    }
     // drawn and hit-tested above the loupe and its tools: clicks on it pan
     let nav = navigator(app, ui, canvas, img_rect, id);
+    // an AI mask on its way: what is being found, on the photo, with Cancel (no stand-in overlay)
+    if right == RightPanel::Masking
+        && let Some(m) = app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid))
+        && let Some((comp, what)) = ai_computing(app, m)
+    {
+        let over = img_rect.intersect(canvas);
+        if ai_progress(ui, if over.is_positive() { over } else { canvas }, &what) {
+            // the result of a mask that changed is dropped when it arrives
+            let r = if m.components.len() <= 1 {
+                app.run("mask.delete", json!({"id": m.id}))
+            } else {
+                app.run("mask.component", json!({"id": m.id, "component": comp, "action": "delete"}))
+            };
+            if let Err(e) = r {
+                app.toast(ui.ctx(), e);
+            }
+        }
+    }
     // what is on screen isn't the render on its way (a stand-in, the last render after an edit,
     // a magnified frame under its window): say so once that has lasted a moment
     let whole: &[Slot] = if show_before && !split {
@@ -986,6 +1094,20 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.separator();
         super::grid::context_menu(app, ui, id);
     });
+}
+
+/// "Overlay on · O" at the canvas' bottom left, a swatch of the overlay's colour before it: the
+/// mask overlay was switched on to stay (widget `canvas:overlayOn`).
+fn overlay_on_hint(ui: &egui::Ui, canvas: Rect, color: [u8; 3]) {
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(canvas);
+    let g = p.layout_no_wrap(crate::i18n::tr("Overlay on · O").to_string(), t.font(12.0), Color32::WHITE);
+    let bg = Rect::from_min_size(pos2(canvas.left() + 10.0, canvas.bottom() - 18.0 - g.size().y), g.size() + vec2(30.0, 8.0));
+    p.rect_filled(bg, bg.height() / 2.0, Color32::from_black_alpha(150));
+    let [r, gg, b] = color;
+    p.circle_filled(pos2(bg.left() + 12.0, bg.center().y), 4.5, Color32::from_rgb(r, gg, b));
+    p.galley(pos2(bg.left() + 22.0, bg.top() + 4.0), g, Color32::WHITE);
+    register(ui.ctx(), "canvas:overlayOn", bg);
 }
 
 /// The info overlay at the canvas' top left (`view.infoOverlay`): file name with the capture date
@@ -1568,6 +1690,64 @@ pub(crate) fn failed_pill(
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{text}: {error}")));
 }
 
+/// The selected mask `m`'s AI selection still being computed by its model: the component and what
+/// is being found ("Finding the subject…"). Meanwhile no overlay shows for the mask: a stand-in
+/// would look like the result.
+pub(crate) fn ai_computing(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> Option<(usize, String)> {
+    use lightcraft_engine::segment::AutoKind;
+    let seg = &app.session.segmenter;
+    if !seg.busy() {
+        return None;
+    }
+    m.components.iter().enumerate().find_map(|(k, c)| {
+        let what = match &c.shape {
+            MaskShape::Prompt { text, seg: None, .. } => crate::i18n::tr_format!("Finding “{text}”…", text = text.trim()),
+            MaskShape::Object { seg: None, hint, .. } if !hint.is_empty() => crate::i18n::tr("Selecting the object…").to_string(),
+            s => {
+                let kind = AutoKind::of(s).filter(|k| k.seg_of(s).is_some_and(Option::is_none) && seg.auto_model(k).is_ok())?;
+                crate::i18n::tr(match kind {
+                    AutoKind::Subject => "Finding the subject…",
+                    AutoKind::Background => "Finding the background…",
+                    AutoKind::Sky => "Finding the sky…",
+                    AutoKind::People { .. } => "Finding people…",
+                    AutoKind::Landscape { .. } => "Finding the landscape…",
+                    AutoKind::Concept { .. } => "Finding the remembered object…",
+                })
+                .to_string()
+            }
+        };
+        Some((k, what))
+    })
+}
+
+/// The AI mask's progress in the middle of the photo: a spinner, what is being found, and Cancel
+/// (widgets `canvas:aiProgress`, `canvas:aiCancel`). True when Cancel was clicked.
+fn ai_progress(ui: &mut egui::Ui, over: Rect, what: &str) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(over);
+    let g = p.layout_no_wrap(what.to_string(), t.font(13.0), Color32::WHITE);
+    let cancel_w = 64.0;
+    let size = vec2(34.0 + g.size().x + 12.0 + cancel_w + 10.0, 36.0);
+    let bg = Rect::from_center_size(over.center(), size);
+    p.rect_filled(bg, 8.0, Color32::from_black_alpha(185));
+    // the spinner: an arc going round
+    let c = pos2(bg.left() + 18.0, bg.center().y);
+    let time = ui.input(|i| i.time) as f32;
+    let a0 = time * 5.0;
+    let arc: Vec<Pos2> = (0..=20).map(|k| c + egui::Vec2::angled(a0 + k as f32 / 20.0 * 4.4) * 7.0).collect();
+    p.add(egui::Shape::line(arc, Stroke::new(2.0, Color32::WHITE)));
+    p.galley(pos2(bg.left() + 34.0, bg.center().y - g.size().y / 2.0), g, Color32::WHITE);
+    register(ui.ctx(), "canvas:aiProgress", bg);
+    let br = Rect::from_min_size(pos2(bg.right() - cancel_w - 8.0, bg.top() + 6.0), vec2(cancel_w, bg.height() - 12.0));
+    let b = ui.interact(br, egui::Id::new("canvas-ai-cancel"), Sense::click());
+    crate::widgets::announce(&b, crate::i18n::tr("Cancel"));
+    register(ui.ctx(), "canvas:aiCancel", br);
+    p.rect_filled(br, 4.0, if b.hovered() { Color32::from_white_alpha(60) } else { Color32::from_white_alpha(30) });
+    p.text(br.center(), Align2::CENTER_CENTER, crate::i18n::tr("Cancel"), t.font(12.5), Color32::WHITE);
+    ui.ctx().request_repaint_after(std::time::Duration::from_millis(33));
+    b.clicked()
+}
+
 fn quick_name(q: lightcraft_engine::media::QuickSource) -> &'static str {
     use lightcraft_engine::media::QuickSource;
     match q {
@@ -1608,6 +1788,23 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
     }
 }
 
+/// Whether a slider or a dial is adjusting the photo right now. Then the mask overlay, the pins and
+/// the tool graphics (masks, spots, crop guides) hide so the effect itself can be judged, even an
+/// overlay switched on with O; they come back as they were when the adjusting stops (the user's
+/// standard behaviour). Sliders that shape the tool's own graphics (a range's Refine, a spot's
+/// Size, the crop angle, a transform with its fine grid) keep them.
+pub(crate) fn adjusting(app: &LightcraftApp) -> bool {
+    let slider = app.ui.dragging_control.as_deref().is_some_and(|c| !shapes_graphics(c));
+    slider || app.surface.adjusting()
+}
+
+/// Slider ids that change what the tool graphics show rather than the photo's look.
+fn shapes_graphics(id: &str) -> bool {
+    matches!(id, "refine" | "smoothness" | "edge" | "feather" | "ui.removeSize" | "ui.removeFeather" | "crop.angle")
+        || id.starts_with("geometry.")
+        || id.starts_with("crop.")
+}
+
 /// Mask tools that set a mask on the photo: the overlay shows while one is in use.
 const MASK_TOOLS: [&str; 6] = ["brush", "linear", "radial", "colorRange", "object", "lumRange"];
 
@@ -1642,18 +1839,22 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     if app.ui.fullscreen {
         return Overlay::None;
     }
+    // a slider or dial at work: the effect shows, not the overlay (it returns afterwards)
+    let shown = !adjusting(app);
     // Show every visible mask's region at once (Ctrl+Shift+O / Cmd+Shift+O), ahead of the selected-mask overlay
     // so the shortcut is not shadowed by the always-on single-mask overlay.
-    if app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
+    if shown && app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
         return Overlay::AllMasks {
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
             opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
-    if app.ui.right == RightPanel::Masking
+    if shown
+        && app.ui.right == RightPanel::Masking
         && let Some(m) = overlay_mask(app, d)
         && !m.components.is_empty()
+        && ai_computing(app, m).is_none()
     {
         return Overlay::Mask {
             id: m.id.min(u16::MAX as u32) as u16,
@@ -1662,7 +1863,7 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
             opacity: app.ui.mask_overlay_opacity.clamp(10.0, 100.0).round() as u8,
         };
     }
-    if app.ui.right == RightPanel::Remove && app.ui.visualize_spots {
+    if shown && app.ui.right == RightPanel::Remove && app.ui.visualize_spots {
         return Overlay::Spots(app.ui.spots_threshold.clamp(0.0, 100.0).round() as u8);
     }
     let edit = app.ui.right == RightPanel::Edit;
@@ -1788,17 +1989,25 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if resp.hovered() && ui.input(|i| i.modifiers.command) {
         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
     }
+    // the crop as it will be: with Constrain Crop, inside the photo's valid area (no empty
+    // wedges after Upright or a lens correction), so the box here is the crop applied
+    let shown = shown_crop(d, frame);
+    let d = &DevelopSettings { crop: lightcraft_develop::Crop { geometry: shown, ..d.crop }, ..d.clone() };
     let quad = frame_crop_quad(d, frame);
     let pts: Vec<Pos2> = quad.iter().map(|q| map.screen(*q)).collect();
     let p = ui.painter();
     // darken outside the crop (the box's corners in screen order: a flipped photo shows its
-    // top-left corner elsewhere)
+    // top-left corner elsewhere), over the whole canvas: the photo may be turned
     let quad = flipped_corners(&pts, frame.flip_h, frame.flip_v);
     if pts.len() == 4 {
-        p.add(outside_crop_mesh(map.rect, &quad, Color32::from_black_alpha(150)));
+        p.add(outside_crop_mesh(app.canvas_rect.unwrap_or(map.rect).union(map.rect), &quad, Color32::from_black_alpha(150)));
     }
     p.add(egui::Shape::closed_line(pts.clone(), Stroke::new(1.0, Color32::WHITE)));
-    // overlay guides
+    // overlay guides and handles (hidden while a slider or dial adjusts the photo)
+    let mut p = p.clone();
+    if adjusting(app) {
+        p.set_invisible();
+    }
     let lerp = |a: Pos2, b: Pos2, t: f32| a + (b - a) * t;
     let guide = Stroke::new(0.8, Color32::from_white_alpha(150));
     // (u, v) across / down the (rotated) crop frame
@@ -1806,6 +2015,15 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let (cw, ch) = (pts[0].distance(pts[1]), pts[0].distance(pts[3]));
     for line in super::crop_overlay::paths(app.ui.crop_overlay, app.ui.crop_overlay_orient, cw, ch) {
         p.add(egui::Shape::line(line.into_iter().map(at).collect(), guide));
+    }
+    // turning the photo: a fine grid in the box, to line things up with
+    if matches!(app.gesture, Some(Gesture::CropRotate { .. })) {
+        let fine = Stroke::new(0.6, Color32::from_white_alpha(70));
+        for k in 1..12 {
+            let u = k as f32 / 12.0;
+            p.line_segment([at((u, 0.0)), at((u, 1.0))], fine);
+            p.line_segment([at((0.0, u)), at((1.0, u))], fine);
+        }
     }
     // handles: 0..3 corners, 4..7 edges (top, right, bottom, left)
     let handles: Vec<Pos2> = (0..8).map(|i| if i < 4 { pts[i] } else { lerp(pts[i - 4], pts[(i - 3) % 4], 0.5) }).collect();
@@ -1881,13 +2099,14 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let _ = app.session.cancel_interaction();
             return;
         }
-        let d = app.session.develop_of(id).unwrap_or_default();
+        // (from the crop as shown: a constrained box starts where it is drawn)
+        let g = shown_crop(&app.session.develop_of(id).unwrap_or_default(), frame);
         app.gesture = Some(match handles.iter().position(|h| h.distance(q) < 12.0) {
-            Some(h) => Gesture::CropHandle { handle: h as u8, start: d.crop.geometry.rect, angle: d.crop.geometry.angle },
-            None if inside(q) => Gesture::CropHandle { handle: 8, start: d.crop.geometry.rect, angle: d.crop.geometry.angle },
+            Some(h) => Gesture::CropHandle { handle: h as u8, start: g.rect, angle: g.angle },
+            None if inside(q) => Gesture::CropHandle { handle: 8, start: g.rect, angle: g.angle },
             None => {
                 let c = map.screen(Point::new(0.5, 0.5));
-                Gesture::CropRotate { start_angle: d.crop.geometry.angle, a0: (q - c).angle() }
+                Gesture::CropRotate { start_angle: g.angle, a0: (q - c).angle() }
             }
         });
     }
@@ -1908,9 +2127,19 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 );
             }
             Some(Gesture::CropRotate { start_angle, a0 }) => {
-                let c = map.screen(Point::new(0.5, 0.5));
+                // the photo turns with the pointer under the level box: the box turns the other
+                // way on the photo (measured from where the drag began, as the view turns along)
+                let c = map.rect.center();
                 let a = (q - c).angle();
-                let ang = (start_angle + (a - a0).to_degrees() as f64).clamp(-45.0, 45.0);
+                let turn = (a - a0).to_degrees() as f64;
+                let turn = if turn > 180.0 {
+                    turn - 360.0
+                } else if turn < -180.0 {
+                    turn + 360.0
+                } else {
+                    turn
+                };
+                let ang = (start_angle - turn).clamp(-45.0, 45.0);
                 shown_angle = (ang * 100.0).round() / 100.0;
                 let _ = app.run("crop.straighten", json!({"angle": shown_angle}));
             }
@@ -2178,6 +2407,12 @@ fn outside_crop_mesh(img: Rect, quad: &[Pos2; 4], color: Color32) -> egui::epain
     mesh
 }
 
+/// The crop the photo gets: with Constrain Crop, the box shrunk into the warped photo's valid area
+/// (what the render does), else the box as stored.
+fn shown_crop(d: &DevelopSettings, frame: &Frame) -> lightcraft_geom::CropGeometry {
+    if d.geometry.constrain_crop { frame.constrained_crop(d.crop.geometry) } else { d.crop.geometry }
+}
+
 fn frame_crop_quad(d: &DevelopSettings, frame: &Frame) -> [Point; 4] {
     let f = Frame { crop: d.crop.geometry, ..frame.clone() };
     f.crop_quad_norm()
@@ -2195,9 +2430,13 @@ pub(crate) fn component_pin(shape: &MaskShape) -> Option<Point> {
     }
 }
 
-/// `shape` moved by `dn` (normalized); `handle` 1/2 = a linear gradient's start/end set to `at`.
+/// `shape` dragged from `at - dn` to `at` (normalized) by `handle`: 0 moves it; a radial
+/// gradient's 1..4 resize it, 5 and [`ROTATE`] turn it, 6 sets the feather (its inner ring), 9
+/// draws a new one; a linear gradient's 1 / 2 set its start / end, [`ROTATE`] turns it about its
+/// middle, [`LINE_START`] / [`LINE_END`] slide the start / end line along it.
 fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &CanvasMap, alt: bool) -> MaskShape {
     let mv = |p: Point| Point::new(p.x + dn.x, p.y + dn.y);
+    let press = Point::new(at.x - dn.x, at.y - dn.y);
     match shape.clone() {
         MaskShape::Radial { center, rx, ry, angle, feather, invert } => match handle {
             1 | 3 => {
@@ -2237,18 +2476,49 @@ fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &Canvas
                 let ry = ((at.y - center.y) / l.1).abs().max(0.01);
                 MaskShape::Radial { center, rx, ry, angle, feather, invert }
             }
-            5 => {
-                let l = frame_long_norm(map);
-                let dx = (at.x - center.x) / l.0;
-                let dy = (at.y - center.y) / l.1;
-                let new_angle = dy.atan2(dx).to_degrees();
-                MaskShape::Radial { center, rx, ry, angle: new_angle, feather, invert }
+            // turning: by as much as the pointer went round the centre (on screen)
+            5 | ROTATE => {
+                let turn = screen_angle(map, at, center) - screen_angle(map, press, center);
+                let mut new_angle = angle + f64::from(turn).to_degrees();
+                if !new_angle.is_finite() {
+                    new_angle = angle;
+                }
+                MaskShape::Radial { center, rx, ry, angle: (new_angle + 180.0).rem_euclid(360.0) - 180.0, feather, invert }
+            }
+            // the feather ring: inside it the effect is full, so its size sets the feather
+            6 => {
+                let r = radial_r(shape, at, map).unwrap_or(1.0 - feather / 100.0);
+                let feather = ((1.0 - r) * 100.0).clamp(0.0, 100.0).round();
+                MaskShape::Radial { center, rx, ry, angle, feather, invert }
             }
             _ => MaskShape::Radial { center: mv(center), rx, ry, angle, feather, invert },
         },
         MaskShape::Linear { start, end } => match handle {
             1 => MaskShape::Linear { start: at, end },
             2 => MaskShape::Linear { start, end: at },
+            ROTATE => {
+                let mid = Point::new((start.x + end.x) / 2.0, (start.y + end.y) / 2.0);
+                let turn = screen_angle(map, at, mid) - screen_angle(map, press, mid);
+                if !turn.is_finite() {
+                    return MaskShape::Linear { start, end };
+                }
+                MaskShape::Linear { start: turned(map, start, mid, turn), end: turned(map, end, mid, turn) }
+            }
+            LINE_START | LINE_END => {
+                // only along the gradient: the line stays parallel, the fade gets wider or narrower
+                let (a, b) = (map.screen(start), map.screen(end));
+                let len = a.distance(b);
+                if len.is_nan() || len < 1.0 {
+                    return MaskShape::Linear { start, end };
+                }
+                let dir = (b - a) / len;
+                let shift = (map.screen(at) - map.screen(press)).dot(dir);
+                if handle == LINE_START {
+                    MaskShape::Linear { start: map.norm(a + dir * shift), end }
+                } else {
+                    MaskShape::Linear { start, end: map.norm(b + dir * shift) }
+                }
+            }
             _ => MaskShape::Linear { start: mv(start), end: mv(end) },
         },
         MaskShape::Brush { mut strokes } => {
@@ -2261,12 +2531,35 @@ fn moved_shape(shape: &MaskShape, handle: u8, dn: Point, at: Point, map: &Canvas
     }
 }
 
-/// Hit the geometric ellipse, independently of feather/inversion. Radii use long-edge units,
-/// so undo the same scaling and rotation used to draw its outline before testing containment.
-fn radial_body_contains(shape: &MaskShape, at: Point, map: &CanvasMap) -> bool {
-    let MaskShape::Radial { center, rx, ry, angle, .. } = shape else { return false };
+/// Where the radial gradient's feather handle sits on its inner ring (degrees, in the ellipse's own
+/// frame: up and to the right of the centre).
+const FEATHER_HANDLE_DEG: f64 = -45.0;
+
+/// The inner (feather) ring's size relative to the outer edge: the effect is full inside it and
+/// fades to nothing at the edge (`feather` 0..100, as the pipeline draws it).
+fn radial_inner(feather: f64) -> f64 {
+    if feather.is_finite() { (1.0 - feather / 100.0).clamp(0.0, 1.0) } else { 0.5 }
+}
+
+/// The point at `deg` on the ellipse `scale` times the radial gradient's, on screen.
+fn radial_point(map: &CanvasMap, center: Point, rx: f64, ry: f64, angle: f64, scale: f64, deg: f64) -> Pos2 {
+    let l = frame_long_norm(map);
+    let (s, co) = angle.to_radians().sin_cos();
+    let a = deg.to_radians();
+    let (x, y) = (scale * rx * a.cos(), scale * ry * a.sin());
+    map.screen(Point::new(center.x + (x * co - y * s) * l.0, center.y + (x * s + y * co) * l.1))
+}
+
+/// The radial gradient's ellipse scaled by `scale`, as a closed line on screen.
+fn radial_ring(map: &CanvasMap, center: Point, rx: f64, ry: f64, angle: f64, scale: f64) -> Vec<Pos2> {
+    (0..72).map(|i| radial_point(map, center, rx, ry, angle, scale, i as f64 * 5.0)).collect()
+}
+
+/// How far `at` (normalized) is from the radial gradient's centre, 1 on its edge.
+fn radial_r(shape: &MaskShape, at: Point, map: &CanvasMap) -> Option<f64> {
+    let MaskShape::Radial { center, rx, ry, angle, .. } = shape else { return None };
     if !rx.is_finite() || !ry.is_finite() || *rx <= 0.0 || *ry <= 0.0 {
-        return false;
+        return None;
     }
     let l = frame_long_norm(map);
     let dx = (at.x - center.x) / l.0;
@@ -2274,7 +2567,116 @@ fn radial_body_contains(shape: &MaskShape, at: Point, map: &CanvasMap) -> bool {
     let (s, co) = angle.to_radians().sin_cos();
     let x = (dx * co + dy * s) / rx;
     let y = (-dx * s + dy * co) / ry;
-    x * x + y * y <= 1.0
+    let r = (x * x + y * y).sqrt();
+    r.is_finite().then_some(r)
+}
+
+/// `p` turned by `turn` radians about `c`, on screen (so the photo's aspect doesn't skew it).
+fn turned(map: &CanvasMap, p: Point, c: Point, turn: f32) -> Point {
+    let (pq, cq) = (map.screen(p), map.screen(c));
+    let v = pq - cq;
+    let (s, co) = turn.sin_cos();
+    map.norm(cq + vec2(v.x * co - v.y * s, v.x * s + v.y * co))
+}
+
+/// The angle (radians, on screen) of `p` seen from `c`.
+fn screen_angle(map: &CanvasMap, p: Point, c: Point) -> f32 {
+    (map.screen(p) - map.screen(c)).angle()
+}
+
+/// The double-arrow cursor that resizes along `dir` (on screen).
+fn resize_cursor(dir: egui::Vec2) -> egui::CursorIcon {
+    let deg = dir.y.atan2(dir.x).to_degrees().rem_euclid(180.0);
+    match deg {
+        d if !(22.5..157.5).contains(&d) => egui::CursorIcon::ResizeHorizontal,
+        d if d < 67.5 => egui::CursorIcon::ResizeNwSe,
+        d if d < 112.5 => egui::CursorIcon::ResizeVertical,
+        _ => egui::CursorIcon::ResizeNeSw,
+    }
+}
+
+/// What a press at `q` on the selected gradient `shape` grabs when no handle is under it: a
+/// handle number for [`moved_shape`] (0 moves it), or `None` (nothing: the press is elsewhere).
+/// Radial: inside moves, just outside the edge rotates. Linear: the middle line rotates, the
+/// start and end lines move that line only (the fade's width), anywhere else moves the gradient.
+fn gradient_part(shape: &MaskShape, q: Pos2, map: &CanvasMap) -> Option<u8> {
+    match shape {
+        MaskShape::Radial { center, .. } => {
+            let r = radial_r(shape, map.norm(q), map)?;
+            if r <= 1.0 {
+                return Some(0);
+            }
+            // a band outside the edge, about 16 points wide on screen
+            let edge = map.screen(*center).distance(q) / r as f32;
+            (r <= 1.0 + f64::from(16.0 / edge.max(1.0))).then_some(ROTATE)
+        }
+        MaskShape::Linear { start, end } => {
+            let (a, b) = (map.screen(*start), map.screen(*end));
+            let len = a.distance(b);
+            if len.is_nan() || len < 1.0 {
+                return Some(0);
+            }
+            let dir = (b - a) / len;
+            // distance along the gradient from the start line, in points
+            let t = (q - a).dot(dir);
+            if (t - len / 2.0).abs() < 6.0 {
+                Some(ROTATE)
+            } else if t.abs() < 6.0 {
+                Some(LINE_START)
+            } else if (t - len).abs() < 6.0 {
+                Some(LINE_END)
+            } else {
+                Some(0)
+            }
+        }
+        _ => None,
+    }
+}
+
+/// [`moved_shape`]'s handles beyond the ones drawn: turning a gradient about its centre, and
+/// moving a linear gradient's start or end line along it (the width of the fade, not its angle).
+const ROTATE: u8 = 7;
+const LINE_START: u8 = 11;
+const LINE_END: u8 = 12;
+
+/// The selected mask `m`'s gradient part under `q` when no handle is: (component, handle). A
+/// linear gradient's lines first, then a radial gradient's body or the band round it, then the
+/// first linear gradient as a whole (anywhere on the photo moves it).
+fn gradient_grab(m: &lightcraft_develop::Mask, q: Pos2, map: &CanvasMap) -> Option<(usize, u8)> {
+    let linear = |c: &&lightcraft_develop::MaskComponent| matches!(c.shape, MaskShape::Linear { .. });
+    for (ci, c) in m.components.iter().enumerate().filter(|(_, c)| linear(c)) {
+        if let Some(h) = gradient_part(&c.shape, q, map).filter(|h| *h != 0) {
+            return Some((ci, h));
+        }
+    }
+    for (ci, c) in m.components.iter().enumerate().filter(|(_, c)| matches!(c.shape, MaskShape::Radial { .. })) {
+        if let Some(h) = gradient_part(&c.shape, q, map) {
+            return Some((ci, h));
+        }
+    }
+    m.components.iter().position(|c| linear(&c)).map(|ci| (ci, 0))
+}
+
+/// The system cursor for dragging `handle` of `shape` from `q`; `None` for a turn (no system
+/// cursor shows that: the canvas draws its own).
+fn gradient_cursor(shape: &MaskShape, handle: u8, q: Pos2, map: &CanvasMap) -> Option<egui::CursorIcon> {
+    match (shape, handle) {
+        (_, 0) => Some(egui::CursorIcon::Move),
+        (MaskShape::Radial { .. }, 5 | ROTATE) | (MaskShape::Linear { .. }, ROTATE) => None,
+        (MaskShape::Radial { center, rx, ry, angle, .. }, h) => {
+            let deg = match h {
+                1 | 3 => 0.0,
+                2 | 4 => 90.0,
+                _ => FEATHER_HANDLE_DEG,
+            };
+            let c = map.screen(*center);
+            let dir = radial_point(map, *center, *rx, *ry, *angle, 1.0, deg) - c;
+            let dir = if dir.length() > 0.5 { dir } else { q - c };
+            Some(resize_cursor(dir))
+        }
+        (MaskShape::Linear { start, end }, _) => Some(resize_cursor(map.screen(*end) - map.screen(*start))),
+        _ => Some(egui::CursorIcon::Move),
+    }
 }
 
 /// Colour Range eyedropper: a click samples the colour under it for the selected mask's
@@ -2299,7 +2701,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let long = (map.rect.width().max(map.rect.height())) as f64;
     let active = app.session.active_mask;
     let clip = app.canvas_rect.unwrap_or(map.rect);
-    let p = &ui.painter_at(clip);
+    let mut painter = ui.painter_at(clip);
+    // a slider or dial at work: no lines, handles or pins over the effect
+    if adjusting(app) {
+        painter.set_invisible();
+    }
+    let p = &painter;
     // (mask, component, handle, screen position) of everything that can be grabbed
     let mut grips: Vec<(u32, usize, u8, Pos2)> = Vec::new();
     // pins follow Show Pins and the Tool Overlay mode (Shift+H); Auto hides them while brushing
@@ -2312,17 +2719,25 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         let sel = Some(m.id) == active;
         for (ci, c) in m.components.iter().enumerate() {
             match &c.shape {
-                MaskShape::Radial { center, rx, ry, angle, .. } if sel => {
-                    let pts: Vec<Pos2> = (0..64)
-                        .map(|i| {
-                            let a = i as f64 / 64.0 * std::f64::consts::TAU;
-                            let (s, co) = angle.to_radians().sin_cos();
-                            let (x, y) = (rx * a.cos(), ry * a.sin());
-                            let l = frame_long_norm(map);
-                            map.screen(Point::new(center.x + (x * co - y * s) * l.0, center.y + (x * s + y * co) * l.1))
-                        })
-                        .collect();
-                    p.add(egui::Shape::closed_line(pts, Stroke::new(1.5, Color32::from_white_alpha(230))));
+                MaskShape::Radial { center, rx, ry, angle, feather, .. } if sel => {
+                    // the outer edge (where the effect ends) and, inside it, the feather ring (where
+                    // it is full): thin, so the photo shows between them
+                    p.add(egui::Shape::closed_line(
+                        radial_ring(map, *center, *rx, *ry, *angle, 1.0),
+                        Stroke::new(1.0, Color32::from_white_alpha(230)),
+                    ));
+                    let inner = radial_inner(*feather);
+                    p.add(egui::Shape::dashed_line(
+                        &radial_ring(map, *center, *rx, *ry, *angle, inner),
+                        Stroke::new(1.0, Color32::from_white_alpha(170)),
+                        4.0,
+                        3.0,
+                    ));
+                    let fq = radial_point(map, *center, *rx, *ry, *angle, inner, FEATHER_HANDLE_DEG);
+                    p.circle_filled(fq, 4.0, Color32::from_black_alpha(90));
+                    p.circle_stroke(fq, 4.0, Stroke::new(1.5, Color32::WHITE));
+                    register(ui.ctx(), format!("maskHandle:{}:{ci}:6", m.id), Rect::from_center_size(fq, vec2(14.0, 14.0)));
+                    grips.push((m.id, ci, 6, fq));
 
                     let l = frame_long_norm(map);
                     for (i, a_deg) in [0.0_f64, 90.0_f64, 180.0_f64, 270.0_f64].into_iter().enumerate() {
@@ -2348,7 +2763,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                     let (a, b) = (map.screen(*start), map.screen(*end));
                     let dir = (b - a).normalized();
                     let perp = vec2(-dir.y, dir.x) * 3000.0;
-                    for (q, alpha) in [(a, 230), (b, 110)] {
+                    // start (full effect), the middle (50 %, with the pin) and the end (no effect)
+                    let mid = a.lerp(b, 0.5);
+                    for (q, alpha) in [(a, 210), (mid, 150), (b, 110)] {
                         p.line_segment([q - perp, q + perp], Stroke::new(1.0, Color32::from_white_alpha(alpha)));
                     }
                     for (i, q) in [a, b].iter().enumerate() {
@@ -2425,6 +2842,10 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             }
         }
     }
+    // a gradient armed: the first drag here draws it
+    if app.ui.mask_new.as_ref().is_some_and(|(k, _)| k == "linear" || k == "radial") && resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    }
     // the pointer on a pin shows that mask's overlay (as Lightroom Classic)
     if let Some(h) = resp.hover_pos()
         && let Some((mid, ..)) = grips.iter().find(|(_, _, handle, q)| *handle == 0 && q.distance(h) < 9.0)
@@ -2455,10 +2876,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     // Colour Range "Pick": the Masking panel owns the loupe's clicks (general_interaction
     // never runs while it is open), so the eyedropper is handled here too.
     if app.ui.tool == "colorRange" {
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        }
-        color_range_pick(app, ui, resp, map);
+        super::range_pick::color_tool(app, ui, resp, map, d, p);
+        return;
+    }
+    // the Luminance Range picker
+    if app.ui.tool == "lumRange" {
+        super::range_pick::luminance_tool(app, ui, resp, map, p);
         return;
     }
     // the selected mask's Point Color eyedropper: a click samples the colour there
@@ -2500,11 +2923,22 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     }
     // brush tool
     if app.ui.tool == "brush" {
+        // an Auto Mask stroke cut short (no release seen): what went to the photo stays, in one step
+        if matches!(app.gesture, Some(Gesture::Brush { live: Some(_), .. }))
+            && !resp.drag_stopped()
+            && !resp.clicked()
+            && !ui.input(|i| i.pointer.any_down())
+        {
+            app.gesture = None;
+            let _ = app.run("develop.endInteraction", json!({}));
+        }
         let r = (app.ui.brush_size as f64 * long) as f32;
         if let Some(h) = resp.hover_pos() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
             p.circle_stroke(h, r * (1.0 - app.ui.brush_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(120)));
+            // the centre, where Auto Mask samples the colour and texture to follow
+            brush_crosshair(p, h);
         }
         if let Some(q) = resp.interact_pointer_pos()
             && (resp.drag_started() || resp.dragged() || resp.clicked())
@@ -2514,20 +2948,43 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             match &mut app.gesture {
                 // a held, unmoving pointer records nothing: coverage builds by passes, not time (#518)
                 Some(Gesture::Brush { points, .. }) if points.last() == Some(&n) => {}
-                Some(Gesture::Brush { points, pressure }) => {
+                Some(Gesture::Brush { points, pressure, .. }) => {
                     record_pressure(pressure, points.len(), force);
                     points.push(n);
                 }
                 _ => {
                     let mut pressure = Vec::new();
                     record_pressure(&mut pressure, 0, force);
-                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure });
+                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure, live: None });
                 }
             }
         }
+        // Auto Mask: the stroke so far goes to the photo every moment while painting, so the
+        // edge-aware result shows live (one undo step for the whole stroke)
+        let now = ui.input(|i| i.time);
+        if app.ui.brush_auto_mask
+            && let Some(Gesture::Brush { points, pressure, live }) = &app.gesture
+            && live_due(*live, points.len(), now)
+        {
+            let (pts, pressure, first) = (points.iter().map(|q| [q.x, q.y]).collect::<Vec<_>>(), pressure.clone(), live.is_none());
+            if first {
+                let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
+            }
+            let erase = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
+            let _ = app.run(
+                "mask.brushStroke",
+                json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
+                       "erase": erase, "autoMask": true, "pressure": pressure, "continue": !first}),
+            );
+            if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
+                *live = Some((now, pts.len()));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(LIVE_AUTO_MASK_EVERY));
+        }
         // the stroke being painted (the render shows it once it's committed), with the committed
-        // stroke's dab spacing, feather and flow (issue #517)
-        if let Some(Gesture::Brush { points, pressure }) = &app.gesture {
+        // stroke's dab spacing, feather and flow (issue #517); with Auto Mask live the render shows
+        // the real, edge-aware stroke instead
+        if let Some(Gesture::Brush { points, pressure, live: None }) = &app.gesture {
             let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
             let opacity = if app.ui.mask_overlay && app.ui.mask_overlay_opacity > 0.0 { app.ui.mask_overlay_opacity / 100.0 } else { 110.0 / 255.0 };
             let params = crate::brush_live::LiveParams {
@@ -2545,7 +3002,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             app.brush_live = None;
         }
         if (resp.drag_stopped() || resp.clicked())
-            && let Some(Gesture::Brush { points, pressure }) = app.gesture.take()
+            && let Some(Gesture::Brush { points, pressure, live }) = app.gesture.take()
         {
             app.brush_live = None;
             let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
@@ -2554,8 +3011,11 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let _ = app.run(
                 "mask.brushStroke",
                 json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure}),
+                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": live.is_some()}),
             );
+            if live.is_some() {
+                let _ = app.run("develop.endInteraction", json!({}));
+            }
         }
         return;
     }
@@ -2569,6 +3029,40 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             })
             .copied()
     };
+    // what a press here grabs: a handle or pin, else a part of the selected mask's gradients
+    let grab = |q: Pos2| {
+        hit(q).map(|(m, c, h, _)| (m, c, h)).or_else(|| {
+            let m = d.masks.iter().find(|m| Some(m.id) == active)?;
+            gradient_grab(m, q, map).map(|(ci, h)| (m.id, ci, h))
+        })
+    };
+    // the pointer says what a drag will do: move, resize (the edge, a line, the feather ring) or
+    // turn the gradient
+    let held = match &app.gesture {
+        Some(Gesture::MaskHandle { mask, comp, handle, .. }) => Some((*mask, *comp, *handle)),
+        _ => None,
+    };
+    if let Some(h) = resp.hover_pos().or_else(|| held.and_then(|_| ui.input(|i| i.pointer.latest_pos())))
+        && let Some((mid, ci, handle)) = held.or_else(|| grab(h))
+        && let Some(shape) = d.masks.iter().find(|m| m.id == mid).and_then(|m| m.components.get(ci)).map(|c| &c.shape)
+        && !adjusting(app)
+        && app.ui.mask_new.is_none()
+    {
+        match gradient_cursor(shape, handle, h, map) {
+            Some(cursor) => ui.ctx().set_cursor_icon(cursor),
+            None => {
+                let c = match shape {
+                    MaskShape::Radial { center, .. } => map.screen(*center),
+                    MaskShape::Linear { start, end } => map.screen(*start).lerp(map.screen(*end), 0.5),
+                    _ => h,
+                };
+                let away = h - c;
+                let turn = if away.length() > 0.5 { away.y.atan2(away.x) + std::f32::consts::FRAC_PI_2 } else { 0.0 };
+                rotate_cursor(ui, h, turn);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::None);
+            }
+        }
+    }
     if resp.clicked()
         && let Some(q) = resp.interact_pointer_pos()
         && let Some((mid, ..)) = hit(q)
@@ -2579,17 +3073,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if resp.drag_started()
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
     {
-        let grip = hit(q).map(|(m, c, h, _)| (m, c, h)).or_else(|| {
-            let m = d.masks.iter().find(|m| Some(m.id) == active)?;
-            // Handles take precedence; otherwise grab the selected radial component under
-            // the press, including components after the first in compound masks.
-            let at = map.norm(q);
-            if let Some(ci) = m.components.iter().position(|c| radial_body_contains(&c.shape, at, map)) {
-                return Some((m.id, ci, 0));
-            }
-            // anywhere on the photo drags the selected linear gradient
-            matches!(m.components.first()?.shape, MaskShape::Linear { .. }).then_some((m.id, 0, 0))
-        });
+        let grip = grab(q);
         if let Some((mask, comp, handle)) = grip
             && let Some(original_shape) = d.masks.iter().find(|m| m.id == mask).and_then(|m| m.components.get(comp)).map(|c| c.shape.clone())
         {
@@ -2617,6 +3101,29 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     }
 }
 
+/// How often (seconds) a stroke being painted with Auto Mask goes to the photo.
+const LIVE_AUTO_MASK_EVERY: f64 = 0.12;
+
+/// Whether the stroke of `len` points should go to the photo now: the first time once it has two
+/// points, then every [`LIVE_AUTO_MASK_EVERY`] when it grew.
+fn live_due(live: Option<(f64, usize)>, len: usize, now: f64) -> bool {
+    match live {
+        None => len >= 2,
+        Some((at, sent)) => len > sent && (now - at >= LIVE_AUTO_MASK_EVERY || now < at || now.is_nan()),
+    }
+}
+
+/// A small crosshair at the brush's centre (dark under light, so it reads on any photo).
+fn brush_crosshair(p: &egui::Painter, c: Pos2) {
+    for (w, col) in [(3.0, Color32::from_black_alpha(140)), (1.0, Color32::WHITE)] {
+        let s = Stroke::new(w, col);
+        p.line_segment([c - vec2(6.0, 0.0), c - vec2(2.0, 0.0)], s);
+        p.line_segment([c + vec2(2.0, 0.0), c + vec2(6.0, 0.0)], s);
+        p.line_segment([c - vec2(0.0, 6.0), c - vec2(0.0, 2.0)], s);
+        p.line_segment([c + vec2(0.0, 2.0), c + vec2(0.0, 6.0)], s);
+    }
+}
+
 /// A mask handle's name for screen readers: `handle` 0 is the component's pin, 1..5 a radial
 /// gradient's right / bottom / left / top edge and rotation, 1..2 a linear gradient's start and end.
 fn mask_handle_name(mask: &str, shape: &MaskShape, handle: u8) -> String {
@@ -2626,6 +3133,7 @@ fn mask_handle_name(mask: &str, shape: &MaskShape, handle: u8) -> String {
         (MaskShape::Radial { .. }, 2) => "bottom edge",
         (MaskShape::Radial { .. }, 3) => "left edge",
         (MaskShape::Radial { .. }, 4) => "top edge",
+        (MaskShape::Radial { .. }, 6) => "feather",
         (MaskShape::Radial { .. }, _) => "rotation",
         (MaskShape::Linear { .. }, 1) => "start",
         (MaskShape::Linear { .. }, _) => "end",
@@ -2695,17 +3203,25 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     let (mode, live) = (app.ui.tool_overlay, pins_live(app, resp, map));
     // Auto also hides them while a new spot is painted
     let painting = mode == ToolOverlay::Auto && matches!(app.gesture, Some(Gesture::Spot { .. }));
-    let p = ui.painter_at(app.canvas_rect.unwrap_or(map.rect));
+    let mut p = ui.painter_at(app.canvas_rect.unwrap_or(map.rect));
+    // a slider or dial at work: the spots' outlines and pins hide over the result
+    if adjusting(app) {
+        p.set_invisible();
+    }
     let mut pins = p.clone();
     if painting {
         pins.set_invisible();
     }
     // (spot, is source, screen centre, radius) of everything that can be grabbed
     let mut grips: Vec<(usize, bool, Pos2, f32)> = Vec::new();
+    // the spot under the pointer (its painted area or its source): it shows thin, with both pins
+    let hot =
+        resp.hover_pos().filter(|_| !painting && matches!(mode, ToolOverlay::Auto | ToolOverlay::Always)).and_then(|h| spot_at(d, map, long, h));
     for (i, s) in d.spots.iter().enumerate() {
         let r = (s.size * long) as f32;
         let sel = Some(i) == active;
-        if !mode.shows(sel, live) {
+        let hot = hot == Some(i);
+        if !mode.shows(sel, live) && !hot {
             continue;
         }
         let p = &pins;
@@ -2716,21 +3232,26 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
                 let alpha = if sel || app.ui.visualize_spots { 255 } else { 190 };
                 if a.confirmed { Color32::from_rgba_unmultiplied(255, 166, 0, alpha) } else { Color32::from_rgba_unmultiplied(255, 228, 92, alpha) }
             }
-            None => Color32::from_white_alpha(if sel { 230 } else { 150 }),
+            None => Color32::from_white_alpha(if sel || hot { 230 } else { 150 }),
         };
-        let width = if sel || (s.auto.is_some() && app.ui.visualize_spots) { 2.0 } else { 1.0 };
-        for q in &s.points {
-            p.circle_stroke(map.screen(*q), r, Stroke::new(width, col));
-        }
+        let width = if s.auto.is_some() && app.ui.visualize_spots { 2.0 } else { 1.0 };
+        // one outline round the whole painted area (never a ring per dab, which hides the result)
+        let target: Vec<Pos2> = s.points.iter().map(|q| map.screen(*q)).collect();
+        union_outline(p, &target, r, Stroke::new(width, col));
         let Some(&t) = s.points.first() else { continue };
         let tq = map.screen(t);
-        if let Some(o) = s.source_offset.filter(|_| sel) {
+        // the source (where the pixels come from): its outline, an arrow to the target, its pin
+        if let Some(o) = s.source_offset.filter(|_| sel || hot) {
             let sq = map.screen(Point::new(t.x + o.x, t.y + o.y));
-            for q in &s.points {
-                p.circle_stroke(map.screen(Point::new(q.x + o.x, q.y + o.y)), r, Stroke::new(1.0, Color32::from_white_alpha(170)));
+            let source: Vec<Pos2> = s.points.iter().map(|q| map.screen(Point::new(q.x + o.x, q.y + o.y))).collect();
+            union_outline(p, &source, r, Stroke::new(1.0, Color32::from_white_alpha(150)));
+            let v = tq - sq;
+            if v.length() > 2.0 * r + 12.0 {
+                let dir = v.normalized();
+                p.arrow(sq + dir * r, v - dir * 2.0 * r, Stroke::new(1.0, Color32::from_white_alpha(170)));
             }
-            let dir = (tq - sq).normalized();
-            p.arrow(sq + dir * r, (tq - sq) - dir * (2.0 * r).min((tq - sq).length()), Stroke::new(1.0, Color32::from_white_alpha(200)));
+            p.circle_filled(sq, 5.0, Color32::from_black_alpha(110));
+            p.circle_stroke(sq, 5.0, Stroke::new(1.5, Color32::WHITE));
             register(ui.ctx(), format!("spotSource:{i}"), Rect::from_center_size(sq, vec2(14.0, 14.0)));
             grips.push((i, true, sq, r));
         }
@@ -2810,10 +3331,10 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             _ => app.gesture = Some(Gesture::Spot { points: vec![n] }),
         }
     }
+    // the spot being painted: its outline only, so what it covers stays visible
     if let Some(Gesture::Spot { points }) = &app.gesture {
-        for q in points {
-            p.circle_filled(map.screen(*q), r, Color32::from_white_alpha(60));
-        }
+        let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+        union_outline(&p, &screen, r, Stroke::new(1.0, Color32::from_white_alpha(220)));
     }
     if (resp.drag_stopped() || resp.clicked())
         && let Some(Gesture::Spot { points }) = app.gesture.take()
@@ -2831,6 +3352,63 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity}),
         );
     }
+}
+
+/// The spot whose painted area (or, for the selected one, source) is under `h`: the last drawn
+/// first, as it is on top.
+fn spot_at(d: &DevelopSettings, map: &CanvasMap, long: f64, h: Pos2) -> Option<usize> {
+    d.spots.iter().enumerate().rev().find_map(|(i, s)| {
+        let r = ((s.size * long) as f32).max(4.0);
+        let o = s.source_offset.unwrap_or(Point::new(0.0, 0.0));
+        let inside = s.points.iter().any(|q| map.screen(*q).distance(h) <= r)
+            || (s.source_offset.is_some() && s.points.iter().any(|q| map.screen(Point::new(q.x + o.x, q.y + o.y)).distance(h) <= r));
+        inside.then_some(i)
+    })
+}
+
+/// The outline of the union of circles of radius `r` round `centres` (a painted stroke), drawn
+/// thin ([`union_arcs`]).
+pub(crate) fn union_outline(p: &egui::Painter, centres: &[Pos2], r: f32, stroke: Stroke) {
+    for arc in union_arcs(centres, r) {
+        p.add(egui::Shape::line(arc, stroke));
+    }
+}
+
+/// The outline of the union of circles of radius `r` round `centres`: each circle's arcs that no
+/// other circle covers. Centres closer than a quarter radius to the last one kept are skipped (a
+/// stroke records many), and each circle is only tested against its neighbours.
+pub(crate) fn union_arcs(centres: &[Pos2], r: f32) -> Vec<Vec<Pos2>> {
+    let mut out = Vec::new();
+    if !(r.is_finite() && r > 0.5) {
+        return out;
+    }
+    let mut kept: Vec<Pos2> = Vec::with_capacity(centres.len().min(4096));
+    for c in centres.iter().filter(|c| c.x.is_finite() && c.y.is_finite()) {
+        if kept.last().is_none_or(|l| l.distance(*c) >= r * 0.25) && kept.len() < 4096 {
+            kept.push(*c);
+        }
+    }
+    const N: usize = 40;
+    let ring: Vec<egui::Vec2> = (0..=N).map(|k| egui::Vec2::angled(k as f32 / N as f32 * std::f32::consts::TAU) * r).collect();
+    for (i, c) in kept.iter().enumerate() {
+        let near: Vec<Pos2> = kept.iter().enumerate().filter(|(j, o)| *j != i && o.distance(*c) < 2.0 * r).map(|(_, o)| *o).collect();
+        let open = |q: Pos2| near.iter().all(|o| o.distance(q) >= r - 0.5);
+        let mut run: Vec<Pos2> = Vec::new();
+        for v in &ring {
+            let q = *c + *v;
+            if open(q) {
+                run.push(q);
+            } else if run.len() > 1 {
+                out.push(std::mem::take(&mut run));
+            } else {
+                run.clear();
+            }
+        }
+        if run.len() > 1 {
+            out.push(run);
+        }
+    }
+    out
 }
 
 /// Keyboard stand-ins for the Remove tool: each spot's target and source (an arrow press moves
@@ -2897,7 +3475,10 @@ fn eye_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response
     let o = map.screen(Point::new(0.0, 0.0));
     let (sx, sy) = (map.screen(Point::new(1.0, 0.0)).distance(o), map.screen(Point::new(0.0, 1.0)).distance(o));
     let per_long = sx.max(sy);
-    let p = ui.painter();
+    let mut p = ui.painter().clone();
+    if adjusting(app) {
+        p.set_invisible();
+    }
     for (i, e) in d.red_eye.iter().enumerate() {
         let c = map.screen(e.center);
         let r = vec2(e.rx as f32 * per_long, e.ry as f32 * per_long);
@@ -3627,3 +4208,7 @@ mod info_overlay_tests {
         assert!(copies[0].r() < 64 && copies[0].a() > 0, "the shadow under it is dark: {:?}", copies[0]);
     }
 }
+
+#[cfg(test)]
+#[path = "detail_tools_tests.rs"]
+mod tools_tests;

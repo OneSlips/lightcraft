@@ -23,13 +23,16 @@
 //! [`Sam2`] runs SAM 2.1 (Hiera, `facebook/sam2.1-hiera-tiny`, Apache-2.0 weights) for point
 //! prompts: a smaller, faster alternative to SAM 3's click path, through the same mask decoder.
 //!
+//! [`owl`] runs OWLv2 (`google/owlv2-base-patch16-ensemble`, Apache-2.0), an open-vocabulary
+//! detector: with SAM 2.1's box prompts it gives Describe without SAM 3 ([`describe`]).
+//!
 //! [`fetch`] downloads the model, only when the user asks for it (from configurable mirrors,
 //! verified before use). Nothing in LightCraft requires the model: without it, AI masks report
 //! that it isn't installed and everything else works.
 //!
 //! Modified work (Apache License 2.0, §4(b)): ported by the LightCraft contributors in 2026 from
-//! the Python/PyTorch SAM 3 and SAM 2 code of Hugging Face Transformers (`src/transformers/models/sam3`, `sam3_tracker` and `sam2`), Copyright The HuggingFace
-//! Team and Meta Platforms, Inc.; translated to Rust on candle and restructured. See NOTICE.
+//! the Python/PyTorch SAM 3, SAM 2 and OWLv2 code of Hugging Face Transformers (`src/transformers/models/sam3`, `sam3_tracker`, `sam2` and `owlv2`), Copyright The HuggingFace
+//! Team, Meta Platforms, Inc. and Google; translated to Rust on candle and restructured. See NOTICE.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -47,6 +50,8 @@ mod cpu;
 mod deform;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod depth;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod describe;
 #[cfg(not(target_arch = "wasm32"))]
 mod detector;
 #[cfg(not(target_arch = "wasm32"))]
@@ -69,6 +74,8 @@ pub mod models;
 mod neck;
 #[cfg(not(target_arch = "wasm32"))]
 mod nn;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod owl;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod people;
 #[cfg(not(target_arch = "wasm32"))]
@@ -100,6 +107,8 @@ use candle_nn::VarBuilder;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use birefnet::{BIREFNET_SIDE, BiRefNet, is_birefnet_dir};
+#[cfg(not(target_arch = "wasm32"))]
+pub use owl::{Owl, OwlEncoded, is_owl_dir};
 #[cfg(not(target_arch = "wasm32"))]
 pub use sam2::{SAM2_INPUT, SAM2_MASK_SIDE, Sam2, Sam2Encoded, is_sam2_dir};
 #[cfg(not(target_arch = "wasm32"))]

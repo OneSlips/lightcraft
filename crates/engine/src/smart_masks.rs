@@ -549,8 +549,11 @@ impl Session {
             }
             Part::Prompt => {
                 let MaskShape::Prompt { text, .. } = &c.shape else { return Ok(None) };
-                if self.segmenter.model_dir().is_err() {
-                    return Err(RecipeSkip::Model("SAM 3".into()));
+                if self.segmenter.describe_model().is_err() {
+                    return Err(RecipeSkip::Model(match self.segmenter.describe_needs().first() {
+                        Some(key) => model_title(key),
+                        None => "SAM 3".into(),
+                    }));
                 }
                 Ok(Some(Kind::Text(text.clone())))
             }
@@ -943,7 +946,8 @@ fn model_title(key: &str) -> String {
         "scene" => "EoMT (Sky, Landscape)",
         "people" => "MediaPipe Selfie Multiclass (People)",
         "face" => "MediaPipe Face Landmarker (faces)",
-        "sam2" => "SAM 2.1 (Object, remembered objects)",
+        "sam2" => "SAM 2.1 (Object, Describe, remembered objects)",
+        "describe" => "OWLv2 object finder (Describe)",
         _ => key,
     }
     .to_string()

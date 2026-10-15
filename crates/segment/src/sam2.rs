@@ -161,6 +161,21 @@ impl Sam2 {
         Ok(Prediction { logits: p.logits, score: p.iou * crate::sigmoid(p.object_score) })
     }
 
+    /// Segment the object in `rect` (x0, y0, x1, y1, normalized to the image), refined by
+    /// `clicks` if any: SAM's single-mask output (with the stability fallback), as SAM 2 gives a
+    /// box prompt. Logits and score as [`Self::segment_clicks`].
+    pub fn segment_box(&self, enc: &Sam2Encoded, rect: [f32; 4], clicks: &[Click]) -> Result<Prediction> {
+        if !rect.iter().all(|v| v.is_finite()) || rect[2] <= rect[0] || rect[3] <= rect[1] {
+            return Err(Error::Sam2(format!("not a box: {rect:?}")));
+        }
+        if clicks.len() > 1024 {
+            return Err(Error::Sam2(format!("too many clicks ({})", clicks.len())));
+        }
+        let rect = rect.map(|v| v.clamp(0.0, 1.0));
+        let p = self.decoder.predict_prompt(&enc.features, clicks, Some(rect), false).map_err(sam2_err)?;
+        Ok(Prediction { logits: p.logits, score: p.iou * crate::sigmoid(p.object_score) })
+    }
+
     /// All four decoder outputs for `clicks` (`[4, 256, 256]` logits, predicted IoUs, object
     /// score logit); tests and tools.
     pub fn decode(&self, enc: &Sam2Encoded, clicks: &[Click]) -> Result<Decoded> {
@@ -248,6 +263,14 @@ mod tests {
         let two = [one[0], Click { x: 1.0, y: 0.0, positive: false }];
         assert_eq!(model.segment_clicks(&enc, &two).unwrap().logits.len(), 32 * 32);
         let d = model.decode(&enc, &two).unwrap();
+        // a box (and a box with clicks): two corner points ahead of the clicks and the padding
+        let b = model.segment_box(&enc, [0.1, 0.2, 0.6, 0.9], &[]).unwrap();
+        assert_eq!(b.logits.len(), 32 * 32);
+        assert!(b.logits.iter().all(|v| v.is_finite()));
+        assert_eq!(model.segment_box(&enc, [0.1, 0.2, 0.6, 0.9], &two).unwrap().logits.len(), 32 * 32);
+        assert_eq!(model.decoder.embed_prompt(&two, Some([0.1, 0.2, 0.6, 0.9])).unwrap().dims(), &[1, 5, 256]);
+        assert!(model.segment_box(&enc, [0.6, 0.2, 0.1, 0.9], &[]).is_err());
+        assert!(model.segment_box(&enc, [f32::NAN, 0.2, 0.6, 0.9], &[]).is_err());
         assert_eq!((d.masks.dims(), d.iou.len()), (&[4, 32, 32][..], 4));
         // bad inputs are errors
         assert!(model.segment_clicks(&enc, &[]).is_err());

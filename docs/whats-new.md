@@ -39,6 +39,57 @@
 - **One flag everywhere.** Picked is a solid white flag, rejected a red flag with a cross, unflagged an empty outline: the same on thumbnails, in the filmstrip, on the bottom bar, in the filters and the menus.
 - **Ratings, flags and labels under the thumbnails**, big enough to read at a glance, in the grid and the filmstrip (Settings ▸ Interface ▸ Grid; on). Rejects are no longer greyed out.
 
+### Mask tools
+- **Add, Subtract and Intersect offer every kind of mask** that Create New Mask does, in the same
+  order and with the same icons: also Background, People, Remembered, Landscape and Color. A Radial
+  minus the Background is two clicks. People, Remembered and Landscape open their picker under the
+  mask they combine with. The mask tiles have their own icons now.
+- **While you move a slider or turn a dial, the overlay, pins and tool lines step aside** so you
+  see the effect itself, even an overlay you switched on with **O**; let go and they come back as
+  they were. The same for Remove spots, the crop guides and the red-eye circles.
+- The **overlay button** has its own icon (a frame with a tinted area, no longer the Masking tool's)
+  and lights up in the overlay's colour while the overlay is switched on to stay; the photo then
+  says "Overlay on · O". Its settings menu has a **Show overlay** switch, and choosing how the
+  overlay looks there no longer switches it on for good.
+- **Gradients show what a drag will do**: the pointer becomes a move arrow over a gradient's body
+  or pin, a resize arrow over its edges, lines and handles, and a turning arrow just outside a
+  Radial or on a Linear's middle line.
+- A **Linear** gradient has its **middle line** (the 50 % point) with the pin on it, as in
+  Lightroom Classic: drag it to turn the gradient; drag the outer lines to widen or narrow the fade
+  (they stay parallel).
+- A **Radial** gradient has an **inner feather ring**: drag its handle in or out to set how soft
+  the edge is. A **Feather** slider under the radial does the same; both stay in step.
+- **Auto Mask follows the edges while you paint**: the stroke goes to the photo every eighth of a
+  second as it grows, so the edge-aware result shows live, not only after you let go. The whole
+  stroke is still one undo step.
+- The **brush cursor has a small crosshair at its centre**: that is where Auto Mask samples the
+  colour and texture to follow, so you can aim it.
+- **Color Range picks like Lightroom Classic**: click to pick a colour, **⇧-click to add more** (up
+  to five), **⌥-click to remove** one, or **drag over an area** to pick its main colours at once.
+  Each picked place has a pin (a dashed box for an area) that you can drag to pick somewhere else.
+  The picked colours show as swatches by the Pick button.
+- **Luminance Range has a Pick button too**: click the photo to select the tones round the one
+  there, or drag over an area to select its tones; ⇧ widens the range.
+- **Remove spots no longer hide what they fix**: a painted spot has one thin outline round the
+  whole painted area (and one round its source), instead of a ring for every dab; while painting
+  you see only that outline, not a white fill. Hover a spot to see its outline and both pins, and
+  drag either pin to move the area or choose another source.
+- **AI masks no longer show a stand-in while they compute**: Subject, Sky, Background, People,
+  Landscape, Object, Describe and Remembered masks show no overlay until the model's result is
+  there. Instead the photo says what is being found ("Finding the subject…") with a spinner and a
+  **Cancel** button. A simpler method is used only when the AI model isn't installed, and the
+  panel says so.
+- **Crop shows the crop you get**: with Constrain Crop (on with Upright), the crop box is limited
+  to the photo's valid area while you crop, so no white wedges show that disappear when you leave.
+- **Rotating turns the photo, not the box**: the crop box stays level, the photo turns under it
+  (smaller so it still fits), with a fine grid while you drag.
+
+### Masking panel
+- **Describe works without SAM 3.** Type what to select (`white dress`, `car, road`) and LightCraft
+  finds every instance with an open model, OWLv2, and cuts each one out with SAM 2.1 (the model
+  behind Object). Both download on first use, about 620 MB and 156 MB; Meta's gated SAM 3 is no
+  longer needed, and is still used when you have installed it. The first description on a photo
+  takes a few seconds while the photo is analyzed; more descriptions on the same photo are quick.
 
 ### People masks
 - **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, and has no

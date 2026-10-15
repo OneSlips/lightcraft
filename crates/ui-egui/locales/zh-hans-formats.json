@@ -400,5 +400,6 @@
   "Import {n} Selected": "导入所选 {n} 张",
   "{n} alternatives in the library": "已将 {n} 张备选加入图库",
   "{n} people, {k} to look at first": "{n} 人，其中 {k} 人需先看",
-  "Rows {a}–{b} of {c}: scroll for more": "第 {a}–{b} 行，共 {c} 行：滚动查看更多"
+  "Rows {a}–{b} of {c}: scroll for more": "第 {a}–{b} 行，共 {c} 行：滚动查看更多",
+  "Finding “{text}”…": "正在查找“{text}”…"
 }

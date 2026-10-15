@@ -1,6 +1,7 @@
 //! AI masks (`lightcraft-segment`, cargo feature `sam`; the desktop app enables it):
 //! - **Object** (clicks): SAM 3 when it is installed, else SAM 2.1 (open, Apache-2.0);
-//! - **Describe** (text): SAM 3 only;
+//! - **Describe** (text): SAM 3 when it is installed, else OWLv2 (open, Apache-2.0) finds boxes
+//!   around what the text names and SAM 2.1 segments each ([`Segmenter::describe_model`]);
 //! - **Subject / Background**: BiRefNet-portrait (MIT), else the people EoMT finds, else a heuristic;
 //! - **Sky, People, Landscape**: EoMT-S COCO panoptic (MIT), else a heuristic (Sky) or nothing.
 //!
@@ -491,6 +492,32 @@ impl Segmenter {
         Err(crate::EngineError::ModelMissing { model: crate::AiModel::Sam3, msg })
     }
 
+    /// The models for Describe: SAM 3 when it is installed (or a remote worker is set), else the
+    /// open pair, OWLv2 (`describe`) finding boxes and SAM 2.1 (`sam2`) segmenting them. Without
+    /// them, an error naming the first open model missing (its download is offered on it,
+    /// [`models::missing_model`]); [`Segmenter::describe_needs`] lists all of them.
+    pub fn describe_model(&self) -> Result<DescribeModel, String> {
+        if !Self::AVAILABLE {
+            return Err("AI masks are not available in this build".into());
+        }
+        // (no folder for the openly licensed models: only SAM 3 can be offered)
+        if self.installed() || self.remote_endpoint().is_some() || self.models_root.is_none() {
+            return self.model_dir().map(DescribeModel::Sam3);
+        }
+        let detector = self.require_model("describe")?;
+        let sam2 = self.require_model("sam2")?;
+        Ok(DescribeModel::Open { detector, sam2 })
+    }
+
+    /// The open models Describe still needs (keys for `ai.models.download`, in the order to get
+    /// them); empty when it is ready (or SAM 3 serves it).
+    pub fn describe_needs(&self) -> Vec<&'static str> {
+        if !Self::AVAILABLE || self.installed() || self.remote_endpoint().is_some() || self.models_root.is_none() {
+            return Vec::new();
+        }
+        ["describe", "sam2"].into_iter().filter(|k| !self.model_installed(k)).collect()
+    }
+
     /// The model for Object clicks: SAM 3 when it is installed (or a remote worker is set), else
     /// SAM 2.1; `(folder, is SAM 2.1)`. Without either, an error offering SAM 2.1 (the open one).
     pub fn object_model(&self) -> Result<(PathBuf, bool), String> {
@@ -612,6 +639,15 @@ impl Segmenter {
     }
 }
 
+/// The models a Describe selection runs on ([`Segmenter::describe_model`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DescribeModel {
+    /// SAM 3's text prompt (its folder; empty with a remote worker).
+    Sam3(PathBuf),
+    /// OWLv2's boxes segmented by SAM 2.1 (their folders).
+    Open { detector: PathBuf, sam2: PathBuf },
+}
+
 /// Mix `v` into a 64-bit hash.
 #[cfg_attr(not(feature = "sam"), allow(dead_code))]
 fn mix(h: u64, v: u64) -> u64 {
@@ -713,8 +749,15 @@ impl Session {
         reply: std::sync::mpsc::Sender<worker::Outcome>,
         region: Option<[f64; 4]>,
     ) -> Result<worker::Job, String> {
+        let mut detector = None;
         let (dir, sam2) = match &kind {
-            worker::Kind::Text(_) | worker::Kind::Detail { prompt: Prompt::Text(_), .. } => (self.segmenter.model_dir()?, false),
+            worker::Kind::Text(_) | worker::Kind::Detail { prompt: Prompt::Text(_), .. } => match self.segmenter.describe_model()? {
+                DescribeModel::Sam3(dir) => (dir, false),
+                DescribeModel::Open { detector: d, sam2 } => {
+                    detector = Some(d);
+                    (sam2, true)
+                }
+            },
             worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Faces { .. } => (PathBuf::new(), false),
             worker::Kind::Learn { .. } => (self.segmenter.require_model("sam2")?, false),
             _ => self.segmenter.object_model()?,
@@ -752,6 +795,7 @@ impl Session {
         Ok(worker::Job {
             dir,
             sam2,
+            detector,
             key: if region.is_some() { 0 } else { key },
             render: Some(render),
             missing,
@@ -855,7 +899,7 @@ impl Session {
     /// Segment everything `text` describes on photo `id`, waiting for the model; `Ok(None)`
     /// when nothing matches.
     pub fn segment_text(&mut self, id: PhotoId, text: &str) -> Result<Option<SegMask>, String> {
-        self.segmenter.model_dir()?;
+        self.segmenter.describe_model()?;
         let text = text.trim();
         if text.is_empty() {
             return Err("describe what to select".into());
@@ -896,7 +940,7 @@ impl Session {
     /// Background mode: queue a Describe selection; the mask (or component, combined by `op`
     /// into mask `mask`) is created by [`Session::segment_poll`] when something matches.
     pub(crate) fn segment_text_later(&mut self, id: PhotoId, mask: Option<u32>, op: &str, name: Option<String>, text: &str) -> Result<(), String> {
-        self.segmenter.model_dir()?;
+        self.segmenter.describe_model()?;
         let text = text.trim();
         if text.is_empty() {
             return Err("describe what to select".into());
@@ -933,9 +977,13 @@ impl Session {
         let (pw, ph) = (f64::from(p.width.max(1)), f64::from(p.height.max(1)));
         let aspect = if d.orientation.swaps_axes() { ph / pw } else { pw / ph };
         match &prompt {
-            Prompt::Text(_) => self.segmenter.model_dir()?,
-            Prompt::Clicks(_) => self.segmenter.object_model()?.0,
-        };
+            Prompt::Text(_) => {
+                self.segmenter.describe_model()?;
+            }
+            Prompt::Clicks(_) => {
+                self.segmenter.object_model()?;
+            }
+        }
         let Some(region) = detail_region(&seg, aspect) else { return Ok(false) };
         #[cfg(feature = "sam")]
         {

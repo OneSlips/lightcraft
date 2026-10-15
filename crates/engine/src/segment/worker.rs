@@ -1,4 +1,4 @@
-//! The AI mask worker thread: it owns the models (SAM 3, SAM 2.1, BiRefNet, EoMT, each loaded
+//! The AI mask worker thread: it owns the models (SAM 3, SAM 2.1, OWLv2, BiRefNet, EoMT, each loaded
 //! when first needed) and the last encoded photo, and runs every request (load, render the model
 //! input, encode, clicks, descriptions, automatic selections, detail passes) in turn. The session only sends jobs and receives outcomes over channels, so no thread ever
 //! waits on a lock the model holds, and the UI thread never runs the model.
@@ -19,7 +19,7 @@ use std::time::Duration;
 use lightcraft_develop::SegMask;
 use lightcraft_segment::identity::Signature;
 use lightcraft_segment::{
-    Encoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
+    Encoded, Owl, OwlEncoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
     birefnet::{BIREFNET_SIDE, BiRefNet},
     people::{Face, FaceModel, PeopleMap, PeopleModel, PeopleRequest, people_mask},
     remote::{self, Operation, Request, text_logits},
@@ -82,6 +82,8 @@ pub struct Job {
     pub dir: PathBuf,
     /// Object clicks (and their detail passes) run on SAM 2.1 (`dir` is its folder), not SAM 3.
     pub sam2: bool,
+    /// Describe runs on OWLv2 (this folder) and SAM 2.1 (`dir`, with `sam2`), not SAM 3.
+    pub detector: Option<PathBuf>,
     /// Which photo and look the request is about (the encode cache's key).
     pub key: u64,
     /// Renders the model input when the cache doesn't hold `key` (always for a detail pass).
@@ -263,6 +265,9 @@ struct State {
     remote: Option<remote::Client>,
     sam2: Option<(PathBuf, Sam2)>,
     sam2_cache: Option<(u64, Sam2Encoded)>,
+    owl: Option<(PathBuf, Owl)>,
+    /// OWLv2's boxes and class embeddings for a photo (each description reuses them).
+    owl_cache: Option<(u64, OwlEncoded)>,
     subject: Option<(PathBuf, BiRefNet)>,
     /// BiRefNet's logits for a photo (Subject and Background share them).
     subject_cache: Option<(u64, Vec<f32>)>,
@@ -288,6 +293,7 @@ impl State {
         self.model.is_some()
             || self.remote.is_some()
             || self.sam2.is_some()
+            || self.owl.is_some()
             || self.subject.is_some()
             || self.scene.is_some()
             || self.people.is_some()
@@ -298,6 +304,7 @@ impl State {
     fn forget_photos(&mut self) {
         self.cache = None;
         self.sam2_cache = None;
+        self.owl_cache = None;
         self.subject_cache = None;
         self.scene_cache = None;
         self.people_cache = None;
@@ -1165,7 +1172,24 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job, payload: &mut Payl
     }
 }
 
-/// Object clicks, their preparation and detail passes on SAM 2.1.
+/// Describe on the open models: OWLv2's boxes for `text` on `job`'s photo (`detector`: its folder),
+/// each segmented by SAM 2.1 (`job.dir`), merged; both analyses of the photo are kept for the
+/// next description. `None` when nothing matches.
+fn describe(state: &mut State, shared: &Shared, job: &mut Job, detector: &std::path::Path, text: &str) -> Result<Option<SegMask>, String> {
+    sam2_on_input(state, shared, job)?;
+    ensure(&mut state.owl, &mut state.owl_cache, shared, detector, "OWLv2", Owl::load)?;
+    cached(&state.owl, &mut state.owl_cache, &mut state.input_cache, shared, job, "OWLv2", |m, i| m.encode(&i.rgb, i.w, i.h))?;
+    let (Some((_, owl)), Some((_, owl_enc)), Some((_, sam)), Some((_, sam_enc))) = (&state.owl, &state.owl_cache, &state.sam2, &state.sam2_cache)
+    else {
+        return Err("the Describe models are not ready".into());
+    };
+    let t = web_time::Instant::now();
+    let p = lightcraft_segment::describe::describe(owl, owl_enc, sam, sam_enc, text, &Default::default()).map_err(|e| e.to_string())?;
+    log::info!("Describe {text:?} in {:?}", t.elapsed());
+    Ok(p.map(|p| SegMask::from_logits(SAM2_MASK_SIDE, &p.logits)))
+}
+
+/// Object clicks, their preparation and detail passes on SAM 2.1; Describe on OWLv2 and SAM 2.1.
 fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<SegMask>, String> {
     let side = SAM2_MASK_SIDE;
     match std::mem::replace(&mut job.kind, Kind::Prepare) {
@@ -1188,7 +1212,27 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
             log::info!("SAM 2.1 detail pass ({}×{}) in {:?}", input.w, input.h, t.elapsed());
             Ok(Some(SegMask::from_logits_in(side, &p.logits, region)))
         }
-        Kind::Text(_) | Kind::Detail { prompt: Prompt::Text(_), .. } => Err("Describe needs the SAM 3 model".into()),
+        Kind::Text(text) => {
+            let detector = job.detector.clone().ok_or("Describe needs the OWLv2 object finder or the SAM 3 model")?;
+            describe(state, shared, job, &detector, &text)
+        }
+        Kind::Detail { prompt: Prompt::Text(text), region } => {
+            let detector = job.detector.clone().ok_or("Describe needs the OWLv2 object finder or the SAM 3 model")?;
+            let (rw, rh) = (region[2] - region[0], region[3] - region[1]);
+            if !(rw > 0.0 && rh > 0.0) {
+                return Ok(None);
+            }
+            let input = render(job)?;
+            let t = web_time::Instant::now();
+            ensure(&mut state.owl, &mut state.owl_cache, shared, &detector, "OWLv2", Owl::load)?;
+            ensure(&mut state.sam2, &mut state.sam2_cache, shared, &job.dir, "SAM 2.1", Sam2::load)?;
+            let (Some((_, owl)), Some((_, sam))) = (&state.owl, &state.sam2) else { return Err("the Describe models did not load".into()) };
+            let owl_enc = owl.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+            let sam_enc = sam.encode(&input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+            let p = lightcraft_segment::describe::describe(owl, &owl_enc, sam, &sam_enc, &text, &Default::default()).map_err(|e| e.to_string())?;
+            log::info!("Describe detail pass ({}×{}) in {:?}", input.w, input.h, t.elapsed());
+            Ok(p.map(|p| SegMask::from_logits_in(side, &p.logits, region)))
+        }
         Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
             Err("an automatic selection reached the SAM 2.1 path".into())
         }
@@ -1205,7 +1249,19 @@ mod tests {
     fn job(tag: Tag, reply: &mpsc::Sender<Outcome>) -> Job {
         // an empty folder: loading fails with an error (no model files)
         let dir = std::env::temp_dir().join(format!("lc-sam3-worker-none-{}", std::process::id()));
-        Job { dir, sam2: false, key: 1, render: None, missing: None, kind: Kind::Prepare, tag, reply: reply.clone(), activity: None, batch: None }
+        Job {
+            dir,
+            sam2: false,
+            detector: None,
+            key: 1,
+            render: None,
+            missing: None,
+            kind: Kind::Prepare,
+            tag,
+            reply: reply.clone(),
+            activity: None,
+            batch: None,
+        }
     }
 
     #[test]
@@ -1225,6 +1281,35 @@ mod tests {
         }
         assert_eq!(w.pending(), 0);
         assert!(!w.encoding() && !w.loaded());
+    }
+
+    /// Describe without SAM 3 runs on OWLv2 and SAM 2.1: models that aren't there are errors
+    /// naming them, and a job that lost its detector says what Describe needs.
+    #[test]
+    fn describe_on_the_open_models_reports_missing_ones() {
+        let shared = Shared::default();
+        let (tx, rx) = mpsc::channel();
+        let (jtx, jrx) = mpsc::channel();
+        let mut open = job(Tag::Wait, &tx);
+        (open.sam2, open.detector, open.kind) = (true, Some(open.dir.join("owl")), Kind::Text("car, road".into()));
+        jtx.send(open).unwrap();
+        let mut lost = job(Tag::Wait, &tx);
+        (lost.sam2, lost.kind) = (true, Kind::Text("car".into()));
+        jtx.send(lost).unwrap();
+        let mut detail = job(Tag::Wait, &tx);
+        (detail.sam2, detail.detector) = (true, Some(detail.dir.join("owl")));
+        detail.kind = Kind::Detail { prompt: Prompt::Text("car".into()), region: [0.2, 0.2, 0.2, 0.6] };
+        jtx.send(detail).unwrap();
+        shared.pending.store(2, Ordering::SeqCst);
+        shared.detail.store(1, Ordering::SeqCst);
+        drop(jtx);
+        run(&jrx, &shared, Duration::from_secs(60));
+        let e = rx.recv().unwrap().result.unwrap_err();
+        assert!(e.contains("SAM 2"), "{e}");
+        let e = rx.recv().unwrap().result.unwrap_err();
+        assert!(e.contains("OWLv2") && e.contains("SAM 3"), "{e}");
+        // an empty detail region selects nothing (no model needed)
+        assert!(rx.recv().unwrap().result.unwrap().is_none());
     }
 
     #[test]

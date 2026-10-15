@@ -107,6 +107,22 @@ pub enum Icon {
     Sun,
     /// Appearance Mode ▸ Dark: a crescent moon.
     Moon,
+    /// The mask overlay on/off: a photo frame with a tinted area in it (the overlay's colour).
+    Overlay,
+    /// Object mask: a dashed box round a thing, with a pointer clicking it.
+    Object,
+    /// Describe mask: lines of text with a text cursor.
+    Describe,
+    /// Background mask: a frame filled around a person left empty.
+    Background,
+    /// People mask: two people.
+    People,
+    /// Remembered (taught) objects: a bookmark.
+    Remembered,
+    /// Landscape mask: mountains under the sky.
+    Landscape,
+    /// Luminance range: a circle half dark, half light.
+    Luminance,
     /// A disk drive (Import ▸ This PC): a flat box with a light and a slot line.
     Drive,
     /// A camera memory card (Import ▸ This PC): a card with a clipped corner and contacts.
@@ -264,6 +280,66 @@ fn paint_with(p: &Painter, rect: Rect, icon: Icon, color: Color32, turn: Option<
             // outer arc of the disc, then the inner arc of the bite, meeting at the horns
             pen.arc(10.0, 10.0, 6.5, 2.9, 263.8);
             pen.arc(13.4, 6.4, 5.0, 214.9, 51.8);
+        }
+        Overlay => {
+            pen.rect(2.5, 3.5, 17.5, 16.5, 1.5);
+            // the tinted area: a soft blob, filled faint, outlined
+            let blob: Vec<(f32, f32)> = (0..20)
+                .map(|i| {
+                    let a = (i as f32 / 20.0 * 360.0).to_radians();
+                    (11.0 + 4.6 * a.cos(), 10.5 + 3.6 * a.sin())
+                })
+                .collect();
+            pen.fill(&blob, color.gamma_multiply(0.45));
+            pen.closed(&blob);
+        }
+        Object => {
+            for (a, b) in [((3.0, 3.0), (7.0, 3.0)), ((10.0, 3.0), (14.0, 3.0)), ((3.0, 3.0), (3.0, 7.0)), ((3.0, 10.0), (3.0, 13.5))] {
+                pen.line(&[a, b]);
+            }
+            pen.line(&[(17.0, 3.0), (17.0, 7.0)]);
+            pen.line(&[(3.0, 17.0), (7.0, 17.0)]);
+            pen.closed(&[(10.0, 10.0), (10.0, 18.0), (12.2, 15.8), (14.0, 19.0), (15.5, 18.2), (13.8, 15.0), (17.0, 15.0)]);
+        }
+        Describe => {
+            pen.line(&[(3.0, 5.0), (17.0, 5.0)]);
+            pen.line(&[(3.0, 10.0), (12.0, 10.0)]);
+            pen.line(&[(3.0, 15.0), (9.0, 15.0)]);
+            pen.line(&[(15.0, 8.5), (15.0, 17.5)]);
+            pen.line(&[(13.5, 8.5), (16.5, 8.5)]);
+            pen.line(&[(13.5, 17.5), (16.5, 17.5)]);
+        }
+        Background => {
+            pen.rect(2.5, 2.5, 17.5, 17.5, 2.0);
+            for i in 0..5 {
+                let x = 2.5 + i as f32 * 3.8;
+                pen.line(&[(x, 2.5), (2.5, x)]);
+            }
+            pen.circle(11.0, 9.0, 2.6);
+            pen.arc(11.0, 19.0, 5.5, 200.0, 340.0);
+        }
+        People => {
+            pen.circle(7.0, 7.0, 2.6);
+            pen.arc(7.0, 17.5, 5.0, 200.0, 340.0);
+            pen.circle(14.0, 8.0, 2.2);
+            pen.arc(14.5, 17.5, 4.2, 220.0, 340.0);
+        }
+        Remembered => {
+            pen.closed(&[(5.0, 2.5), (15.0, 2.5), (15.0, 17.5), (10.0, 13.5), (5.0, 17.5)]);
+        }
+        Landscape => {
+            pen.line(&[(2.5, 16.0), (7.5, 8.0), (10.5, 12.5), (13.0, 9.5), (17.5, 16.0), (2.5, 16.0)]);
+            pen.circle(14.0, 5.0, 1.8);
+        }
+        Luminance => {
+            pen.circle(10.0, 10.0, 7.0);
+            let half: Vec<(f32, f32)> = (0..=16)
+                .map(|i| {
+                    let a = (90.0 + i as f32 / 16.0 * 180.0f32).to_radians();
+                    (10.0 + 7.0 * a.cos(), 10.0 + 7.0 * a.sin())
+                })
+                .collect();
+            pen.fill(&half, color);
         }
         Search => {
             pen.circle(8.5, 8.5, 5.0);

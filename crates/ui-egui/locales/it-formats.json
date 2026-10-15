@@ -400,5 +400,6 @@
   "Import {n} Selected": "Importa {n} selezionate",
   "{n} alternatives in the library": "{n} alternative nella libreria",
   "{n} people, {k} to look at first": "{n} persone, {k} da guardare per prime",
-  "Rows {a}–{b} of {c}: scroll for more": "Righe {a}–{b} di {c}: scorri per le altre"
+  "Rows {a}–{b} of {c}: scroll for more": "Righe {a}–{b} di {c}: scorri per le altre",
+  "Finding “{text}”…": "Cerco «{text}»…"
 }

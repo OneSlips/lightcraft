@@ -400,5 +400,6 @@
   "Import {n} Selected": "Importovat vybrané ({n})",
   "{n} alternatives in the library": "Alternativ v knihovně: {n}",
   "{n} people, {k} to look at first": "{n} lidí, {k} k prohlédnutí jako první",
-  "Rows {a}–{b} of {c}: scroll for more": "Řádky {a}–{b} z {c}: další posunutím"
+  "Rows {a}–{b} of {c}: scroll for more": "Řádky {a}–{b} z {c}: další posunutím",
+  "Finding “{text}”…": "Hledám „{text}“…"
 }

@@ -37,7 +37,7 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
                 .and_then(Value::as_array)
                 .map(|a| a.iter().filter_map(|s| Some([s.get(0)?.as_f64()?, s.get(1)?.as_f64()?, s.get(2)?.as_f64()?])).collect())
                 .unwrap_or_default();
-            MaskShape::ColorRange { samples, refine: f64_or(p, "refine", 50.0) }
+            MaskShape::ColorRange { samples, refine: f64_or(p, "refine", 50.0), areas: Vec::new() }
         }
         "people" => MaskShape::People {
             who: who_param(p, c)?,
@@ -162,7 +162,7 @@ fn resolve_ai(s: &mut Session, shape: &mut MaskShape, c: &str) -> Result<Later> 
             }
         }
         MaskShape::Prompt { text, .. } if background => {
-            s.segmenter.require_sam3()?;
+            require_describe_model(s)?;
             if text.trim().is_empty() {
                 return Err(ai_err("describe what to select"));
             }
@@ -244,11 +244,24 @@ fn ai_err(msg: impl Into<String>) -> crate::EngineError {
     crate::EngineError::Other(msg.into())
 }
 
-/// A segmentation call: the model is checked first, so a missing one is [`crate::EngineError::ModelMissing`]
-/// (the segmenter's own errors are text).
+/// A Describe call: the models are checked first ([`crate::segment::Segmenter::describe_model`]:
+/// SAM 3, else OWLv2 and SAM 2.1); a missing open model is an error naming it (its download is
+/// offered on it), and without a folder for the open models SAM 3's
+/// [`crate::EngineError::ModelMissing`] (the segmenter's own errors are text).
 fn segment<T>(s: &mut Session, f: impl FnOnce(&mut Session) -> std::result::Result<T, String>) -> Result<T> {
-    s.segmenter.require_sam3()?;
+    require_describe_model(s)?;
     f(s).map_err(ai_err)
+}
+
+/// The models for Describe are there (see [`segment`]).
+fn require_describe_model(s: &Session) -> Result<()> {
+    if let Err(e) = s.segmenter.describe_model() {
+        if s.segmenter.models_root.is_none() {
+            s.segmenter.require_sam3()?;
+        }
+        return Err(ai_err(e));
+    }
+    Ok(())
 }
 
 /// The model for Object clicks is there ([`crate::segment::Segmenter::object_model`]). Without a
@@ -297,6 +310,120 @@ fn find(masks: &mut [Mask], id: u32, c: &str) -> Result<usize> {
     masks.iter().position(|m| m.id == id).ok_or_else(|| bad(c, format!("no mask {id}")))
 }
 
+/// A colour range keeps at most this many colours (as Lightroom Classic).
+const MAX_COLOR_SAMPLES: usize = 5;
+/// The place of a colour sample picked before the pins existed.
+const UNKNOWN_AREA: [f64; 4] = lightcraft_develop::UNKNOWN_COLOR_AREA;
+
+/// The picked place: `rect: [x0, y0, x1, y1]` (an area dragged, in either direction) or `x, y` (a
+/// click: a point), normalized; checked to lie on the photo.
+fn area_param(p: &Value, c: &str) -> Result<[f64; 4]> {
+    let area = match p.get("rect").and_then(Value::as_array) {
+        Some(r) => {
+            let v: Vec<f64> = r.iter().filter_map(Value::as_f64).collect();
+            let [x0, y0, x1, y1] = v[..] else { return Err(bad(c, "rect is [x0, y0, x1, y1]")) };
+            [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)]
+        }
+        None => {
+            let (x, y) = (super::f64_req(p, "x", c)?, super::f64_req(p, "y", c)?);
+            [x, y, x, y]
+        }
+    };
+    let on_photo = |v: f64| (-0.01..=1.01).contains(&v);
+    if !area.iter().all(|v| on_photo(*v)) {
+        return Err(bad(c, "the point is outside the photo"));
+    }
+    Ok(area.map(|v| v.clamp(0.0, 1.0)))
+}
+
+/// The selected mask's colour range component (`comp`, else its first) and where its samples were
+/// picked.
+fn color_range_of(s: &Session, mid: u32, comp: Option<usize>, c: &str) -> Result<(usize, Vec<[f64; 4]>)> {
+    let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+    let d = s.develop_of(id).unwrap_or_default();
+    let m = d.masks.iter().find(|m| m.id == mid).ok_or_else(|| bad(c, format!("no mask {mid}")))?;
+    let k = comp
+        .or_else(|| m.components.iter().position(|x| matches!(x.shape, MaskShape::ColorRange { .. })))
+        .ok_or_else(|| bad(c, "the mask has no colour range"))?;
+    match m.components.get(k).map(|x| &x.shape) {
+        Some(MaskShape::ColorRange { samples, areas, .. }) => {
+            let mut areas = areas.clone();
+            areas.resize(samples.len(), UNKNOWN_AREA);
+            Ok((k, areas))
+        }
+        _ => Err(bad(c, "not a colour range component")),
+    }
+}
+
+/// The active photo's pixels in `area` as the range pickers see them
+/// ([`lightcraft_pipeline::range_area_pixels`], on a small render).
+fn area_pixels(s: &mut Session, area: [f64; 4], c: &str) -> Result<Vec<([f64; 3], f64)>> {
+    let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+    let src = s.source_now(id, crate::media::SourceLevel::Thumb).map_err(|e| bad(c, e))?;
+    let info = s.source_info(id);
+    let d = s.develop_of(id).unwrap_or_default();
+    let req = lightcraft_pipeline::RenderRequest::fit(384, 384);
+    lightcraft_pipeline::range_area_pixels(&src, &info, &d, &req, area).ok_or_else(|| bad(c, "the point is outside the photo"))
+}
+
+/// The colours to sample in `area`: a click, the mean round it; an area, up to `room` (at most 3)
+/// of its main colours.
+fn sample_area_colours(s: &mut Session, area: [f64; 4], room: usize, c: &str) -> Result<Vec<[f64; 3]>> {
+    let px: Vec<[f64; 3]> = area_pixels(s, area, c)?.into_iter().map(|(lab, _)| lab).collect();
+    let point = area[0] == area[2] && area[1] == area[3];
+    let k = if point { 1 } else { room.clamp(1, 3) };
+    let out = colour_clusters(&px, k);
+    if out.is_empty() { Err(bad(c, "no colour there")) } else { Ok(out) }
+}
+
+/// Up to `k` main colours of `px` (OkLab): k-means from the mean and then the colours farthest from
+/// those chosen; a cluster of under 10 % of the pixels is dropped (a few stray pixels at the edge
+/// of a dragged area don't become a sample of their own). Deterministic.
+pub(crate) fn colour_clusters(px: &[[f64; 3]], k: usize) -> Vec<[f64; 3]> {
+    let dist = |a: &[f64; 3], b: &[f64; 3]| (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f64>();
+    let mean = |pts: &mut dyn Iterator<Item = &[f64; 3]>| {
+        let (mut acc, mut n) = ([0.0f64; 3], 0usize);
+        for p in pts {
+            for i in 0..3 {
+                acc[i] += p[i];
+            }
+            n += 1;
+        }
+        (n > 0).then(|| acc.map(|v| v / n as f64))
+    };
+    let Some(m) = mean(&mut px.iter()) else { return Vec::new() };
+    let mut centres = vec![m];
+    while centres.len() < k.max(1) {
+        let far = px.iter().max_by(|a, b| {
+            let da = centres.iter().map(|c| dist(a, c)).fold(f64::MAX, f64::min);
+            let db = centres.iter().map(|c| dist(b, c)).fold(f64::MAX, f64::min);
+            da.total_cmp(&db)
+        });
+        match far {
+            Some(f) if centres.iter().all(|c| dist(f, c) > 1e-6) => centres.push(*f),
+            _ => break,
+        }
+    }
+    let labels_of = |centres: &[[f64; 3]]| -> Vec<usize> {
+        px.iter().map(|p| centres.iter().enumerate().min_by(|a, b| dist(p, a.1).total_cmp(&dist(p, b.1))).map_or(0, |(i, _)| i)).collect()
+    };
+    for _ in 0..10 {
+        let labels = labels_of(&centres);
+        for (i, c) in centres.iter_mut().enumerate() {
+            if let Some(m) = mean(&mut px.iter().zip(&labels).filter(|(_, l)| **l == i).map(|(p, _)| p)) {
+                *c = m;
+            }
+        }
+    }
+    let labels = labels_of(&centres);
+    let members: Vec<usize> = (0..centres.len()).map(|i| labels.iter().filter(|l| **l == i).count()).collect();
+    let min = px.len() / 10;
+    let mut out: Vec<([f64; 3], usize)> = centres.into_iter().zip(members).filter(|(_, n)| *n > 0 && *n >= min).collect();
+    // the biggest first
+    out.sort_by_key(|c| std::cmp::Reverse(c.1));
+    out.into_iter().map(|(c, _)| c).collect()
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -304,7 +431,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: brush|linear|radial|sky|subject|background|people|landscape|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; people: person? (0 everyone, n the n-th from the left), parts?; landscape: class sky|water|vegetation|mountains|architecture|naturalGround|artificialGround; AI kinds: seg? a stored segmentation, no model needed), name?} — Object needs SAM 3 or SAM 2.1, Describe SAM 3; Subject/Background/Sky/People/Landscape use their AI model when installed (BiRefNet, EoMT), else a heuristic (→ {approximate, model, note}); in the app AI kinds return {pending} and the selection follows",
+            "{kind: brush|linear|radial|sky|subject|background|people|landscape|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; people: person? (0 everyone, n the n-th from the left), parts?; landscape: class sky|water|vegetation|mountains|architecture|naturalGround|artificialGround; AI kinds: seg? a stored segmentation, no model needed), name?} — Object needs SAM 3 or SAM 2.1, Describe SAM 3 or OWLv2 with SAM 2.1; Subject/Background/Sky/People/Landscape use their AI model when installed (BiRefNet, EoMT), else a heuristic (→ {approximate, model, note}); in the app AI kinds return {pending} and the selection follows",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
@@ -391,7 +518,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full)}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), continue?: bool (the stroke being painted, sent again as it grows: it replaces the mask's last stroke, so Auto Mask shows live)}",
             has_active,
             |s, p| {
                 let pts: Vec<Point> = p
@@ -416,6 +543,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let want = p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(s.active_mask);
                 let adjust = super::mask_effects::new_mask_adjust(s, "brush");
+                let again = bool_or(p, "continue", false);
                 masks_edit(s, "mask.brushStroke", "Brush", |masks, active| {
                     let i = match want.and_then(|m| masks.iter().position(|x| x.id == m)) {
                         Some(i) => i,
@@ -429,7 +557,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     if let Some(MaskComponent { shape: MaskShape::Brush { strokes }, .. }) =
                         m.components.iter_mut().rev().find(|c| matches!(c.shape, MaskShape::Brush { .. }))
                     {
-                        strokes.push(stroke);
+                        match strokes.last_mut() {
+                            Some(last) if again => *last = stroke,
+                            _ => strokes.push(stroke),
+                        }
                     } else {
                         m.components.push(MaskComponent {
                             anchor: None,
@@ -460,40 +591,139 @@ pub fn specs() -> Vec<CommandSpec> {
             "Sample Mask Color",
             [],
             None,
-            "{x, y: normalized image point, add?: bool (⇧: add to the samples, max 5), id?, component?} — the colour range of the selected mask (its first colour-range component) samples the colour there → {samples}",
+            "{x, y: normalized image point | rect: [x0, y0, x1, y1] (an area dragged: up to 3 of its colours), add?: bool (⇧: add to the samples, max 5), id?, component?} — the colour range of the selected mask (its first colour-range component) samples the colour there; each picked place gets a pin (mask.colorPin) → {samples, pins}",
             has_active,
             |s, p| {
                 let c = "mask.sampleColor";
-                let (x, y) = (super::f64_req(p, "x", c)?, super::f64_req(p, "y", c)?);
+                let area = area_param(p, c)?;
                 let add = p.get("add").and_then(Value::as_bool).unwrap_or(false);
-                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
-                let src = s.source_now(id, crate::media::SourceLevel::Thumb).map_err(|e| bad(c, e))?;
-                let info = s.source_info(id);
-                let d = s.develop_of(id).unwrap_or_default();
-                let req = lightcraft_pipeline::RenderRequest::fit(384, 384);
-                let lab = lightcraft_pipeline::color_range_sample(&src, &info, &d, &req, lightcraft_geom::Point::new(x, y))
-                    .ok_or_else(|| bad(c, "the point is outside the photo"))?;
                 let mid = mask_id(p, s.active_mask, c)?;
                 let comp = p.get("component").and_then(Value::as_u64).map(|v| v as usize);
-                let mut out = Vec::new();
+                let (k, current) = color_range_of(s, mid, comp, c)?;
+                let room = if add { MAX_COLOR_SAMPLES.saturating_sub(current.len()) } else { MAX_COLOR_SAMPLES };
+                if room == 0 {
+                    // full (five colours): a further ⇧-click changes nothing, as before
+                    let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                    let d = s.develop_of(id).unwrap_or_default();
+                    let samples = match d.masks.iter().find(|m| m.id == mid).and_then(|m| m.components.get(k)).map(|x| &x.shape) {
+                        Some(MaskShape::ColorRange { samples, .. }) => samples.clone(),
+                        _ => Vec::new(),
+                    };
+                    return Ok(json!({"samples": samples, "pins": lightcraft_develop::color_range_pins(&current).len()}));
+                }
+                let colours = sample_area_colours(s, area, room, c)?;
+                let mut out = json!({});
                 masks_edit(s, c, "Color Range", |masks, _| {
                     let i = find(masks, mid, c)?;
-                    let k = comp
-                        .or_else(|| masks[i].components.iter().position(|x| matches!(x.shape, MaskShape::ColorRange { .. })))
-                        .ok_or_else(|| bad(c, "the mask has no colour range"))?;
-                    let Some(MaskShape::ColorRange { samples, .. }) = masks[i].components.get_mut(k).map(|x| &mut x.shape) else {
+                    let Some(MaskShape::ColorRange { samples, areas, .. }) = masks[i].components.get_mut(k).map(|x| &mut x.shape) else {
                         return Err(bad(c, "not a colour range component"));
                     };
                     if !add {
                         samples.clear();
+                        areas.clear();
                     }
-                    if samples.len() < 5 {
-                        samples.push(lab);
+                    // samples from before the pins have no place: an unknown one keeps them in step
+                    areas.resize(samples.len(), UNKNOWN_AREA);
+                    for lab in colours.iter().take(room) {
+                        samples.push(*lab);
+                        areas.push(area);
                     }
-                    out = samples.clone();
+                    out = json!({"samples": samples.clone(), "pins": lightcraft_develop::color_range_pins(areas).len()});
                     Ok(())
                 })?;
-                Ok(json!({"samples": out}))
+                Ok(out)
+            }
+        ),
+        cmd!(
+            "mask.colorPin",
+            "Edit Color Range Sample",
+            [],
+            None,
+            "{index: pin (0-based, in the order picked), remove?: bool (⌥-click), x?, y?: normalized point to move it to (the colours there are sampled again), id?, component?} — one picked place of the selected mask's colour range → {samples, pins}",
+            has_active,
+            |s, p| {
+                let c = "mask.colorPin";
+                let index = p.get("index").and_then(Value::as_u64).ok_or_else(|| bad(c, "index is required"))? as usize;
+                let remove = p.get("remove").and_then(Value::as_bool).unwrap_or(false);
+                let mid = mask_id(p, s.active_mask, c)?;
+                let comp = p.get("component").and_then(Value::as_u64).map(|v| v as usize);
+                let (k, current) = color_range_of(s, mid, comp, c)?;
+                let pins = lightcraft_develop::color_range_pins(&current);
+                let (area, range) =
+                    pins.get(index).cloned().ok_or_else(|| bad(c, format!("no pin {index} (the colour range has {})", pins.len())))?;
+                let moved = if remove {
+                    None
+                } else {
+                    let (x, y) = (super::f64_req(p, "x", c)?, super::f64_req(p, "y", c)?);
+                    // the same area, its centre at (x, y)
+                    let (cx, cy) = ((area[0] + area[2]) / 2.0, (area[1] + area[3]) / 2.0);
+                    let to = [area[0] + x - cx, area[1] + y - cy, area[2] + x - cx, area[3] + y - cy];
+                    let colours = sample_area_colours(s, to, range.len().max(1), c)?;
+                    Some((to, colours))
+                };
+                let mut out = json!({});
+                masks_edit(s, c, "Color Range", |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let Some(MaskShape::ColorRange { samples, areas, .. }) = masks[i].components.get_mut(k).map(|x| &mut x.shape) else {
+                        return Err(bad(c, "not a colour range component"));
+                    };
+                    areas.resize(samples.len(), UNKNOWN_AREA);
+                    let (start, end) = (range.start.min(samples.len()), range.end.min(samples.len()));
+                    let (new_samples, new_areas): (Vec<[f64; 3]>, Vec<[f64; 4]>) = match &moved {
+                        Some((to, colours)) => (colours.clone(), vec![*to; colours.len()]),
+                        None => (Vec::new(), Vec::new()),
+                    };
+                    samples.splice(start..end, new_samples);
+                    areas.splice(start..end, new_areas);
+                    out = json!({"samples": samples.clone(), "pins": lightcraft_develop::color_range_pins(areas).len()});
+                    Ok(())
+                })?;
+                Ok(out)
+            }
+        ),
+        cmd!(
+            "mask.sampleLuminance",
+            "Sample Mask Luminance",
+            [],
+            None,
+            "{x, y: normalized image point | rect: [x0, y0, x1, y1] (an area dragged), add?: bool (⇧: widen the current range to take it in), id?, component?} — the luminance range of the selected mask (its first luminance-range component) selects the tones there → {lo, hi}",
+            has_active,
+            |s, p| {
+                let c = "mask.sampleLuminance";
+                let area = area_param(p, c)?;
+                let add = p.get("add").and_then(Value::as_bool).unwrap_or(false);
+                let mid = mask_id(p, s.active_mask, c)?;
+                let comp = p.get("component").and_then(Value::as_u64).map(|v| v as usize);
+                let px = area_pixels(s, area, c)?;
+                let mut lum: Vec<f64> = px.iter().map(|(_, l)| *l).collect();
+                lum.sort_by(f64::total_cmp);
+                let at = |q: f64| lum.get(((lum.len() - 1) as f64 * q).round() as usize).copied().unwrap_or(0.5);
+                // a click: a band round its tone; an area: the tones in it (5th to 95th percentile)
+                let (mut lo, mut hi) = if area[0] == area[2] && area[1] == area[3] {
+                    let m = at(0.5);
+                    (m - 0.08, m + 0.08)
+                } else {
+                    (at(0.05), at(0.95))
+                };
+                let mut out = json!({});
+                masks_edit(s, c, "Luminance Range", |masks, _| {
+                    let i = find(masks, mid, c)?;
+                    let k = comp
+                        .or_else(|| masks[i].components.iter().position(|x| matches!(x.shape, MaskShape::LuminanceRange { .. })))
+                        .ok_or_else(|| bad(c, "the mask has no luminance range"))?;
+                    let Some(MaskShape::LuminanceRange { lo: l0, hi: h0, .. }) = masks[i].components.get_mut(k).map(|x| &mut x.shape) else {
+                        return Err(bad(c, "not a luminance range component"));
+                    };
+                    if add {
+                        lo = lo.min(*l0);
+                        hi = hi.max(*h0);
+                    }
+                    *l0 = lo.clamp(0.0, 0.99);
+                    *h0 = hi.clamp(*l0 + 0.01, 1.0);
+                    out = json!({"lo": *l0, "hi": *h0});
+                    Ok(())
+                })?;
+                Ok(out)
             }
         ),
         cmd!(
@@ -654,7 +884,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Refine AI Mask Detail",
             [],
             None,
-            "{id?: maskId, component?} — a zoomed-in SAM 3 pass over an Object/Describe selection (default: the mask's last one): the photo around it is analyzed again at a higher resolution, in the background; the mask updates when it's done → {started}",
+            "{id?: maskId, component?} — a zoomed-in AI pass over an Object/Describe selection (default: the mask's last one): the photo around it is analyzed again at a higher resolution, in the background; the mask updates when it's done → {started}",
             has_active,
             |s, p| {
                 let c = "mask.refineDetail";
@@ -1253,4 +1483,35 @@ fn pressure_list(v: Option<&Value>, points: usize) -> Result<Vec<f32>> {
         .map(|q| q.as_f64().filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0) as f32))
         .collect::<Option<Vec<f32>>>()
         .ok_or_else(|| bad("mask.brushStroke", "pressure must be a list of numbers 0..1"))
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::*;
+
+    #[test]
+    fn an_area_gives_its_main_colours_biggest_first() {
+        // 70 % one colour, 30 % another, a few stray pixels of a third
+        let (a, b, c) = ([0.8, 0.0, 0.0], [0.3, 0.1, -0.1], [0.5, -0.2, 0.2]);
+        let mut px = vec![a; 70];
+        px.extend(vec![b; 30]);
+        px.extend(vec![c; 3]);
+        let out = colour_clusters(&px, 3);
+        assert_eq!(out.len(), 2, "the stray pixels make no sample: {out:?}");
+        assert!(out[0].iter().zip(a).all(|(x, y)| (x - y).abs() < 0.02), "{out:?}");
+        assert!(out[1].iter().zip(b).all(|(x, y)| (x - y).abs() < 0.03), "{out:?}");
+        // one colour asked: the mean; nothing given: nothing
+        assert_eq!(colour_clusters(&[a, a], 1).len(), 1);
+        assert!(colour_clusters(&[], 3).is_empty());
+        // a single colour never splits
+        assert_eq!(colour_clusters(&vec![a; 50], 3).len(), 1);
+    }
+
+    #[test]
+    fn colour_pins_group_the_samples_of_one_place() {
+        let p = [0.2, 0.2, 0.2, 0.2];
+        let area = [0.1, 0.1, 0.4, 0.3];
+        let pins = lightcraft_develop::color_range_pins(&[UNKNOWN_AREA, p, area, area, area, [f64::NAN; 4]]);
+        assert_eq!(pins, vec![(p, 1..2), (area, 2..5)]);
+    }
 }
