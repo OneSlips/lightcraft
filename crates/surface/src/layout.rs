@@ -105,7 +105,9 @@ fn key_view(r: &Runtime, host: &dyn Host, control: &str, binding: Option<Binding
             let state = match b {
                 Binding::Value { target } => (r.focus() == Some(target.as_str())).then_some("focus"),
                 Binding::Modifier { .. } => r.held_on(control).is_some().then_some("held"),
-                Binding::Command { command, .. } if crate::runtime::MOMENTARY.contains(&command.as_str()) => r.momentary_on(control).then_some("held"),
+                Binding::Command { command, .. } if crate::runtime::MOMENTARY.contains(&command.as_str()) => {
+                    r.momentary_on(control).then_some("held")
+                }
                 Binding::ApplyToSelected => r.settings().apply_to_selected.then_some("on"),
                 Binding::FollowContext => r.settings().follow_context.then_some("on"),
                 _ => host.state(b).unwrap_or(false).then_some("on"),
