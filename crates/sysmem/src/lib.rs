@@ -6,8 +6,12 @@
 //! everything ever decoded. `malloc_zone_pressure_relief` (libSystem) returns those pages now.
 //! Elsewhere (glibc, Windows) blocks this large are unmapped when freed: nothing to do.
 //!
-//! This is LightCraft's only crate allowed `unsafe` (one FFI call, in `macos`). Its API is safe,
-//! and on failure or on other platforms it simply releases nothing.
+//! It also lowers a worker thread's priority ([`lower_thread_priority`], Windows'
+//! `SetThreadPriority`), so renders leave the desktop responsive.
+//!
+//! This is LightCraft's only crate allowed `unsafe` (two FFI calls: `malloc_zone_pressure_relief`
+//! in `macos`, `SetThreadPriority` in `windows`). Its API is safe, and on failure or on other
+//! platforms it simply does nothing.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 /// Return free allocator pages to the system. Returns the number of bytes released (always 0 on
@@ -21,6 +25,47 @@ pub fn release_free_memory() -> usize {
     #[cfg(not(target_os = "macos"))]
     {
         0
+    }
+}
+
+/// Run the calling thread below normal priority, so the work it does (background renders, the
+/// render workers' fan-out) never takes the processor from the desktop and other apps: the mouse
+/// and the window stay smooth while every core renders (TEST-NOTES 2026-10-16 item 15). Returns
+/// whether the priority changed; on systems where this isn't done (anything but Windows) it is
+/// `false` and nothing happens. Safe to call from any thread, any number of times.
+pub fn lower_thread_priority() -> bool {
+    #[cfg(windows)]
+    {
+        windows::lower()
+    }
+    #[cfg(not(windows))]
+    {
+        false
+    }
+}
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows {
+    use std::ffi::c_void;
+
+    /// `THREAD_PRIORITY_BELOW_NORMAL` (processthreadsapi.h).
+    const BELOW_NORMAL: i32 = -1;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        /// The calling thread's pseudo handle (needs no closing).
+        fn GetCurrentThread() -> *mut c_void;
+        /// Nonzero on success.
+        fn SetThreadPriority(thread: *mut c_void, priority: i32) -> i32;
+    }
+
+    pub fn lower() -> bool {
+        // SAFETY: both are documented, thread-safe kernel32 functions. `GetCurrentThread` returns
+        // a constant pseudo handle for the calling thread (never null, never to be closed), which
+        // is exactly what `SetThreadPriority` takes; the priority is a documented constant. Neither
+        // reads or writes memory we own, and a failure only leaves the priority as it was.
+        unsafe { SetThreadPriority(GetCurrentThread(), BELOW_NORMAL) != 0 }
     }
 }
 
@@ -68,6 +113,22 @@ mod tests {
         // The allocator must still work normally afterwards.
         let again = vec![7u8; 16 << 20];
         assert_eq!(again[again.len() - 1], 7);
+    }
+
+    #[test]
+    fn a_thread_can_be_lowered_and_keeps_working() {
+        let lowered = std::thread::spawn(|| {
+            let changed = super::lower_thread_priority();
+            // twice is harmless
+            let again = super::lower_thread_priority();
+            let sum: u64 = (0..1000u64).sum();
+            (changed, again, sum)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(lowered.2, 499_500);
+        assert_eq!(lowered.0, cfg!(windows));
+        assert_eq!(lowered.1, cfg!(windows));
     }
 
     #[test]

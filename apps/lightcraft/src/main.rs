@@ -36,6 +36,7 @@ mod logi_plugin;
 mod native_menu;
 #[cfg(target_os = "macos")]
 mod screen_profile;
+mod threads;
 mod window_gpu;
 
 use dialog_filter::FileDialogExt as _;
@@ -982,6 +983,8 @@ fn main() -> eframe::Result {
         logging::record_panics(logger);
     }
     alloc_release::install();
+    // the shared worker pool leaves cores free and renders run below normal priority
+    threads::install();
     let mut control_port = control_port_from("LIGHTCRAFT_CONTROL_PORT", std::env::var("LIGHTCRAFT_CONTROL_PORT").ok().filter(|v| !v.is_empty()));
     let mut files = Vec::new();
     let mut seed_demo = true;
