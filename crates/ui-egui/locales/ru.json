@@ -3078,5 +3078,8 @@
   "With AI masks only": "Только с ИИ-масками",
   "Presets may change the camera profile": "Пресеты могут менять профиль камеры",
   "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Выкл.: каждый raw сохраняет профиль своей камеры, какой бы профиль ни указывал пресет.",
-  "Previews built.": "Превью созданы."
+  "Previews built.": "Превью созданы.",
+  "Back Up the Library?": "Сделать резервную копию библиотеки?",
+  "Back Up and Quit": "Сохранить копию и выйти",
+  "Skip This Time": "Пропустить в этот раз"
 }

@@ -426,5 +426,6 @@
   "{n} of your own: delete them, or move them to another group.": "{n} własnych: usuń je lub przenieś do innej grupy.",
   "Photos ready: {n}.": "Zdjęcia gotowe: {n}.",
   "AI masks: {masks} on {photos} photos.": "Maski AI: {masks} na {photos} zdjęciach.",
-  "Smooth Skin: {n} photos.": "Wygładzanie skóry: {n} zdjęć."
+  "Smooth Skin: {n} photos.": "Wygładzanie skóry: {n} zdjęć.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Utworzyć kopię zapasową „{library}” przed zamknięciem LightCraft? Kopia zawiera katalog, jego ustawienia, twoje ustawienia predefiniowane i profile; bez zdjęć."
 }

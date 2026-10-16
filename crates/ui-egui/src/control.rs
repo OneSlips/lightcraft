@@ -459,6 +459,14 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
             }
         }
         "app.quit" => {
+            // nobody may be there to answer the backup question: `backup` says (default: back up
+            // when one is due and something changed, without asking)
+            app.backup_on_quit = match req.params.get("backup").and_then(Value::as_str) {
+                Some("ask") => crate::BackupOnQuit::Ask,
+                Some("now") => crate::BackupOnQuit::Now,
+                Some("skip") => crate::BackupOnQuit::Skip,
+                _ => crate::BackupOnQuit::Auto,
+            };
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             ok(Value::Null)
         }

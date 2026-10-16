@@ -14,6 +14,11 @@
   ("AI masks: 24 on 12 photos") only when a preset had some, Smooth Skin when it ran, previews when
   they were built. An import with nothing more to do shows no notice.
 
+### Backup when quitting: asks first
+- With a backup due (Settings ▸ Backups), quitting asks **Back Up and Quit** or **Skip This Time**,
+  as Lightroom Classic does. When nothing changed since the last backup (you only looked at
+  photos), it doesn't ask and doesn't back up.
+
 ## 2026-10-16
 
 ### Presets Manager

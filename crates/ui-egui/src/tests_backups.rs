@@ -51,3 +51,47 @@ fn back_up_from_the_backups_tab_and_see_it_listed() {
     let _ = h.app.session.close_library();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// LR-BACKUP: quitting with a backup due asks first, as Lightroom Classic does: Back Up and Quit, or
+/// Skip This Time. After a backup, quitting with nothing changed asks nothing (and backs up
+/// nothing); a change asks again. `app.quit` over the control channel never waits for an answer.
+#[test]
+fn quitting_asks_to_back_up_only_when_something_changed() {
+    let dir = std::env::temp_dir().join(format!("lc-ui-backup-quit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut s = lightcraft_engine::Session::new().with_backups(&dir.join("settings"));
+    s.open_library(dir.join("Lib"), true).unwrap();
+    s.execute("library.backupSettings", &json!({"frequency": "everyExit"})).unwrap();
+    let mut h = app(s);
+    h.step();
+    // a new library: no backup yet, so it asks
+    assert!(!crate::panels::notices::may_close(&mut h.app));
+    assert!(matches!(h.app.quit_prompt, Some(crate::QuitPrompt::Backup(_))), "{:?}", h.app.quit_prompt);
+    h.step();
+    h.step();
+    click(&mut h, "button:quitSkipBackup");
+    assert_eq!(h.app.backup_on_quit, crate::BackupOnQuit::Skip);
+    assert!(h.app.quit_prompt.is_none() && !h.app.backup_at_exit(), "skipped this time");
+    // backed up: nothing changed since, so quitting asks nothing and backs up nothing
+    h.app.backup_on_quit = crate::BackupOnQuit::Ask;
+    h.app.session.back_up_library(false).unwrap();
+    assert!(!h.app.session.backup_changed());
+    assert!(crate::panels::notices::may_close(&mut h.app), "nothing to ask");
+    assert!(h.app.quit_prompt.is_none() && !h.app.backup_at_exit());
+    // a change: it asks again; Back Up and Quit backs up as LightCraft exits
+    h.app.backup_on_quit = crate::BackupOnQuit::Ask;
+    h.app.session.execute("album.create", &json!({"name": "Alex"})).unwrap();
+    let _ = h.app.session.persist();
+    assert!(h.app.session.backup_changed());
+    assert!(!crate::panels::notices::may_close(&mut h.app));
+    h.step();
+    h.step();
+    click(&mut h, "button:quitBackUp");
+    assert_eq!(h.app.backup_on_quit, crate::BackupOnQuit::Now);
+    assert!(h.app.backup_at_exit());
+    // the control channel's quit doesn't wait for an answer
+    h.app.backup_on_quit = crate::BackupOnQuit::Auto;
+    assert!(crate::panels::notices::may_close(&mut h.app) && h.app.quit_prompt.is_none());
+    let _ = h.app.session.close_library();
+    let _ = std::fs::remove_dir_all(&dir);
+}

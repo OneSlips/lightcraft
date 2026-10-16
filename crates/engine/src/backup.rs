@@ -89,11 +89,14 @@ pub struct BackupSettings {
     pub verify: bool,
     /// Last backup per library folder (Unix seconds).
     pub last: std::collections::BTreeMap<String, u64>,
+    /// What the library and the shared settings were at its last backup, per library folder
+    /// ([`Session::backup_mark`]): a close with nothing changed since needs no backup.
+    pub marks: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for BackupSettings {
     fn default() -> Self {
-        BackupSettings { frequency: Frequency::Daily, dir: None, keep: 10, verify: true, last: Default::default() }
+        BackupSettings { frequency: Frequency::Daily, dir: None, keep: 10, verify: true, last: Default::default(), marks: Default::default() }
     }
 }
 
@@ -109,6 +112,8 @@ pub struct Backups {
     pub last_result: Option<Value>,
     /// A backup running in the background: its result once done.
     running: Option<Slot>,
+    /// The mark of the backup being made (library folder, mark), kept once it succeeds.
+    pending_mark: Option<(String, String)>,
 }
 
 fn now_secs() -> u64 {
@@ -344,6 +349,40 @@ impl Session {
         })
     }
 
+    /// What the open library and the shared settings are now: the catalog's journal position and
+    /// the contents of the library's settings files and of the shared presets and profiles (not the
+    /// view, which changes by just looking). Equal marks: nothing to back up.
+    pub fn backup_mark(&self) -> Option<String> {
+        use std::hash::{Hash, Hasher};
+        let lib = self.library.as_ref().filter(|l| l.on_disk)?;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        lib.journal().seq().hash(&mut h);
+        let mut skip: Vec<&str> = SKIP_LIBRARY.to_vec();
+        skip.extend(["view.json", crate::finishing::FILE]);
+        hash_files(&lib.dir, &skip, &mut h);
+        hash_files(&lib.dir.join("Profiles"), &[], &mut h);
+        if let Some(sd) = &self.backups.settings_dir {
+            let store = sd.join(crate::app_store::DIR_NAME);
+            hash_files(&store, &[], &mut h);
+            hash_files(&store.join("Profiles"), &[], &mut h);
+            hash_files(&sd.join("camera-profiles"), &[], &mut h);
+        }
+        Some(format!("{:016x}", h.finish()))
+    }
+
+    /// Something changed since this library's last backup (or it has none yet).
+    pub fn backup_changed(&self) -> bool {
+        let Some(lib) = self.library.as_ref().filter(|l| l.on_disk) else { return false };
+        if !self.pending_log.is_empty() {
+            return true;
+        }
+        let key = lib.dir.to_string_lossy().to_string();
+        match (self.backups.settings.marks.get(&key), self.backup_mark()) {
+            (Some(was), Some(now)) => *was != now,
+            _ => true,
+        }
+    }
+
     /// A backup is due when LightCraft exits (by the frequency and the last backup of this library).
     pub fn backup_due(&self) -> bool {
         let Some(lib) = self.library.as_ref().filter(|l| l.on_disk) else { return false };
@@ -374,6 +413,7 @@ impl Session {
         // everything on disk is current
         let _ = self.persist();
         self.save_view();
+        self.backups.pending_mark = self.backup_mark().map(|m| (lib_dir.to_string_lossy().to_string(), m));
         let job = Job {
             lib_dir,
             root,
@@ -431,6 +471,9 @@ impl Session {
                 if let (Some(lib), Some(at)) = (v["library"].as_str(), v["at"].as_u64()) {
                     self.backups.settings.last.insert(lib.to_string(), at);
                 }
+                if let Some((lib, mark)) = self.backups.pending_mark.take() {
+                    self.backups.settings.marks.insert(lib, mark);
+                }
                 if let Err(e) = self.save_backup_settings() {
                     log::warn!("backup: {e}");
                 }
@@ -452,6 +495,29 @@ impl Session {
             .into_iter()
             .map(|(p, m)| json!({"path": p.display().to_string(), "name": p.file_name().map(|n| n.to_string_lossy().to_string()), "at": m["at"], "photos": m["photos"], "bytes": m["bytes"]}))
             .collect()
+    }
+}
+
+/// Hash the names and contents of the files directly in `dir` (not `skip`), in name order. Each
+/// file at most [`MAX_FILE`]; unreadable ones count by name.
+fn hash_files(dir: &Path, skip: &[&str], h: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(String, PathBuf)> = rd
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| (e.file_name().to_string_lossy().to_string(), e.path()))
+        .filter(|(n, _)| !skip.contains(&n.as_str()) && !n.ends_with(".tmp"))
+        .take(MAX_FILES)
+        .collect();
+    files.sort();
+    for (name, path) in files {
+        name.hash(h);
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() <= MAX_FILE)
+            && let Ok(bytes) = std::fs::read(&path)
+        {
+            bytes.hash(h);
+        }
     }
 }
 

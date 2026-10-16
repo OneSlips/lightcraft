@@ -2887,5 +2887,8 @@
   "With AI masks only": "僅含 AI 遮色片",
   "Presets may change the camera profile": "預設可以變更相機描述檔",
   "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "關閉：無論預設指定哪個描述檔，每張 RAW 都保留其機身的描述檔。",
-  "Previews built.": "預覽已產生。"
+  "Previews built.": "預覽已產生。",
+  "Back Up the Library?": "備份圖庫？",
+  "Back Up and Quit": "備份並結束",
+  "Skip This Time": "這次略過"
 }

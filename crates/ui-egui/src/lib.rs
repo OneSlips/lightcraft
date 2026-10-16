@@ -373,13 +373,30 @@ pub enum QuitPrompt {
     Unsaved(String),
     /// Tasks that quitting would cut short are running: an import, an export… (issue #345).
     Tasks(String),
+    /// A backup is due and something changed since the last one: back up now, or skip this time.
+    Backup(String),
+}
+
+/// What quitting does about the library backup (Settings ▸ Backups).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BackupOnQuit {
+    /// Ask when a backup is due and something changed (closing the window, File ▸ Quit).
+    #[default]
+    Ask,
+    /// Back up (Back Up and Quit was chosen).
+    Now,
+    /// Skip this time.
+    Skip,
+    /// Don't ask: back up when one is due and something changed (`app.quit` over the control
+    /// channel, which no one is there to answer).
+    Auto,
 }
 
 impl QuitPrompt {
     /// The prompt's message.
     pub fn text(&self) -> &str {
         match self {
-            QuitPrompt::Unsaved(text) | QuitPrompt::Tasks(text) => text,
+            QuitPrompt::Unsaved(text) | QuitPrompt::Tasks(text) | QuitPrompt::Backup(text) => text,
         }
     }
 }
@@ -415,6 +432,8 @@ pub struct LightcraftApp {
     pub quit_prompt: Option<QuitPrompt>,
     /// Quit Anyway was chosen: the window may close with unsaved changes.
     pub quit_confirmed: bool,
+    /// What quitting does about the library backup.
+    pub backup_on_quit: BackupOnQuit,
     control_rx: Option<Receiver<ControlRequest>>,
     pending_screenshots: Vec<PendingShot>,
     screenshot_token: u64,
@@ -567,6 +586,7 @@ impl LightcraftApp {
             notices: vec![],
             quit_prompt: None,
             quit_confirmed: false,
+            backup_on_quit: BackupOnQuit::Ask,
             control_rx: None,
             pending_screenshots: vec![],
             screenshot_token: 0,
@@ -1777,6 +1797,19 @@ pub(crate) fn finishing_note(done: &lightcraft_engine::finishing::FinishSummary)
 }
 
 /// Whether the settings render in black & white.
+impl LightcraftApp {
+    /// Whether the host backs the library up as it exits: a backup due by the settings, unless
+    /// Skip This Time was chosen; when no one was asked, only when something changed since the
+    /// last one.
+    pub fn backup_at_exit(&self) -> bool {
+        match self.backup_on_quit {
+            BackupOnQuit::Skip => false,
+            BackupOnQuit::Now => self.session.backup_due() || self.session.backup_changed(),
+            BackupOnQuit::Ask | BackupOnQuit::Auto => self.session.backup_due() && self.session.backup_changed(),
+        }
+    }
+}
+
 /// A temporary look for the loupe (hovering a preset or profile).
 #[derive(Clone, Debug, PartialEq)]
 pub struct HoverPreview {

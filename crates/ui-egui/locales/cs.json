@@ -2341,5 +2341,8 @@
   "With AI masks only": "Jen s AI maskami",
   "Presets may change the camera profile": "Předvolby smí změnit profil fotoaparátu",
   "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Vypnuto: každý raw si ponechá profil svého těla fotoaparátu, ať předvolba uvádí jakýkoli profil.",
-  "Previews built.": "Náhledy vytvořeny."
+  "Previews built.": "Náhledy vytvořeny.",
+  "Back Up the Library?": "Zálohovat knihovnu?",
+  "Back Up and Quit": "Zálohovat a ukončit",
+  "Skip This Time": "Tentokrát přeskočit"
 }

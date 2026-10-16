@@ -3086,5 +3086,8 @@
   "With AI masks only": "Nur mit KI-Masken",
   "Presets may change the camera profile": "Vorgaben dürfen das Kameraprofil ändern",
   "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Aus: Jedes Raw behält das Profil seines Kameragehäuses, egal welches Profil eine Vorgabe nennt.",
-  "Previews built.": "Vorschauen erstellt."
+  "Previews built.": "Vorschauen erstellt.",
+  "Back Up the Library?": "Bibliothek sichern?",
+  "Back Up and Quit": "Sichern und beenden",
+  "Skip This Time": "Diesmal überspringen"
 }

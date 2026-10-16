@@ -2924,5 +2924,8 @@
   "With AI masks only": "仅含 AI 蒙版",
   "Presets may change the camera profile": "预设可以更改相机配置文件",
   "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "关闭：无论预设指定哪个配置文件，每张 RAW 都保留其机身的配置文件。",
-  "Previews built.": "预览已生成。"
+  "Previews built.": "预览已生成。",
+  "Back Up the Library?": "备份图库？",
+  "Back Up and Quit": "备份并退出",
+  "Skip This Time": "这次跳过"
 }

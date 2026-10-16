@@ -426,5 +426,6 @@
   "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。",
   "Photos ready: {n}.": "相片已就緒：{n} 張。",
   "AI masks: {masks} on {photos} photos.": "AI 遮色片：{photos} 張相片上共 {masks} 個。",
-  "Smooth Skin: {n} photos.": "平滑皮膚：{n} 張相片。"
+  "Smooth Skin: {n} photos.": "平滑皮膚：{n} 張相片。",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "結束 LightCraft 前備份「{library}」嗎？備份包含目錄、其設定、你的預設和描述檔；不含相片。"
 }
