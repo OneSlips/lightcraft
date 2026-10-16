@@ -26,6 +26,8 @@
   column, the presets of an open group hang off an **indent guide** with faint alternate shading,
   the row under the pointer lights up, and **every action sits in a fixed column at the right**, the
   same for groups and presets (no more zig-zag after names of different lengths).
+- The **Profile Manager** has the same table look; its confirmations stay next to what they are
+  about.
 
 ## 2026-10-16
 

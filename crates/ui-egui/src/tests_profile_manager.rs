@@ -66,6 +66,8 @@ fn profile_groups_hide_and_delete_from_their_header() {
     h.app.ui.dialog = Some(Dialog::Settings { tab: "profiles".into() });
     h.step();
     h.step();
+    // (the table's rows are roomier: fold the first group to bring Film into view)
+    click(&mut h, "icon:profileGroupFold:Basic");
     click(&mut h, "icon:profileGroupHide:Film");
     assert!(!h.app.session.shown_profiles().iter().any(|p| p.group == "Film"));
     click(&mut h, "icon:profileGroupDelete:Film");

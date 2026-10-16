@@ -3,11 +3,13 @@
 //! favourite star, Rename, Group, Move up / down, Hide / Show and Delete; Import Profiles… and Import
 //! Folder… (dropping files or a folder on the window imports them too); Restore Built-in Looks; the
 //! default camera profile of each camera body; and where all of it is kept (shared by every library,
-//! or with this one). Opened from Settings and from the profile browser's Manage button.
+//! or with this one). Opened from Settings and from the profile browser's Manage button. Drawn as
+//! the managers' table ([`super::manager_table`]), like the Presets Manager.
 
 use egui::RichText;
 use serde_json::{Value, json};
 
+use super::manager_table::{self as table, Col, GroupAction, GroupHead, confirm_group_delete, group_header, new_group_row};
 use super::settings::{check, heading, hint, row};
 use crate::LightcraftApp;
 use crate::i18n::{tr, tr_format};
@@ -76,6 +78,8 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let groups: Vec<String> = list["groups"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     let mut action: Option<(&'static str, Value)> = None;
     new_group_row(ui, t, "profileGroupNew", &mut ed.group_new, |name| action = Some(("profile.groupNew", json!({"name": name}))));
+    let before = ui.spacing().item_spacing.y;
+    ui.spacing_mut().item_spacing.y = 0.0;
     for (gi, g) in groups.iter().enumerate() {
         let members: Vec<&Value> = profiles.iter().filter(|p| p["group"].as_str() == Some(g.as_str())).collect();
         let builtin_group = !members.is_empty() && members.iter().all(|p| p["kind"] == "builtin" && p["customGroup"] != true);
@@ -90,8 +94,8 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             next: groups.get(gi + 1).map(String::as_str),
             default_open: true,
         };
-        ui.add_space(6.0);
-        let (open, asked) = group_header(ui, t, &head, &mut ed.group_rename);
+        ui.add_space(4.0);
+        let (open, asked) = group_header(ui, t, &PROFILE_COLS, &head, &mut ed.group_rename);
         match asked {
             Some(GroupAction::Hide(hidden)) => action = Some(("profile.groupHide", json!({"group": g, "hidden": hidden}))),
             Some(GroupAction::Rename(name)) => action = Some(("profile.groupRename", json!({"group": g, "name": name}))),
@@ -118,9 +122,10 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         for (i, p) in members.iter().enumerate() {
             let prev = i.checked_sub(1).and_then(|j| members.get(j)).and_then(|q| q["id"].as_str());
             let next = members.get(i + 1).and_then(|q| q["id"].as_str());
-            profile_row(ui, t, p, &groups, prev, next, &mut ed, &mut action);
+            profile_row(ui, t, p, i, &groups, prev, next, &mut ed, &mut action);
         }
     }
+    ui.spacing_mut().item_spacing.y = before;
     ui.data_mut(|m| m.insert_temp(editing_id(), ed));
     if let Some((command, params)) = action
         && let Err(e) = app.run(command, params)
@@ -128,183 +133,6 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         app.ui.status = e;
     }
     bodies_section(app, ui, t);
-}
-
-/// A group's header row as the managers (profiles, presets) draw it.
-pub(super) struct GroupHead<'a> {
-    /// Widget id prefix (`{key}Fold:{name}`, `{key}Hide:{name}`…).
-    pub key: &'a str,
-    pub name: &'a str,
-    /// The name as shown (a built-in group's in the UI language).
-    pub shown: String,
-    pub count: usize,
-    pub all_hidden: bool,
-    pub prev: Option<&'a str>,
-    pub next: Option<&'a str>,
-    /// Open until the user folds it.
-    pub default_open: bool,
-}
-
-/// What a group header asked for.
-pub(super) enum GroupAction {
-    Hide(bool),
-    Rename(String),
-    Move { before: bool, other: String },
-    Delete,
-}
-
-/// A group's header: collapse / expand, its name and count, Rename, Move up / down, Hide / Show and
-/// Delete. Returns whether it is open, and what was asked.
-pub(super) fn group_header(ui: &mut egui::Ui, t: &Tokens, h: &GroupHead, renaming: &mut Option<(String, String)>) -> (bool, Option<GroupAction>) {
-    let open_id = egui::Id::new((h.key, "open", h.name));
-    let open: bool = ui.data(|m| m.get_temp(open_id)).unwrap_or(h.default_open);
-    let mut out = None;
-    let sz = egui::vec2(24.0, 24.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        let fold = if open { Icon::ChevronDown } else { Icon::ChevronRight };
-        if icon_button(ui, &format!("{}Fold:{}", h.key, h.name), fold, sz, false, true, if open { "Collapse" } else { "Expand" }).clicked() {
-            ui.data_mut(|m| m.insert_temp(open_id, !open));
-        }
-        let mut done = None;
-        if let Some((rg, text)) = renaming.as_mut().filter(|(rg, _)| rg == h.name) {
-            let r =
-                crate::text_field::TextField::singleline(&format!("field:{}Rename:{rg}", h.key), text).width(240.0).select_on_focus(true).show(ui);
-            if !r.editing && r.ending.is_none() {
-                r.response.request_focus();
-            }
-            if r.committed() {
-                done = Some(Some(text.trim().to_string()).filter(|n| !n.is_empty() && n != h.name));
-            } else if r.cancelled() {
-                done = Some(None);
-            }
-        } else {
-            let color = if h.all_hidden { t.text_disabled } else { t.text_label };
-            let r = ui.label(RichText::new(&h.shown).font(t.semibold(13.0)).color(color));
-            register(ui.ctx(), format!("{}Head:{}", h.key, h.name), r.rect);
-            ui.label(RichText::new(h.count.to_string()).size(11.0).color(t.text_dim));
-        }
-        if let Some(name) = done {
-            *renaming = None;
-            if let Some(n) = name {
-                out = Some(GroupAction::Rename(n));
-            }
-        }
-        ui.add_space(8.0);
-        if icon_button(ui, &format!("{}Rename:{}", h.key, h.name), Icon::Pencil, sz, false, true, "Rename Group").clicked() {
-            *renaming = Some((h.name.to_string(), h.name.to_string()));
-        }
-        if icon_button(ui, &format!("{}Up:{}", h.key, h.name), Icon::ChevronUp, sz, false, h.prev.is_some(), "Move Group Up").clicked()
-            && let Some(o) = h.prev
-        {
-            out = Some(GroupAction::Move { before: true, other: o.to_string() });
-        }
-        if icon_button(ui, &format!("{}Down:{}", h.key, h.name), Icon::ChevronDown, sz, false, h.next.is_some(), "Move Group Down").clicked()
-            && let Some(o) = h.next
-        {
-            out = Some(GroupAction::Move { before: false, other: o.to_string() });
-        }
-        let (icon, tip) = if h.all_hidden { (Icon::EyeOff, "Show the group in the menus") } else { (Icon::Eye, "Hide the group from the menus") };
-        if icon_button(ui, &format!("{}Hide:{}", h.key, h.name), icon, sz, h.all_hidden, h.count > 0, tip).clicked() {
-            out = Some(GroupAction::Hide(!h.all_hidden));
-        }
-        if icon_button(ui, &format!("{}Delete:{}", h.key, h.name), Icon::Trash, sz, false, true, "Delete Group").clicked() {
-            out = Some(GroupAction::Delete);
-        }
-    });
-    (open, out)
-}
-
-/// "New Group…" and its name field; `create` gets the name typed.
-pub(super) fn new_group_row(ui: &mut egui::Ui, t: &Tokens, key: &str, typing: &mut Option<String>, create: impl FnOnce(String)) {
-    ui.horizontal(|ui| match typing.as_mut() {
-        Some(text) => {
-            ui.label(RichText::new(tr("New group:")).color(t.text_label));
-            let r = crate::text_field::TextField::singleline(&format!("field:{key}"), text).width(240.0).show(ui);
-            if !r.editing && r.ending.is_none() {
-                r.response.request_focus();
-            }
-            if r.committed() {
-                let name = text.trim().to_string();
-                *typing = None;
-                if !name.is_empty() {
-                    create(name);
-                }
-            } else if r.cancelled() {
-                *typing = None;
-            }
-        }
-        None => {
-            let r = ui.button(tr("New Group…"));
-            register(ui.ctx(), format!("button:{key}"), r.rect);
-            if r.clicked() {
-                *typing = Some(String::new());
-            }
-        }
-    });
-}
-
-/// Asking before a group is deleted: what happens to its built-in and own items (`counts`), and
-/// (with own items) a group to move them to instead. Returns the `groupRemove` parameters once
-/// confirmed.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn confirm_group_delete(
-    ui: &mut egui::Ui,
-    t: &Tokens,
-    group: &str,
-    shown: &str,
-    counts: (usize, usize),
-    others: &[String],
-    move_to: &mut Option<String>,
-    confirm: &mut Option<String>,
-) -> Option<Value> {
-    let (builtin, own) = counts;
-    let mut out = None;
-    egui::Frame::NONE.fill(t.inset).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
-        let mut text = tr_format!("Delete the group “{name}”?", name = shown);
-        if builtin > 0 {
-            text.push(' ');
-            text.push_str(&tr_format!("{n} built-in items are taken off this computer (Restore brings them back).", n = builtin));
-        }
-        if own > 0 {
-            text.push(' ');
-            text.push_str(&tr_format!("{n} of your own: delete them, or move them to another group.", n = own));
-        }
-        ui.add(egui::Label::new(RichText::new(text).color(t.text)).wrap());
-        ui.horizontal(|ui| {
-            if own > 0 && !others.is_empty() {
-                let label = move_to.clone().unwrap_or_else(|| tr("Move to…").to_string());
-                let r = crate::widgets::combo_box(("groupMoveTo", group)).width(200.0).selected_text(label).show_ui(ui, |ui| {
-                    for o in others {
-                        if ui.selectable_label(move_to.as_deref() == Some(o.as_str()), o.as_str()).clicked() {
-                            *move_to = Some(o.clone());
-                        }
-                    }
-                });
-                register(ui.ctx(), format!("combo:groupMoveTo:{group}"), r.response.rect);
-                if let Some(to) = move_to.clone() {
-                    let r = ui.button(tr("Move Them and Delete the Group"));
-                    register(ui.ctx(), format!("button:groupMove:{group}"), r.rect);
-                    if r.clicked() {
-                        out = Some(json!({"group": group, "moveTo": to}));
-                        *confirm = None;
-                    }
-                }
-            }
-            let r = ui.button(if own > 0 { tr("Delete Everything") } else { tr("Delete") });
-            register(ui.ctx(), format!("button:groupDeleteConfirm:{group}"), r.rect);
-            if r.clicked() {
-                out = Some(json!({"group": group}));
-                *confirm = None;
-            }
-            let r = ui.button(tr("Cancel"));
-            register(ui.ctx(), format!("button:groupDeleteCancel:{group}"), r.rect);
-            if r.clicked() {
-                *confirm = None;
-            }
-        });
-    });
-    out
 }
 
 /// Import profile files or folders and say what happened.
@@ -326,11 +154,15 @@ fn import(app: &mut LightcraftApp, paths: Vec<String>) {
     }
 }
 
+/// The columns of the profiles' table.
+const PROFILE_COLS: table::Columns = table::Columns { info_w: 250.0, for_import: false };
+
 #[allow(clippy::too_many_arguments)]
 fn profile_row(
     ui: &mut egui::Ui,
     t: &Tokens,
     p: &Value,
+    n: usize,
     groups: &[String],
     prev: Option<&str>,
     next: Option<&str>,
@@ -346,66 +178,66 @@ fn profile_row(
     let used = p["usedBy"].as_u64().unwrap_or(0);
     let shown_name = if builtin && p["name"] == p["originalName"] { tr(name).to_string() } else { name.to_string() };
     let sz = egui::vec2(24.0, 24.0);
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        if icon_button(ui, &format!("profileFav:{id}"), if favorite { Icon::StarFilled } else { Icon::Star }, sz, favorite, true, "Favorite")
-            .clicked()
-        {
-            *action = Some(("profile.favorite", json!({"id": id})));
-        }
-        let name_w = (ui.available_width() - 390.0).clamp(140.0, 340.0);
-        if let Some((rid, text)) = ed.rename.as_mut().filter(|(rid, _)| rid == &id) {
-            let r =
-                crate::text_field::TextField::singleline(&format!("field:profileRename:{rid}"), text).width(name_w).select_on_focus(true).show(ui);
+    let (rect, resp, rid) = table::row(ui, table::ROW_H, ("profile", &id));
+    table::paint_item(ui, t, rect, n, resp.contains_pointer());
+    let rr = table::RowRects::new(rect, rid, &PROFILE_COLS, table::ITEM_NAME_LEFT);
+    let fav = rr.in_lead(ui, table::item_star(rect), |ui| {
+        icon_button(ui, &format!("profileFav:{id}"), if favorite { Icon::StarFilled } else { Icon::Star }, sz, favorite, true, "Favorite")
+    });
+    if fav.clicked() {
+        *action = Some(("profile.favorite", json!({"id": id})));
+    }
+    if let Some((rid, text)) = ed.rename.as_mut().filter(|(rid, _)| rid == &id) {
+        let mut done = false;
+        rr.in_name(ui, |ui| {
+            let r = crate::text_field::TextField::singleline(&format!("field:profileRename:{rid}"), text)
+                .width(rr.name.width().min(340.0))
+                .select_on_focus(true)
+                .show(ui);
             if !r.editing && r.ending.is_none() {
                 r.response.request_focus();
             }
             if r.committed() {
                 *action = Some(("profile.rename", json!({"id": id, "name": text.clone()})));
-                ed.rename = None;
+                done = true;
             } else if r.cancelled() {
-                ed.rename = None;
+                done = true;
             }
-        } else {
-            let color = if hidden { t.text_disabled } else { t.text };
-            let (r, _) = ui.allocate_exact_size(egui::vec2(name_w, 22.0), egui::Sense::hover());
-            let g = crate::widgets::one_line(ui.painter(), &shown_name, t.font(13.0), color, name_w - 4.0);
-            ui.painter().galley(egui::pos2(r.left(), r.center().y - g.size().y / 2.0), g, color);
-            register(ui.ctx(), format!("profileRow:{id}"), r);
+        });
+        if done {
+            ed.rename = None;
         }
-        let what = match kind {
-            "camera" => {
-                p["cameraModel"].as_str().map(|m| format!("{} · {m}", tr("Camera profile"))).unwrap_or_else(|| tr("Camera profile").to_string())
-            }
-            "lut" => tr("LUT profile").to_string(),
-            _ => tr("Built-in look").to_string(),
-        };
-        let mut info = what;
-        // the bodies it is the default of (…71, …74)
-        let defaults: Vec<String> = p["bodyDefaults"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(lightcraft_engine::cmd::dcp_profiles::body_label)
-            .collect();
-        if !defaults.is_empty() {
-            info.push_str(&format!(" · {}", tr_format!("default for {bodies}", bodies = defaults.join(", "))));
-        }
-        if used > 0 {
-            info.push_str(&format!(" · {}", tr_format!("{n} photos here", n = used)));
-        }
-        if hidden {
-            info.push_str(&format!(" · {}", tr("Hidden")));
-        }
-        if p["missing"] == true {
-            info.push_str(&format!(" · {}", tr("file missing")));
-        }
-        ui.add_sized(egui::vec2(230.0, 22.0), egui::Label::new(RichText::new(info).size(11.0).color(t.text_dim)).truncate());
-        if icon_button(ui, &format!("profileRename:{id}"), Icon::Pencil, sz, false, true, "Rename").clicked() {
-            ed.rename = Some((id.clone(), name.to_string()));
-        }
-        let r = crate::widgets::menu_button(ui, tr("Group"), |ui| {
+    } else {
+        table::text_in(ui, rr.name, &shown_name, t.font(13.0), if hidden { t.text_disabled } else { t.text });
+        register(ui.ctx(), format!("profileRow:{id}"), rr.name);
+    }
+    let what = match kind {
+        "camera" => p["cameraModel"].as_str().map(|m| format!("{} · {m}", tr("Camera profile"))).unwrap_or_else(|| tr("Camera profile").to_string()),
+        "lut" => tr("LUT profile").to_string(),
+        _ => tr("Built-in look").to_string(),
+    };
+    let mut info = what;
+    // the bodies it is the default of (…71, …74)
+    let defaults: Vec<String> =
+        p["bodyDefaults"].as_array().into_iter().flatten().filter_map(Value::as_str).map(lightcraft_engine::cmd::dcp_profiles::body_label).collect();
+    if !defaults.is_empty() {
+        info.push_str(&format!(" · {}", tr_format!("default for {bodies}", bodies = defaults.join(", "))));
+    }
+    if used > 0 {
+        info.push_str(&format!(" · {}", tr_format!("{n} photos here", n = used)));
+    }
+    if hidden {
+        info.push_str(&format!(" · {}", tr("Hidden")));
+    }
+    if p["missing"] == true {
+        info.push_str(&format!(" · {}", tr("file missing")));
+    }
+    table::info_in(ui, t, rr.info, &info);
+    if rr.in_col(ui, Col::Rename, |ui| icon_button(ui, &format!("profileRename:{id}"), Icon::Pencil, sz, false, true, "Rename")).clicked() {
+        ed.rename = Some((id.clone(), name.to_string()));
+    }
+    let r = rr.in_col(ui, Col::Group, |ui| {
+        crate::widgets::menu_button(ui, tr("Group"), |ui| {
             ui.set_min_width(180.0);
             for g in groups {
                 if ui.button(g.as_str()).clicked() {
@@ -422,31 +254,33 @@ fn profile_row(
                 *action = Some(("profile.setGroup", json!({"id": id, "group": ""})));
                 ui.close();
             }
-        });
-        register(ui.ctx(), format!("profileGroup:{id}"), r.response.rect);
-        if icon_button(ui, &format!("profileUp:{id}"), Icon::ChevronUp, sz, false, prev.is_some(), "Move Up").clicked()
-            && let Some(prev) = prev
-        {
-            *action = Some(("profile.reorder", json!({"id": id, "before": prev})));
-        }
-        if icon_button(ui, &format!("profileDown:{id}"), Icon::ChevronDown, sz, false, next.is_some(), "Move Down").clicked()
-            && let Some(next) = next
-        {
-            *action = Some(("profile.reorder", json!({"id": id, "after": next})));
-        }
-        let (icon, tip) = if hidden { (Icon::EyeOff, "Show in the menus") } else { (Icon::Eye, "Hide from the menus") };
-        if icon_button(ui, &format!("profileHide:{id}"), icon, sz, hidden, true, tip).clicked() {
-            *action = Some(("profile.hide", json!({"id": id, "hidden": !hidden})));
-        }
-        if icon_button(ui, &format!("profileDelete:{id}"), Icon::Trash, sz, false, true, "Delete").clicked() {
-            ed.confirm_delete = Some(id.clone());
-        }
+        })
     });
+    register(ui.ctx(), format!("profileGroup:{id}"), r.response.rect);
+    if rr.in_col(ui, Col::Up, |ui| icon_button(ui, &format!("profileUp:{id}"), Icon::ChevronUp, sz, false, prev.is_some(), "Move Up")).clicked()
+        && let Some(prev) = prev
+    {
+        *action = Some(("profile.reorder", json!({"id": id, "before": prev})));
+    }
+    if rr
+        .in_col(ui, Col::Down, |ui| icon_button(ui, &format!("profileDown:{id}"), Icon::ChevronDown, sz, false, next.is_some(), "Move Down"))
+        .clicked()
+        && let Some(next) = next
+    {
+        *action = Some(("profile.reorder", json!({"id": id, "after": next})));
+    }
+    let (icon, tip) = if hidden { (Icon::EyeOff, "Show in the menus") } else { (Icon::Eye, "Hide from the menus") };
+    if rr.in_col(ui, Col::Hide, |ui| icon_button(ui, &format!("profileHide:{id}"), icon, sz, hidden, true, tip)).clicked() {
+        *action = Some(("profile.hide", json!({"id": id, "hidden": !hidden})));
+    }
+    if rr.in_col(ui, Col::Delete, |ui| icon_button(ui, &format!("profileDelete:{id}"), Icon::Trash, sz, false, true, "Delete")).clicked() {
+        ed.confirm_delete = Some(id.clone());
+    }
     // a new group's name
     let mut group_done = false;
     if let Some((gid, text)) = ed.new_group.as_mut().filter(|(gid, _)| gid == &id) {
         ui.horizontal(|ui| {
-            ui.add_space(30.0);
+            ui.add_space(table::ITEM_NAME_LEFT);
             ui.label(RichText::new(tr("New group:")).color(t.text_label));
             let r = crate::text_field::TextField::singleline(&format!("field:profileNewGroup:{gid}"), text).width(220.0).show(ui);
             if !r.editing && r.ending.is_none() {
@@ -463,35 +297,41 @@ fn profile_row(
     if group_done {
         ed.new_group = None;
     }
-    // asking before a delete
+    // asking before a delete: right under the row
     if ed.confirm_delete.as_deref() == Some(id.as_str()) {
-        egui::Frame::NONE.fill(t.inset).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
-            let text = if builtin {
-                tr_format!("Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.", name = shown_name)
-            } else if used > 0 {
-                tr_format!(
-                    "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.",
-                    name = shown_name,
-                    n = used
-                )
-            } else {
-                tr_format!("Delete “{name}” and its file?", name = shown_name)
-            };
-            ui.add(egui::Label::new(RichText::new(text).color(t.text)).wrap());
-            ui.horizontal(|ui| {
-                let r = ui.button(tr("Delete"));
-                register(ui.ctx(), format!("button:profileDeleteConfirm:{id}"), r.rect);
-                if r.clicked() {
-                    *action = Some(("profile.remove", json!({"id": id})));
-                    ed.confirm_delete = None;
-                }
-                let r = ui.button(tr("Cancel"));
-                register(ui.ctx(), format!("button:profileDeleteCancel:{id}"), r.rect);
-                if r.clicked() {
-                    ed.confirm_delete = None;
-                }
+        egui::Frame::NONE
+            .fill(t.inset)
+            .stroke(egui::Stroke::new(1.0, t.caution.gamma_multiply(0.7)))
+            .corner_radius(4.0)
+            .inner_margin(egui::Margin { left: 30, right: 8, top: 6, bottom: 6 })
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                let text = if builtin {
+                    tr_format!("Remove “{name}” from LightCraft on this computer? Restore Built-in Looks brings it back.", name = shown_name)
+                } else if used > 0 {
+                    tr_format!(
+                        "Delete “{name}” and its file? {n} photos here use it; camera profiles fall back to LightCraft's camera colour.",
+                        name = shown_name,
+                        n = used
+                    )
+                } else {
+                    tr_format!("Delete “{name}” and its file?", name = shown_name)
+                };
+                ui.add(egui::Label::new(RichText::new(text).color(t.text)).wrap());
+                ui.horizontal(|ui| {
+                    let r = ui.button(tr("Delete"));
+                    register(ui.ctx(), format!("button:profileDeleteConfirm:{id}"), r.rect);
+                    if r.clicked() {
+                        *action = Some(("profile.remove", json!({"id": id})));
+                        ed.confirm_delete = None;
+                    }
+                    let r = ui.button(tr("Cancel"));
+                    register(ui.ctx(), format!("button:profileDeleteCancel:{id}"), r.rect);
+                    if r.clicked() {
+                        ed.confirm_delete = None;
+                    }
+                });
             });
-        });
     }
 }
 
