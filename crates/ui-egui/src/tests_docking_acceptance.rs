@@ -170,7 +170,8 @@ fn dock_tab_keeps_activation_keys_and_global_command_remains_reachable() {
     key(&mut h, egui::Key::Enter);
     assert_eq!(h.app.ui.right, RightPanel::Crop, "Enter activates the tab without tool.done");
     key(&mut h, egui::Key::K);
-    assert_eq!(h.app.ui.right, RightPanel::None, "the global crop toggle is reachable from tab focus");
+    // (closing Crop puts back the panel shown before it: Edit)
+    assert_eq!(h.app.ui.right, RightPanel::Edit, "the global crop toggle is reachable from tab focus");
 }
 
 #[test]
