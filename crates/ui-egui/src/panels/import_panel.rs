@@ -894,7 +894,10 @@ pub fn bar(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let sep_w = 16.0;
     let dots_w = measure("…", &crumb_font) + 4.0;
     let mut x = left;
-    for (k, part) in compact_crumbs(&widths, sep_w, dots_w, room).iter().enumerate() {
+    let shown = compact_crumbs(&widths, sep_w, dots_w, room);
+    // the folders "…" stands for: a click lists them, each one opens
+    let hidden: Vec<usize> = (0..crumbs.len()).filter(|i| !shown.contains(&Some(*i))).collect();
+    for (k, part) in shown.iter().enumerate() {
         if k > 0 {
             paint(ui.painter(), Rect::from_center_size(pos2(x + sep_w / 2.0, cy), vec2(12.0, 12.0)), Icon::ChevronRight, t.text_dim);
             x += sep_w;
@@ -902,8 +905,26 @@ pub fn bar(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         match part.and_then(|i| crumbs.get(i).map(|c| (i, c))) {
             None => {
                 let r = Rect::from_min_size(pos2(x, cy - 10.0), vec2(dots_w, 20.0));
+                let resp = ui.interact(r, egui::Id::new("import-crumb-dots"), Sense::click());
+                register(ui.ctx(), "crumb:more", r);
+                if resp.hovered() {
+                    ui.painter().rect_filled(r, 3.0, t.hover);
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                }
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, "…", crumb_font.clone(), t.text_label);
-                ui.interact(r, egui::Id::new("import-crumb-dots"), Sense::hover()).on_hover_text(&b.path);
+                let resp = resp.on_hover_text(&b.path);
+                egui::Popup::menu(&resp).show(|ui| {
+                    for i in &hidden {
+                        if let Some((name, to)) = crumbs.get(*i) {
+                            let item = ui.button(*name);
+                            register(ui.ctx(), format!("crumb:{i}"), item.rect);
+                            if item.on_hover_text(to).clicked() {
+                                let _ = app.run("library.browse", json!({"path": to}));
+                                ui.close();
+                            }
+                        }
+                    }
+                });
                 x += dots_w;
             }
             Some((i, (name, to))) => {

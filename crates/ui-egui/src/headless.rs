@@ -2774,7 +2774,14 @@ mod tests {
         h.request("engine.execute", json!({"command": "library.browse", "params": {"path": inner.to_string_lossy()}}), t);
         h.settle(SETTLE);
         let parent_index = dir.to_string_lossy().split(['/', '\\']).filter(|p| !p.is_empty()).count() - 1;
-        assert_eq!(h.request("ui.clickWidget", json!({"id": format!("crumb:{parent_index}")}), t)["ok"], true);
+        // a folder collapsed into "…" is in its menu
+        let crumb = format!("crumb:{parent_index}");
+        if !h.app.widgets.iter().any(|(w, _)| *w == crumb) {
+            assert_eq!(h.request("ui.clickWidget", json!({"id": "crumb:more"}), t)["ok"], true);
+            h.step();
+            h.step();
+        }
+        assert_eq!(h.request("ui.clickWidget", json!({"id": crumb}), t)["ok"], true);
         h.settle(SETTLE);
         // the same folder, whatever the platform's separators (issue #538)
         assert_eq!(std::path::Path::new(&h.app.session.browse.as_ref().unwrap().path), dir.as_path());
