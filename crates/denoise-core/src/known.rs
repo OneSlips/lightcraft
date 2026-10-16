@@ -3,11 +3,11 @@
 //! None is part of LightCraft. A model with an address here can be downloaded when the user asks and has accepted
 //! its terms; anything else is brought by the user as an `.onnx` file with a `denoise-model.json` beside it.
 
-#[cfg(any(feature = "rawnind-model", test))]
+#[cfg(any(feature = "rawnind-model", feature = "lightcraft-model", test))]
 use crate::licence::{Commercial, Licence};
 
 use crate::manifest::DenoiserManifest;
-#[cfg(any(feature = "rawnind-model", test))]
+#[cfg(any(feature = "rawnind-model", feature = "lightcraft-model", test))]
 use crate::manifest::{Domain, Gain};
 
 /// A known model, and how to get it.
@@ -57,16 +57,59 @@ fn rawnind_bayer() -> Known {
     Known { manifest, download: Some(download), entry: Some("model_bayer.onnx") }
 }
 
-/// Every model LightCraft knows.
+/// Where LightCraft's own model is to be downloaded from. Proposed: a release asset of the LightCraft repository.
+/// The `lightcraft-model` feature offers it, so turn that on only once this file is published here.
+pub const LIGHTCRAFT_BAYER_URL: &str = "https://github.com/storytold/lightcraft/releases/download/denoise-model-0.1.0/lightcraft-bayer-0.1.0.onnx";
+/// SHA-256 and size of that `.onnx` (`tools/denoise-train/export.py` prints both).
+#[cfg(any(feature = "lightcraft-model", test))]
+const LIGHTCRAFT_BAYER_SHA256: &str = "d0320161c1a3632a29a0745f8bdb30783f135f6e4f22600552b54d5ff4b1a68d";
+#[cfg(any(feature = "lightcraft-model", test))]
+const LIGHTCRAFT_BAYER_BYTES: u64 = 31_091_398;
+
+/// LightCraft's own Bayer denoiser: a U-Net trained by LightCraft contributors with `tools/denoise-train` on CC0 raw
+/// samples from raw.pixls.us with synthetic, calibrated sensor noise. The weights are MIT OR Apache-2.0, like
+/// LightCraft; the download is the `.onnx` itself.
+#[cfg(any(feature = "lightcraft-model", test))]
+fn lightcraft_bayer() -> Known {
+    let manifest = DenoiserManifest {
+        id: "lightcraft-bayer".into(),
+        name: "LightCraft Denoise (Bayer)".into(),
+        version: "0.1.0".into(),
+        licence: Licence {
+            name: "MIT OR Apache-2.0".into(),
+            commercial: Commercial::Yes,
+            url: Some("https://github.com/storytold/lightcraft/blob/main/LICENSE-MIT".into()),
+            notice: "LightCraft's own denoise model, trained by the LightCraft contributors. The weights are licensed MIT OR                      Apache-2.0, like LightCraft: you may use them for any purpose, including commercial work, and pass them on                      with this notice. Training pictures: low-ISO raw samples from raw.pixls.us, each dedicated to the public                      domain (CC0) by its contributor; thank you."
+                .into(),
+        },
+        source: Some("https://github.com/storytold/lightcraft/tree/main/tools/denoise-train".into()),
+        sha256: Some(LIGHTCRAFT_BAYER_SHA256.into()),
+        size_bytes: Some(LIGHTCRAFT_BAYER_BYTES),
+        provenance: "Trained by LightCraft contributors with LightCraft's open training tools (tools/denoise-train) on clean                      low-ISO raw photos published on raw.pixls.us under CC0, with synthetic sensor noise calibrated on real                      cameras (numbers only). No photos with other licences were used."
+            .into(),
+        domain: Domain::BayerToRgb,
+        tile: 512,
+        overlap: 64,
+        gain: Gain::None,
+    };
+    let download = Download {
+        id: manifest.id.clone(),
+        url: LIGHTCRAFT_BAYER_URL.into(),
+        file_name: "lightcraft-bayer-0.1.0.onnx".into(),
+        size_bytes: LIGHTCRAFT_BAYER_BYTES,
+        sha256: LIGHTCRAFT_BAYER_SHA256.into(),
+    };
+    Known { manifest, download: Some(download), entry: None }
+}
+
+/// Every model LightCraft knows (none in a default build: each is offered by its own feature).
 pub fn all() -> Vec<Known> {
-    #[cfg(feature = "rawnind-model")]
-    {
-        vec![rawnind_bayer()]
-    }
-    #[cfg(not(feature = "rawnind-model"))]
-    {
-        Vec::new()
-    }
+    Vec::from([
+        #[cfg(feature = "lightcraft-model")]
+        lightcraft_bayer(),
+        #[cfg(feature = "rawnind-model")]
+        rawnind_bayer(),
+    ])
 }
 
 /// The known model with this id.
@@ -87,8 +130,9 @@ mod tests {
     #[test]
     fn known_models_are_valid_unique_and_downloaded_over_https() {
         let all = all();
-        assert_eq!(all.is_empty(), !cfg!(feature = "rawnind-model"));
+        assert_eq!(all.is_empty(), !cfg!(any(feature = "rawnind-model", feature = "lightcraft-model")));
         validate(&rawnind_bayer().manifest).unwrap();
+        validate(&lightcraft_bayer().manifest).unwrap();
         for (i, k) in all.iter().enumerate() {
             validate(&k.manifest).unwrap();
             assert!(all.iter().skip(i + 1).all(|o| o.manifest.id != k.manifest.id), "unique ids");
@@ -105,11 +149,28 @@ mod tests {
             }
         }
         assert_eq!(find("rawnind-bayer").is_some(), cfg!(feature = "rawnind-model"));
+        assert_eq!(find("lightcraft-bayer").is_some(), cfg!(feature = "lightcraft-model"));
         assert!(find("nothing").is_none());
         assert_eq!(
             by_sha256("da27509dab6a2915da67e988acd86cf71f9d5bbc8d1aa0ed32933578a887b901").map(|m| m.id),
             if cfg!(feature = "rawnind-model") { Some("rawnind-bayer".into()) } else { None }
         );
+    }
+
+    #[test]
+    fn lightcraft_model_is_permissive_and_its_download_is_the_onnx_it_names() {
+        let k = lightcraft_bayer();
+        let (m, d) = (&k.manifest, k.download.as_ref().unwrap());
+        crate::manifest::validate(m).unwrap();
+        assert_eq!(m.licence.commercial, Commercial::Yes);
+        assert_eq!(m.licence.name, "MIT OR Apache-2.0");
+        assert!(m.provenance.contains("CC0") && m.licence.notice.contains("CC0"), "the data credit is shown");
+        // the download is the model file itself, so its hash and size are the manifest's
+        assert!(k.entry.is_none());
+        assert_eq!(m.sha256.as_deref(), Some(d.sha256.as_str()));
+        assert_eq!(m.size_bytes, Some(d.size_bytes));
+        assert!(d.url.starts_with("https://") && d.file_name.ends_with(".onnx"));
+        assert_eq!(m.gain, Gain::None);
     }
 }
 
