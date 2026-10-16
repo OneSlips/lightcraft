@@ -242,6 +242,14 @@ In-process requests (headless scripts, tests) count as paired.
 | `surface.input` | `{events: [{control, ticks}` \| `{control, press: true\|false, page?}` \| `{action, ticks}` \| `{action, press}]}` (at most 256) | `{effects}` | yes |
 | `surface.watch` | `{targets: ["light.exposure", …]}` (at most 128; after `subscribe`) | — ; the pushed layout then carries `values: {target: {value, position}}` | yes |
 
+`surface.input` is pipelined: LightCraft reads the next request on the connection without waiting for the reply to
+this one, so a fast turn sent a tick per request never queues up one tick per frame in the socket (it used to: a busy
+app took seconds to catch up, then "replayed" the turn and the key presses behind it). The app still runs a
+connection's requests in order and answers them in order; every other method is answered before the next request is
+read. Ticks are summed and applied once per frame; a key press runs at once (what the dial gathered goes first); a
+dial turned back follows the new way at once (the old way's ticks not applied yet are dropped and its acceleration
+starts again from the floor). Value feedback is pushed as events, never awaited.
+
 Errors: an unpaired connection gets *this surface isn't paired …*; switched off: *control surfaces are switched off*;
 a newer client protocol: *this LightCraft speaks surface protocol 1*. Junk input is refused with an error, never
 acted on: `ticks` must be a number (clamped to ±1000 per event), `page` 1–64, control ids are trimmed to 64 characters.
