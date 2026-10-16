@@ -637,6 +637,7 @@ impl Session {
         // photos whose Smooth Skin now wants the skin found get it (stored with this command)
         if self.depth == 0 && r.is_ok() && (self.pending_log.len() > log_start || self.interaction.is_some()) {
             self.skin_follow_up(log_start);
+            self.retouch_follow_up(log_start);
         }
         if self.depth == 0 && was_active.is_some() && self.active() != was_active {
             self.previous_active = was_active;

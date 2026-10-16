@@ -40,6 +40,7 @@ pub mod optics;
 pub mod output;
 pub mod profiles;
 pub mod redeye;
+pub mod retouch;
 pub mod skin;
 pub mod spots;
 pub mod tone;
@@ -467,6 +468,8 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
             let work = if req.depth == OutputDepth::U8 { spots::window_for_reads(s, &frame, full_w, full_h, px_per_long, win) } else { win };
             // and so does Smooth Skin, which reads the skin around what it changes
             let work = if req.depth == OutputDepth::U8 { grow_window(work, skin::reach(s, px_per_long), full_w, full_h) } else { work };
+            // and the retouch of people's parts, whose local contrast reads around them
+            let work = if req.depth == OutputDepth::U8 { grow_window(work, retouch::reach(s, px_per_long), full_w, full_h) } else { work };
             if work != win {
                 keep = Some(PixelWindow { x: win.x - work.x, y: win.y - work.y, ..win });
             }
@@ -501,9 +504,9 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness].map(f64::to_bits),
         detail_scale.to_bits(),
     ));
-    let lin_key = match skin::key(s) {
-        Some(k) => hash_of((nr_key, k)),
-        None => nr_key,
+    let lin_key = match (skin::key(s), retouch::key(s)) {
+        (None, None) => nr_key,
+        (k, r) => hash_of((nr_key, k, r)),
     };
     Plan {
         settings,
@@ -535,9 +538,17 @@ fn grow_window(win: PixelWindow, reach: f64, full_w: usize, full_h: usize) -> Pi
     PixelWindow { x: x0, y: y0, w: x1.saturating_sub(x0).max(1), h: y1.saturating_sub(y0).max(1) }
 }
 
-/// Whether Smooth Skin changes this render (it runs on the CPU, after noise reduction).
+/// Whether Smooth Skin or the retouch of people's parts changes this render (they run on the
+/// CPU, after noise reduction).
 pub fn skin_needs_cpu(s: &DevelopSettings) -> bool {
-    skin::analysis(s).is_some()
+    skin::analysis(s).is_some() || retouch::active(s)
+}
+
+/// Smooth Skin, then the retouch of people's parts, on the noise-reduced scene-linear image (both
+/// renderers run this, so they match).
+pub fn retouch_people(img: &mut Rgb32f, s: &DevelopSettings, frame: &geometry::Frame, px_per_long: f64) {
+    timed("smooth skin", || skin::apply(img, s, frame, px_per_long));
+    timed("retouch", || retouch::apply(img, s, frame, px_per_long));
 }
 
 /// Whether the scene-linear stage needs work only the CPU does (defringe, spot removal).
@@ -679,7 +690,7 @@ fn render_impl(src: Src<'_>, info: &SourceInfo, s: &DevelopSettings, req: &Rende
                 (nr.clone(), Some(nr))
             } else {
                 let mut img = (*nr).clone();
-                timed("smooth skin", || skin::apply(&mut img, s, frame, px_per_long));
+                retouch_people(&mut img, s, frame, px_per_long);
                 (Arc::new(img), Some(nr))
             }
         }
@@ -897,6 +908,8 @@ mod tests_local;
 mod tests_mask_local;
 #[cfg(test)]
 mod tests_nr_scale;
+#[cfg(test)]
+mod tests_retouch;
 #[cfg(test)]
 mod tests_skin;
 #[cfg(test)]

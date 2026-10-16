@@ -11,6 +11,8 @@
   plus **Reduce Shine**, which tones down shiny spots on the forehead, nose and cheeks towards the
   skin around them.
 - **Blemishes**: Find Blemishes (faces, and body skin if you like), also still in the Remove panel.
+- **Teeth**: **Whiten** takes the yellow out, **Brighten** lifts them a little; only the teeth showing
+  change. The teeth are found by themselves, in the background, the first time you move a slider.
 - **Window ▸ Edit Sections ▸ Retouch** opens it.
 
 ## 2026-10-16

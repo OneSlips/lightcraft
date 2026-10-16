@@ -38,8 +38,9 @@ pub enum SettingsGroup {
     RedEye,
     LensBlur,
     Calibration,
-    /// Smooth Skin's sliders and which skin it works on (never the skin found on the photo: each
-    /// photo's own is found for it).
+    /// Retouch: Smooth Skin's sliders and which skin it works on, and the other retouch sections
+    /// (teeth, eyes, lips, hair…) with the person each is for; never the skin and parts found on
+    /// the photo (each photo's own are found for it). (Its id is still `smoothSkin`.)
     SmoothSkin,
 }
 
@@ -128,7 +129,7 @@ impl SettingsGroup {
             SettingsGroup::LensBlur => &["lens_blur"],
             // (the camera profile is the camera calibration)
             SettingsGroup::Calibration => &["calibration", "camera_profile"],
-            SettingsGroup::SmoothSkin => &["skin"],
+            SettingsGroup::SmoothSkin => &["skin", "retouch"],
         }
     }
 }
@@ -146,6 +147,9 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
         // (not written while off: copying it off still switches it off where it is pasted)
         if *g == SettingsGroup::SmoothSkin && !out.contains_key("skin") {
             out.insert("skin".into(), serde_json::to_value(crate::SkinSmoothing::default()).unwrap_or(Value::Null));
+        }
+        if *g == SettingsGroup::SmoothSkin && !out.contains_key("retouch") {
+            out.insert("retouch".into(), serde_json::to_value(crate::Retouch::default()).unwrap_or(Value::Null));
         }
     }
     Value::Object(out)

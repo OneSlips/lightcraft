@@ -158,6 +158,13 @@ pub struct DevelopSettings {
     /// settings group, so copy, paste, sync and presets never carry it).
     #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub skin_analysis: Option<SkinAnalysis>,
+    /// The Retouch sections beyond Smooth Skin (teeth, eyes, lips, hair…). Not written while off.
+    #[serde(skip_serializing_if = "crate::Retouch::is_default", deserialize_with = "lenient")]
+    pub retouch: crate::Retouch,
+    /// The parts of people the models found for them on this photo (its own data, like
+    /// `skin_analysis`: in no settings group).
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub retouch_analysis: Option<crate::RetouchAnalysis>,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -196,6 +203,8 @@ impl Default for DevelopSettings {
             sensor: Sensor::default(),
             skin: SkinSmoothing::default(),
             skin_analysis: None,
+            retouch: crate::Retouch::default(),
+            retouch_analysis: None,
             disabled_sections: Vec::new(),
         }
     }
@@ -1497,7 +1506,7 @@ fn lenient<'de, D: serde::Deserializer<'de>, T: Default + serde::de::Deserialize
 }
 
 /// Keep at most [`MAX_SKIN_FACES`] faces (the rest are skipped unread).
-fn de_skin_faces<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<SkinFace>, D::Error> {
+pub(crate) fn de_skin_faces<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<SkinFace>, D::Error> {
     struct Capped;
     impl<'de> serde::de::Visitor<'de> for Capped {
         type Value = Vec<SkinFace>;

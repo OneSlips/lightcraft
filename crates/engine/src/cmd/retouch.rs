@@ -1,4 +1,5 @@
-//! Portrait retouching: Find Blemishes (`spot.findBlemishes`) and Smooth Skin (`skin.*`).
+//! Portrait retouching: Find Blemishes (`spot.findBlemishes`), Smooth Skin (`skin.*`) and the
+//! other Retouch sections (`retouch.*`: teeth, eyes, lips, hair…).
 //!
 //! Both work from the skin and faces the open MediaPipe models find ([`crate::segment::SkinFound`]):
 //! Find Blemishes adds a heal spot on each small dark or red spot of the faces' skin (and of the
@@ -272,6 +273,164 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, _| {
                 let id = active(s, "skin.status")?;
                 Ok(status(s, id))
+            }
+        ),
+    ]
+}
+
+use lightcraft_develop::retouch::{SLIDERS as RETOUCH_SLIDERS, person_control};
+
+/// Where the Retouch sections stand on photo `id`, for `retouch.status` and the commands' replies.
+fn retouch_status(s: &Session, id: PhotoId) -> Value {
+    let Some(d) = s.develop_of(id) else { return Value::Null };
+    let looking = s.segmenter.retouch_pending(id);
+    let a = d.retouch_analysis.as_ref().filter(|a| a.orientation == d.orientation);
+    let mut sections = serde_json::Map::new();
+    for key in lightcraft_develop::Retouch::SECTIONS {
+        let active = d.retouch.section_active(key);
+        let parts: Vec<Value> = d
+            .retouch
+            .section_parts(key)
+            .into_iter()
+            .map(|r| {
+                let found = a.and_then(|a| a.mask(r)).map(|m| m.seg.is_some());
+                json!({"part": r.part, "person": r.person, "found": found})
+            })
+            .collect();
+        let mut v = json!({
+            "active": active,
+            "on": d.retouch_section_on(&format!("retouch.{key}")),
+            "person": lightcraft_develop::controls::get(&d, &person_control(key)).unwrap_or(0.0),
+            "parts": parts,
+        });
+        for (sec, param, control) in RETOUCH_SLIDERS {
+            if *sec == key {
+                v[*param] = json!(lightcraft_develop::controls::get(&d, control).unwrap_or(0.0));
+            }
+        }
+        sections.insert(key.to_string(), v);
+    }
+    json!({"sections": sections, "looking": looking, "faces": a.map_or(0, |a| a.faces.len())})
+}
+
+/// Apply `f` to the active photo's settings (one undo step), then make sure it has the parts its
+/// retouch wants.
+fn retouch_edit(s: &mut Session, c: &str, label: &str, f: impl FnOnce(&mut DevelopSettings) -> Result<()>) -> Result<Value> {
+    let id = active(s, c)?;
+    let mut d = (*s.develop_of(id).ok_or_else(|| bad(c, "no such photo"))?).clone();
+    f(&mut d)?;
+    s.set_develop(id, d, label)?;
+    let error = s.retouch_ensure(id, false).err();
+    let mut v = retouch_status(s, id);
+    if let Some(e) = error {
+        v["error"] = json!(e);
+    }
+    Ok(v)
+}
+
+/// The section `retouch.*` commands name (`section`), checked.
+fn section_param<'a>(c: &str, p: &'a Value) -> Result<&'a str> {
+    let key = str_param(p, "section").ok_or_else(|| bad(c, "missing `section`"))?;
+    if lightcraft_develop::Retouch::SECTIONS.contains(&key) {
+        Ok(key)
+    } else {
+        Err(bad(c, format!("unknown section `{key}` ({})", lightcraft_develop::Retouch::SECTIONS.join(", "))))
+    }
+}
+
+pub fn retouch_specs() -> Vec<CommandSpec> {
+    vec![
+        cmd!(
+            "retouch.set",
+            "Set Retouch",
+            [],
+            None,
+            "{section: teeth, person?: 0 (everyone) | 1..4 (counted from the left by their face), …the section's sliders: teeth {whiten?: 0..100, brighten?: 0..100}} — change one Retouch section of the active photo (one undo step); the sliders are also develop controls (`retouch.teethWhiten`, …, `retouch.<section>Person`). The parts it needs are found with the open MediaPipe models (in the background in the desktop app) → retouch.status",
+            has_active,
+            |s, p| {
+                let c = "retouch.set";
+                let key = section_param(c, p)?;
+                let person = match p.get("person") {
+                    Some(v) => Some(
+                        v.as_u64()
+                            .filter(|n| *n <= u64::from(lightcraft_develop::Retouch::MAX_PERSON))
+                            .ok_or_else(|| bad(c, "`person` is 0 (everyone) or 1 to 4"))?,
+                    ),
+                    None => None,
+                };
+                retouch_edit(s, c, "Retouch", |d| {
+                    for (sec, param, control) in RETOUCH_SLIDERS {
+                        if *sec == key
+                            && let Some(x) = p.get(*param).and_then(Value::as_f64).filter(|x| x.is_finite())
+                        {
+                            lightcraft_develop::controls::set(d, control, x);
+                        }
+                    }
+                    if let Some(n) = person {
+                        lightcraft_develop::controls::set(d, &person_control(key), n as f64);
+                    }
+                    Ok(())
+                })
+            }
+        ),
+        cmd!(
+            "retouch.off",
+            "Turn Off Retouch",
+            [],
+            None,
+            "{section?: teeth} — set one Retouch section of the active photo (or, without `section`, every one but Skin) back to zero, keeping its person (one undo step) → retouch.status",
+            has_active,
+            |s, p| {
+                let c = "retouch.off";
+                let only = if p.get("section").is_some() { Some(section_param(c, p)?) } else { None };
+                retouch_edit(s, c, "Turn Off Retouch", |d| {
+                    for (sec, _, control) in RETOUCH_SLIDERS {
+                        if only.is_none_or(|k| k == *sec) {
+                            lightcraft_develop::controls::set(d, control, 0.0);
+                        }
+                    }
+                    Ok(())
+                })
+            }
+        ),
+        cmd!(
+            "retouch.find",
+            "Find Retouch Parts",
+            [],
+            None,
+            "{} — look again for the parts the active photo's Retouch sections work on (after installing the models, or when the first try failed). In the desktop app it runs in the background → retouch.status",
+            has_active,
+            |s, _| {
+                let c = "retouch.find";
+                let id = active(s, c)?;
+                let d = s.develop_of(id).ok_or_else(|| bad(c, "no such photo"))?;
+                if d.retouch_analysis.is_some() {
+                    // forget what was found, without an undo step: the next analysis replaces it
+                    let mut dd = (*d).clone();
+                    dd.retouch_analysis = None;
+                    let edited = s.catalog.photo(id).and_then(|ph| ph.edited.clone());
+                    let op = lightcraft_catalog::Op::SetDevelop { id, settings: std::sync::Arc::new(dd), label: "Find Retouch Parts".into(), edited };
+                    s.catalog.apply(op.clone())?;
+                    s.pending_log.push(op);
+                }
+                let error = s.retouch_ensure(id, true).err();
+                let mut v = retouch_status(s, id);
+                if let Some(e) = error {
+                    v["error"] = json!(e);
+                }
+                Ok(v)
+            }
+        ),
+        cmd!(
+            query "retouch.status",
+            "Retouch Status",
+            [],
+            None,
+            "{} → {sections: {teeth: {active, on, person, <sliders>, parts: [{part, person, found: true|false|null (not looked for yet)}]}}, looking, faces} for the active photo",
+            has_active,
+            |s, _| {
+                let id = active(s, "retouch.status")?;
+                Ok(retouch_status(s, id))
             }
         ),
     ]

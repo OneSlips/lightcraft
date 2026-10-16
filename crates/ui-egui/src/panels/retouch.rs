@@ -27,7 +27,109 @@ pub fn panel(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id
         });
         ui.add_space(4.0);
     }
+    for (key, title, intro, missing) in PARTS {
+        if sub_header(app, ui, d, key, title, d.retouch.section_active(key), true) {
+            part_body(app, ui, d, id, key, intro, missing);
+        }
+    }
     ui.add_space(4.0);
+}
+
+/// The sections beyond Skin and Blemishes: (key, title, what it does, what to say when its part
+/// isn't in the photo).
+const PARTS: &[(&str, &str, &str, &str)] =
+    &[("teeth", "Teeth", "Whiter, brighter teeth: the yellow is taken out gently.", "No teeth were found in this photo.")];
+
+/// Where a section stands on this photo, in words (`None`: its parts were found, or it is off).
+fn part_status(app: &LightcraftApp, d: &DevelopSettings, id: PhotoId, key: &str, missing: &str) -> Option<String> {
+    if !d.retouch.section_active(key) {
+        return None;
+    }
+    let seg = &app.session.segmenter;
+    let a = d.retouch_analysis.as_ref().filter(|a| a.orientation == d.orientation);
+    let parts = d.retouch.section_parts(key);
+    let found: Vec<Option<bool>> = parts.iter().map(|r| a.and_then(|a| a.mask(*r)).map(|m| m.seg.is_some())).collect();
+    if found.contains(&Some(true)) {
+        return None;
+    }
+    if found.iter().all(Option::is_some) {
+        let person = parts.first().map_or(0, |r| r.person);
+        return Some(if person > 0 { tr("This person wasn't found in this photo.").to_string() } else { tr(missing).to_string() });
+    }
+    Some(if seg.retouch_pending(id) {
+        tr("Finding faces…").to_string()
+    } else if !(seg.model_installed("people") && seg.model_installed("face")) {
+        tr("Needs the MediaPipe people and face models (one-time downloads, Apache-2.0).").to_string()
+    } else {
+        tr("The faces haven't been looked at yet.").to_string()
+    })
+}
+
+/// A section's body: what it does or where it stands, its sliders, the person, Turn Off.
+fn part_body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId, key: &str, intro: &str, missing: &str) {
+    let status = part_status(app, d, id, key, missing);
+    padded(ui, |ui| match &status {
+        Some(s) => {
+            note(ui, s);
+            if !app.session.segmenter.retouch_pending(id) {
+                let model = ["people", "face"].into_iter().find(|m| !app.session.segmenter.model_installed(m));
+                let (label, wid) = match model {
+                    Some(_) => ("Download…", format!("retouchDownload-{key}")),
+                    None => ("Find Again", format!("retouchFind-{key}")),
+                };
+                if text_button(ui, &wid, label, false).clicked() {
+                    match model {
+                        Some(m) => app.offer_ai_model(m, None),
+                        None => {
+                            let r = app.run("retouch.find", json!({}));
+                            report(app, ui.ctx(), r);
+                        }
+                    }
+                }
+            }
+        }
+        None => note(ui, intro),
+    });
+    if app.session.segmenter.retouch_pending(id) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
+    }
+    for (sec, _, control) in lightcraft_develop::retouch::SLIDERS {
+        if *sec != key {
+            continue;
+        }
+        let before = d.retouch.section_active(key);
+        super::edit::control(app, ui, d, control, true);
+        // the first move of a slider needs the models: offer them when they are missing
+        let now = app.session.develop_of(id).is_some_and(|n| n.retouch.section_active(key));
+        if !before && now && lightcraft_engine::segment::Segmenter::AVAILABLE {
+            let missing_model = ["people", "face"].into_iter().find(|m| !app.session.segmenter.model_installed(m));
+            if let Some(m) = missing_model {
+                app.offer_ai_model(m, None);
+            }
+        }
+    }
+    super::edit::sub_title(ui, "Person");
+    let people = [("All", "0"), ("1", "1"), ("2", "2"), ("3", "3"), ("4", "4")];
+    let person = lightcraft_develop::controls::get(d, &lightcraft_develop::retouch::person_control(key)).unwrap_or(0.0).clamp(0.0, 4.0) as usize;
+    let mut chosen = None;
+    padded(ui, |ui| chosen = segmented(ui, &format!("retouchPerson-{key}"), &people, Some(person), 5));
+    if let Some(i) = chosen {
+        let r = app.run("retouch.set", json!({"section": key, "person": i}));
+        report(app, ui.ctx(), r);
+    }
+    padded(ui, |ui| {
+        note(ui, "People are counted from the left, by their face.");
+        if d.retouch.section_active(key) {
+            ui.add_space(4.0);
+            let r = ui.button(tr("Turn Off"));
+            register(ui.ctx(), format!("button:retouchOff-{key}"), r.rect);
+            if r.clicked() {
+                let r = app.run("retouch.off", json!({"section": key}));
+                report(app, ui.ctx(), r);
+            }
+        }
+    });
+    ui.add_space(6.0);
 }
 
 /// A sub-section's header: a chevron, its title, a dot while it changes the photo, and (`eye`) its
