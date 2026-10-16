@@ -21,7 +21,7 @@ pub enum ViewMode {
 }
 
 /// The right-hand tool/panel shown next to the tool strip.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum RightPanel {
     #[default]
@@ -42,6 +42,12 @@ pub enum RightPanel {
 }
 
 impl RightPanel {
+    /// A tool that takes the panel's place while it is used (Crop, Remove, Masking, Red Eye): on
+    /// closing, the panel shown before it comes back ([`UiState::leave_tool`]).
+    pub fn is_tool(self) -> bool {
+        matches!(self, RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye)
+    }
+
     pub fn is_edit_tool(self) -> bool {
         matches!(self, RightPanel::Edit | RightPanel::Profiles | RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye)
     }
@@ -667,6 +673,13 @@ pub struct UiState {
     pub library_source: Option<lightcraft_engine::LibrarySource>,
     pub left_panel: bool,
     pub right: RightPanel,
+    /// The panel on show before a tool panel ([`RightPanel::is_tool`]) took its place, put back
+    /// when the tool closes ([`RightPanel::None`]: the panel was hidden, and stays hidden).
+    #[serde(skip)]
+    pub tool_return: Option<RightPanel>,
+    /// The panel [`UiState::note_right`] last saw.
+    #[serde(skip)]
+    pub right_seen: RightPanel,
     /// Widths of the left sidebar and of the right panel in points (dragging their inner edge
     /// resizes them; within [`LEFT_WIDTH`] / [`RIGHT_WIDTH`]).
     pub left_width: f32,
@@ -1413,6 +1426,32 @@ pub struct SyncCounts {
     pub moved: usize,
 }
 
+impl UiState {
+    /// Notes the panel on show: a tool panel opened from another panel (or from none) remembers
+    /// that one, to put it back when the tool closes; any other panel forgets it.
+    pub fn note_right(&mut self) {
+        if self.right == self.right_seen {
+            return;
+        }
+        if self.right.is_tool() {
+            if !self.right_seen.is_tool() {
+                self.tool_return = Some(self.right_seen);
+            }
+        } else {
+            self.tool_return = None;
+        }
+        self.right_seen = self.right;
+    }
+
+    /// The panel to show when the tool panel on show closes: the one shown before it, or none
+    /// when the panel was hidden (Edit when nothing is known).
+    pub fn leave_tool(&mut self) -> RightPanel {
+        self.note_right();
+        let back = self.tool_return.take().unwrap_or(RightPanel::Edit);
+        if back.is_tool() { RightPanel::Edit } else { back }
+    }
+}
+
 impl Default for UiState {
     fn default() -> Self {
         UiState {
@@ -1430,6 +1469,8 @@ impl Default for UiState {
             left_width: LEFT_WIDTH.default,
             right_width: RIGHT_WIDTH.default,
             right: RightPanel::Edit,
+            tool_return: None,
+            right_seen: RightPanel::Edit,
             presets: false,
             preset_thumbs: false,
             filmstrip: true,

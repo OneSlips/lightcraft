@@ -389,6 +389,9 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                     u.mask_new = app.ui.mask_new.clone();
                     u.mask_overlay = p.get("maskOverlay").and_then(Value::as_bool).unwrap_or(app.ui.mask_overlay);
                     u.mask_overlay_hidden = app.ui.mask_overlay_hidden;
+                    // (and the panel a tool panel took the place of, to put back when it closes)
+                    u.tool_return = app.ui.tool_return;
+                    u.right_seen = app.ui.right_seen;
                     u.dialog = app.ui.dialog.clone();
                     u.status = app.ui.status.clone();
                     crate::docking::cancel_replaced_gesture(app, u.docking.as_ref());

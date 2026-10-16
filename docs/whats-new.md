@@ -1,5 +1,12 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### Develop
+- **The Edit panel comes back after Masking, Crop, Remove or Red Eye**: close the tool and the
+  sliders are there again, at the same width and scroll position, and the photo doesn't move. If
+  the panel was hidden before, it stays hidden.
+
 ## 2026-10-16
 
 ### Presets Manager

@@ -319,8 +319,11 @@ pub const UI_COMMANDS: &[UiCommand] = &[
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
+    app.ui.note_right();
     if app.ui.right == p && crate::docking::exposed(app, crate::docking::Panel::Tools) {
-        app.ui.right = RightPanel::None;
+        // a tool closing puts back the panel shown before it (in the same frame: no flash, no
+        // jump), or leaves the panel hidden when it was
+        app.ui.right = if p.is_tool() { app.ui.leave_tool() } else { RightPanel::None };
         app.toast(ctx, crate::i18n::tr_format!("{name} Off", name = crate::i18n::tr(name)));
     } else {
         app.ui.right = p;
@@ -332,6 +335,7 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
     if p != RightPanel::Masking && app.ui.tool != "wbPicker" {
         app.ui.tool.clear();
     }
+    app.ui.note_right();
     let _ = app.session.end_interaction();
 }
 
@@ -1309,7 +1313,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if app.ui.dialog.is_none() && matches!(app.ui.right, Crop | Remove | RedEye | Masking) {
                 let _ = app.session.end_interaction();
                 app.ui.tool.clear();
-                app.ui.right = Edit;
+                // back to the panel shown before the tool (hidden if it was)
+                app.ui.right = app.ui.leave_tool();
             }
             Ok(Value::Null)
         }
