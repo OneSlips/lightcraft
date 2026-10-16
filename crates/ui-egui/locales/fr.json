@@ -3086,5 +3086,18 @@
   "Previews built.": "Aperçus créés.",
   "Back Up the Library?": "Sauvegarder la bibliothèque ?",
   "Back Up and Quit": "Sauvegarder et quitter",
-  "Skip This Time": "Ignorer cette fois"
+  "Skip This Time": "Ignorer cette fois",
+  "Search presets": "Rechercher des préréglages",
+  "Favorites and For Import": "Favoris et Pour l’import",
+  "All Presets": "Tous les préréglages",
+  "No presets": "Aucun préréglage",
+  "No preset matches": "Aucun préréglage ne correspond",
+  "For Import": "Pour l’import",
+  "Take out of For Import": "Retirer de Pour l’import",
+  "Add to For Import (shown first when importing)": "Ajouter à Pour l’import (affiché en premier à l’import)",
+  "No photo to show the preset on": "Aucune photo pour montrer le préréglage",
+  "Saved Preset": "Préréglage enregistré",
+  "Apply a preset…": "Appliquer un préréglage…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Marquez les préréglages que vous utilisez à l’import avec l’étoile ou la flèche d’import à droite de la ligne : ils s’affichent ici en premier.",
+  "Rest the pointer on a preset to see it on the photo": "Laissez le pointeur sur un préréglage pour le voir sur la photo"
 }

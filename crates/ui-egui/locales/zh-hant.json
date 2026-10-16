@@ -2890,5 +2890,18 @@
   "Previews built.": "預覽已產生。",
   "Back Up the Library?": "備份圖庫？",
   "Back Up and Quit": "備份並結束",
-  "Skip This Time": "這次略過"
+  "Skip This Time": "這次略過",
+  "Search presets": "搜尋預設",
+  "Favorites and For Import": "最愛和匯入用",
+  "All Presets": "所有預設",
+  "No presets": "沒有預設",
+  "No preset matches": "沒有符合的預設",
+  "For Import": "匯入用",
+  "Take out of For Import": "從匯入用中移除",
+  "Add to For Import (shown first when importing)": "加入匯入用（匯入時最先顯示）",
+  "No photo to show the preset on": "沒有可顯示預設的相片",
+  "Saved Preset": "已儲存的預設",
+  "Apply a preset…": "套用預設…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "用列右側的星號或匯入箭頭標記匯入時使用的預設，它們會在這裡最先顯示。",
+  "Rest the pointer on a preset to see it on the photo": "將指標停在預設上即可在相片上預覽"
 }

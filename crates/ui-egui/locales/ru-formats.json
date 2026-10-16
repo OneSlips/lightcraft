@@ -427,5 +427,6 @@
   "Photos ready: {n}.": "Фото готовы: {n}.",
   "AI masks: {masks} on {photos} photos.": "ИИ-маски: {masks} на {photos} фото.",
   "Smooth Skin: {n} photos.": "Сглаживание кожи: {n} фото.",
-  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Сделать резервную копию «{library}» перед выходом из LightCraft? В копию входят каталог, его настройки, ваши пресеты и профили; фото — нет."
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Сделать резервную копию «{library}» перед выходом из LightCraft? В копию входят каталог, его настройки, ваши пресеты и профили; фото — нет.",
+  "Preset {name} on {n} photos": "Пресет {name} на {n} фото"
 }

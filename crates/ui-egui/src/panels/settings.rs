@@ -444,26 +444,17 @@ fn edit_file_rows(ui: &mut egui::Ui, t: &Tokens, id: &str, file: &mut crate::sta
 // -------------------------------------------------------------------------------------- Import
 
 /// A preset picker: `None` = `none_label`. Returns the new choice when it changed.
-fn preset_combo(app: &LightcraftApp, ui: &mut egui::Ui, id: &str, current: Option<&str>, none_label: &str) -> Option<Option<String>> {
-    let name = |pid: &str| {
-        app.session
-            .presets
-            .iter()
-            .find(|p| p.id == pid)
-            .map(|p| crate::i18n::builtin_label(&p.name, p.builtin).to_string())
-            .unwrap_or_else(|| crate::i18n::tr_format!("{pid} (missing)", pid = pid))
+fn preset_combo(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, current: Option<&str>, none_label: &str) -> Option<Option<String>> {
+    let text = current.map(|pid| crate::preset_picker::preset_label(app, pid)).unwrap_or_else(|| crate::i18n::tr(none_label).to_string());
+    let picked = crate::preset_picker::Picker::new(id)
+        .selected(current)
+        .extra("none", crate::i18n::tr(none_label), current.is_none())
+        .button(app, ui, &text, 240.0);
+    let out = match picked {
+        Some(crate::preset_picker::Picked::Preset(pid)) => Some(Some(pid)),
+        Some(crate::preset_picker::Picked::Extra(_)) => Some(None),
+        None => None,
     };
-    let text = current.map(name).unwrap_or_else(|| crate::i18n::tr(none_label).to_string());
-    let mut out = None;
-    let r = crate::widgets::combo_box(id).width(240.0).selected_text(text).show_ui(ui, |ui| {
-        if ui.selectable_label(current.is_none(), crate::i18n::tr(none_label)).clicked() {
-            out = Some(None);
-        }
-        if let Some(pid) = crate::panels::presets::picker_rows(ui, id, &app.session.presets, current) {
-            out = Some(Some(pid));
-        }
-    });
-    register(ui.ctx(), format!("combo:{id}"), r.response.rect);
     out.filter(|v| v.as_deref() != current)
 }
 
@@ -523,27 +514,20 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                     let label = match current {
                         Some(RAW_DEFAULT) => crate::i18n::tr("Same as raw default").to_string(),
                         None => crate::i18n::tr("LightCraft Default").to_string(),
-                        Some(pid) => app
-                            .session
-                            .presets
-                            .iter()
-                            .find(|p| p.id == pid)
-                            .map(|p| crate::i18n::builtin_label(&p.name, p.builtin).to_string())
-                            .unwrap_or_else(|| pid.to_string()),
+                        Some(pid) => crate::preset_picker::preset_label(app, pid),
                     };
                     let id = format!("settingsCamera-{i}");
-                    let r = crate::widgets::combo_box(&id).width(240.0).selected_text(label).show_ui(ui, |ui| {
-                        if ui.selectable_label(current == Some(RAW_DEFAULT), crate::i18n::tr("Same as raw default")).clicked() {
-                            pick = Some(json!({"camera": cam, "remove": true}));
-                        }
-                        if ui.selectable_label(current.is_none(), crate::i18n::tr("LightCraft Default")).clicked() {
-                            pick = Some(json!({"camera": cam, "preset": null}));
-                        }
-                        if let Some(pid) = crate::panels::presets::picker_rows(ui, &id, &app.session.presets, current) {
-                            pick = Some(json!({"camera": cam, "preset": pid}));
-                        }
-                    });
-                    register(ui.ctx(), format!("combo:{id}"), r.response.rect);
+                    let picked = crate::preset_picker::Picker::new(&id)
+                        .selected(current)
+                        .extra("rawDefault", crate::i18n::tr("Same as raw default"), current == Some(RAW_DEFAULT))
+                        .extra("default", crate::i18n::tr("LightCraft Default"), current.is_none())
+                        .button(app, ui, &label, 240.0);
+                    pick = match picked {
+                        Some(crate::preset_picker::Picked::Extra(k)) if k == "rawDefault" => Some(json!({"camera": cam, "remove": true})),
+                        Some(crate::preset_picker::Picked::Extra(_)) => Some(json!({"camera": cam, "preset": null})),
+                        Some(crate::preset_picker::Picked::Preset(pid)) => Some(json!({"camera": cam, "preset": pid})),
+                        None => pick,
+                    };
                     if let Some(c) = pick {
                         let _ = app.run("library.preferences", json!({"camera": c}));
                     }

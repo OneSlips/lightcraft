@@ -126,6 +126,8 @@ pub struct PresetState {
     pub groups: BTreeMap<String, String>,
     /// Groups in the order the user put them, empty groups made in the manager included.
     pub group_order: Vec<String>,
+    /// Presets marked For Import: the Import panel's picker shows them first (with Favorites).
+    pub for_import: Vec<String>,
 }
 
 impl PresetState {
@@ -134,7 +136,12 @@ impl PresetState {
     }
 
     fn merge(&mut self, other: PresetState) {
-        for (mine, theirs) in [(&mut self.hidden, other.hidden), (&mut self.removed, other.removed), (&mut self.group_order, other.group_order)] {
+        for (mine, theirs) in [
+            (&mut self.hidden, other.hidden),
+            (&mut self.removed, other.removed),
+            (&mut self.group_order, other.group_order),
+            (&mut self.for_import, other.for_import),
+        ] {
             for x in theirs {
                 if !mine.contains(&x) {
                     mine.push(x);

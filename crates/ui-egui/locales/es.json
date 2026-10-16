@@ -3088,5 +3088,18 @@
   "Previews built.": "Vistas previas creadas.",
   "Back Up the Library?": "¿Copia de seguridad de la biblioteca?",
   "Back Up and Quit": "Copiar y salir",
-  "Skip This Time": "Omitir esta vez"
+  "Skip This Time": "Omitir esta vez",
+  "Search presets": "Buscar ajustes preestablecidos",
+  "Favorites and For Import": "Favoritos y Para importar",
+  "All Presets": "Todos los ajustes",
+  "No presets": "Sin ajustes preestablecidos",
+  "No preset matches": "Ningún ajuste coincide",
+  "For Import": "Para importar",
+  "Take out of For Import": "Quitar de Para importar",
+  "Add to For Import (shown first when importing)": "Añadir a Para importar (se muestra primero al importar)",
+  "No photo to show the preset on": "No hay foto donde mostrar el ajuste",
+  "Saved Preset": "Ajuste guardado",
+  "Apply a preset…": "Aplicar un ajuste…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Marca los ajustes que usas al importar con la estrella o la flecha de importación a la derecha de la fila: aparecen primero aquí.",
+  "Rest the pointer on a preset to see it on the photo": "Deja el puntero sobre un ajuste para verlo en la foto"
 }

@@ -2344,5 +2344,18 @@
   "Previews built.": "Náhledy vytvořeny.",
   "Back Up the Library?": "Zálohovat knihovnu?",
   "Back Up and Quit": "Zálohovat a ukončit",
-  "Skip This Time": "Tentokrát přeskočit"
+  "Skip This Time": "Tentokrát přeskočit",
+  "Search presets": "Hledat předvolby",
+  "Favorites and For Import": "Oblíbené a Pro import",
+  "All Presets": "Všechny předvolby",
+  "No presets": "Žádné předvolby",
+  "No preset matches": "Žádná předvolba neodpovídá",
+  "For Import": "Pro import",
+  "Take out of For Import": "Odebrat z Pro import",
+  "Add to For Import (shown first when importing)": "Přidat do Pro import (při importu nahoře)",
+  "No photo to show the preset on": "Žádná fotka pro náhled předvolby",
+  "Saved Preset": "Uložená předvolba",
+  "Apply a preset…": "Použít předvolbu…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Označte předvolby, které používáte při importu, hvězdičkou nebo šipkou importu vpravo v řádku: zobrazí se zde jako první.",
+  "Rest the pointer on a preset to see it on the photo": "Najeďte ukazatelem na předvolbu a uvidíte ji na fotce"
 }

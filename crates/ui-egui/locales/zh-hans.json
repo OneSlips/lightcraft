@@ -2927,5 +2927,18 @@
   "Previews built.": "预览已生成。",
   "Back Up the Library?": "备份图库？",
   "Back Up and Quit": "备份并退出",
-  "Skip This Time": "这次跳过"
+  "Skip This Time": "这次跳过",
+  "Search presets": "搜索预设",
+  "Favorites and For Import": "收藏和导入用",
+  "All Presets": "所有预设",
+  "No presets": "没有预设",
+  "No preset matches": "没有匹配的预设",
+  "For Import": "导入用",
+  "Take out of For Import": "从导入用中移除",
+  "Add to For Import (shown first when importing)": "加入导入用（导入时最先显示）",
+  "No photo to show the preset on": "没有可显示预设的照片",
+  "Saved Preset": "已存储的预设",
+  "Apply a preset…": "应用预设…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "用行右侧的星标或导入箭头标记导入时使用的预设，它们会在这里最先显示。",
+  "Rest the pointer on a preset to see it on the photo": "将指针停在预设上即可在照片上预览"
 }

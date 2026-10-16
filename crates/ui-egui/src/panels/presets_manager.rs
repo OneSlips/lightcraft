@@ -154,7 +154,7 @@ fn heights(ctx: &egui::Context, rows: &[Row]) -> Vec<f32> {
 }
 
 /// The columns of the develop presets' table.
-const DEVELOP_COLS: table::Columns = table::Columns { info_w: 130.0, for_import: false };
+const DEVELOP_COLS: table::Columns = table::Columns { info_w: 130.0, for_import: true };
 
 fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut State) {
     hint(
@@ -356,6 +356,11 @@ fn develop_row(
         info.push(tr("Hidden").to_string());
     }
     table::info_in(ui, t, rr.info, &info.join(" · "));
+    let fi = app.session.preset_for_import(p);
+    let tip = if fi { "Take out of For Import" } else { "Add to For Import (shown first when importing)" };
+    if rr.in_col(ui, Col::ForImport, |ui| icon_button(ui, &format!("presetForImport:{id}"), Icon::ImportArrow, sz, fi, true, tip)).clicked() {
+        out = Some(("preset.forImport", json!({"id": id, "on": !fi})));
+    }
     if rr.in_col(ui, Col::Rename, |ui| icon_button(ui, &format!("presetRename:{id}"), Icon::Pencil, sz, false, true, "Rename")).clicked() {
         st.rename = Some((id.clone(), p.name.clone()));
     }

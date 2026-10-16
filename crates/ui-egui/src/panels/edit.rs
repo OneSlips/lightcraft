@@ -2129,6 +2129,21 @@ fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr_format!("Quick Develop · {n} photos", n = n)).color(t.text_label).size(12.5));
         ui.add_space(4.0);
+        // Saved Preset: one on every selected photo, chosen with the shared preset picker
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Saved Preset")).size(11.5).color(t.text_dim));
+            let w = ui.available_width().clamp(120.0, 260.0);
+            if let Some(crate::preset_picker::Picked::Preset(pid)) =
+                crate::preset_picker::Picker::new("quickDevelopPreset").button(app, ui, crate::i18n::tr("Apply a preset…"), w)
+            {
+                let name = crate::preset_picker::preset_label(app, &pid);
+                match app.run("preset.apply", json!({"id": pid})) {
+                    Ok(_) => app.toast(ui.ctx(), crate::i18n::tr_format!("Preset {name} on {n} photos", name = name, n = n)),
+                    Err(e) => app.toast(ui.ctx(), e),
+                }
+            }
+        });
+        ui.add_space(4.0);
         let rows: [(&str, &str, f64, f64); 9] = [
             ("Exposure", "light.exposure", 1.0 / 3.0, 1.0),
             ("Contrast", "light.contrast", 5.0, 20.0),

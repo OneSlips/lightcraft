@@ -130,3 +130,34 @@ fn a_groups_delete_asks_at_the_group_and_actions_line_up() {
     click(&mut h, &format!("button:preset:{id}DeleteConfirm"));
     assert!(!h.app.session.presets.iter().any(|p| p.id == id));
 }
+
+/// LR-PRESET-PICKER: a preset picker (Settings ▸ Import's raw default) opens with search, groups in
+/// the manager's order and no hidden presets; a search finds one across 400 presets and picking it
+/// sets it; For Import marks from the manager.
+#[test]
+fn the_shared_preset_picker_searches_and_picks() {
+    let mut h = app(400);
+    h.app.session.execute("preset.hide", &json!({"id": "user.m5"})).unwrap();
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "import".into() });
+    h.step();
+    h.step();
+    click(&mut h, "presetPicker:settingsRawPreset");
+    let groups = widgets(&mut h, "presetPickerGroup:settingsRawPreset:");
+    assert!(groups.contains("presetPickerGroup:settingsRawPreset:Collection 0"), "{groups}");
+    // a search opens what it finds; the hidden preset isn't there
+    crate::preset_picker::set_query(&h.view.ctx, "settingsRawPreset", "look 5");
+    h.step();
+    h.step();
+    let rows = widgets(&mut h, "presetPickerRow:settingsRawPreset:");
+    assert!(rows.contains("user.m50\"") && !rows.contains("user.m5\""), "{rows}");
+    click(&mut h, "presetPickerRow:settingsRawPreset:user.m50");
+    assert_eq!(h.app.session.import_defaults.raw_preset.as_deref(), Some("user.m50"));
+    // For Import from the manager's column
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "presets".into() });
+    h.step();
+    h.step();
+    click(&mut h, "icon:presetGroupFold:Collection 1");
+    click(&mut h, "icon:presetForImport:user.m1");
+    let p = h.app.session.presets.iter().find(|p| p.id == "user.m1").unwrap().clone();
+    assert!(h.app.session.preset_for_import(&p));
+}

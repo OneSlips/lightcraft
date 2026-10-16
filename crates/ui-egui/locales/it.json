@@ -2272,5 +2272,18 @@
   "Previews built.": "Anteprime create.",
   "Back Up the Library?": "Backup della libreria?",
   "Back Up and Quit": "Backup ed esci",
-  "Skip This Time": "Salta questa volta"
+  "Skip This Time": "Salta questa volta",
+  "Search presets": "Cerca predefiniti",
+  "Favorites and For Import": "Preferiti e Per l’importazione",
+  "All Presets": "Tutti i predefiniti",
+  "No presets": "Nessun predefinito",
+  "No preset matches": "Nessun predefinito corrisponde",
+  "For Import": "Per l’importazione",
+  "Take out of For Import": "Togli da Per l’importazione",
+  "Add to For Import (shown first when importing)": "Aggiungi a Per l’importazione (mostrato per primo all’importazione)",
+  "No photo to show the preset on": "Nessuna foto su cui mostrare il predefinito",
+  "Saved Preset": "Predefinito salvato",
+  "Apply a preset…": "Applica un predefinito…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Segna i predefiniti che usi all’importazione con la stella o la freccia di importazione a destra della riga: compaiono qui per primi.",
+  "Rest the pointer on a preset to see it on the photo": "Tieni il puntatore su un predefinito per vederlo sulla foto"
 }

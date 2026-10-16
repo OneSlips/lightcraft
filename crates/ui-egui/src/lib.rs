@@ -36,6 +36,7 @@ mod model_setup;
 pub mod panels;
 pub mod pick;
 mod pointer_repair;
+pub mod preset_picker;
 pub mod print_view;
 pub mod recheck;
 pub mod region;

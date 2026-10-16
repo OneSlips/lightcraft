@@ -41,6 +41,11 @@ impl Session {
         !self.preset_state.hidden.contains(&p.id) && !(p.builtin && self.preset_state.removed.contains(&p.id))
     }
 
+    /// A preset marked For Import (the Import panel's picker shows them first).
+    pub fn preset_for_import(&self, p: &Preset) -> bool {
+        self.preset_state.for_import.contains(&p.id)
+    }
+
     /// A preset is in the manager (built-in presets removed from this install are not).
     pub fn preset_listed(&self, p: &Preset) -> bool {
         !(p.builtin && self.preset_state.removed.contains(&p.id))
@@ -153,7 +158,7 @@ fn manager(s: &mut Session, p: &Value) -> Result<Value> {
         .take(limit)
         .map(|(_, _, x)| {
             json!({"id": x.id, "name": x.name, "group": x.group, "builtin": x.builtin, "favorite": x.favorite,
-                "hidden": s.preset_state.hidden.contains(&x.id), "aiMasks": x.has_ai_masks()})
+                "hidden": s.preset_state.hidden.contains(&x.id), "aiMasks": x.has_ai_masks(), "forImport": s.preset_for_import(x)})
         })
         .collect();
     let groups: Vec<Value> = s
@@ -192,6 +197,34 @@ fn remove_one(s: &mut Session, id: &str, builtin: bool) {
         s.presets.retain(|x| x.id != id);
     }
     s.preset_state.hidden.retain(|h| h != id);
+    s.preset_state.for_import.retain(|h| h != id);
+}
+
+/// `preset.forImport {id | ids, on?}`: mark presets For Import (or not; `on` left out toggles each).
+fn for_import(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "preset.forImport";
+    let mut ids: Vec<String> = p.get("ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
+    if let Some(id) = str_param(p, "id") {
+        ids.push(id.to_string());
+    }
+    if ids.is_empty() {
+        return Err(bad(C, "missing `id` (or `ids`)"));
+    }
+    let on = p.get("on").and_then(Value::as_bool);
+    let mut out = Vec::new();
+    for id in ids.iter().take(20_000) {
+        if !s.presets.iter().any(|x| &x.id == id) {
+            return Err(bad(C, format!("no preset `{id}`")));
+        }
+        let now = on.unwrap_or(!s.preset_state.for_import.contains(id));
+        s.preset_state.for_import.retain(|x| x != id);
+        if now {
+            s.preset_state.for_import.push(id.clone());
+        }
+        out.push(json!({"id": id, "forImport": now}));
+    }
+    s.preset_state_changed()?;
+    Ok(json!({"presets": out, "forImport": s.preset_state.for_import.len()}))
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
@@ -366,9 +399,18 @@ pub fn specs() -> Vec<CommandSpec> {
             "Presets Manager List",
             [],
             None,
-            "{query?: text in name or group, group?, aiMasks?: bool (only presets with AI masks), offset?, limit? (default 500)} → {groups: [{name, count, builtin, hidden}] in order (empty ones too), presets: [{id, name, group, builtin, favorite, hidden, aiMasks}], total, removedBuiltins, store}",
+            "{query?: text in name or group, group?, aiMasks?: bool (only presets with AI masks), offset?, limit? (default 500)} → {groups: [{name, count, builtin, hidden}] in order (empty ones too), presets: [{id, name, group, builtin, favorite, hidden, aiMasks, forImport}], total, removedBuiltins, store}",
             always,
             manager
+        ),
+        cmd!(
+            "preset.forImport",
+            "Use Preset for Import",
+            [],
+            None,
+            "{id | ids: [presetId], on?: bool (left out: toggles each)} — For Import: the Import panel's preset picker shows these first, with the favourites → {presets: [{id, forImport}], forImport: how many are marked}",
+            always,
+            for_import
         ),
         cmd!(
             "preset.hide",
@@ -532,6 +574,25 @@ mod tests {
         assert_eq!(&groups[..3], ["001-Studio", "TestFilm", "TestWedding"]);
         s.execute("preset.groupMove", &json!({"group": groups[first_builtin], "before": "001-Studio"})).unwrap();
         assert_eq!(s.preset_groups().first(), groups.get(first_builtin), "the user's own order wins");
+    }
+
+    /// LR-PRESET-PICKER: For Import marks presets for the Import panel's picker; deleting one drops
+    /// the mark.
+    #[test]
+    fn presets_marked_for_import() {
+        let mut s = session();
+        s.execute("preset.forImport", &json!({"id": "user.t0"})).unwrap();
+        s.execute("preset.forImport", &json!({"ids": ["user.t1", "user.t2"], "on": true})).unwrap();
+        let p0 = s.presets.iter().find(|p| p.id == "user.t0").unwrap().clone();
+        assert!(s.preset_for_import(&p0));
+        let r = s.execute("presets.manager", &json!({"query": "P1"})).unwrap();
+        assert_eq!(r["presets"][0]["forImport"], true, "{r}");
+        s.execute("preset.forImport", &json!({"id": "user.t0"})).unwrap();
+        assert!(!s.preset_for_import(&p0), "toggled off");
+        s.execute("preset.remove", &json!({"id": "user.t1"})).unwrap();
+        assert_eq!(s.preset_state.for_import, ["user.t2"]);
+        assert!(s.execute("preset.forImport", &json!({"id": "nope"})).is_err());
+        assert!(s.execute("preset.forImport", &json!({})).is_err());
     }
 
     #[test]

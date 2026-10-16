@@ -427,5 +427,6 @@
   "Photos ready: {n}.": "照片已就绪：{n} 张。",
   "AI masks: {masks} on {photos} photos.": "AI 蒙版：{photos} 张照片上共 {masks} 个。",
   "Smooth Skin: {n} photos.": "平滑皮肤：{n} 张照片。",
-  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "退出 LightCraft 前备份“{library}”吗？备份包含目录、其设置、你的预设和配置文件；不含照片。"
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "退出 LightCraft 前备份“{library}”吗？备份包含目录、其设置、你的预设和配置文件；不含照片。",
+  "Preset {name} on {n} photos": "预设 {name} 已应用到 {n} 张照片"
 }

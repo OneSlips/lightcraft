@@ -3086,5 +3086,18 @@
   "Previews built.": "Попередні перегляди створено.",
   "Back Up the Library?": "Створити резервну копію бібліотеки?",
   "Back Up and Quit": "Створити копію й вийти",
-  "Skip This Time": "Пропустити цього разу"
+  "Skip This Time": "Пропустити цього разу",
+  "Search presets": "Пошук пресетів",
+  "Favorites and For Import": "Обране та Для імпорту",
+  "All Presets": "Усі пресети",
+  "No presets": "Немає пресетів",
+  "No preset matches": "Немає відповідних пресетів",
+  "For Import": "Для імпорту",
+  "Take out of For Import": "Прибрати з «Для імпорту»",
+  "Add to For Import (shown first when importing)": "Додати до «Для імпорту» (першими під час імпорту)",
+  "No photo to show the preset on": "Немає фото, щоб показати пресет",
+  "Saved Preset": "Збережений пресет",
+  "Apply a preset…": "Застосувати пресет…",
+  "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Позначте пресети для імпорту зірочкою або стрілкою імпорту праворуч у рядку — вони будуть тут першими.",
+  "Rest the pointer on a preset to see it on the photo": "Наведіть вказівник на пресет, щоб побачити його на фото"
 }

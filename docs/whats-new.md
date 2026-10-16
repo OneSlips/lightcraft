@@ -29,6 +29,22 @@
 - The **Profile Manager** has the same table look; its confirmations stay next to what they are
   about.
 
+### One preset picker everywhere
+- Choosing a preset in the **Import panel**, the import review, **Quick Develop** (new: **Saved
+  Preset** applies one to all the selected photos) and the default presets in Settings now opens
+  the same picker:
+  - a **search** field;
+  - **Favorites** and **For Import** first: mark the presets you use on import with the import
+    arrow at the right of a row (or in the Presets Manager's new column, or the Presets panel's
+    right-click menu). When importing, the picker shows just those until you choose **All Presets**;
+  - then **groups that fold**, in the Presets Manager's order: your own groups ("001-…", "002-…")
+    before LightCraft's;
+  - long names left-aligned, cut short with … (the full name on hover);
+  - rest the pointer on a preset to **see it on a photo** of the folder, beside the list.
+- Hidden presets and built-in presets you deleted no longer show in the Import panel, nor do looks
+  you hid or deleted in the Profile Manager.
+- The Presets panel has the same search and the Favorites and For Import groups at the top.
+
 ## 2026-10-16
 
 ### Presets Manager
