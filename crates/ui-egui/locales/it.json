@@ -2222,5 +2222,8 @@
   "No AI Denoise model is available yet": "Nessun modello di riduzione rumore IA ancora disponibile",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Solo se ti è stato dato un modello di riduzione rumore LightCraft (una cartella con un file .onnx e denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Quando il modello sarà pronto, un aggiornamento lo offrirà qui da scaricare con un clic.",
-  "Why?": "Perché?"
+  "Why?": "Perché?",
+  "Settings for the next mask": "Impostazioni per la prossima maschera",
+  "Reset settings on new mask": "Azzera le impostazioni a ogni nuova maschera",
+  "Off: a new mask starts with the last mask's settings. On: every new mask starts at zero.": "Disattivato: una nuova maschera parte con le impostazioni dell'ultima. Attivato: ogni nuova maschera parte da zero."
 }

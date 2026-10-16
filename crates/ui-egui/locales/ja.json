@@ -3038,5 +3038,8 @@
   "No AI Denoise model is available yet": "利用できる AI ノイズ除去モデルはまだありません",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "LightCraft のノイズ除去モデル（.onnx ファイルと denoise-model.json を含むフォルダー）を受け取った場合のみ：",
   "When the model is ready, an update will offer it here as a one-click download.": "モデルの準備ができたら、アップデートでここからワンクリックでダウンロードできるようになります。",
-  "Why?": "理由は？"
+  "Why?": "理由は？",
+  "Settings for the next mask": "次のマスクの設定",
+  "Reset settings on new mask": "新しいマスクで設定をリセット",
+  "Off: a new mask starts with the last mask's settings. On: every new mask starts at zero.": "オフ：新しいマスクは前のマスクの設定で始まります。オン：新しいマスクは毎回ゼロから始まります。"
 }

@@ -1805,9 +1805,6 @@ fn shapes_graphics(id: &str) -> bool {
         || id.starts_with("crop.")
 }
 
-/// Mask tools that set a mask on the photo: the overlay shows while one is in use.
-const MASK_TOOLS: [&str; 6] = ["brush", "linear", "radial", "colorRange", "object", "lumRange"];
-
 /// The mask the overlay shows, if any (as Lightroom Classic): the one whose row or pin the pointer
 /// is on; else the selected mask when the overlay is on (O), when it is fresh (no adjustment yet,
 /// unless O hid it) or while a mask tool is in use. A preset's or an adjusted mask never shows by
@@ -1828,8 +1825,21 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
     if app.ui.mask_overlay_hidden == Some(m.id) {
         return false;
     }
+    // a mask without settings yet shows what it selects; one with settings (its own, the last
+    // mask's carried over, a preset's) shows its effect, and its overlay only while it is being
+    // drawn (or the pointer is on its row or pin, see `overlay_mask`)
     let fresh = m.adjust == lightcraft_develop::LocalAdjustments::default() && m.preset.is_none();
-    fresh || MASK_TOOLS.contains(&app.ui.tool.as_str())
+    fresh || drawing(app, m.id)
+}
+
+/// Whether mask `id` is being drawn right now: a handle or the gradient dragged, a brush stroke or
+/// a colour or tone area on its way.
+fn drawing(app: &LightcraftApp, id: u32) -> bool {
+    match &app.gesture {
+        Some(Gesture::MaskHandle { mask, .. }) => *mask == id,
+        Some(Gesture::Brush { .. } | Gesture::RangeArea { .. } | Gesture::ColorPin { .. }) => app.session.active_mask == Some(id),
+        _ => false,
+    }
 }
 
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
@@ -2790,6 +2800,27 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     // a mask tool armed in the panel: the first click or drag here makes its mask
     if app.ui.mask_new.as_ref().is_some_and(|(k, _)| *k != app.ui.tool) {
         app.ui.mask_new = None;
+    }
+    // a gradient tool still in use after its mask was made: a drag that grabs nothing of the
+    // selected mask (no pin, handle, line or radial body) draws another one, as in Lightroom
+    // Classic; no need to press the tool again
+    if app.ui.mask_new.is_none()
+        && matches!(app.ui.tool.as_str(), "linear" | "radial")
+        && resp.drag_started()
+        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+    {
+        let on_grip = grips.iter().any(|g| g.3.distance(q) < 10.0);
+        let on_selected = d.masks.iter().find(|m| Some(m.id) == active).is_some_and(|m| {
+            m.components.iter().any(|c| match gradient_part(&c.shape, q, map) {
+                // (a linear gradient's "anywhere" doesn't count: only its lines)
+                Some(0) => matches!(c.shape, MaskShape::Radial { .. }),
+                Some(_) => true,
+                None => false,
+            })
+        });
+        if !on_grip && !on_selected {
+            app.ui.mask_new = Some((app.ui.tool.clone(), "new".into()));
+        }
     }
     if let Some((kind, op)) = app.ui.mask_new.clone()
         && (resp.drag_started() || resp.clicked())

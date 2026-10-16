@@ -303,15 +303,23 @@ pub fn mask_tool(m: &Mask) -> Option<String> {
     m.components.first().and_then(|c| serde_json::to_value(&c.shape).ok()).and_then(|v| v.get("kind").and_then(Value::as_str).map(str::to_string))
 }
 
-/// The adjustments a new mask made with `tool` starts with: the effect last applied to a mask of
-/// that kind (Lightroom carries the chosen effect over to the next mask), else all at 0.
-pub fn new_mask_adjust(s: &Session, tool: &str) -> LocalAdjustments {
+/// The adjustments a new mask made with `tool` starts with (and the next one's are used up):
+/// what was set with no mask selected; else, unless Reset Settings on New Mask is on, the effect
+/// last applied to a mask of that kind, else the last mask's settings (Lightroom carries them
+/// over); else all at 0.
+pub fn new_mask_adjust(s: &mut Session, tool: &str) -> LocalAdjustments {
+    if std::mem::take(&mut s.mask_next_set) {
+        return super::masks::clamp_local(s.mask_next);
+    }
+    if s.mask_reset_new {
+        return LocalAdjustments::default();
+    }
     s.mask_tool_effects
         .get(tool)
         .and_then(|name| position(s, name))
         .and_then(|i| s.mask_effects.get(i))
         .map(|e| super::masks::clamp_local(e.apply(&LocalAdjustments::default())))
-        .unwrap_or_default()
+        .unwrap_or_else(|| super::masks::clamp_local(s.mask_next))
 }
 
 fn list(s: &Session) -> Value {
@@ -336,6 +344,12 @@ fn apply_effect(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "mask.applyEffect";
     let name = name_param(p, C)?;
     let effect = s.mask_effects.get(effect_index(s, &name, C)?).cloned().ok_or_else(|| bad(C, format!("no effect `{name}`")))?;
+    // no mask selected (nor named): the effect is for the next new mask
+    if s.active_mask.is_none() && p.get("id").and_then(Value::as_u64).is_none() && p.get("ids").is_none() && p.get("all").is_none() {
+        s.mask_next = super::masks::clamp_local(effect.apply(&LocalAdjustments::default()));
+        s.mask_next_set = true;
+        return Ok(json!({"name": effect.name, "masks": [], "next": s.mask_next}));
+    }
     let id = s.active().ok_or_else(|| bad(C, "no active photo"))?;
     let d = s.develop_of(id).unwrap_or_default();
     // the masks: `ids`, `all`, else `id` or the selected one
@@ -377,6 +391,11 @@ fn apply_effect(s: &mut Session, p: &Value) -> Result<Value> {
         Vec::new()
     };
     let mine = set_masks(&d, &ids);
+    // the next new mask starts with these settings (unless Reset Settings on New Mask is on)
+    if let Some(m) = ids.first().and_then(|first| mine.masks.iter().find(|m| m.id == *first)) {
+        s.mask_next = m.adjust;
+        s.mask_next_set = false;
+    }
     let photos = 1 + others.len();
     if others.is_empty() {
         s.set_develop(id, mine, &label)?;

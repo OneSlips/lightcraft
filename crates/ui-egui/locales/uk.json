@@ -3036,5 +3036,8 @@
   "No AI Denoise model is available yet": "Моделі ШІ-шумозаглушення поки немає",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Лише якщо вам дали модель шумозаглушення LightCraft (теку з файлом .onnx і denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Коли модель буде готова, оновлення запропонує завантажити її тут одним клацанням.",
-  "Why?": "Чому?"
+  "Why?": "Чому?",
+  "Settings for the next mask": "Налаштування для наступної маски",
+  "Reset settings on new mask": "Скидати налаштування для нової маски",
+  "Off: a new mask starts with the last mask's settings. On: every new mask starts at zero.": "Вимк.: нова маска починає з налаштувань останньої. Увімк.: кожна нова маска починає з нуля."
 }

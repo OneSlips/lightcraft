@@ -3039,5 +3039,8 @@
   "No AI Denoise model is available yet": "Noch kein Modell für KI-Entrauschen verfügbar",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Nur wenn du ein LightCraft-Entrauschungsmodell bekommen hast (ein Ordner mit einer .onnx-Datei und denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Sobald das Modell fertig ist, bietet ein Update es hier zum Download mit einem Klick an.",
-  "Why?": "Warum?"
+  "Why?": "Warum?",
+  "Settings for the next mask": "Einstellungen für die nächste Maske",
+  "Reset settings on new mask": "Einstellungen bei neuer Maske zurücksetzen",
+  "Off: a new mask starts with the last mask's settings. On: every new mask starts at zero.": "Aus: eine neue Maske beginnt mit den Einstellungen der letzten Maske. An: jede neue Maske beginnt bei null."
 }
