@@ -351,6 +351,26 @@ pub struct Services {
     pub surface_plugin: Option<std::sync::Arc<dyn surface_plugin::PluginInstaller>>,
 }
 
+/// A frame that held the UI thread for [`SLOW_FRAME_MS`] or more, and what ran in it: a stall is
+/// told by its causes, not only by its length (TEST-NOTES 2026-10-16: one 10 s frame was seen, with
+/// nothing to say why).
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowFrame {
+    pub ms: f64,
+    pub logic_ms: f64,
+    pub layout_ms: f64,
+    /// Commands and control requests run in it, in order.
+    pub ran: Vec<String>,
+    /// When it ended ([`now_ms`]).
+    pub at_ms: f64,
+}
+
+/// A frame this long or longer is logged and kept as [`LightcraftApp::slowest_frame`].
+pub const SLOW_FRAME_MS: f64 = 500.0;
+/// The most names a frame's log keeps.
+const FRAME_LOG_LEN: usize = 32;
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Perf {
     /// Layout of the last frame ([`LightcraftApp::ui`], including commands run from widgets).
@@ -396,6 +416,12 @@ pub struct LightcraftApp {
     pub services: Services,
     pub renderer: render::Renderer,
     pub perf: Perf,
+    /// What this frame ran (commands, control requests), for [`SlowFrame`]: at most
+    /// [`FRAME_LOG_LEN`] names.
+    frame_log: Vec<String>,
+    /// The slowest frame since start that took [`SLOW_FRAME_MS`] or more (`ui.inspect` →
+    /// `perf.slowestFrame`), with what ran in it.
+    pub slowest_frame: Option<SlowFrame>,
     /// macOS: the host draws the traffic lights over our top bar.
     pub integrated_titlebar: bool,
     /// The host installed a native menu bar (no in-window menus then).
@@ -559,6 +585,8 @@ impl LightcraftApp {
             services,
             renderer: render::Renderer::default(),
             perf: Perf::default(),
+            frame_log: Vec::new(),
+            slowest_frame: None,
             caches: Caches::default(),
             integrated_titlebar: false,
             native_menu: false,
@@ -683,6 +711,7 @@ impl LightcraftApp {
     /// [`LightcraftApp::run`], keeping what kind of error a refusal is: for code that decides on it
     /// (offer a model's download, treat a cancel as one) instead of reading the message.
     pub fn run_typed(&mut self, id: &str, params: Value) -> Result<Value, CommandError> {
+        self.note_ran(id);
         if let Some(result) = model_setup::intercept(self, id, &params) {
             return result.map_err(CommandError::from);
         }
@@ -1114,6 +1143,7 @@ impl LightcraftApp {
                 continue;
             }
             let reply = req.reply.clone();
+            self.note_ran(&req.method);
             match control::handle(self, ctx, &req) {
                 control::Outcome::Done(v) => {
                     let _ = reply.send(v);
@@ -1272,9 +1302,17 @@ impl LightcraftApp {
         stopped && idle
     }
 
+    /// Remember that `what` ran in this frame (see [`SlowFrame`]).
+    pub(crate) fn note_ran(&mut self, what: &str) {
+        if self.frame_log.len() < FRAME_LOG_LEN {
+            self.frame_log.push(what.to_string());
+        }
+    }
+
     /// Per-frame logic before layout (control channel, renders, shortcuts, drops).
     pub fn logic(&mut self, ctx: &egui::Context) {
         i18n::set_language(self.ui.language);
+        self.frame_log.clear();
         let t0 = now_ms();
         panels::library_problem::logic(self);
         self.logic_inner(ctx);
@@ -1640,6 +1678,21 @@ impl LightcraftApp {
         self.perf.frame_ms = now_ms() - t0;
         self.perf.update_ms = self.perf.logic_ms + self.perf.frame_ms;
         self.perf.max_update_ms = self.perf.max_update_ms.max(self.perf.update_ms);
+        // (the first frames load fonts and open the library: slow by design)
+        if self.perf.update_ms >= SLOW_FRAME_MS && ctx.cumulative_pass_nr() > 10 {
+            let ran = std::mem::take(&mut self.frame_log);
+            log::warn!(
+                "slow frame: {:.0} ms on the UI thread (logic {:.0} ms, layout {:.0} ms); ran: {}",
+                self.perf.update_ms,
+                self.perf.logic_ms,
+                self.perf.frame_ms,
+                if ran.is_empty() { "nothing named".to_string() } else { ran.join(", ") }
+            );
+            if self.slowest_frame.as_ref().is_none_or(|s| s.ms < self.perf.update_ms) {
+                self.slowest_frame =
+                    Some(SlowFrame { ms: self.perf.update_ms, logic_ms: self.perf.logic_ms, layout_ms: self.perf.frame_ms, ran, at_ms: now_ms() });
+            }
+        }
     }
 
     /// Once per library opened (at launch too): name it in the window title, so nobody edits in

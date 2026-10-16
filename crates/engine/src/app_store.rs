@@ -304,6 +304,11 @@ impl AppStore {
         self.blocked.contains(&name)
     }
 
+    /// The store's files (a background save takes a handle of its own from it).
+    pub(crate) fn store(&self) -> &dyn Store {
+        self.files.as_ref()
+    }
+
     pub(crate) fn write_presets(&mut self, bytes: &[u8]) -> Result<()> {
         self.write(PRESETS, bytes)
     }
@@ -868,8 +873,25 @@ impl Session {
         if !self.uses_app_store() {
             return Ok(());
         }
+        // a background save that failed: it is done again now
+        if let Some(e) = self.presets_save_failed() {
+            log::warn!("store: saving the presets again after: {e}");
+            self.shared_presets_saved = crate::library::PresetsSaved::stale();
+        }
         if !self.shared_presets_saved.differs(self) || self.app_store.as_ref().is_some_and(|s| s.blocks(PRESETS)) {
             return Ok(());
+        }
+        // off the UI thread when it can be (`presets_save`): the bytes are made and compared there
+        if let Some(st) = self.app_store.take() {
+            let known = self.shared_presets_saved.hash;
+            let handed = self.save_presets_in_background(st.store(), known);
+            self.app_store = Some(st);
+            if handed {
+                let mut state = crate::library::PresetsSaved::state_of(self);
+                state.hash = known;
+                self.shared_presets_saved = state;
+                return Ok(());
+            }
         }
         let json = crate::library::presets_json(self);
         let mut state = crate::library::PresetsSaved::state_of(self);
