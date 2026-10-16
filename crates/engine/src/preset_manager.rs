@@ -46,17 +46,22 @@ impl Session {
         !(p.builtin && self.preset_state.removed.contains(&p.id))
     }
 
-    /// Every group in the manager's order: the user's order first, then the rest by name; empty
-    /// groups made in the manager included.
+    /// Every group in the manager's order: the user's order first, then the rest by name, the
+    /// groups holding presets of the user's own before LightCraft's (so "001-Studio" comes before
+    /// "Color"); empty groups made in the manager included.
     pub fn preset_groups(&self) -> Vec<String> {
         let mut names: Vec<String> = Vec::new();
+        let mut own = std::collections::HashSet::new();
         let mut seen = std::collections::HashSet::new();
         for p in self.presets.iter().filter(|p| self.preset_listed(p)) {
             if seen.insert(p.group.as_str()) {
                 names.push(p.group.clone());
             }
+            if !p.builtin {
+                own.insert(p.group.as_str());
+            }
         }
-        names.sort();
+        names.sort_by(|a, b| (!own.contains(a.as_str()), a).cmp(&(!own.contains(b.as_str()), b)));
         let order = &self.preset_state.group_order;
         let mut out: Vec<String> = order.clone();
         out.extend(names.into_iter().filter(|g| !order.contains(g)));
@@ -505,6 +510,28 @@ mod tests {
         let r = s.execute("presets.manager", &json!({"query": "p3"})).unwrap();
         assert_eq!(r["total"], 1, "{r}");
         assert!(s.execute("preset.hide", &json!({"id": "nope"})).is_err());
+    }
+
+    /// LR-PRE-MANAGE: the user's own groups ("001-…", "002-…") come before LightCraft's, each by
+    /// name, unless the user ordered them.
+    #[test]
+    fn own_groups_come_before_the_built_in_ones() {
+        let mut s = session();
+        s.presets.push(Preset {
+            id: "user.z".into(),
+            name: "Z".into(),
+            group: "001-Studio".into(),
+            settings: json!({}),
+            favorite: false,
+            builtin: false,
+        });
+        let groups = s.preset_groups();
+        let first_builtin = groups.iter().position(|g| s.presets.iter().any(|p| p.builtin && &p.group == g)).unwrap();
+        let last_own = groups.iter().rposition(|g| s.presets.iter().any(|p| !p.builtin && &p.group == g)).unwrap();
+        assert!(last_own < first_builtin, "{groups:?}");
+        assert_eq!(&groups[..3], ["001-Studio", "TestFilm", "TestWedding"]);
+        s.execute("preset.groupMove", &json!({"group": groups[first_builtin], "before": "001-Studio"})).unwrap();
+        assert_eq!(s.preset_groups().first(), groups.get(first_builtin), "the user's own order wins");
     }
 
     #[test]
