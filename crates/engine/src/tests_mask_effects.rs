@@ -111,7 +111,9 @@ fn saving_some_sliders_and_amount() {
     assert_eq!(r["brush"]["flow"], 40.0);
     let a = mask_adjust(&s, mid);
     assert_eq!((a.shadows, a.texture, a.clarity, a.amount), (25.0, -10.0, 50.0, 60.0));
-    // a mask that changes nothing has nothing to save as "changed"
+    // a mask that changes nothing has nothing to save as "changed" (a new mask starts at zero
+    // with Reset Settings on New Mask, else with the last mask's settings)
+    s.execute("mask.next", &json!({"resetNew": true})).unwrap();
     s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
     assert!(s.execute("mask.saveEffect", &json!({"name": "Empty", "fields": "changed"})).is_err());
 }
@@ -120,6 +122,8 @@ fn saving_some_sliders_and_amount() {
 fn applying_to_several_masks_and_photos_is_one_undo_step() {
     let mut s = Session::with_demo();
     with_effect(&mut s, "Bright", json!({"exposure": 1}));
+    // (new masks start at zero here, not with the last mask's settings)
+    s.execute("mask.next", &json!({"resetNew": true})).unwrap();
     let ids: Vec<u64> = s.catalog.photos().take(2).map(|p| p.id.0).collect();
     s.execute("library.select", &json!({"ids": ids, "active": ids[0]})).unwrap();
     for _ in 0..2 {
@@ -168,7 +172,12 @@ fn new_masks_start_with_the_last_effect_of_their_tool() {
     s.execute("mask.add", &json!({"kind": "linear"})).unwrap();
     assert_eq!(mask_adjust(&s, s.active_mask.unwrap()).highlights, -40.0);
     s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
-    assert_eq!(mask_adjust(&s, s.active_mask.unwrap()).exposure, 0.0, "radial has none");
+    let a = mask_adjust(&s, s.active_mask.unwrap());
+    assert_eq!((a.exposure, a.highlights), (0.5, -40.0), "radial has none: the last mask's settings (Grad over the carried Dodge)");
+    s.execute("mask.next", &json!({"resetNew": true})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
+    assert_eq!(mask_adjust(&s, s.active_mask.unwrap()).highlights, 0.0, "Reset Settings on New Mask: at zero");
+    s.execute("mask.next", &json!({"resetNew": false})).unwrap();
     // set / clear explicitly; renaming and deleting the effect follow
     s.execute("mask.toolEffect", &json!({"tool": "radial", "name": "dodge"})).unwrap();
     assert!(s.execute("mask.toolEffect", &json!({"tool": "radial", "name": "nope"})).is_err());

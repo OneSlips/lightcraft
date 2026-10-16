@@ -1805,9 +1805,6 @@ fn shapes_graphics(id: &str) -> bool {
         || id.starts_with("crop.")
 }
 
-/// Mask tools that set a mask on the photo: the overlay shows while one is in use.
-const MASK_TOOLS: [&str; 6] = ["brush", "linear", "radial", "colorRange", "object", "lumRange"];
-
 /// The mask the overlay shows, if any (as Lightroom Classic): the one whose row or pin the pointer
 /// is on; else the selected mask when the overlay is on (O), when it is fresh (no adjustment yet,
 /// unless O hid it) or while a mask tool is in use. A preset's or an adjusted mask never shows by
@@ -1828,8 +1825,21 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
     if app.ui.mask_overlay_hidden == Some(m.id) {
         return false;
     }
+    // a mask without settings yet shows what it selects; one with settings (its own, the last
+    // mask's carried over, a preset's) shows its effect, and its overlay only while it is being
+    // drawn (or the pointer is on its row or pin, see `overlay_mask`)
     let fresh = m.adjust == lightcraft_develop::LocalAdjustments::default() && m.preset.is_none();
-    fresh || MASK_TOOLS.contains(&app.ui.tool.as_str())
+    fresh || drawing(app, m.id)
+}
+
+/// Whether mask `id` is being drawn right now: a handle or the gradient dragged, a brush stroke or
+/// a colour or tone area on its way.
+fn drawing(app: &LightcraftApp, id: u32) -> bool {
+    match &app.gesture {
+        Some(Gesture::MaskHandle { mask, .. }) => *mask == id,
+        Some(Gesture::Brush { .. } | Gesture::RangeArea { .. } | Gesture::ColorPin { .. }) => app.session.active_mask == Some(id),
+        _ => false,
+    }
 }
 
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
@@ -2791,6 +2801,27 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if app.ui.mask_new.as_ref().is_some_and(|(k, _)| *k != app.ui.tool) {
         app.ui.mask_new = None;
     }
+    // a gradient tool still in use after its mask was made: a drag that grabs nothing of the
+    // selected mask (no pin, handle, line or radial body) draws another one, as in Lightroom
+    // Classic; no need to press the tool again
+    if app.ui.mask_new.is_none()
+        && matches!(app.ui.tool.as_str(), "linear" | "radial")
+        && resp.drag_started()
+        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
+    {
+        let on_grip = grips.iter().any(|g| g.3.distance(q) < 10.0);
+        let on_selected = d.masks.iter().find(|m| Some(m.id) == active).is_some_and(|m| {
+            m.components.iter().any(|c| match gradient_part(&c.shape, q, map) {
+                // (a linear gradient's "anywhere" doesn't count: only its lines)
+                Some(0) => matches!(c.shape, MaskShape::Radial { .. }),
+                Some(_) => true,
+                None => false,
+            })
+        });
+        if !on_grip && !on_selected {
+            app.ui.mask_new = Some((app.ui.tool.clone(), "new".into()));
+        }
+    }
     if let Some((kind, op)) = app.ui.mask_new.clone()
         && (resp.drag_started() || resp.clicked())
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
@@ -3536,30 +3567,15 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
-/// Where the filmstrip is in the shoot: along its top edge a tick per pick (white) and reject
-/// (red) through the whole view, and at its right "1,234 / 2,233" (with the selection's size).
+/// Where the filmstrip is in the shoot: "1,234 / 2,233" at its right (with the selection's size).
 fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[PhotoId], active: Option<PhotoId>) {
     let t = Tokens::get(ui.ctx());
     let n = ids.len();
     if n == 0 {
         return;
     }
-    let band = Rect::from_min_size(r.min, vec2(r.width(), 4.0));
     let p = ui.painter();
-    for (i, id) in ids.iter().enumerate() {
-        let colour = match app.session.catalog.photo(*id).map(|ph| ph.flag) {
-            Some(lightcraft_catalog::Flag::Pick) => Color32::from_gray(235),
-            Some(lightcraft_catalog::Flag::Reject) => t.reject,
-            _ => continue,
-        };
-        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
-        p.line_segment([pos2(x, band.top()), pos2(x, band.bottom())], Stroke::new(1.0, colour));
-    }
     let at = active.and_then(|a| ids.iter().position(|x| *x == a));
-    if let Some(i) = at {
-        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
-        p.rect_filled(Rect::from_center_size(pos2(x, band.center().y), vec2(3.0, 6.0)), 1.0, t.accent);
-    }
     let mut text = match at {
         Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(n)),
         None => crate::i18n::group_digits(n),
@@ -3636,7 +3652,10 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let wheel = super::grid::wheel_step(&child, egui::Id::new("film-wheel"), child.max_rect(), child.max_rect().width(), true);
     // a bar that can be seen and grabbed, as in the grid
     super::grid::visible_scroll_bar(&mut child);
-    egui::ScrollArea::horizontal().id_salt("filmstrip").auto_shrink([false, false]).show_viewport(&mut child, |ui, vp| {
+    let film_area = egui::ScrollArea::horizontal().id_salt("filmstrip").auto_shrink([false, false]);
+    // the handle always there: it says where the strip is in the view
+    let film_area = film_area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+    film_area.show_viewport(&mut child, |ui, vp| {
         if wheel != egui::Vec2::ZERO {
             ui.scroll_with_delta_animation(wheel, egui::style::ScrollAnimation::none());
         }
@@ -3660,14 +3679,16 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let p = ui.painter();
             let label = app.session.catalog.photo(*id).and_then(|ph| ph.label);
             let selected = state != lightcraft_engine::SelectionState::NotSelected;
+            let flag = app.session.catalog.photo(*id).map(|ph| ph.flag).unwrap_or_default();
             let base = if selected {
                 t.cell_selected
             } else if resp.hovered() {
                 t.cell_selected.gamma_multiply(0.6)
             } else {
-                t.canvas
+                super::grid::flag_tint(t.canvas, flag)
             };
             p.rect_filled(cr, 0.0, crate::theme::label_background(base, label, selected));
+            super::grid::flag_line(p, &t, cr, flag);
             let names = app.ui.settings.film_names;
             if let Some(ph) = app.session.catalog.photo(*id).filter(|_| names) {
                 let name = ph.file_name.rsplit_once('.').map(|(n, _)| n).unwrap_or(&ph.file_name);
@@ -3676,7 +3697,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             }
             // the marks under the picture (Settings ▸ Interface), or over its bottom edge
             let under = app.ui.settings.badges_under && app.ui.settings.film_badges;
-            let strip = if under { (cr.height() * 0.17).clamp(16.0, 26.0) } else { 0.0 };
+            let strip = if under { (cr.height() * 0.11).clamp(12.0, 16.0) } else { 0.0 };
             let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0 + strip));
             if under && let Some(ph) = app.session.catalog.photo(*id) {
                 let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));

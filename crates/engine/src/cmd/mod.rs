@@ -247,6 +247,11 @@ pub(crate) fn ok() -> Result<Value> {
     Ok(Value::Null)
 }
 pub(crate) fn point(p: &Value, key: &str) -> Option<lightcraft_geom::Point> {
-    let a = p.get(key)?.as_array()?;
-    Some(lightcraft_geom::Point::new(a.first()?.as_f64()?, a.get(1)?.as_f64()?))
+    let v = p.get(key)?;
+    // `[x, y]`, or `{x, y}` as a Point serializes (the app sends those)
+    let (x, y) = match v.as_array() {
+        Some(a) => (a.first()?.as_f64()?, a.get(1)?.as_f64()?),
+        None => (v.get("x")?.as_f64()?, v.get("y")?.as_f64()?),
+    };
+    Some(lightcraft_geom::Point::new(x, y))
 }

@@ -686,6 +686,12 @@ impl Session {
                 lib.forgot_local = Some(plan);
             }
         }
+        // keywords read whole from a list a line long (before they were split) become one each
+        if self.split_multiline_keywords() > 0
+            && let Err(e) = self.persist()
+        {
+            log::error!("library: {e}");
+        }
         // smart previews written by an older camera-look fit are brought up to date in the background
         #[cfg(not(target_arch = "wasm32"))]
         if on_disk {
@@ -695,6 +701,34 @@ impl Session {
         self.load_finishing();
         self.library_identity = std::sync::Arc::new(());
         Ok(())
+    }
+
+    /// Photos whose keywords hold line breaks (a camera preset's whole keyword list read as one
+    /// keyword by an earlier version) get one keyword a line, journaled, not an undo step. Returns
+    /// how many photos changed.
+    pub fn split_multiline_keywords(&mut self) -> usize {
+        let fix: Vec<(lightcraft_catalog::PhotoId, lightcraft_catalog::Meta)> = self
+            .catalog
+            .photos()
+            .filter(|p| p.meta.keywords.iter().any(|k| k.contains(['\r', '\n', '\u{2028}', '\u{2029}'])))
+            .map(|p| {
+                let mut meta = p.meta.clone();
+                meta.keywords = lightcraft_catalog::keywords::from_file(&meta.keywords, &[]);
+                (p.id, meta)
+            })
+            .collect();
+        let n = fix.len();
+        for (id, meta) in fix {
+            let op = lightcraft_catalog::Op::SetMeta { id, meta: Box::new(meta) };
+            match self.catalog.apply(op.clone()) {
+                Ok(_) => self.pending_log.push(op),
+                Err(e) => log::warn!("split keywords: {e}"),
+            }
+        }
+        if n > 0 {
+            log::info!("split the line-separated keywords of {n} photo(s) into one keyword a line");
+        }
+        n
     }
 
     /// Write pending ops to the log (fsynced), compact when due, and save changed presets.

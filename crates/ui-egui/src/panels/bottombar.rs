@@ -30,9 +30,12 @@ const VIEW_MODES: &[(&str, Icon, ViewMode, &str)] = &[
 const DIVIDER_GAP: f32 = 10.0;
 const PART_GAP: f32 = 8.0;
 /// Setter sizes: a star, a flag, a colour chip.
-const STAR: f32 = 18.0;
-const FLAG: f32 = 25.0;
-const CHIP: f32 = 16.0;
+const STAR: f32 = BTN;
+const FLAG: f32 = BTN;
+const CHIP: f32 = BTN;
+/// Every button on the bar is this tall, and the square ones this wide too: a row of buttons
+/// shares one size (the view modes, sort, the setters, the filters, the toggles on the right).
+pub const BTN: f32 = 26.0;
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -50,7 +53,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     if left_rect.width() >= 270.0 {
                         for &(id, icon, mode, tip) in VIEW_MODES {
-                            if icon_button(ui, id, icon, vec2(32.0, 32.0), app.ui.view == mode, true, tip).clicked() {
+                            if icon_button(ui, id, icon, vec2(BTN, BTN), app.ui.view == mode, true, tip).clicked() {
                                 let _ = app.run(&format!("view.{id}"), json!({}));
                             }
                         }
@@ -58,11 +61,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         let (sep, _) = ui.allocate_exact_size(vec2(1.0, 22.0), Sense::hover());
                         ui.painter().rect_filled(sep, 0.0, t.button_border);
                         ui.add_space(DIVIDER_GAP);
-                        let sort = icon_button(ui, "sort", Icon::Sort, vec2(30.0, 30.0), false, true, "Sort");
+                        let sort = icon_button(ui, "sort", Icon::Sort, vec2(BTN, BTN), false, true, "Sort");
                         egui::Popup::menu(&sort).show(|ui| sort_menu(app, ui));
                     } else {
                         let current_icon = VIEW_MODES.iter().find(|(_, _, mode, _)| *mode == app.ui.view).map_or(Icon::More, |(_, icon, _, _)| *icon);
-                        let more = icon_button(ui, "viewOptions", current_icon, vec2(40.0, 32.0), true, true, "View");
+                        let more = icon_button(ui, "viewOptions", current_icon, vec2(BTN + 8.0, BTN), true, true, "View");
                         paint(
                             ui.painter(),
                             Rect::from_center_size(more.rect.right_bottom() - vec2(5.0, 5.0), vec2(7.0, 7.0)),
@@ -260,15 +263,15 @@ fn width(ui: &egui::Ui, t: &Tokens, x: &Facts, part: Part, compact: bool) -> f32
             caption + FLAG_FILTERS.iter().map(|(f, _, _)| 22.0 + 3.0 + count_w(flag_count(&x.tally, *f)) + 8.0).sum::<f32>()
         }
         Part::FilterStars => 16.0 + 4.0 + text_w(&rating_words(&x.filter), 12.0) + 5.0 + count_w(rating_count(&x.tally, &x.filter)) + 18.0,
-        Part::FilterLabels if compact => 6.0 * 18.0,
+        Part::FilterLabels if compact => 6.0 * BTN,
         Part::FilterLabels => {
             ColorLabel::ALL.iter().map(|l| 14.0 + 3.0 + count_w(x.tally.label(*l)) + 6.0).sum::<f32>() + 14.0 + 3.0 + count_w(x.tally.unlabeled)
         }
-        Part::MoreFilters => 28.0,
+        Part::MoreFilters => BTN,
         // room for the longer of its two captions, so the bar doesn't shift when the clipboard fills
         Part::Copy => {
             let (a, b) = if compact { ("Copy", "Paste") } else { ("Copy Edit Settings", "Paste Edit Settings") };
-            text_w(crate::i18n::tr(a), 13.0).max(text_w(crate::i18n::tr(b), 13.0)) + 20.0 + 4.0 + 28.0
+            text_w(crate::i18n::tr(a), 13.0).max(text_w(crate::i18n::tr(b), 13.0)) + 20.0 + 4.0 + BTN
         }
     }
 }
@@ -336,7 +339,7 @@ fn centre(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, from: f32, to:
             if k > 0 {
                 cx += PART_GAP;
             }
-            let r = Rect::from_min_size(pos2(cx, y - 15.0), vec2(p.w, 30.0));
+            let r = Rect::from_min_size(pos2(cx, y - BTN / 2.0), vec2(p.w, BTN));
             draw_part(app, ui, &t, &x, p.part, p.compact, r);
             cx += p.w;
         }
@@ -427,7 +430,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 let on = on_now.contains(&f);
                 let count = crate::i18n::group_digits(n);
                 let g = c.painter().layout_no_wrap(count, t.font(11.5), if on { t.text } else { t.text_dim });
-                let (br, resp) = c.allocate_exact_size(vec2(22.0 + 3.0 + g.size().x + 8.0, 28.0), Sense::click());
+                let (br, resp) = c.allocate_exact_size(vec2(22.0 + 3.0 + g.size().x + 8.0, BTN), Sense::click());
                 register(c.ctx(), format!("filter:{id}"), br);
                 crate::widgets::announce_selected(&resp, format!("{} {n}", crate::i18n::tr(tip)), on);
                 if on {
@@ -467,7 +470,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
             let on = x.filter.rating > 0 || x.filter.unrated;
             let n = rating_count(&x.tally, &x.filter);
             let words = rating_words(&x.filter);
-            let (br, resp) = c.allocate_exact_size(r.size() - vec2(0.0, 2.0), Sense::click());
+            let (br, resp) = c.allocate_exact_size(vec2(r.width(), BTN), Sense::click());
             register(c.ctx(), "filter:stars", br);
             crate::widgets::announce_selected(&resp, format!("{}: {words} ({n})", crate::i18n::tr("Rating filter")), on);
             if on {
@@ -499,8 +502,8 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 };
                 let shown = if compact { String::new() } else { crate::i18n::group_digits(n) };
                 let g = c.painter().layout_no_wrap(shown, t.font(11.5), if on { t.text } else { t.text_dim });
-                let w = if compact { 18.0 } else { 14.0 + 3.0 + g.size().x + 6.0 };
-                let (br, resp) = c.allocate_exact_size(vec2(w, 26.0), Sense::click());
+                let w = if compact { BTN } else { 14.0 + 3.0 + g.size().x + 6.0 };
+                let (br, resp) = c.allocate_exact_size(vec2(w, BTN), Sense::click());
                 let id = l.map_or("none".to_string(), |l| format!("{l:?}").to_lowercase());
                 register(c.ctx(), format!("filter:label-{id}"), br);
                 let name = match l {
@@ -533,7 +536,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
         Part::MoreFilters => {
             let active = more_filters_active(&x.filter);
             let mut c = row_ui(ui, r, 0.0);
-            let resp = icon_button(&mut c, "moreFilters", Icon::Dots, vec2(28.0, 28.0), active, true, "More filters");
+            let resp = icon_button(&mut c, "moreFilters", Icon::Dots, vec2(BTN, BTN), active, true, "More filters");
             if active {
                 c.painter().circle_filled(resp.rect.right_top() + vec2(-5.0, 5.0), 3.5, t.accent);
             }
@@ -558,7 +561,7 @@ fn more_filters_active(f: &lightcraft_catalog::Filter) -> bool {
 
 /// A colour-label chip (`None`: no label, an empty ring), filled bigger when it is the photo's.
 fn label_chip(p: &egui::Painter, t: &Tokens, r: Rect, l: Option<ColorLabel>, on: bool, hovered: bool) {
-    let rad = r.width().min(r.height()) / 2.0 - if on { 0.5 } else { 2.5 };
+    let rad = (r.width().min(r.height()) / 2.0).min(8.0) - if on { 0.5 } else { 2.5 };
     match l {
         Some(l) => {
             p.circle_filled(r.center(), rad, label_color(l));
@@ -619,7 +622,7 @@ fn copy_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, r: Rect,
     let has_clip = app.session.clipboard.is_some();
     let full_label = crate::i18n::tr(if has_clip { "Paste Edit Settings" } else { "Copy Edit Settings" });
     let label = if compact { crate::i18n::tr(if has_clip { "Paste" } else { "Copy" }) } else { full_label };
-    let copy_r = Rect::from_min_max(r.min, pos2(r.right() - 32.0, r.bottom()));
+    let copy_r = Rect::from_min_max(r.min, pos2(r.right() - BTN - 4.0, r.bottom()));
     let cresp = ui.interact(copy_r, egui::Id::new("copy-settings"), Sense::click());
     crate::widgets::announce(&cresp, label.to_string());
     register(ui.ctx(), "button:copySettings", copy_r);
@@ -633,7 +636,7 @@ fn copy_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, r: Rect,
         let msg = if has_clip { "Settings pasted" } else { "Edit settings copied" };
         app.toast(ui.ctx(), crate::i18n::tr(msg));
     }
-    let gear_r = Rect::from_min_size(pos2(r.right() - 28.0, r.top() + 1.0), vec2(28.0, 28.0));
+    let gear_r = Rect::from_min_size(pos2(r.right() - BTN, r.top()), vec2(BTN, BTN));
     let gresp = ui.interact(gear_r, egui::Id::new("copy-gear"), Sense::click());
     crate::widgets::announce(&gresp, crate::i18n::tr("Copy Settings…"));
     register(ui.ctx(), "icon:copyGear", gear_r);
@@ -661,7 +664,7 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, compact_zo
             &mut child,
             "autoAdvance",
             Icon::ChevronRight,
-            vec2(30.0, 30.0),
+            vec2(BTN, BTN),
             app.auto_advance_on(),
             true,
             "Auto Advance after rating or flagging (or Caps Lock)",
@@ -673,23 +676,23 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, compact_zo
     if app.ui.view == ViewMode::Survey {
         // no zoom or thumbnail size in Survey
     } else if matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare) {
-        if icon_button(&mut child, "filmstrip", Icon::Filmstrip, vec2(30.0, 30.0), app.ui.filmstrip, true, "Filmstrip (/)").clicked() {
+        if icon_button(&mut child, "filmstrip", Icon::Filmstrip, vec2(BTN, BTN), app.ui.filmstrip, true, "Filmstrip (/)").clicked() {
             let _ = app.run("view.filmstrip", json!({}));
         }
-        if icon_button(&mut child, "beforeAfter", Icon::BeforeAfter, vec2(30.0, 30.0), app.ui.before_after.is_layout(), true, "Before/After (Y)")
+        if icon_button(&mut child, "beforeAfter", Icon::BeforeAfter, vec2(BTN, BTN), app.ui.before_after.is_layout(), true, "Before/After (Y)")
             .clicked()
         {
             let _ = app.run("view.beforeAfter", json!({}));
         }
         if app.ui.view == ViewMode::Detail
-            && icon_button(&mut child, "faceBoxes", Icon::FaceBox, vec2(30.0, 30.0), app.ui.face_boxes, true, "Face boxes").clicked()
+            && icon_button(&mut child, "faceBoxes", Icon::FaceBox, vec2(BTN, BTN), app.ui.face_boxes, true, "Face boxes").clicked()
         {
             let _ = app.run("view.faceBoxes", json!({}));
         }
         if app.ui.view == ViewMode::Detail {
             let on = app.eye_focus_on();
             let tip = if app.importing() { "Eye focus strip while importing (Shift+T)" } else { "Eye focus strip in the library (Shift+T)" };
-            if icon_button(&mut child, "eyeFocus", Icon::Eye, vec2(30.0, 30.0), on, true, tip).clicked() {
+            if icon_button(&mut child, "eyeFocus", Icon::Eye, vec2(BTN, BTN), on, true, tip).clicked() {
                 let _ = app.run("view.eyeFocus", json!({}));
             }
         }

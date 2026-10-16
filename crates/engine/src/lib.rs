@@ -361,6 +361,16 @@ pub struct Session {
     /// The effect a new mask of each kind (`brush`, `linear`…) starts with: the one last applied
     /// to a mask of that kind.
     pub mask_tool_effects: std::collections::BTreeMap<String, String>,
+    /// The adjustments the next new mask starts with: the last mask's (Lightroom keeps a mask's
+    /// settings for the next one), or what was set in the Masking panel while no mask was
+    /// selected ([`mask_next_set`](Self::mask_next_set)).
+    pub mask_next: lightcraft_develop::LocalAdjustments,
+    /// [`mask_next`](Self::mask_next) was set on purpose with no mask selected: the next new mask
+    /// takes it even when [`mask_reset_new`](Self::mask_reset_new) is on.
+    pub mask_next_set: bool,
+    /// A new mask starts with every setting at zero (Lightroom's Reset Sliders Automatically)
+    /// instead of the last mask's.
+    pub mask_reset_new: bool,
     /// Imported camera profiles (`.dcp`).
     pub dcp_profiles: Vec<cmd::dcp_profiles::DcpEntry>,
     /// Saved colour-label name sets.
@@ -539,6 +549,9 @@ impl Session {
             curve_presets: Vec::new(),
             mask_effects: Vec::new(),
             mask_tool_effects: Default::default(),
+            mask_next: Default::default(),
+            mask_next_set: false,
+            mask_reset_new: false,
             dcp_profiles: Vec::new(),
             label_sets: Vec::new(),
             signatures: Default::default(),

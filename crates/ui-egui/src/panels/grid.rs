@@ -237,7 +237,10 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let cell = lay.cells.get(i)?;
         Some((cell.top() - a.offset).max(0.0))
     });
-    let mut area_scroll = egui::ScrollArea::vertical().id_salt("grid-scroll").auto_shrink([false, false]);
+    let mut area_scroll = egui::ScrollArea::vertical()
+        .id_salt("grid-scroll")
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
     if let Some(y) = reanchor {
         area_scroll = area_scroll.vertical_scroll_offset(y);
     }
@@ -324,19 +327,24 @@ struct GridAnchor {
     offset: f32,
 }
 
-/// A scroll bar that can be seen and grabbed: solid, 12 points wide (egui's default floats, thin,
-/// over the photos and fades out).
+/// Thickness (points) of the grid's and the filmstrip's scroll bars.
+pub const SCROLL_BAR_W: f32 = 7.5;
+
+/// A scroll bar that can be seen and grabbed: solid, [`SCROLL_BAR_W`] wide, its handle always
+/// drawn in the text colour (egui's default floats, thin, over the photos, and fades out; its
+/// solid style's handle can match the track and vanish).
 pub(crate) fn visible_scroll_bar(ui: &mut egui::Ui) {
     let s = &mut ui.style_mut().spacing.scroll;
     *s = egui::style::ScrollStyle::solid();
-    s.bar_width = 12.0;
-    s.handle_min_length = 36.0;
+    s.bar_width = SCROLL_BAR_W;
+    s.handle_min_length = 32.0;
     s.bar_inner_margin = 2.0;
-    s.dormant_background_opacity = 0.35;
-    s.dormant_handle_opacity = 0.7;
-    s.active_background_opacity = 0.5;
-    s.active_handle_opacity = 1.0;
-    s.interact_background_opacity = 0.6;
+    s.foreground_color = true;
+    s.dormant_background_opacity = 0.25;
+    s.active_background_opacity = 0.35;
+    s.interact_background_opacity = 0.45;
+    s.dormant_handle_opacity = 0.55;
+    s.active_handle_opacity = 0.8;
     s.interact_handle_opacity = 1.0;
 }
 
@@ -727,7 +735,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     let strip = if under { BADGE_STRIP.min(r.height() * 0.4) } else { 0.0 };
     let pic = Rect::from_min_max(r.min, pos2(r.right(), r.bottom() - strip));
     let img_rect = if square {
-        let base = if selected { t.cell_selected } else { t.cell };
+        let base = if selected { t.cell_selected } else { flag_tint(t.cell, photo.flag) };
         p.rect_filled(r, 0.0, crate::theme::label_background(base, photo.label, selected));
         Rect::from_min_max(pic.min + vec2(10.0, 24.0), pic.max - vec2(10.0, if under { 2.0 } else { 10.0 }))
     } else {
@@ -797,11 +805,11 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         // the strip under the picture: tinted by the label, always there (it covers nothing)
         let bar = Rect::from_min_max(pos2(r.left(), pic.bottom()), r.max);
         if !square {
-            let base = if selected { t.cell_selected } else { t.canvas };
+            let base = if selected { t.cell_selected } else { flag_tint(t.canvas, photo.flag) };
             p.rect_filled(bar, 0.0, crate::theme::label_background(base, photo.label, selected));
         }
         if show_badges || photo.label.is_some() {
-            paint_badges(p, &t, bar.shrink2(vec2(if square { 8.0 } else { 3.0 }, 0.0)), &photo, false);
+            paint_badges(p, &t, bar.shrink2(vec2(if square { 8.0 } else { 3.0 }, 1.0)), &photo, false);
         }
     } else {
         let badge_bar = Rect::from_min_max(pos2(img_rect.left(), img_rect.bottom() - 26.0), img_rect.right_bottom());
@@ -817,6 +825,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
             paint_badges(p, &t, badge_bar.shrink2(vec2(4.0, 0.0)), &photo, true);
         }
     }
+    flag_line(p, &t, r, photo.flag);
     if let Some(name) = &photo.copy_name {
         // virtual copy: a folded-corner tag at the top right
         let g = p.layout_no_wrap(name.clone(), t.semibold(10.5), Color32::WHITE);
@@ -887,7 +896,31 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
 
 /// Height (points) of the strip under each thumbnail that holds its rating, flag and label when
 /// they are shown under the pictures.
-pub const BADGE_STRIP: f32 = 26.0;
+pub const BADGE_STRIP: f32 = 16.0;
+
+/// Thickness (points) of the line along a picked or rejected cell's bottom edge.
+pub const FLAG_LINE: f32 = 2.5;
+
+/// A cell's background with its flag in it: a pick slightly lighter, a reject darker (the
+/// selection keeps its own outline, so the two never read alike).
+pub fn flag_tint(base: Color32, flag: Flag) -> Color32 {
+    match flag {
+        Flag::Pick => base.lerp_to_gamma(Color32::WHITE, 0.07),
+        Flag::Reject => base.lerp_to_gamma(Color32::BLACK, 0.35),
+        Flag::None => base,
+    }
+}
+
+/// The flag's line along the bottom edge of `cell`: white for a pick, red for a reject, none
+/// for an unflagged photo.
+pub fn flag_line(p: &egui::Painter, t: &Tokens, cell: Rect, flag: Flag) {
+    let colour = match flag {
+        Flag::Pick => Color32::from_gray(240),
+        Flag::Reject => t.reject,
+        Flag::None => return,
+    };
+    p.rect_filled(Rect::from_min_max(pos2(cell.left(), cell.bottom() - FLAG_LINE), cell.max), 0.0, colour);
+}
 
 /// A photo's culling marks along `bar` (a thumbnail's bottom edge or the strip under it): its flag
 /// and stars from the left, its colour label and edited mark from the right, sized to the bar's
@@ -896,8 +929,8 @@ pub const BADGE_STRIP: f32 = 26.0;
 pub fn paint_badges(p: &egui::Painter, t: &Tokens, bar: Rect, photo: &lightcraft_catalog::Photo, on_photo: bool) {
     let h = bar.height().clamp(10.0, 40.0);
     let y = bar.center().y;
-    let star = (h * 0.52).round();
-    let flag = (h * 0.8).round();
+    let star = (h * 0.62).round().max(8.0);
+    let flag = (h * 0.8).round().max(10.0);
     // the pick flag is white over a picture whatever the theme (the theme's colour is for panels)
     let pick = if on_photo { Color32::WHITE } else { t.pick };
     let mut x = bar.left() + 2.0;
