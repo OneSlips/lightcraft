@@ -3536,30 +3536,15 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
-/// Where the filmstrip is in the shoot: along its top edge a tick per pick (white) and reject
-/// (red) through the whole view, and at its right "1,234 / 2,233" (with the selection's size).
+/// Where the filmstrip is in the shoot: "1,234 / 2,233" at its right (with the selection's size).
 fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[PhotoId], active: Option<PhotoId>) {
     let t = Tokens::get(ui.ctx());
     let n = ids.len();
     if n == 0 {
         return;
     }
-    let band = Rect::from_min_size(r.min, vec2(r.width(), 4.0));
     let p = ui.painter();
-    for (i, id) in ids.iter().enumerate() {
-        let colour = match app.session.catalog.photo(*id).map(|ph| ph.flag) {
-            Some(lightcraft_catalog::Flag::Pick) => Color32::from_gray(235),
-            Some(lightcraft_catalog::Flag::Reject) => t.reject,
-            _ => continue,
-        };
-        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
-        p.line_segment([pos2(x, band.top()), pos2(x, band.bottom())], Stroke::new(1.0, colour));
-    }
     let at = active.and_then(|a| ids.iter().position(|x| *x == a));
-    if let Some(i) = at {
-        let x = band.left() + (i as f32 + 0.5) / n as f32 * band.width();
-        p.rect_filled(Rect::from_center_size(pos2(x, band.center().y), vec2(3.0, 6.0)), 1.0, t.accent);
-    }
     let mut text = match at {
         Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(n)),
         None => crate::i18n::group_digits(n),
@@ -3636,7 +3621,10 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let wheel = super::grid::wheel_step(&child, egui::Id::new("film-wheel"), child.max_rect(), child.max_rect().width(), true);
     // a bar that can be seen and grabbed, as in the grid
     super::grid::visible_scroll_bar(&mut child);
-    egui::ScrollArea::horizontal().id_salt("filmstrip").auto_shrink([false, false]).show_viewport(&mut child, |ui, vp| {
+    let film_area = egui::ScrollArea::horizontal().id_salt("filmstrip").auto_shrink([false, false]);
+    // the handle always there: it says where the strip is in the view
+    let film_area = film_area.scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
+    film_area.show_viewport(&mut child, |ui, vp| {
         if wheel != egui::Vec2::ZERO {
             ui.scroll_with_delta_animation(wheel, egui::style::ScrollAnimation::none());
         }

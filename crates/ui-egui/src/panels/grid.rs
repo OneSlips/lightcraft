@@ -237,7 +237,10 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let cell = lay.cells.get(i)?;
         Some((cell.top() - a.offset).max(0.0))
     });
-    let mut area_scroll = egui::ScrollArea::vertical().id_salt("grid-scroll").auto_shrink([false, false]);
+    let mut area_scroll = egui::ScrollArea::vertical()
+        .id_salt("grid-scroll")
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible);
     if let Some(y) = reanchor {
         area_scroll = area_scroll.vertical_scroll_offset(y);
     }
@@ -324,19 +327,24 @@ struct GridAnchor {
     offset: f32,
 }
 
-/// A scroll bar that can be seen and grabbed: solid, 12 points wide (egui's default floats, thin,
-/// over the photos and fades out).
+/// Thickness (points) of the grid's and the filmstrip's scroll bars.
+pub const SCROLL_BAR_W: f32 = 7.5;
+
+/// A scroll bar that can be seen and grabbed: solid, [`SCROLL_BAR_W`] wide, its handle always
+/// drawn in the text colour (egui's default floats, thin, over the photos, and fades out; its
+/// solid style's handle can match the track and vanish).
 pub(crate) fn visible_scroll_bar(ui: &mut egui::Ui) {
     let s = &mut ui.style_mut().spacing.scroll;
     *s = egui::style::ScrollStyle::solid();
-    s.bar_width = 12.0;
-    s.handle_min_length = 36.0;
+    s.bar_width = SCROLL_BAR_W;
+    s.handle_min_length = 32.0;
     s.bar_inner_margin = 2.0;
-    s.dormant_background_opacity = 0.35;
-    s.dormant_handle_opacity = 0.7;
-    s.active_background_opacity = 0.5;
-    s.active_handle_opacity = 1.0;
-    s.interact_background_opacity = 0.6;
+    s.foreground_color = true;
+    s.dormant_background_opacity = 0.25;
+    s.active_background_opacity = 0.35;
+    s.interact_background_opacity = 0.45;
+    s.dormant_handle_opacity = 0.55;
+    s.active_handle_opacity = 0.8;
     s.interact_handle_opacity = 1.0;
 }
 
