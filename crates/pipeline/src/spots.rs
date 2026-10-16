@@ -5,8 +5,10 @@
 //!   surroundings: result = src + membrane(target − src), the harmonic interpolation of the
 //!   difference on the stroke's edge ([`membrane`]; Poisson seamless cloning), so it blends at any
 //!   size of area.
-//! - **Remove** is Heal with an automatically chosen source: candidate offsets on rings around the
-//!   spot are scored by how well the source's surrounding annulus matches the target's.
+//! - **Remove** picks its own way: a spot with a source (a click: LightCraft chooses the best match
+//!   nearby, scored by how well the source's surrounding annulus matches the target's, and chooses
+//!   again when the spot moves) heals from it; a spot without one (a brushed stroke, which no single
+//!   source fits) is rebuilt from its surroundings like Fill ([`synthesises`]).
 //! - **Fill** (content-aware) rebuilds the spot from patches of its surroundings instead of one
 //!   source: PatchMatch-based completion ([`lightcraft_inpaint::complete`]), coarse to fine, so the
 //!   structure is chosen at a scale set by the spot's size (the same at preview and export size).
@@ -332,7 +334,7 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         })
         .collect();
     pts.first()?;
-    let fill = matches!(spot.mode, SpotMode::Fill | SpotMode::Generate);
+    let fill = synthesises(spot);
     let flat = spot.mode == SpotMode::Flat;
     let reach = if fill { r * GROW + 1.0 } else { r };
     let offset = if fill || flat {
@@ -370,11 +372,31 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         bh: by1 - by0,
         inner: reach * (1.0 - feather * 0.8),
         opacity: (spot.opacity / 100.0).clamp(0.0, 1.0) as f32,
-        heal: matches!(spot.mode, SpotMode::Remove | SpotMode::Heal),
+        heal: matches!(spot.mode, SpotMode::Remove | SpotMode::Heal) && !fill,
         fill,
         reach,
         flat,
     })
+}
+
+/// Whether `spot` is rebuilt from its surroundings (content-aware synthesis) rather than copied from
+/// one source: Fill, Generate (until its patch is there) and a Remove spot without a source.
+pub fn synthesises(spot: &Spot) -> bool {
+    matches!(spot.mode, SpotMode::Fill | SpotMode::Generate) || (spot.mode == SpotMode::Remove && spot.source_offset.is_none())
+}
+
+/// Whether `spot` has no GPU kernel (the CPU renders a photo that has one): the synthesised ones and
+/// Even Out.
+pub fn cpu_only(spot: &Spot) -> bool {
+    synthesises(spot) || spot.mode == SpotMode::Flat
+}
+
+/// Whether a Remove spot's stroke is brushed (its points spread further than its radius): one
+/// source rarely fits such an area, so Remove rebuilds it from its surroundings instead.
+pub fn brushed(spot: &Spot) -> bool {
+    let Some(first) = spot.points.first() else { return false };
+    let r = if spot.size.is_finite() { spot.size.max(0.0) } else { 0.0 };
+    spot.points.iter().any(|p| (p.x - first.x).hypot(p.y - first.y) > r)
 }
 
 /// Even Out ([`SpotMode::Flat`]): per pixel and channel, the gain that lifts the box's smooth tone under the stroke
@@ -854,6 +876,39 @@ mod tests {
         let mut copied = make();
         apply(&mut copied, &[clone], &frame, ppl);
         assert_eq!(copied.get(90, 120), clean.get(290, 120));
+    }
+
+    /// The tools differ: a brushed Remove without a source is rebuilt from its surroundings (the
+    /// stripes run on through it, as with Content-Aware) and has no GPU kernel; a Remove with a source
+    /// heals from it (as Heal); Clone copies it as it is.
+    #[test]
+    fn remove_rebuilds_a_brushed_stroke_and_heals_a_click() {
+        let (w, h) = (200, 160);
+        let frame = Frame::new(w, h, &DevelopSettings::default(), true);
+        let stroke = Spot {
+            mode: SpotMode::Remove,
+            points: vec![Point::new(0.47, 0.5), Point::new(0.53, 0.5)],
+            size: 0.05,
+            feather: 0.0,
+            ..Default::default()
+        };
+        assert!(brushed(&stroke) && synthesises(&stroke) && cpu_only(&stroke));
+        let mut img = striped_with_blot(w, h, 8);
+        apply(&mut img, std::slice::from_ref(&stroke), &frame, frame.px_per_long(w));
+        let mut err = 0.0f32;
+        for x in 90..110 {
+            let want = if (x / 8) % 2 == 0 { 0.2 } else { 0.7 };
+            err += (img.get(x, 80)[0] - want).abs();
+        }
+        assert!(err / 20.0 < 0.15, "mean error {}", err / 20.0);
+        // with a source: the same pixels as Heal from it
+        let click = Spot { points: vec![Point::new(0.5, 0.5)], source_offset: Some(Point::new(0.0, 0.3)), ..stroke };
+        assert!(!brushed(&click) && !synthesises(&click) && !cpu_only(&click));
+        let (mut a, mut b) = (striped_with_blot(w, h, 8), striped_with_blot(w, h, 8));
+        apply(&mut a, std::slice::from_ref(&click), &frame, frame.px_per_long(w));
+        apply(&mut b, &[Spot { mode: SpotMode::Heal, ..click.clone() }], &frame, frame.px_per_long(w));
+        assert_eq!(a.data, b.data);
+        assert!(!cpu_only(&Spot { mode: SpotMode::Heal, source_offset: None, ..click }));
     }
 
     #[test]
