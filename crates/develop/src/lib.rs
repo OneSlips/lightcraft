@@ -137,6 +137,11 @@ impl DevelopSettings {
         if a.is_finite() && self.enhance.denoise_enabled() && self.section_enabled("detail") { (a / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 }
     }
 
+    /// Whether retouch section `section` is on: its own eye and the Retouch panel's (`retouch`).
+    pub fn retouch_section_on(&self, section: &str) -> bool {
+        self.section_enabled("retouch") && self.section_enabled(section)
+    }
+
     pub fn set_section_enabled(&mut self, section: &str, on: bool) {
         self.disabled_sections.retain(|s| s != section);
         if !on {

@@ -1,16 +1,83 @@
-//! Portrait retouching in the Edit and Remove panels: Smooth Skin (its own section, beyond
-//! Lightroom) and Find Blemishes (a button in Remove). Both run `skin.*` / `spot.findBlemishes`
+//! Portrait retouching (beyond Lightroom): the Edit panel's **Retouch** section, one sub-section per
+//! part of a person (Skin, Blemishes, …), each with its own eye for a before/after; and Find
+//! Blemishes in the Remove panel too. They run `skin.*`, `retouch.*` and `spot.findBlemishes`
 //! commands; the open MediaPipe models they need are offered for download when missing.
 
-use egui::RichText;
+use egui::{Align2, RichText, Sense, Stroke, pos2, vec2};
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::{DevelopSettings, SkinArea, SkinSmoothing};
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::i18n::tr;
+use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
 use crate::widgets::{register, segmented, text_button};
+
+/// The Retouch section's body: its sub-sections, folded or open.
+pub fn panel(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId) {
+    if sub_header(app, ui, d, "skin", "Skin", d.skin.active(), true) {
+        smooth_skin(app, ui, d, id);
+    }
+    if sub_header(app, ui, d, "blemishes", "Blemishes", false, false) {
+        padded(ui, |ui| {
+            note(ui, "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).");
+            ui.add_space(4.0);
+            find_blemishes(app, ui);
+        });
+        ui.add_space(4.0);
+    }
+    ui.add_space(4.0);
+}
+
+/// A sub-section's header: a chevron, its title, a dot while it changes the photo, and (`eye`) its
+/// eye, which switches it off for a before/after. Returns whether it is open.
+fn sub_header(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, key: &str, title: &str, active: bool, eye: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let flyout = format!("retouch.{key}");
+    let open = app.ui.flyout_open(&flyout);
+    let title = tr(title);
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title.to_string()));
+    register(ui.ctx(), format!("retouch:{key}"), r);
+    let p = ui.painter();
+    if ui.rect_contains_pointer(r) {
+        p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));
+    }
+    let chev = egui::Rect::from_center_size(pos2(r.left() + 30.0, r.center().y), vec2(12.0, 12.0));
+    paint(p, chev, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text_label);
+    let galley = p.text(pos2(r.left() + 42.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(13.0), t.text);
+    let section = section_id(key);
+    let on = d.section_enabled(&section);
+    if active {
+        // a dot: this part is being retouched
+        p.circle_filled(pos2(galley.right() + 8.0, r.center().y), 3.0, if on { t.accent } else { t.text_disabled });
+    }
+    if eye && (active || !on) {
+        let er = egui::Rect::from_center_size(pos2(r.right() - 34.0, r.center().y), vec2(16.0, 16.0));
+        let e = ui.interact(er, ui.id().with(("retouchEye", key)), Sense::click());
+        crate::widgets::announce_selected(&e, tr("Show / hide"), on);
+        register(ui.ctx(), format!("retouchEye:{key}"), er);
+        paint(ui.painter(), er, Icon::Eye, if on { t.icon } else { t.text_disabled });
+        if !on {
+            ui.painter().line_segment([er.left_bottom(), er.right_top()], Stroke::new(1.5, t.text_disabled));
+        }
+        if e.clicked() {
+            let _ = app.run("develop.sectionEnabled", json!({"section": section, "enabled": !on}));
+            return open;
+        }
+    }
+    if resp.clicked() {
+        app.ui.toggle_flyout(&flyout);
+    }
+    open
+}
+
+/// The develop section (its eye) of a Retouch sub-section: `skin` for Smooth Skin, `retouch.<key>`
+/// for the others.
+pub fn section_id(key: &str) -> String {
+    if key == "skin" { key.to_string() } else { format!("retouch.{key}") }
+}
 
 fn padded(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, add);
@@ -53,7 +120,7 @@ fn status(app: &LightcraftApp, d: &DevelopSettings, id: PhotoId) -> Option<Strin
     }
 }
 
-/// The Smooth Skin section's body.
+/// The Skin sub-section's body (Smooth Skin).
 pub fn smooth_skin(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: PhotoId) {
     let k = d.skin;
     if !k.active() {
@@ -90,10 +157,10 @@ pub fn smooth_skin(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     } else if app.session.segmenter.skin_pending(id) {
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
     }
-    for c in ["skin.amount", "skin.texture", "skin.evenTone", "skin.redness"] {
+    for c in ["skin.amount", "skin.texture", "skin.evenTone", "skin.redness", "skin.shine"] {
         super::edit::control(app, ui, d, c, true);
     }
-    super::edit::sub_title(ui, "Skin");
+    super::edit::sub_title(ui, "Face or Body");
     let areas = [(SkinArea::Face, "Face", "face"), (SkinArea::Body, "Body", "body"), (SkinArea::Both, "Both", "both")];
     let items: Vec<(&str, &str)> = areas.iter().map(|(_, l, k)| (*l, *k)).collect();
     let mut chosen = None;

@@ -3075,5 +3075,9 @@
   "Show the group in the menus": "Показать группу в меню",
   "The import presets saved in the Import tab, shared by all your libraries.": "Пресеты импорта, сохранённые на вкладке «Импорт», общие для всех библиотек.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Пресеты меню «Эффект» панели «Маски», общие для всех библиотек. «Скрыть» убирает пресет из меню; здесь он остаётся.",
-  "With AI masks only": "Только с ИИ-масками"
+  "With AI masks only": "Только с ИИ-масками",
+  "Blemishes": "Дефекты кожи",
+  "Face or Body": "Лицо или тело",
+  "Reduce Shine": "Убрать блеск",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "Убирает небольшие тёмные или красные пятна на коже лиц (и, если нужно, тела)."
 }

@@ -1,5 +1,18 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### Retouch panel
+- **Edit ▸ Retouch** (where Smooth Skin was, below Detail) gathers the portrait retouch in one place,
+  a part of the person at a time. Each part folds open, has plain sliders, works on everyone or on
+  one person, and has its own **eye** for a before/after; the Retouch section's eye switches all of
+  it off. A dot marks the parts that change the photo.
+- **Skin**: Smooth Skin as before (Amount, Texture, Even Tone, Redness, face or body, a person),
+  plus **Reduce Shine**, which tones down shiny spots on the forehead, nose and cheeks towards the
+  skin around them.
+- **Blemishes**: Find Blemishes (faces, and body skin if you like), also still in the Remove panel.
+- **Window ▸ Edit Sections ▸ Retouch** opens it.
+
 ## 2026-10-16
 
 ### Presets Manager

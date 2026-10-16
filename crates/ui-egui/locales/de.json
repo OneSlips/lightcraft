@@ -3083,5 +3083,9 @@
   "Show the group in the menus": "Gruppe in den Menüs zeigen",
   "The import presets saved in the Import tab, shared by all your libraries.": "Die im Import-Tab gespeicherten Importvorgaben, von allen Bibliotheken genutzt.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Die Vorgaben im Effekt-Menü des Masken-Bedienfelds, von allen Bibliotheken genutzt. Ausblenden nimmt eine aus dem Menü; hier bleibt sie.",
-  "With AI masks only": "Nur mit KI-Masken"
+  "With AI masks only": "Nur mit KI-Masken",
+  "Blemishes": "Hautunreinheiten",
+  "Face or Body": "Gesicht oder Körper",
+  "Reduce Shine": "Glanz mindern",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "Retuschiert kleine dunkle oder rote Flecken auf der Haut der Gesichter (und auf Wunsch des Körpers)."
 }

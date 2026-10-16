@@ -1426,6 +1426,8 @@ pub struct SkinSmoothing {
     pub even_tone: f64,
     /// 0..100: reduces patches redder than the skin around them.
     pub redness: f64,
+    /// 0..100: tones down shine (hot spots brighter than the skin around them) towards that skin.
+    pub shine: f64,
     pub area: SkinArea,
     /// 0: everyone; n: the n-th person from the left (by their face), as People masks count.
     pub person: u32,
@@ -1433,7 +1435,7 @@ pub struct SkinSmoothing {
 
 impl Default for SkinSmoothing {
     fn default() -> Self {
-        Self { amount: 0.0, texture: 0.0, even_tone: 0.0, redness: 0.0, area: SkinArea::Face, person: 0 }
+        Self { amount: 0.0, texture: 0.0, even_tone: 0.0, redness: 0.0, shine: 0.0, area: SkinArea::Face, person: 0 }
     }
 }
 
@@ -1441,7 +1443,8 @@ impl SkinSmoothing {
     /// Most people Smooth Skin tells apart (Person 1 to 4, as the People mask offers).
     pub const MAX_PERSON: u32 = 4;
     /// The subtle starting point Smooth Skin is switched on with.
-    pub const SUBTLE: SkinSmoothing = SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, area: SkinArea::Face, person: 0 };
+    pub const SUBTLE: SkinSmoothing =
+        SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, shine: 0.0, area: SkinArea::Face, person: 0 };
 
     pub fn is_default(&self) -> bool {
         *self == SkinSmoothing::default()
@@ -1450,7 +1453,7 @@ impl SkinSmoothing {
     /// Whether it changes anything (some slider away from zero).
     pub fn active(&self) -> bool {
         let on = |v: f64| v.is_finite() && v != 0.0;
-        on(self.amount) || on(self.texture) || on(self.even_tone) || on(self.redness)
+        on(self.amount) || on(self.texture) || on(self.even_tone) || on(self.redness) || on(self.shine)
     }
 }
 

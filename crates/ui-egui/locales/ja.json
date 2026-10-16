@@ -3082,5 +3082,9 @@
   "Show the group in the menus": "グループをメニューに表示",
   "The import presets saved in the Import tab, shared by all your libraries.": "読み込みタブで保存した読み込みプリセット。すべてのライブラリで共有されます。",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "マスクパネルの効果メニューのプリセット。すべてのライブラリで共有されます。「非表示」はメニューから外し、ここには残ります。",
-  "With AI masks only": "AI マスクありのみ"
+  "With AI masks only": "AI マスクありのみ",
+  "Blemishes": "肌荒れ・シミ",
+  "Face or Body": "顔または体",
+  "Reduce Shine": "テカリを抑える",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "顔の肌（必要なら体の肌も）の小さな暗い点や赤い点を修復します。"
 }

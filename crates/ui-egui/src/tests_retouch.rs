@@ -1,4 +1,4 @@
-//! Headless tests of the Smooth Skin section and the Find Blemishes button.
+//! Headless tests of the Retouch section (Smooth Skin, Find Blemishes) and the Find Blemishes button.
 
 use std::time::Duration;
 
@@ -32,11 +32,7 @@ fn smooth_skin_section_switches_on_offers_the_models_and_sets_skin_and_person() 
     let (mut h, dir) = detail("skin");
     h.app.ui.right = crate::state::RightPanel::Edit;
     h.settle(SETTLE);
-    if !h.app.widgets.iter().any(|(w, _)| w == "button:skinSmooth") {
-        let r = h.request("ui.clickWidget", json!({"id": "section:skin"}), T);
-        assert_eq!(r["ok"], true, "{r}");
-        h.settle(SETTLE);
-    }
+    open_retouch(&mut h, "skin");
     let id = h.app.session.active().unwrap();
     let r = h.request("ui.clickWidget", json!({"id": "button:skinSmooth"}), T);
     assert_eq!(r["ok"], true, "{r}");
@@ -63,6 +59,54 @@ fn smooth_skin_section_switches_on_offers_the_models_and_sets_skin_and_person() 
     assert_eq!(r["ok"], true, "{r}");
     h.settle(SETTLE);
     assert!(!h.app.session.develop_of(id).unwrap().skin.active());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Open the Edit panel's Retouch section and its sub-section `key`.
+fn open_retouch(h: &mut Headless, key: &str) {
+    let has = |h: &Headless, w: &str| h.app.widgets.iter().any(|(id, _)| id == w);
+    if !has(h, &format!("retouch:{key}")) {
+        let r = h.request("ui.clickWidget", json!({"id": "section:retouch"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+    }
+    if !h.app.ui.flyout_open(&format!("retouch.{key}")) {
+        let r = h.request("ui.clickWidget", json!({"id": format!("retouch:{key}")}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+    }
+}
+
+/// The Retouch section groups Skin and Blemishes; a sub-section's eye switches it off and on (a
+/// before/after), and the section's own eye all of Retouch.
+#[test]
+fn retouch_section_groups_skin_and_blemishes_and_their_eyes_switch_them() {
+    let (mut h, dir) = detail("panel");
+    h.app.ui.right = crate::state::RightPanel::Edit;
+    h.settle(SETTLE);
+    let id = h.app.session.active().unwrap();
+    open_retouch(&mut h, "blemishes");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "button:findBlemishes"), "Find Blemishes is in Retouch");
+    open_retouch(&mut h, "skin");
+    let r = h.request("engine.execute", json!({"command": "skin.set", "params": {"shine": 40}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.app.ui.dialog = None;
+    h.settle(SETTLE);
+    assert_eq!(h.app.session.develop_of(id).unwrap().skin.shine, 40.0);
+    let r = h.request("ui.clickWidget", json!({"id": "retouchEye:skin"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let d = h.app.session.develop_of(id).unwrap();
+    assert!(!d.retouch_section_on("skin") && d.skin.shine == 40.0, "the eye hides it, the settings stay");
+    let r = h.request("ui.clickWidget", json!({"id": "retouchEye:skin"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(h.app.session.develop_of(id).unwrap().retouch_section_on("skin"));
+    // the whole section's eye
+    let r = h.request("engine.execute", json!({"command": "develop.sectionEnabled", "params": {"section": "retouch", "enabled": false}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert!(!h.app.session.develop_of(id).unwrap().retouch_section_on("skin"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

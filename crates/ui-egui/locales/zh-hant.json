@@ -2884,5 +2884,9 @@
   "Show the group in the menus": "在選單中顯示此群組",
   "The import presets saved in the Import tab, shared by all your libraries.": "在匯入分頁中儲存的匯入預設，所有圖庫共用。",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "遮色片面板效果選單中的預設，所有圖庫共用。「隱藏」會把它從選單移除，它仍留在這裡。",
-  "With AI masks only": "僅含 AI 遮色片"
+  "With AI masks only": "僅含 AI 遮色片",
+  "Blemishes": "瑕疵",
+  "Face or Body": "臉部或身體",
+  "Reduce Shine": "減少油光",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "修復臉部皮膚（如需要，也包括身體皮膚）上的小深色或紅色斑點。"
 }

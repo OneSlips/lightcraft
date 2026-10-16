@@ -120,7 +120,7 @@ fn status(s: &Session, id: PhotoId) -> Value {
         "active": d.skin.active(),
         "analysis": analysis,
         "faces": a.map_or(0, |a| a.faces.len()),
-        "sectionOn": d.section_enabled("skin"),
+        "sectionOn": d.retouch_section_on("skin"),
     })
 }
 
@@ -192,7 +192,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Set Smooth Skin",
             [],
             None,
-            "{amount?: 0..100, texture?: -100..100, evenTone?: 0..100, redness?: 0..100, area?: face|body|both, person?: 0 (everyone) | 1..4 (counted from the left by their face)} — change the active photo's Smooth Skin (one undo step); the sliders are also develop controls (`skin.amount`, `skin.texture`, `skin.evenTone`, `skin.redness`). A new area or person finds the skin again → skin.status",
+            "{amount?: 0..100, texture?: -100..100, evenTone?: 0..100, redness?: 0..100, shine?: 0..100 (Reduce Shine), area?: face|body|both, person?: 0 (everyone) | 1..4 (counted from the left by their face)} — change the active photo's Smooth Skin (one undo step); the sliders are also develop controls (`skin.amount`, `skin.texture`, `skin.evenTone`, `skin.redness`, `skin.shine`). A new area or person finds the skin again → skin.status",
             has_active,
             |s, p| {
                 let c = "skin.set";
@@ -220,6 +220,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     set(&mut k.texture, "texture", -100.0);
                     set(&mut k.even_tone, "evenTone", 0.0);
                     set(&mut k.redness, "redness", 0.0);
+                    set(&mut k.shine, "shine", 0.0);
                     if let Some(a) = area {
                         k.area = a;
                     }
@@ -266,7 +267,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Smooth Skin Status",
             [],
             None,
-            "{} → {settings: {amount, texture, even_tone, redness, area, person}, active, analysis: off|looking|found|noSkin|missing, faces, sectionOn} for the active photo",
+            "{} → {settings: {amount, texture, even_tone, redness, shine?, area, person}, active, analysis: off|looking|found|noSkin|missing, faces, sectionOn} for the active photo",
             has_active,
             |s, _| {
                 let id = active(s, "skin.status")?;
