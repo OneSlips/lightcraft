@@ -863,6 +863,9 @@ pub struct UiState {
     /// then shows under the selected mask instead of under the tiles.
     #[serde(skip)]
     pub mask_pick_op: Option<String>,
+    /// Reset Settings on New Mask: a new mask starts at zero instead of with the last mask's
+    /// settings (Lightroom's Reset Sliders Automatically). Remembered.
+    pub mask_reset_new: bool,
     /// The People and Roles window is open; its Forget All button was clicked once.
     #[serde(skip)]
     pub roles_window: bool,
@@ -1503,6 +1506,7 @@ impl Default for UiState {
             people_by_role: false,
             concept_pick: false,
             mask_pick_op: None,
+            mask_reset_new: false,
             roles_window: false,
             forget_all_armed: false,
             renaming_component: None,
