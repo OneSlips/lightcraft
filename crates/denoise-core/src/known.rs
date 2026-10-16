@@ -62,7 +62,7 @@ fn rawnind_bayer() -> Known {
 pub const LIGHTCRAFT_BAYER_URL: &str = "https://github.com/storytold/lightcraft/releases/download/denoise-model-0.1.0/lightcraft-bayer-0.1.0.onnx";
 /// SHA-256 and size of that `.onnx` (`tools/denoise-train/export.py` prints both).
 #[cfg(any(feature = "lightcraft-model", test))]
-const LIGHTCRAFT_BAYER_SHA256: &str = "d0320161c1a3632a29a0745f8bdb30783f135f6e4f22600552b54d5ff4b1a68d";
+const LIGHTCRAFT_BAYER_SHA256: &str = "abd3c4cdea163b27439cefae8972a21755510bce18ee036e991d20cf3247dea9";
 #[cfg(any(feature = "lightcraft-model", test))]
 const LIGHTCRAFT_BAYER_BYTES: u64 = 31_091_398;
 
