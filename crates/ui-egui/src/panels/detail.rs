@@ -3660,14 +3660,16 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let p = ui.painter();
             let label = app.session.catalog.photo(*id).and_then(|ph| ph.label);
             let selected = state != lightcraft_engine::SelectionState::NotSelected;
+            let flag = app.session.catalog.photo(*id).map(|ph| ph.flag).unwrap_or_default();
             let base = if selected {
                 t.cell_selected
             } else if resp.hovered() {
                 t.cell_selected.gamma_multiply(0.6)
             } else {
-                t.canvas
+                super::grid::flag_tint(t.canvas, flag)
             };
             p.rect_filled(cr, 0.0, crate::theme::label_background(base, label, selected));
+            super::grid::flag_line(p, &t, cr, flag);
             let names = app.ui.settings.film_names;
             if let Some(ph) = app.session.catalog.photo(*id).filter(|_| names) {
                 let name = ph.file_name.rsplit_once('.').map(|(n, _)| n).unwrap_or(&ph.file_name);
@@ -3676,7 +3678,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             }
             // the marks under the picture (Settings ▸ Interface), or over its bottom edge
             let under = app.ui.settings.badges_under && app.ui.settings.film_badges;
-            let strip = if under { (cr.height() * 0.17).clamp(16.0, 26.0) } else { 0.0 };
+            let strip = if under { (cr.height() * 0.11).clamp(12.0, 16.0) } else { 0.0 };
             let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0 + strip));
             if under && let Some(ph) = app.session.catalog.photo(*id) {
                 let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
