@@ -170,11 +170,7 @@ pub fn detail_status(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, am
         PhotoState::NotApplicable | PhotoState::Ready => {}
         PhotoState::NoModel => {
             egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
-                note(
-                    ui,
-                    "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.",
-                    t.text_dim,
-                );
+                note(ui, "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.", t.text_dim);
                 ui.add_space(2.0);
                 let r = ui.small_button(crate::i18n::tr("Why?"));
                 register(ui.ctx(), "denoise:setup", r.rect);
