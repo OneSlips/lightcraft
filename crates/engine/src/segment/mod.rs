@@ -207,8 +207,9 @@ pub enum AutoModel {
     /// `sam2`: SAM 2.1 to cut one person out of a group (their whole silhouette, so an arm around
     /// them stays the other person's), when installed.
     People { people: Option<PathBuf>, face: Option<PathBuf>, scene: Option<PathBuf>, sam2: Option<PathBuf> },
-    /// SAM 2.1 for a remembered object.
-    Concept(PathBuf),
+    /// SAM 2.1 for a remembered object; `people` (MediaPipe Selfie Multiclass, when installed) to
+    /// take the wearer's skin and hair out of a garment.
+    Concept { sam2: PathBuf, people: Option<PathBuf> },
 }
 
 /// One click of an Object selection (normalized image coordinates).
@@ -552,7 +553,7 @@ impl Segmenter {
                 ok("scene").map(AutoModel::Scene).ok_or(e)
             }
             AutoKind::Sky | AutoKind::Landscape { .. } => self.require_model("scene").map(AutoModel::Scene),
-            AutoKind::Concept { .. } => self.require_model("sam2").map(AutoModel::Concept),
+            AutoKind::Concept { .. } => self.require_model("sam2").map(|sam2| AutoModel::Concept { sam2, people: ok("people") }),
             AutoKind::People { person, parts, who } => {
                 let face_parts = parts.iter().any(|p| FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));
                 let body = parts.is_empty() || parts.iter().any(|p| !FACE_PARTS.contains(&p.to_ascii_lowercase().as_str()));

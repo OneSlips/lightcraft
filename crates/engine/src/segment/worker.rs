@@ -675,14 +675,35 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 None => SegMask::from_logits(g.side, &g.logits),
             }))
         }
-        AutoModel::Concept(dir) => {
+        AutoModel::Concept { sam2, people } => {
             let Target::Concept(examples) = target else { return Err("which remembered object?".into()) };
-            job.dir = dir;
-            let (m, enc, input) = sam2_on_input(state, shared, job)?;
-            let _row = row(job, "Finding a remembered object");
-            let found = lightcraft_segment::concept::find(m, enc, examples, &input.rgb, input.w, input.h).map_err(|e| e.to_string())?;
+            job.dir = sam2;
+            let found = {
+                let (m, enc, input) = sam2_on_input(state, shared, job)?;
+                let _row = row(job, "Finding a remembered object");
+                lightcraft_segment::concept::find(m, enc, examples, &input.rgb, input.w, input.h).map_err(|e| e.to_string())?
+            };
             log::info!("remembered object: best likeness {:.3}", found.as_ref().map_or(f32::NAN, |f| f.score));
-            Ok(found.map(|f| SegMask::from_logits(f.mask_side, &f.logits)))
+            let Some(f) = found else { return Ok(None) };
+            // the class map, to take the wearer's skin and hair out of a garment (without the
+            // people model the edge is refined all the same)
+            if let Some(dir) = &people {
+                let mapped = ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load).and_then(|()| {
+                    cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| {
+                        m.segment(&i.rgb, i.w, i.h)
+                    })
+                    .map(|_| ())
+                });
+                if let Err(e) = mapped {
+                    log::warn!("remembered object: skin and hair can't be taken out ({e})");
+                }
+            }
+            let map = state.people_cache.as_ref().filter(|(k, _)| people.is_some() && *k == job.key).map(|(_, m)| m);
+            let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+            Ok(match lightcraft_segment::people::garment_mask(&f.logits, f.mask_side, &input.rgb, input.w, input.h, map) {
+                Some(g) => Some(SegMask::from_logits(g.side, &g.logits)),
+                None => Some(SegMask::from_logits(f.mask_side, &f.logits)),
+            })
         }
     }
 }
