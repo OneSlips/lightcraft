@@ -449,6 +449,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             for (label, tool, tip) in REMOVE_TOOLS {
                 if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).on_hover_text(crate::i18n::tr(tip)).clicked() {
                     app.ui.tool = tool.into();
+                    app.ui.remove_tool = tool.into();
                 }
             }
         });

@@ -671,7 +671,7 @@ From `06-shortcuts.md` part 1. Evidence is our binding; conflicts are explained 
 | KEY-BRUSHSIZE | Brush size — `[` / `]` | P0 | ✅ | `cmd:brush.smaller`, `cmd:brush.larger` | Masking brush and Remove tool (and its selected spot) |
 | KEY-BRUSHFEATHER | Brush feather — ⇧`[` / ⇧`]` | P0 | ✅ | `cmd:brush.featherLess`, `cmd:brush.featherMore` | |
 | KEY-BRUSH | Brush — B | P0 | ✅ | `cmd:tool.brush` | |
-| KEY-HEAL | Remove / heal — H | P0 | ✅ | `cmd:panel.remove` | |
+| KEY-HEAL | Remove / heal — H | P0 | ✅ | `cmd:panel.remove` | opens on the Remove tool used last (Heal stays Heal; this session) |
 | KEY-MERGE | HDR / panorama merges — ⌃H ⇧⌃H ⌃M ⇧⌃M | P2 | ✅ | `cmd:dialog.mergeHdr`, `cmd:dialog.mergePanorama`, `cmd:merge.hdrLast`, `cmd:merge.panoramaLast` | |
 | KEY-PICK | Pick — Z | P0 | 🟡 | `cmd:photo.pick` | bound to P; Z toggles zoom |
 | KEY-UNFLAG | Unflag — U | P0 | ✅ | `cmd:photo.unflag` | |
@@ -820,6 +820,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-17 | patch | KEY-HEAL: the Remove panel comes back on the tool last used; status unchanged |
 | 2026-10-17 | patch | LR-REM-CONTENTAWARE: Remove no longer equals Heal: a brushed Remove stroke is rebuilt from its surroundings, a clicked one heals from a source it picks again when moved; plain-words tooltips on the five Remove tools; status unchanged |
 | 2026-10-17 | patch | LR-REM-GEN: a fill is one request or none; the tiled paths (thin areas, sharper tiles for large ones) are gone, and an area too large for one request sends nothing and says so; status unchanged |
 | 2026-10-17 | patch | LR-REM-HEAL: Heal blends (a Poisson / membrane tone correction on the CPU and the GPU) instead of acting as a clone in large areas; status unchanged |

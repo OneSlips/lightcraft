@@ -907,6 +907,9 @@ pub struct UiState {
     pub grading_hidden: Option<(lightcraft_catalog::PhotoId, [bool; 3])>,
     /// Active on-canvas tool: "", "brush", "linear", "radial", "wbPicker", "straighten", "remove".
     pub tool: String,
+    /// The Remove panel's tool last used ("remove", "fill", "generate", "heal", "clone"): the panel
+    /// opens on it again (this session).
+    pub remove_tool: String,
     pub brush_size: f32,
     pub brush_feather: f32,
     pub brush_flow: f32,
@@ -1519,6 +1522,7 @@ impl Default for UiState {
             grading_mode: "3way".into(),
             grading_hidden: None,
             tool: String::new(),
+            remove_tool: "remove".into(),
             brush_size: 0.04,
             brush_feather: 50.0,
             brush_flow: 60.0,

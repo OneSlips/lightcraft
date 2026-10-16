@@ -1227,8 +1227,10 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "panel.remove" => {
             panel(app, &ctx, RightPanel::Remove, "Remove");
+            // back on the tool used last (Heal stays Heal)
             if app.ui.right == RightPanel::Remove && app.ui.tool.is_empty() {
-                app.ui.tool = "remove".into();
+                let last = crate::panels::right::REMOVE_TOOLS.iter().find(|(_, t, _)| *t == app.ui.remove_tool).map_or("remove", |(_, t, _)| *t);
+                app.ui.tool = last.into();
             }
             Ok(Value::Null)
         }
