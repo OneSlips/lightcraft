@@ -769,8 +769,9 @@ fn tile_active(app: &LightcraftApp, kind: &str) -> bool {
 /// or a component combined by `op`: nothing is made until the photo is clicked or dragged
 /// ([`crate::panels::detail`]). The same tool again puts it away.
 pub(crate) fn arm(app: &mut LightcraftApp, ctx: &egui::Context, kind: &str, op: &str) {
-    // a tile clicked again while its tool waits for the photo puts it away; once the tool has made
-    // a mask, the tile makes it ready for the next one (Add / Subtract menus always arm)
+    // one press = one mask: a tile clicked again while its tool waits for the photo puts it away;
+    // once the tool has made its mask (a gradient's tool is then put away, a brush keeps painting
+    // that mask), the tile arms it for the next one (Add / Subtract menus always arm)
     if op == "new" && app.ui.tool == kind && app.ui.mask_new.as_ref().is_some_and(|(_, o)| o == op) {
         app.ui.tool.clear();
         app.ui.mask_new = None;

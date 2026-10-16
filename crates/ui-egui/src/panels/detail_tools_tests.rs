@@ -55,6 +55,8 @@ fn which_part_of_a_gradient_a_press_grabs() {
     assert_eq!(gradient_part(&linear, pos2(202.0, 300.0), &m), Some(LINE_START));
     assert_eq!(gradient_part(&linear, pos2(398.0, 60.0), &m), Some(LINE_END));
     assert_eq!(gradient_part(&linear, pos2(250.0, 200.0), &m), Some(0), "between the lines: moves");
+    assert_eq!(gradient_part(&linear, pos2(480.0, 200.0), &m), None, "beyond the end line: not grabbed (a drag there pans)");
+    assert_eq!(gradient_part(&linear, pos2(120.0, 200.0), &m), None, "before the start line too");
     let radial = MaskShape::Radial { center: Point::new(0.5, 0.5), rx: 0.25, ry: 0.25, angle: 0.0, feather: 50.0, invert: false };
     // radius 100 points round (300, 200)
     assert_eq!(gradient_part(&radial, pos2(300.0, 150.0), &m), Some(0), "inside: moves");

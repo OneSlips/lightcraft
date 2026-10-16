@@ -2635,8 +2635,12 @@ fn gradient_part(shape: &MaskShape, q: Pos2, map: &CanvasMap) -> Option<u8> {
                 Some(LINE_START)
             } else if (t - len).abs() < 6.0 {
                 Some(LINE_END)
-            } else {
+            } else if (0.0..=len).contains(&t) {
+                // between its outer lines: the whole gradient moves
                 Some(0)
+            } else {
+                // beyond them: not this gradient (a drag there pans a zoomed photo)
+                None
             }
         }
         _ => None,
@@ -2664,7 +2668,7 @@ fn gradient_grab(m: &lightcraft_develop::Mask, q: Pos2, map: &CanvasMap) -> Opti
             return Some((ci, h));
         }
     }
-    m.components.iter().position(|c| linear(&c)).map(|ci| (ci, 0))
+    m.components.iter().position(|c| linear(&c) && gradient_part(&c.shape, q, map) == Some(0)).map(|ci| (ci, 0))
 }
 
 /// The system cursor for dragging `handle` of `shape` from `q`; `None` for a turn (no system
@@ -2801,27 +2805,6 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if app.ui.mask_new.as_ref().is_some_and(|(k, _)| *k != app.ui.tool) {
         app.ui.mask_new = None;
     }
-    // a gradient tool still in use after its mask was made: a drag that grabs nothing of the
-    // selected mask (no pin, handle, line or radial body) draws another one, as in Lightroom
-    // Classic; no need to press the tool again
-    if app.ui.mask_new.is_none()
-        && matches!(app.ui.tool.as_str(), "linear" | "radial")
-        && resp.drag_started()
-        && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
-    {
-        let on_grip = grips.iter().any(|g| g.3.distance(q) < 10.0);
-        let on_selected = d.masks.iter().find(|m| Some(m.id) == active).is_some_and(|m| {
-            m.components.iter().any(|c| match gradient_part(&c.shape, q, map) {
-                // (a linear gradient's "anywhere" doesn't count: only its lines)
-                Some(0) => matches!(c.shape, MaskShape::Radial { .. }),
-                Some(_) => true,
-                None => false,
-            })
-        });
-        if !on_grip && !on_selected {
-            app.ui.mask_new = Some((app.ui.tool.clone(), "new".into()));
-        }
-    }
     if let Some((kind, op)) = app.ui.mask_new.clone()
         && (resp.drag_started() || resp.clicked())
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
@@ -2849,6 +2832,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             match r {
                 Ok(_) => {
                     app.ui.mask_new = None;
+                    // one press of a gradient tool makes one mask: the tool is put away, and later
+                    // clicks and drags edit (or move) this mask, never make another one; the tool
+                    // pressed again draws the next (a brush keeps painting its mask)
+                    if matches!(kind.as_str(), "linear" | "radial") {
+                        app.ui.tool.clear();
+                    }
                     if shaped {
                         // drawing: the new gradient's end (or the ellipse's size) follows the pointer
                         let made = app.session.active().and_then(|id| app.session.develop_of(id)).and_then(|d| {

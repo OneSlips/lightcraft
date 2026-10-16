@@ -81,9 +81,9 @@
   starts with them.
 - **A new mask starts with the last mask's settings**, as in Lightroom Classic. Tick **Reset
   settings on new mask** (remembered) to start every new mask at zero instead.
-- **A tool makes mask after mask**: after one Radial or Linear, drag again on the photo (away from
-  the gradient's pins, lines and body) for the next one, or press the tool again; it no longer has
-  to be switched off and on. Pressing a tool that hasn't drawn anything yet puts it away.
+- **One press of a tool makes one mask**: after you draw a Radial or Linear its tool is put away,
+  and clicks or drags on the photo then edit or move that mask; they never make copies. Press the
+  tool again for the next one. Pressing a tool that hasn't drawn anything yet puts it away.
 - **A new gradient appears where you drag it**: a second Radial landed on the first one's spot.
 - **The overlay stays away from masks with settings**: a new mask that starts with settings (the
   last mask's, or a preset's) shows its effect, not the red overlay. The overlay shows by itself

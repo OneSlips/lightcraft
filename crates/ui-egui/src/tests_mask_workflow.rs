@@ -1,5 +1,5 @@
 //! The whole masking workflow as a photographer uses it, headless: settings before the first mask,
-//! a tool making mask after mask, switching tools, effect presets before and after, carried-over
+//! one press of a tool making one mask, switching tools, effect presets before and after, carried-over
 //! settings and Reset Settings on New Mask, Add / Subtract with every kind, and when the overlay
 //! shows.
 
@@ -112,33 +112,45 @@ fn settings_set_before_drawing_go_to_the_next_mask() {
     assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None);
 }
 
-/// A tool stays ready: after one radial, a drag elsewhere draws another one where it was dragged
-/// (it appeared on the first one's spot); a drag on the first one moves it; pressing the tool
-/// again also gets a new one. The same for Linear, and Brush with its tile.
+/// One press of a tool = one mask: after one radial the tool is put away; a drag or a click
+/// elsewhere makes no other mask (a drag on the mask moves it); pressing the tool again draws the
+/// next one, where it is dragged. The same for Linear; Brush strokes paint the one mask its tile
+/// made, and the tile again starts a new one.
 #[test]
-fn a_tool_makes_mask_after_mask_each_where_it_is_drawn() {
+fn one_press_of_a_tool_makes_one_mask() {
     let mut h = masking();
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.25, 0.3), (0.33, 0.36));
+    assert_eq!(develop(&h).masks.len(), 1);
+    assert_eq!(h.app.ui.tool, "", "the tool is put away after its mask");
+    assert!(h.app.ui.mask_new.is_none());
+    // drags and clicks away from it make no copies
     drag(&mut h, (0.7, 0.7), (0.78, 0.76));
+    tap(&mut h, (0.6, 0.2));
+    tap(&mut h, (0.1, 0.8));
+    assert_eq!(develop(&h).masks.len(), 1, "no mask from clicks or drags elsewhere");
+    assert_eq!(develop(&h).masks[0].components.len(), 1, "and no part added to it");
+    assert!(near(radial_centres(&h)[0], (0.25, 0.3)), "{:?}", radial_centres(&h));
+    // a drag inside it moves it
+    drag(&mut h, (0.25, 0.3), (0.35, 0.4));
     let c = radial_centres(&h);
-    assert_eq!(develop(&h).masks.len(), 2, "a second drag makes a second mask");
-    assert!(near(c[0], (0.25, 0.3)) && near(c[1], (0.7, 0.7)), "each where it was dragged: {c:?}");
-    assert_eq!(h.app.ui.tool, "radial", "the tool stays ready");
-    // a drag inside the selected (second) one moves it, it doesn't make a third
-    drag(&mut h, (0.7, 0.7), (0.6, 0.65));
-    let c = radial_centres(&h);
-    assert_eq!(c.len(), 2);
-    assert!(near(c[1], (0.6, 0.65)) && near(c[0], (0.25, 0.3)), "{c:?}");
-    // the tile pressed again: ready for another one
+    assert_eq!(c.len(), 1);
+    assert!(near(c[0], (0.35, 0.4)), "moved: {c:?}");
+    // the tile pressed again: the next one, where dragged, and the tool is put away again
     click(&mut h, "maskNew:radial");
     assert_eq!(h.app.ui.tool, "radial");
+    drag(&mut h, (0.7, 0.7), (0.78, 0.76));
+    let c = radial_centres(&h);
+    assert_eq!(c.len(), 2);
+    assert!(near(c[0], (0.35, 0.4)) && near(c[1], (0.7, 0.7)), "each where it was dragged: {c:?}");
+    assert_eq!(h.app.ui.tool, "");
     drag(&mut h, (0.5, 0.15), (0.56, 0.2));
-    assert_eq!(radial_centres(&h).len(), 3);
-    assert!(near(radial_centres(&h)[2], (0.5, 0.15)));
-    // switching tools: Linear, then another Linear by dragging elsewhere
+    assert_eq!(radial_centres(&h).len(), 2, "still no third");
+    // Linear: one per press too
     click(&mut h, "maskNew:linear");
     drag(&mut h, (0.1, 0.1), (0.1, 0.3));
+    drag(&mut h, (0.8, 0.5), (0.9, 0.5));
+    click(&mut h, "maskNew:linear");
     drag(&mut h, (0.8, 0.5), (0.9, 0.5));
     let linears: Vec<_> = develop(&h)
         .masks
@@ -151,6 +163,12 @@ fn a_tool_makes_mask_after_mask_each_where_it_is_drawn() {
         .collect();
     assert_eq!(linears.len(), 2, "{linears:?}");
     assert!(near(linears[0], (0.1, 0.1)) && near(linears[1], (0.8, 0.5)), "{linears:?}");
+    // a click (a radial is placed by one) after its mask: still one
+    click(&mut h, "maskNew:radial");
+    tap(&mut h, (0.5, 0.5));
+    let n = develop(&h).masks.len();
+    tap(&mut h, (0.2, 0.6));
+    assert_eq!(develop(&h).masks.len(), n, "a click places one radial, the next click none");
     // Brush: strokes go into its mask; the tile again starts a new one
     click(&mut h, "maskNew:brush");
     drag(&mut h, (0.2, 0.8), (0.3, 0.8));
@@ -173,18 +191,21 @@ fn new_masks_carry_the_last_settings_unless_reset_is_on() {
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.3, 0.3), (0.4, 0.4));
     exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.2, "clarity": 30}}));
+    click(&mut h, "maskNew:radial");
     drag(&mut h, (0.75, 0.7), (0.82, 0.76));
     let a = selected_adjust(&h);
     assert_eq!((a.exposure, a.clarity), (1.2, 30.0), "the next mask starts with the last mask's settings");
     // Reset settings on new mask: the next one starts at zero (and it is remembered)
     click(&mut h, "check:maskResetNew");
     assert!(h.app.ui.mask_reset_new && h.app.session.mask_reset_new);
+    click(&mut h, "maskNew:radial");
     drag(&mut h, (0.15, 0.75), (0.22, 0.8));
     assert_eq!(selected_adjust(&h), lightcraft_develop::LocalAdjustments::default());
     // …except for settings set on purpose with no mask selected
     exec(&mut h, "mask.select", json!({"id": null}));
     h.step();
     exec(&mut h, "mask.adjust", json!({"values": {"shadows": 40}}));
+    click(&mut h, "maskNew:radial");
     drag(&mut h, (0.5, 0.15), (0.55, 0.2));
     assert_eq!(selected_adjust(&h).shadows, 40.0);
     // effect presets: one saved, applied with no mask (for the next one), then to a mask
@@ -215,6 +236,7 @@ fn the_overlay_shows_by_itself_only_for_a_mask_without_settings() {
     exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1}}));
     assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None, "adjusted: the effect shows");
     // the next one starts with those settings: no overlay by itself, even with its tool in use
+    click(&mut h, "maskNew:radial");
     drag(&mut h, (0.7, 0.7), (0.8, 0.78));
     assert_eq!(develop(&h).masks.len(), 2);
     assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None, "carried settings: no overlay");
