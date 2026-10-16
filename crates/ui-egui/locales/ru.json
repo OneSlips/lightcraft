@@ -2350,11 +2350,10 @@
   "An import is running": "Импорт уже выполняется",
   "An import is running. Drop photos when it has finished": "Импорт уже выполняется. Перетащите фото, когда он закончится",
   "Finish Lightroom catalog import before adding photos": "Завершите импорт каталога Lightroom, прежде чем добавлять фото",
-  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "Для ИИ-шумоподавления нужна модель, а для этой версии её пока нет. Пока что шум уменьшают «Яркость» и «Цвет» в разделе «Детализация».",
-  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "Собственная модель шумоподавления LightCraft ещё обучается, поэтому в этой версии её нет и скачивать пока нечего. Ничего искать или устанавливать не нужно.",
   "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Пока что ваши raw-фото используют обычное шумоподавление: «Яркость» и «Цвет» в разделе «Детализация» панели «Правка». Оно работает на любом фото.",
-  "No AI Denoise model is available yet": "Модели ИИ-шумоподавления пока нет",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Только если вам дали модель шумоподавления LightCraft (папку с файлом .onnx и denoise-model.json):",
-  "When the model is ready, an update will offer it here as a one-click download.": "Когда модель будет готова, обновление предложит скачать её здесь одним щелчком.",
-  "Why?": "Почему?"
+  "Why?": "Почему?",
+  "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.": "Для ИИ-шумоподавления нужна модель, а она не установлена. Пока шум уменьшают Яркость и Цвет в разделе Детали.",
+  "This version doesn't come with an AI Denoise model, and none can be downloaded from here yet.": "В этой версии нет модели ИИ-шумоподавления, и скачать её отсюда пока нельзя.",
+  "No AI Denoise model is installed": "Модель ИИ-шумоподавления не установлена"
 }

@@ -2359,11 +2359,10 @@
   "An import is running": "Hay una importación en curso",
   "An import is running. Drop photos when it has finished": "Hay una importación en curso. Suelta las fotos cuando termine",
   "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos",
-  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "La reducción de ruido con IA necesita un modelo y aún no hay ninguno para esta versión. Mientras tanto, Luminancia y Color en Detalle reducen el ruido.",
-  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "El modelo propio de reducción de ruido de LightCraft aún se está entrenando, así que esta versión no incluye ninguno y todavía no hay nada que descargar. No necesitas buscar ni instalar nada.",
   "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Mientras tanto, tus fotos raw usan la reducción de ruido normal: Luminancia y Color en Detalle, en el panel Editar. Funciona con todas las fotos.",
-  "No AI Denoise model is available yet": "Aún no hay ningún modelo de reducción de ruido con IA",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Solo si te dieron un modelo de reducción de ruido de LightCraft (una carpeta con un archivo .onnx y denoise-model.json):",
-  "When the model is ready, an update will offer it here as a one-click download.": "Cuando el modelo esté listo, una actualización lo ofrecerá aquí para descargarlo con un clic.",
-  "Why?": "¿Por qué?"
+  "Why?": "¿Por qué?",
+  "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.": "La reducción de ruido con IA necesita un modelo y no hay ninguno instalado. Mientras tanto, Luminancia y Color en Detalle reducen el ruido.",
+  "This version doesn't come with an AI Denoise model, and none can be downloaded from here yet.": "Esta versión no incluye ningún modelo de reducción de ruido con IA, y todavía no se puede descargar ninguno desde aquí.",
+  "No AI Denoise model is installed": "No hay ningún modelo de reducción de ruido con IA instalado"
 }

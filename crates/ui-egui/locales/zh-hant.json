@@ -2158,11 +2158,10 @@
   "An import is running": "正在匯入",
   "An import is running. Drop photos when it has finished": "正在匯入。匯入完成後再拖放照片",
   "Finish Lightroom catalog import before adding photos": "新增照片前，請先完成 Lightroom 目錄的匯入",
-  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "AI 降噪需要模型，而此版本還沒有可用的模型。在此之前，可以用「細節」中的「明亮度」和「顏色」降噪。",
-  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "LightCraft 自己的降噪模型仍在訓練中，因此此版本不附帶模型，目前也沒有可下載的內容。你無需尋找或安裝任何東西。",
   "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "在此之前，你的 RAW 照片使用標準降噪：編輯面板「細節」中的「明亮度」和「顏色」。它適用於每張照片。",
-  "No AI Denoise model is available yet": "暫無可用的 AI 降噪模型",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "僅當你拿到了 LightCraft 降噪模型（含 .onnx 檔案和 denoise-model.json 的資料夾）時：",
-  "When the model is ready, an update will offer it here as a one-click download.": "模型就緒後，更新會在這裡提供一鍵下載。",
-  "Why?": "為什麼？"
+  "Why?": "為什麼？",
+  "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.": "AI 降噪需要模型，但尚未安裝。在此之前，可用「細節」下的「明亮度」和「顏色」減少雜訊。",
+  "This version doesn't come with an AI Denoise model, and none can be downloaded from here yet.": "此版本不附帶 AI 降噪模型，目前也無法在這裡下載。",
+  "No AI Denoise model is installed": "未安裝 AI 降噪模型"
 }

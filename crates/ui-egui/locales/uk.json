@@ -2355,11 +2355,10 @@
   "An import is running": "Імпорт уже виконується",
   "An import is running. Drop photos when it has finished": "Імпорт уже виконується. Перетягніть фото, коли він завершиться",
   "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото",
-  "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.": "Для ШІ-шумозаглушення потрібна модель, а для цієї версії її поки немає. Поки що шум зменшують «Яскравість» і «Колір» у розділі «Деталізація».",
-  "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.": "Власна модель шумозаглушення LightCraft ще навчається, тому в цій версії її немає і завантажувати поки нічого. Нічого шукати чи встановлювати не потрібно.",
   "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.": "Поки що ваші raw-фото використовують звичайне шумозаглушення: «Яскравість» і «Колір» у розділі «Деталізація» панелі «Редагування». Воно працює на будь-якому фото.",
-  "No AI Denoise model is available yet": "Моделі ШІ-шумозаглушення поки немає",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Лише якщо вам дали модель шумозаглушення LightCraft (теку з файлом .onnx і denoise-model.json):",
-  "When the model is ready, an update will offer it here as a one-click download.": "Коли модель буде готова, оновлення запропонує завантажити її тут одним клацанням.",
-  "Why?": "Чому?"
+  "Why?": "Чому?",
+  "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.": "Для ШІ-шумозаглушення потрібна модель, а її не встановлено. Поки що шум зменшують Яскравість і Колір у розділі Деталі.",
+  "This version doesn't come with an AI Denoise model, and none can be downloaded from here yet.": "Ця версія не містить моделі ШІ-шумозаглушення, і завантажити її звідси поки не можна.",
+  "No AI Denoise model is installed": "Модель ШІ-шумозаглушення не встановлено"
 }
