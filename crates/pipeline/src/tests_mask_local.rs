@@ -126,3 +126,47 @@ fn black_and_white_ignores_local_point_color_as_it_does_global() {
     let plain = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..Default::default() };
     assert_eq!(shot(&src, &bw).data, shot(&src, &plain).data);
 }
+
+/// A bright subject (a white dress: scene values from its folds, a stop and a half under middle
+/// grey, to near white, in rows) under a mask covering it.
+fn dress() -> Rgb32f {
+    Rgb32f::from_fn(W, H, |_, y| {
+        let v = 0.06 + 0.74 * y as f32 / (H - 1) as f32;
+        [v * 0.98, v, v * 1.02]
+    })
+}
+
+fn tone_masked(adjust: LocalAdjustments) -> DevelopSettings {
+    let mut s = masked(2.0, 2.1, ToneCurve::default(), Vec::new(), 100.0);
+    s.masks[0].adjust = LocalAdjustments { amount: 100.0, ..adjust };
+    s
+}
+
+/// The mean green value of rows `y0..y1`.
+fn rows(img: &Rgba8, y0: usize, y1: usize) -> f64 {
+    let px = img.data[y0 * W..y1 * W].iter();
+    px.map(|p| p[1] as f64).sum::<f64>() / ((y1 - y0) * W) as f64
+}
+
+/// Item 25 (evening retest): a mask's Whites did nothing on a bright dress. They move its
+/// brightest pixels clearly (more than its mid tones), and Blacks its darkest ones more than its
+/// brightest.
+#[test]
+fn mask_whites_and_blacks_move_a_bright_subjects_tones() {
+    let src = dress();
+    let plain = shot(&src, &DevelopSettings::default());
+    let whites = shot(&src, &tone_masked(LocalAdjustments { whites: 100.0, ..Default::default() }));
+    let darker = shot(&src, &tone_masked(LocalAdjustments { whites: -100.0, ..Default::default() }));
+    let (top, low) = ((H * 3 / 4, H * 7 / 8), (0, H / 8));
+    let lift = rows(&whites, top.0, top.1) - rows(&plain, top.0, top.1);
+    assert!(lift > 8.0, "Whites +100 brightens the dress's brightest tones ({lift:.1} levels)");
+    let drop = rows(&plain, top.0, top.1) - rows(&darker, top.0, top.1);
+    assert!(drop > 15.0, "Whites -100 pulls them down ({drop:.1} levels)");
+    let low_lift = rows(&whites, low.0, low.1) - rows(&plain, low.0, low.1);
+    assert!(low_lift < lift, "the brightest move more than the darker parts ({low_lift:.1} vs {lift:.1})");
+    let blacks = shot(&src, &tone_masked(LocalAdjustments { blacks: -100.0, ..Default::default() }));
+    let deep = rows(&plain, low.0, low.1) - rows(&blacks, low.0, low.1);
+    assert!(deep > 6.0, "Blacks -100 deepens the dress's darkest tones ({deep:.1} levels)");
+    let top_deep = rows(&plain, top.0, top.1) - rows(&blacks, top.0, top.1);
+    assert!(top_deep < deep, "…more than its brightest ({top_deep:.1} vs {deep:.1})");
+}

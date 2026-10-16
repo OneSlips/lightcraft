@@ -86,6 +86,14 @@ fn vignette(s: &DevelopSettings) -> Option<Vig> {
 
 pub use crate::grain::GRAIN_HASH;
 
+/// Where a mask's Whites act (log2 luminance over middle grey): from nothing at the first to full at
+/// the second (the white point is about 2.9). Mirrored in `finish.wgsl`.
+pub const LOCAL_WHITES: (f32, f32) = (-0.5, 2.6);
+/// Where a mask's Blacks act: full at the first, nothing from the second on. Mirrored in `finish.wgsl`.
+pub const LOCAL_BLACKS: (f32, f32) = (-5.5, 1.0);
+/// The most a mask's Whites or Blacks at ±100 move a pixel (EV).
+pub const LOCAL_WB_EV: f32 = 1.5;
+
 /// Number of per-mask terms in [`mask_terms`].
 pub const MASK_TERMS: usize = 21;
 
@@ -516,11 +524,16 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 let wh = smooth(-1.0, 2.8, base);
                 delta += ss * 1.7 * ws * ws.sqrt() + hh * 1.7 * wh;
             }
+            // local Whites / Blacks: the brightest (darkest) tones under the mask, from just above
+            // (below) middle grey and strongest towards the white point (deep shadows), so a bright
+            // subject's highlights (a white dress) move, not only what is already near clipping
             if l_wh != 0.0 {
-                delta += l_wh * 0.8 * smooth(0.5, 3.0, l1);
+                let w = smooth(LOCAL_WHITES.0, LOCAL_WHITES.1, l1);
+                delta += l_wh * LOCAL_WB_EV * w * w.sqrt();
             }
             if l_bl != 0.0 {
-                delta += l_bl * 0.8 * (1.0 - smooth(-6.0, -1.5, l1));
+                let b = 1.0 - smooth(LOCAL_BLACKS.0, LOCAL_BLACKS.1, l1);
+                delta += l_bl * LOCAL_WB_EV * b;
             }
             if l_con != 0.0 {
                 delta += l_con * 0.14 * l1.clamp(-6.0, 4.0);

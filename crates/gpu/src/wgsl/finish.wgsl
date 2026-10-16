@@ -728,11 +728,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let wh = sstep(-1.0, 2.8, base);
         delta += ss * 1.7 * ws * sqrt(ws) + hh * 1.7 * wh;
     }
+    // local Whites / Blacks (lightcraft_pipeline::finish::LOCAL_WHITES / LOCAL_BLACKS / LOCAL_WB_EV)
     if (lt[6] != 0.0) {
-        delta += lt[6] * 0.8 * sstep(0.5, 3.0, l1);
+        let wt = sstep(-0.5, 2.6, l1);
+        delta += lt[6] * 1.5 * wt * sqrt(wt);
     }
     if (lt[7] != 0.0) {
-        delta += lt[7] * 0.8 * (1.0 - sstep(-6.0, -1.5, l1));
+        let bt = 1.0 - sstep(-5.5, 1.0, l1);
+        delta += lt[7] * 1.5 * bt;
     }
     if (lt[3] != 0.0) {
         delta += lt[3] * 0.14 * clamp(l1, -6.0, 4.0);

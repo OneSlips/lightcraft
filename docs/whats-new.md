@@ -11,6 +11,9 @@
   each with its heading): eight colour sliders each, with coloured tracks, and a targeted
   adjustment per group. HSL is the default and your choice is remembered. Point Color is now the
   Color Mixer's second tab.
+- **A mask's Whites and Blacks work on bright subjects**: Whites moves the brightest tones under
+  the mask (the highlights of a white dress, not only what was already near clipping), Blacks the
+  darkest. Both are stronger than before.
 
 ## 2026-10-16
 
