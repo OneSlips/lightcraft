@@ -197,7 +197,8 @@ fn cell_ui(
         && !over_star
         && let Some(s) = s
     {
-        app.hover_preview = Some(HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(p_id, p_name)), settings: s });
+        app.hover_preview =
+            Some(HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(p_id, p_name)), settings: s });
         ui.data_mut(|m| m.insert_temp(egui::Id::new("last-profile-hover"), (id, p_id.to_string())));
     }
     let resp = resp.on_hover_text(format!(

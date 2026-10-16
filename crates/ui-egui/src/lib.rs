@@ -175,11 +175,11 @@ mod tests_profiles_layout;
 #[cfg(test)]
 mod tests_quit_unsaved;
 #[cfg(test)]
-mod tests_render_storms;
-#[cfg(test)]
 mod tests_recheck;
 #[cfg(test)]
 mod tests_rename_person;
+#[cfg(test)]
+mod tests_render_storms;
 #[cfg(test)]
 mod tests_sam_setup;
 #[cfg(test)]
