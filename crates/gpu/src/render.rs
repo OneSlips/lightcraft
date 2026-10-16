@@ -1320,13 +1320,14 @@ fn mask_alpha(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &m
                 MaskShape::Brush { strokes } => {
                     let dabs: Vec<_> = strokes.iter().map(|st| lightcraft_pipeline::masks::brush_dabs(st, frame, w, h)).collect();
                     // pen pressure varies radius and flow per dab, which the kernel doesn't take: the CPU rasterizes it
-                    let auxes: Option<Vec<Vec<f32>>> = if dabs.iter().map(|d| d.dabs.len()).sum::<usize>() > MAX_DABS || dabs.iter().any(|d| !d.pressure.is_empty()) {
-                        None
-                    } else if dabs.iter().any(|d| d.auto) {
-                        dabs.iter().map(|d| brush_aux(&[d], false, w, h)).collect()
-                    } else {
-                        brush_aux(&dabs.iter().collect::<Vec<_>>(), true, w, h).map(|a| vec![a])
-                    };
+                    let auxes: Option<Vec<Vec<f32>>> =
+                        if dabs.iter().map(|d| d.dabs.len()).sum::<usize>() > MAX_DABS || dabs.iter().any(|d| !d.pressure.is_empty()) {
+                            None
+                        } else if dabs.iter().any(|d| d.auto) {
+                            dabs.iter().map(|d| brush_aux(&[d], false, w, h)).collect()
+                        } else {
+                            brush_aux(&dabs.iter().collect::<Vec<_>>(), true, w, h).map(|a| vec![a])
+                        };
                     if auxes.is_none() {
                         None
                     } else if dabs.iter().any(|d| d.auto) {
