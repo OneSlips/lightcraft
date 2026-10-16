@@ -44,6 +44,10 @@
   the gradient's pins, lines and body) for the next one, or press the tool again; it no longer has
   to be switched off and on. Pressing a tool that hasn't drawn anything yet puts it away.
 - **A new gradient appears where you drag it**: a second Radial landed on the first one's spot.
+- **The overlay stays away from masks with settings**: a new mask that starts with settings (the
+  last mask's, or a preset's) shows its effect, not the red overlay. The overlay shows by itself
+  only for a mask without settings yet, while you draw a mask, and while the pointer is on its row
+  or pin; **O** shows it whenever you want.
 - **Add, Subtract and Intersect offer every kind of mask** that Create New Mask does, in the same
   order and with the same icons: also Background, People, Remembered, Landscape and Color. A Radial
   minus the Background is two clicks. People, Remembered and Landscape open their picker under the
