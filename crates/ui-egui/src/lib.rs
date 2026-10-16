@@ -161,6 +161,8 @@ mod tests_panels;
 #[cfg(test)]
 mod tests_preset_import;
 #[cfg(test)]
+mod tests_presets_manager;
+#[cfg(test)]
 mod tests_preview_limit;
 #[cfg(test)]
 mod tests_print;
@@ -1452,6 +1454,10 @@ impl LightcraftApp {
             // on the Profile Manager, dropped files and folders are profiles
             let dropped = if !dropped.is_empty() && panels::profile_manager::takes_drops(self) {
                 panels::profile_manager::drop_import(self, dropped);
+                Vec::new()
+            } else if !dropped.is_empty() && panels::presets_manager::takes_drops(self) {
+                // on the Presets Manager, dropped files and folders are presets
+                let _ = self.run("file.importPresets", serde_json::json!({"paths": dropped}));
                 Vec::new()
             } else {
                 dropped

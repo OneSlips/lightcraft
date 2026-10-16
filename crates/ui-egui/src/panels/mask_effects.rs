@@ -129,10 +129,10 @@ fn state_id() -> egui::Id {
 /// The effects the menu lists for `query`: (section heading, effect name, its row widget id).
 fn menu_rows(effects: &[MaskEffect], query: &str) -> Vec<(String, String, String)> {
     let q = query.trim().to_lowercase();
-    let hit = |e: &MaskEffect| q.is_empty() || e.name.to_lowercase().contains(&q) || e.group.to_lowercase().contains(&q);
+    let hit = |e: &MaskEffect| !e.hidden && (q.is_empty() || e.name.to_lowercase().contains(&q) || e.group.to_lowercase().contains(&q));
     let mut rows = Vec::new();
     if q.is_empty() {
-        let mut favs: Vec<&MaskEffect> = effects.iter().filter(|e| e.favorite).collect();
+        let mut favs: Vec<&MaskEffect> = effects.iter().filter(|e| e.favorite && !e.hidden).collect();
         favs.sort_by(|a, b| fx::natural_cmp(&a.name, &b.name));
         rows.extend(favs.into_iter().map(|e| ("★ Favorites".to_string(), e.name.clone(), format!("maskEffectFav:{}", e.name))));
     }

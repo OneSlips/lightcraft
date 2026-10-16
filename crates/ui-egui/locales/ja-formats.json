@@ -417,6 +417,8 @@
   "The library backup failed: {e}": "ライブラリのバックアップに失敗しました：{e}",
   "{n} photos · {size}": "{n} 枚 · {size}",
   "Delete the group “{name}”?": "グループ「{name}」を削除しますか？",
+  "Restore Built-in Presets ({n})": "内蔵プリセットを復元（{n}）",
+  "Take “{name}” off this computer?": "このコンピューターから「{name}」を外しますか？",
   "default for {bodies}": "{bodies} の既定",
   "{n} built-in items are taken off this computer (Restore brings them back).": "内蔵の {n} 項目がこのコンピューターから外されます（復元で戻せます）。",
   "{n} of your own: delete them, or move them to another group.": "自分の {n} 項目：削除するか、別のグループに移動します。"

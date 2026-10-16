@@ -83,6 +83,9 @@ pub struct MaskEffect {
     pub group: String,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub favorite: bool,
+    /// Out of the Effect menu (Presets Manager ▸ Hide), kept in the managers.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
     /// The sliders this effect sets ([`FIELDS`] names); empty = all of them.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub fields: Vec<String>,
@@ -105,6 +108,7 @@ impl Default for MaskEffect {
             adjust: LocalAdjustments::default(),
             group: String::new(),
             favorite: false,
+            hidden: false,
             fields: Vec::new(),
             with_amount: false,
             brush: None,
@@ -538,6 +542,23 @@ fn favorite_effect(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(list(s))
 }
 
+fn hide_effect(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "mask.hideEffect";
+    let names = names_param(p, C)?;
+    let mut idx = Vec::new();
+    for n in &names {
+        idx.push(effect_index(s, n, C)?);
+    }
+    let want = p.get("hidden").and_then(Value::as_bool);
+    for i in idx {
+        if let Some(e) = s.mask_effects.get_mut(i) {
+            e.hidden = want.unwrap_or(!e.hidden);
+        }
+    }
+    s.save_prefs()?;
+    Ok(list(s))
+}
+
 fn set_group(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "mask.setEffectGroup";
     let names = names_param(p, C)?;
@@ -640,6 +661,15 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("mask.deleteEffect", "Delete Mask Effect", [], None, "{name | names: [name]} — removes effect presets", always, delete_effect),
         cmd!("mask.favoriteEffect", "Favorite Mask Effect", [], None, "{name | names, favorite?: bool (default: toggle)}", always, favorite_effect),
+        cmd!(
+            "mask.hideEffect",
+            "Hide Mask Effect",
+            [],
+            None,
+            "{name | names, hidden?: bool (default: toggle)} — out of the Effect menu, kept in the managers",
+            always,
+            hide_effect
+        ),
         cmd!("mask.setEffectGroup", "Move Mask Effect to Group", [], None, "{name | names, group: name (\"\" = none)}", always, set_group),
         cmd!(
             "mask.renameEffectGroup",

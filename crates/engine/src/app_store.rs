@@ -110,6 +110,46 @@ impl ProfileState {
     }
 }
 
+/// The Presets Manager's choices: presets and built-in presets hidden or removed from this install,
+/// built-in presets renamed or moved to another group, and the order of the groups. User presets
+/// carry their own name and group.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PresetState {
+    /// Out of the Presets panel and the pickers, kept in the manager.
+    pub hidden: Vec<String>,
+    /// Built-in presets deleted from this install ("Restore built-in presets" brings them back).
+    pub removed: Vec<String>,
+    /// New names of built-in presets.
+    pub names: BTreeMap<String, String>,
+    /// Groups of built-in presets moved elsewhere.
+    pub groups: BTreeMap<String, String>,
+    /// Groups in the order the user put them, empty groups made in the manager included.
+    pub group_order: Vec<String>,
+}
+
+impl PresetState {
+    pub fn is_default(&self) -> bool {
+        *self == PresetState::default()
+    }
+
+    fn merge(&mut self, other: PresetState) {
+        for (mine, theirs) in [(&mut self.hidden, other.hidden), (&mut self.removed, other.removed), (&mut self.group_order, other.group_order)] {
+            for x in theirs {
+                if !mine.contains(&x) {
+                    mine.push(x);
+                }
+            }
+        }
+        for (k, v) in other.names {
+            self.names.entry(k).or_insert(v);
+        }
+        for (k, v) in other.groups {
+            self.groups.entry(k).or_insert(v);
+        }
+    }
+}
+
 /// A library merged into the store.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -143,6 +183,10 @@ struct SharedFile {
     import: ImportDefaults,
     profiles: ProfileState,
     merged: Vec<Merged>,
+    /// Import presets (named sets of import settings).
+    import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
+    /// The Presets Manager's choices.
+    preset_state: PresetState,
 }
 
 const SHARED_VERSION: u32 = 1;
@@ -169,11 +213,14 @@ pub(crate) struct LibraryShared {
     pub import: ImportDefaults,
     pub profiles: ProfileState,
     pub store_with_library: bool,
+    pub import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
+    pub preset_state: PresetState,
 }
 
 /// The keys of a library's `prefs.json` that the store holds while the library uses it: written back
 /// as they were read (the library's own copy stays as it was).
-pub(crate) const SHARED_PREFS_KEYS: [&str; 5] = ["lutProfiles", "dcpProfiles", "maskEffects", "maskToolEffects", "profiles"];
+pub(crate) const SHARED_PREFS_KEYS: [&str; 7] =
+    ["lutProfiles", "dcpProfiles", "maskEffects", "maskToolEffects", "profiles", "importPresets", "presetState"];
 
 /// The store on disk.
 pub struct AppStore {
@@ -432,6 +479,8 @@ impl Session {
         self.import_defaults.auto_copy = auto_copy;
         self.import_defaults.auto_album = auto_album;
         self.profile_state = shared.profiles;
+        self.import_presets = shared.import_presets;
+        self.preset_state = shared.preset_state;
         self.set_presets_from(presets.unwrap_or_default());
         self.shared_presets_saved = crate::library::PresetsSaved::state_of(self);
         // what was just read is on disk already
@@ -453,6 +502,7 @@ impl Session {
                 list.push(u);
             }
         }
+        crate::preset_manager::apply_builtin_overrides(&mut list, &self.preset_state);
         self.presets = crate::presets::PresetList::new(list);
         let favorites: Vec<String> = f.profile_favorites.into_iter().filter(|id| self.profile_known(id)).collect();
         let recent: Vec<String> = f.profile_recent.into_iter().filter(|id| self.profile_known(id)).take(crate::presets::RECENT_PROFILES).collect();
@@ -476,6 +526,8 @@ impl Session {
             import: ImportDefaults { auto_folder: None, auto_copy: false, auto_album: None, ..self.import_defaults.clone() },
             profiles: self.profile_state.clone(),
             merged,
+            import_presets: self.import_presets.clone(),
+            preset_state: self.preset_state.clone(),
         };
         serde_json::to_vec_pretty(&f).unwrap_or_default()
     }
@@ -635,6 +687,22 @@ impl Session {
             self.import_defaults.auto_album = a;
         }
         self.profile_state.merge(shared.profiles, &remap);
+        self.preset_state.merge(shared.preset_state);
+        // import presets: by name; the same name with other settings is kept as "name 2"
+        for mut ip in shared.import_presets {
+            if let Some(have) = self.import_presets.iter().find(|x| x.name.eq_ignore_ascii_case(&ip.name)) {
+                if have.settings == ip.settings {
+                    continue;
+                }
+                let base = ip.name.clone();
+                let mut n = 2;
+                while self.import_presets.iter().any(|x| x.name.eq_ignore_ascii_case(&ip.name)) && n < 10_000 {
+                    ip.name = format!("{base} {n}");
+                    n += 1;
+                }
+            }
+            self.import_presets.push(ip);
+        }
         // develop presets: the same preset (name, group, settings) once; a taken id gets a new one
         if let Some(f) = presets {
             report.presets = self.merge_presets(f, &remap);

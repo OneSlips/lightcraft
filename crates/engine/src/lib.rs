@@ -72,6 +72,7 @@ mod pdf;
 pub mod people_store;
 pub mod preset_import;
 pub mod preset_luminar;
+pub mod preset_manager;
 pub mod preset_xmp;
 pub mod presets;
 pub mod presets_smart;
@@ -301,6 +302,11 @@ pub struct Session {
     pub profile_favorites: Vec<String>,
     /// Recently applied profile ids, newest first (at most [`presets::RECENT_PROFILES`]).
     pub profile_recent: Vec<String>,
+    /// The Presets Manager's choices: hidden and removed presets, built-in presets renamed or
+    /// regrouped, the order of the groups ([`preset_manager`]).
+    pub preset_state: app_store::PresetState,
+    /// Changes whenever `preset_state` does (the Presets panel's cache key, with the list's generation).
+    pub preset_state_gen: u64,
     /// The Profile Manager's choices: hidden, removed, renamed, regrouped and reordered profiles.
     pub profile_state: app_store::ProfileState,
     /// The app-wide store of presets, profiles and effects shared by every library (`None`: each
@@ -506,6 +512,8 @@ impl Session {
             profile_favorites: Vec::new(),
             profile_recent: Vec::new(),
             profile_state: Default::default(),
+            preset_state: Default::default(),
+            preset_state_gen: 0,
             app_store: None,
             shared_presets_saved: Default::default(),
             backups: Default::default(),

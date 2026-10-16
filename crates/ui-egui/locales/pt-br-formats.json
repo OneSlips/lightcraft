@@ -417,6 +417,8 @@
   "The library backup failed: {e}": "O backup da biblioteca falhou: {e}",
   "{n} photos · {size}": "{n} fotos · {size}",
   "Delete the group “{name}”?": "Excluir o grupo “{name}”?",
+  "Restore Built-in Presets ({n})": "Restaurar predefinições integradas ({n})",
+  "Take “{name}” off this computer?": "Remover “{name}” deste computador?",
   "default for {bodies}": "padrão de {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} itens integrados são removidos deste computador (Restaurar os traz de volta).",
   "{n} of your own: delete them, or move them to another group.": "{n} seus: excluí-los ou movê-los para outro grupo."

@@ -2,6 +2,21 @@
 
 ## 2026-10-16
 
+### Presets Manager
+- **Settings ▸ Presets** (or **Manage Presets…** in the Presets panel's menu) lists every develop
+  preset, yours (all 11 000 of a Lightroom collection, in their groups) and LightCraft's with the
+  Smart Masks, plus your local adjustment presets and import presets.
+- Per preset: **favourite, rename, move to a group, move up or down, hide** (out of the Presets
+  panel, kept here) and **delete** (a built-in one is taken off this computer; **Restore Built-in
+  Presets** brings it back).
+- Per group: **fold, rename, move up or down, hide, delete** (or move its presets to another group
+  first), and **New Group…**.
+- **Search** by name or group, and **With AI masks only**. Groups start folded; a search opens what
+  it finds. Scrolling stays smooth with 11 000+ presets.
+- **Import** presets, folders, Lightroom preset folders and .zip packs (or drop them on the window),
+  and **export** them for LightCraft or for Lightroom (.xmp). Import presets are now shared by all
+  your libraries too.
+
 ### Profile Manager: whole groups
 - Each group has a header row: **fold**, **rename**, **move up or down**, **hide** the whole group,
   or **delete** it (LightCraft's looks are taken off this computer and can be restored; your own

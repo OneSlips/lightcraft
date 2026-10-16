@@ -32,6 +32,7 @@ pub mod notices;
 pub mod people;
 pub mod person;
 pub mod presets;
+pub mod presets_manager;
 pub mod profile_manager;
 pub mod profiles;
 pub mod range_pick;

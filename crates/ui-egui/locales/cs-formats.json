@@ -417,6 +417,8 @@
   "The library backup failed: {e}": "Záloha knihovny selhala: {e}",
   "{n} photos · {size}": "{n} fotografií · {size}",
   "Delete the group “{name}”?": "Smazat skupinu „{name}“?",
+  "Restore Built-in Presets ({n})": "Obnovit vestavěné předvolby ({n})",
+  "Take “{name}” off this computer?": "Odebrat „{name}“ z tohoto počítače?",
   "default for {bodies}": "výchozí pro {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} vestavěných položek se odebere z tohoto počítače (Obnovit je vrátí).",
   "{n} of your own: delete them, or move them to another group.": "{n} vlastních: smazat je, nebo přesunout do jiné skupiny."

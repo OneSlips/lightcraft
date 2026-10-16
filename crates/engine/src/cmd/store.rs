@@ -107,6 +107,8 @@ fn use_library(s: &mut Session, p: &Value) -> Result<Value> {
                 import: s.import_defaults.clone(),
                 profiles: s.profile_state.clone(),
                 store_with_library: false,
+                import_presets: s.import_presets.clone(),
+                preset_state: s.preset_state.clone(),
             },
             presets: Some(PresetsFile {
                 user: s.presets.iter().filter(|p| !p.builtin).cloned().collect(),

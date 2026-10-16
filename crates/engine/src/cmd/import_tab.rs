@@ -138,6 +138,19 @@ fn delete_preset(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"deleted": name}))
 }
 
+fn rename_preset(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "import.renamePreset";
+    let name = str_param(p, "name").ok_or_else(|| bad(C, "missing name"))?.to_string();
+    let to = str_param(p, "to").map(str::trim).filter(|t| !t.is_empty()).ok_or_else(|| bad(C, "missing `to`"))?.to_string();
+    if !name.eq_ignore_ascii_case(&to) && s.import_presets.iter().any(|x| x.name.eq_ignore_ascii_case(&to)) {
+        return Err(bad(C, format!("there is an import preset `{to}` already")));
+    }
+    let pr = s.import_presets.iter_mut().find(|x| x.name.eq_ignore_ascii_case(&name)).ok_or_else(|| bad(C, format!("no import preset `{name}`")))?;
+    pr.name = to.clone();
+    s.save_prefs()?;
+    Ok(json!({"renamed": name, "to": to}))
+}
+
 fn finish(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "library.finishImport";
     let previews = str_param(p, "previews").unwrap_or("none");
@@ -193,11 +206,12 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save Import Preset",
             [],
             None,
-            "{name, settings: {mode, destination, organize, rename, presets, keywords, cameraProfile, look, metadataPreset, previews…}} — keep the Import tab's settings under a name (replaces one of that name; saved with the library)",
+            "{name, settings: {mode, destination, organize, rename, presets, keywords, cameraProfile, look, metadataPreset, previews…}} — keep the Import tab's settings under a name (replaces one of that name; shared by every library)",
             always,
             save_preset
         ),
         cmd!("import.deletePreset", "Delete Import Preset", [], None, "{name}", always, delete_preset),
+        cmd!("import.renamePreset", "Rename Import Preset", [], None, "{name, to}", always, rename_preset),
         cmd!(
             "library.finishImport",
             "Finish Import",

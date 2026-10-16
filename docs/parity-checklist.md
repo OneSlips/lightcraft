@@ -54,14 +54,10 @@ cited here still exists. Formerly docs/parity.md.
 | X. Cross-cutting behaviours (BEHAV) | 23 | 6 | 1 | 1 | 8/8 (100%) | 7/10 (70%) |
 | Y. Menus | 84 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 77 | 4 | 2 | 1 | 49/52 (94%) | 23/25 (92%) |
-| Lightroom Classic extras | 40 | 23 | 23 | 8 | — | 24/26 (92%) |
-| **Total** | 433 | 71 | 56 | 32 | 194/202 (96%) | 156/170 (92%) |
-
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **83.7%** of 560 in-scope rows — P0 98.0% of 202 · P1 95.0% of 170 · P2 57.8% of 187.
 | Lightroom Classic extras | 41 | 23 | 23 | 8 | — | 25/27 (93%) |
-| **Total** | 433 | 71 | 56 | 32 | 195/203 (96%) | 156/170 (92%) |
+| **Total** | 436 | 71 | 56 | 32 | 195/203 (96%) | 158/172 (92%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **83.7%** of 560 in-scope rows — P0 98.0% of 203 · P1 95.0% of 170 · P2 57.5% of 186.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **83.7%** of 563 in-scope rows — P0 98.0% of 203 · P1 95.1% of 172 · P2 57.8% of 187.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
@@ -347,7 +343,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 |---|---|---|---|---|---|
 | LR-PRE-PANEL | Presets panel | P0 | ✅ | `cmd:panel.presets`, `cmd:preset.apply`, `crates/ui-egui/src/panels/presets.rs` | grouped list with amount; resting on a preset previews it in the loupe (no history entry), its AI masks too (known selections at once, the rest computed after ~150 ms, cancelled when the pointer leaves); an AI mark on presets with AI masks; optional live thumbnails (⋯ → Show Thumbnails) |
 | LR-PRE-CREATE | Create preset | P0 | ✅ | `cmd:dialog.createPreset`, `cmd:preset.create` (`groups`) | name, group and a checklist of settings groups (crop, masks, remove, red eye off by default; All / None) |
-| LR-PRE-MANAGE | Manage presets | P1 | ✅ | `cmd:preset.delete`, `cmd:preset.favorite`, `cmd:preset.import`, `cmd:preset.export`, `cmd:preset.exportXmp`, `cmd:preset.rename`, `cmd:preset.update`, `cmd:preset.move` | rename, update with current settings, move to a group (existing or new); export as Lightroom-style XMP (masks included; the full preset in `lc:`); no hiding of groups |
+| LR-PRE-MANAGE | Manage presets | P1 | ✅ | `cmd:preset.delete`, `cmd:preset.favorite`, `cmd:preset.import`, `cmd:preset.export`, `cmd:preset.exportXmp`, `cmd:preset.rename`, `cmd:preset.update`, `cmd:preset.move`, `cmd:presets.manager`, `cmd:preset.hide`, `cmd:preset.remove`, `cmd:preset.restoreBuiltins`, `cmd:preset.renameBuiltin`, `cmd:preset.setGroup`, `cmd:preset.reorder`, `cmd:preset.groupHide`, `cmd:preset.groupRemove`, `cmd:preset.groupRename`, `cmd:preset.groupNew`, `cmd:preset.groupMove`, `cmd:mask.hideEffect`, `cmd:import.renamePreset`, `crates/engine/src/preset_manager.rs`, `crates/ui-egui/src/panels/presets_manager.rs` | rename, update with current settings, move to a group (existing or new); export as Lightroom-style XMP (masks included; the full preset in `lc:`); the Presets Manager (Settings ▸ Presets, Manage Presets… in the Presets panel): develop presets (11 000+ in their Lightroom groups, built-in ones and the Smart Masks), local adjustment presets and import presets, each in one list; per preset favourite, rename, move to a group, move up / down (own), hide, delete (built-in ones taken off this install, restorable); per group fold, rename, move, hide, delete or move its presets elsewhere, New Group…; import files, folders, Lightroom preset folders and .zip (drop on the window too), export as .lcpreset or Lightroom .xmp; search by name and group, "with AI masks only"; only the rows in view are built (6 ms a frame with 11 113 presets). Not yet: reordering local adjustment presets (the Effect menu sorts them by name) |
 | LR-PRE-AMOUNT | Preset amount | P1 | ✅ | `cmd:preset.apply` (`amount` 0–200) | |
 | LR-PRE-ADAPTIVE | Adaptive presets | P2 | 🟡 | `cmd:preset.apply`, `crates/engine/src/presets_smart.rs`, `crates/develop/src/recipe.rs`, `docs/smart-presets.md` | presets carry AI masks as recipes computed on each photo (Subject, Sky, Background, People by part, by name or by role, Landscape, remembered objects, gradients anchored to the people); Smart Masks group: Sun Kissed, Recover Blue Suit, Bring Sky Down, Brighten Dress, Darken Background; Lightroom presets with AI masks import as recipes; no adaptive Portrait set that makes one mask per detected person |
 | LR-PRE-PREMIUM | Built-in presets (own) | P2 | ✅ | `crates/engine/src/presets.rs`, `crates/engine/src/presets_smart.rs` | 46 own-authored presets in 11 groups (Color, Film, B&W incl. toners, Portrait, Landscape, Urban, Food, Seasons, Vintage, Style, Smart Masks) |
@@ -467,7 +463,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-PREF-TECHPREVIEW | Early-access toggles | P2 | ⬜ | | |
 | LR-PREF-NOTIFICATIONS | Notifications | OOS | 🚫 | | |
 | LR-PREF-DEVICE | Device settings | P2 | ⬜ | | |
-| LR-PREF-SHARED | Presets and profiles shared by every library | P0 | ✅ | `cmd:store.info`, `cmd:store.mergeLibraries`, `cmd:store.useLibrary`, `crates/engine/src/app_store.rs`, `crates/engine/src/cmd/store.rs` | like Lightroom Classic's presets folder: camera and LUT profiles (files in `<settings>/Library Store/Profiles`), develop presets, local adjustment presets, import settings, camera body defaults and the Profile Manager's choices live in the settings folder; each library is merged in once (opened, or known from Open Recent; deduplicated; profile ids another file took get new ids and the library's photos follow), the library's own copies are kept and left as they were; "Store presets and profiles with this library instead" in Settings ▸ Profiles keeps one library's own (it takes a copy, profile files included) |
+| LR-PREF-SHARED | Presets and profiles shared by every library | P0 | ✅ | `cmd:store.info`, `cmd:store.mergeLibraries`, `cmd:store.useLibrary`, `crates/engine/src/app_store.rs`, `crates/engine/src/cmd/store.rs` | like Lightroom Classic's presets folder: camera and LUT profiles (files in `<settings>/Library Store/Profiles`), develop presets, local adjustment presets, import settings and import presets, the Presets Manager's choices, camera body defaults and the Profile Manager's choices live in the settings folder; each library is merged in once (opened, or known from Open Recent; deduplicated; profile ids another file took get new ids and the library's photos follow), the library's own copies are kept and left as they were; "Store presets and profiles with this library instead" in Settings ▸ Profiles keeps one library's own (it takes a copy, profile files included) |
 
 ## W. Cloud & AI infrastructure (CLOUD / AI)
 

@@ -79,6 +79,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if ui.button(crate::i18n::tr("Import Presets…")).clicked() {
                 let _ = app.run("file.importPresets", json!({}));
             }
+            let r = ui.button(crate::i18n::tr("Manage Presets…"));
+            register(ui.ctx(), "presetMenu:manage", r.rect);
+            if r.clicked() {
+                let _ = app.run("app.settings", json!({"tab": "presets"}));
+            }
             let any_user = app.session.presets.iter().any(|p| !p.builtin);
             if ui.add_enabled(any_user, egui::Button::new(crate::i18n::tr("Export User Presets…"))).clicked() {
                 let _ = app.run("file.exportPresets", json!({}));
@@ -125,7 +130,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let mut hovered_any = false;
         let thumbs = app.ui.preset_thumbs && active.is_some();
         let row_h = if thumbs { 54.0 } else { 26.0 };
-        let groups = grouped(ui.ctx(), &app.session.presets);
+        let groups = grouped(ui.ctx(), &app.session);
         let scroll = egui::ScrollArea::vertical().id_salt("presets-scroll").auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             // Only the rows in view are laid out, drawn and given thumbnails: a Lightroom collection
@@ -326,24 +331,33 @@ struct Group {
     items: Vec<usize>,
 }
 
-/// The presets by group (groups sorted by name, presets in list order), rebuilt only when the
-/// list changed (its generation).
-fn grouped(ctx: &egui::Context, presets: &PresetList) -> Arc<Vec<Group>> {
+/// The presets by group (groups in the Presets Manager's order, else by name; presets in list
+/// order; hidden and removed ones left out), rebuilt only when the list or the manager's choices
+/// changed (their generations).
+fn grouped(ctx: &egui::Context, session: &lightcraft_engine::Session) -> Arc<Vec<Group>> {
+    let presets: &PresetList = &session.presets;
     let id = egui::Id::new("presets-grouped");
-    if let Some((generation, groups)) = ctx.data(|d| d.get_temp::<(u64, Arc<Vec<Group>>)>(id))
-        && generation == presets.generation()
+    let key = (presets.generation(), session.preset_state_gen);
+    if let Some((k, groups)) = ctx.data(|d| d.get_temp::<((u64, u64), Arc<Vec<Group>>)>(id))
+        && k == key
     {
         return groups;
     }
     let mut by_name: BTreeMap<&str, Group> = BTreeMap::new();
     for (i, p) in presets.iter().enumerate() {
+        if !session.preset_shown(p) {
+            continue;
+        }
         let g = by_name.entry(&p.group).or_insert_with(|| Group { name: p.group.clone(), builtin: false, user: false, items: Vec::new() });
         g.builtin |= p.builtin;
         g.user |= !p.builtin;
         g.items.push(i);
     }
-    let groups = Arc::new(by_name.into_values().collect::<Vec<_>>());
-    ctx.data_mut(|d| d.insert_temp(id, (presets.generation(), groups.clone())));
+    let rank = session.preset_group_rank();
+    let mut list: Vec<Group> = by_name.into_values().collect();
+    list.sort_by_key(|g| rank.get(&g.name).copied().unwrap_or(usize::MAX));
+    let groups = Arc::new(list);
+    ctx.data_mut(|d| d.insert_temp(id, (key, groups.clone())));
     groups
 }
 

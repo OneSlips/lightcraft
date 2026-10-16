@@ -230,3 +230,29 @@ fn a_damaged_store_file_is_kept_aside_and_never_crashes() {
     s.close_library().unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn import_presets_and_preset_choices_are_shared() {
+    let root = temp_dir("importpresets");
+    let (a, b, store) = (root.join("A"), root.join("B"), root.join("store"));
+    // a library of before the store, with an import preset of its own
+    {
+        let mut s = Session::new();
+        s.open_library(&a, true).unwrap();
+        s.execute("import.savePreset", &json!({"name": "Card", "settings": {"mode": "copy"}})).unwrap();
+        s.close_library().unwrap();
+    }
+    let mut s = with_store(&store);
+    s.open_library(&a, true).unwrap();
+    assert!(s.import_presets.iter().any(|p| p.name == "Card"), "merged into the store");
+    let builtin = s.presets.iter().find(|p| p.builtin).unwrap().id.clone();
+    s.execute("preset.hide", &json!({"id": builtin})).unwrap();
+    s.close_library().unwrap();
+    drop(s);
+    let mut s = with_store(&store);
+    s.open_library(&b, true).unwrap();
+    assert!(s.import_presets.iter().any(|p| p.name == "Card"), "a new library has it");
+    assert!(s.preset_state.hidden.contains(&builtin));
+    s.close_library().unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -274,6 +274,9 @@ struct PrefsFile {
     /// The Profile Manager's choices (while the library keeps its own; else in the app store).
     #[serde(skip_serializing_if = "crate::app_store::ProfileState::is_default")]
     profiles: crate::app_store::ProfileState,
+    /// The Presets Manager's choices (while the library keeps its own; else in the app store).
+    #[serde(skip_serializing_if = "crate::app_store::PresetState::is_default")]
+    preset_state: crate::app_store::PresetState,
     /// Keep presets, profiles and effects with this library instead of the app store.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     store_with_library: bool,
@@ -543,7 +546,6 @@ impl Session {
         self.export_presets = prefs.export_presets;
         self.print_templates = prefs.print_templates;
         self.metadata_presets = prefs.metadata_presets;
-        self.import_presets = prefs.import_presets;
         self.filter_presets = prefs.filter_presets;
         self.curve_presets = prefs.curve_presets;
         self.label_sets = prefs.label_sets;
@@ -576,6 +578,8 @@ impl Session {
             crate::cmd::dcp_profiles::register_all(self);
             self.import_defaults = prefs.import;
             self.profile_state = prefs.profiles;
+            self.import_presets = prefs.import_presets;
+            self.preset_state = prefs.preset_state;
             let f = settings.read::<PresetsFile>(files.as_mut(), "presets.json").unwrap_or_default();
             self.set_presets_from(f);
             if let Some(st) = self.app_store.as_mut() {
@@ -601,6 +605,8 @@ impl Session {
                     import: prefs.import,
                     profiles: prefs.profiles,
                     store_with_library: false,
+                    import_presets: prefs.import_presets,
+                    preset_state: prefs.preset_state,
                 };
                 merged_now = Some(self.merge_library_content(&dir, crate::app_store::LibraryContent { shared, presets }));
             }
@@ -864,6 +870,7 @@ impl Session {
             slide_titles: self.slide_titles.clone(),
             hold_view: self.hold_view,
             profiles: self.profile_state.clone(),
+            preset_state: self.preset_state.clone(),
             store_with_library: self.library.as_ref().is_some_and(|l| l.store_with_library),
         });
         // while the app store holds them, the library's own copies are written back as read
