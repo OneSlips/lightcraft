@@ -206,6 +206,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let out = slider(ui, &amt, shown.adjust.amount, true, None);
     apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
     for s in LOCAL {
+        if GROUP_STARTS.contains(&s.id) {
+            group_hairline(ui, s.id);
+        }
         let v = local_get(&shown.adjust, s.id);
         let out = slider(ui, s, v, true, None);
         apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
@@ -231,6 +234,22 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     mask_sections(app, ui, id, &m);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
+}
+
+/// The first slider of each group of the mask's sliders (white balance; tone; presence; colour;
+/// detail): a hairline goes above each, so the long column reads in groups.
+pub(crate) const GROUP_STARTS: &[&str] = &["temp", "exposure", "texture", "hue", "sharpness"];
+
+/// A thin line between two groups of mask sliders: much lighter than a section divider, inset to
+/// the sliders' margins, with a little room above and below.
+fn group_hairline(ui: &mut egui::Ui, first: &str) {
+    let t = Tokens::get(ui.ctx());
+    let w = ui.available_width();
+    let (r, _) = ui.allocate_exact_size(vec2(w, 7.0), Sense::hover());
+    let y = r.center().y.round() + 0.5;
+    let line = Rect::from_min_max(pos2(r.left() + 24.0, y - 0.5), pos2(r.right() - 22.0, y + 0.5));
+    ui.painter().rect_filled(line, 0.0, t.divider.gamma_multiply(0.75));
+    register(ui.ctx(), format!("maskGroupLine:{first}"), line);
 }
 
 /// Reset Settings on New Mask (Lightroom's Reset Sliders Automatically): off, a new mask starts

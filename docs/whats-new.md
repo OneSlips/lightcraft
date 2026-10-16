@@ -14,6 +14,8 @@
 - **A mask's Whites and Blacks work on bright subjects**: Whites moves the brightest tones under
   the mask (the highlights of a white dress, not only what was already near clipping), Blacks the
   darkest. Both are stronger than before.
+- **Mask sliders in groups**: thin lines between Temp / Tint, the tone sliders, Texture / Clarity /
+  Dehaze, Hue / Saturation and the detail sliders.
 
 ## 2026-10-16
 

@@ -141,3 +141,24 @@ fn the_bin_deletes_and_the_tree_combines() {
     click(&mut h, &format!("maskDelete:{mid}"));
     assert!(masks(&h).is_empty());
 }
+
+/// Item 25 (evening retest): hairlines split the mask's sliders into groups (Temp / Tint; the tone
+/// sliders; Texture / Clarity / Dehaze; Hue / Saturation; the detail sliders), each just above
+/// its group's first slider and thin.
+#[test]
+fn hairlines_group_the_mask_sliders() {
+    let mut h = masking();
+    h.request("ui.resize", json!({"width": 1400, "height": 2000}), T);
+    h.settle(SETTLE);
+    let at = |h: &Headless, id: &str| h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("no {id}"));
+    let mut last = f32::MIN;
+    for (first, before) in [("temp", "amount"), ("exposure", "tint"), ("texture", "blacks"), ("hue", "dehaze"), ("sharpness", "saturation")] {
+        let line = at(&h, &format!("maskGroupLine:{first}"));
+        assert!(line.height() <= 1.5, "{first}: a hairline, not a section divider ({line:?})");
+        assert!(line.top() > at(&h, &format!("slider:{before}")).bottom() - 1.0, "{first}: below {before}");
+        assert!(line.bottom() < at(&h, &format!("slider:{first}")).top(), "{first}: above its first slider");
+        assert!(line.top() > last, "in order");
+        last = line.top();
+    }
+    assert_eq!(h.app.widgets.iter().filter(|(w, _)| w.starts_with("maskGroupLine:")).count(), 5);
+}
