@@ -3087,5 +3087,7 @@
   "Mixer": "Mischer",
   "HSL": "HSL",
   "Adjust": "Anpassen",
-  "Color Mixer Layout": "Farbmischer-Ansicht"
+  "Color Mixer Layout": "Farbmischer-Ansicht",
+  "Constrain crop by default": "Zuschnitt standardmäßig beschränken",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Neue Fotos beginnen mit „Zuschnitt beschränken“: Der Zuschnitt bleibt nach einer Drehung oder Objektivkorrektur im Foto. Fotos, die schon in der Bibliothek sind, behalten ihre Einstellung."
 }

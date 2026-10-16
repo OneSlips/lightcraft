@@ -3084,5 +3084,7 @@
   "Mixer": "Змішувач",
   "HSL": "HSL",
   "Adjust": "Налаштування",
-  "Color Mixer Layout": "Вигляд змішувача кольорів"
+  "Color Mixer Layout": "Вигляд змішувача кольорів",
+  "Constrain crop by default": "Обмежувати кадрування за замовчуванням",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Нові фото починаються з увімкненим обмеженням кадрування: кадр залишається всередині фото після повороту чи корекції об’єктива. Фото, що вже є в бібліотеці, зберігають своє."
 }

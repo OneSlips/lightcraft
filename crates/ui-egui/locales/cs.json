@@ -2342,5 +2342,7 @@
   "Mixer": "Směšovač",
   "HSL": "HSL",
   "Adjust": "Upravit",
-  "Color Mixer Layout": "Rozvržení směšovače barev"
+  "Color Mixer Layout": "Rozvržení směšovače barev",
+  "Constrain crop by default": "Ve výchozím stavu omezit oříznutí",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Nové fotografie začínají se zapnutým omezením oříznutí: oříznutí zůstane uvnitř fotografie i po otočení nebo korekci objektivu. Fotografie, které už jsou v knihovně, si ponechají své nastavení."
 }

@@ -3084,5 +3084,7 @@
   "Mixer": "Mélangeur",
   "HSL": "TSL",
   "Adjust": "Régler",
-  "Color Mixer Layout": "Disposition du mélangeur de couleurs"
+  "Color Mixer Layout": "Disposition du mélangeur de couleurs",
+  "Constrain crop by default": "Contraindre le recadrage par défaut",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Les nouvelles photos commencent avec Contraindre le recadrage activé : le recadrage reste dans la photo après une rotation ou une correction d’objectif. Les photos déjà dans la bibliothèque gardent le leur."
 }

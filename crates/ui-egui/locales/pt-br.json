@@ -2926,5 +2926,7 @@
   "Mixer": "Misturador",
   "HSL": "HSL",
   "Adjust": "Ajustar",
-  "Color Mixer Layout": "Disposição do misturador de cores"
+  "Color Mixer Layout": "Disposição do misturador de cores",
+  "Constrain crop by default": "Restringir o corte por padrão",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Fotos novas começam com Restringir corte ativado: o corte fica dentro da foto depois de uma rotação ou correção de lente. Fotos que já estão na biblioteca mantêm o seu."
 }

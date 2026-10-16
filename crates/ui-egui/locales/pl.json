@@ -2437,5 +2437,7 @@
   "Mixer": "Mikser",
   "HSL": "HSL",
   "Adjust": "Dostosuj",
-  "Color Mixer Layout": "Układ miksera kolorów"
+  "Color Mixer Layout": "Układ miksera kolorów",
+  "Constrain crop by default": "Domyślnie ograniczaj kadrowanie",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Nowe zdjęcia zaczynają z włączonym ograniczeniem kadrowania: kadr zostaje wewnątrz zdjęcia po obrocie lub korekcji obiektywu. Zdjęcia już w bibliotece zachowują swoje ustawienie."
 }

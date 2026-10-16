@@ -2270,5 +2270,7 @@
   "Mixer": "Miscelatore",
   "HSL": "HSL",
   "Adjust": "Regola",
-  "Color Mixer Layout": "Disposizione del miscelatore colore"
+  "Color Mixer Layout": "Disposizione del miscelatore colore",
+  "Constrain crop by default": "Vincola il ritaglio per impostazione predefinita",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Le nuove foto iniziano con Vincola ritaglio attivo: il ritaglio resta dentro la foto dopo una rotazione o una correzione dell’obiettivo. Le foto già nella libreria mantengono il proprio."
 }

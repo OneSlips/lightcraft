@@ -3086,5 +3086,7 @@
   "Mixer": "ミキサー",
   "HSL": "HSL",
   "Adjust": "調整",
-  "Color Mixer Layout": "カラーミキサーの表示"
+  "Color Mixer Layout": "カラーミキサーの表示",
+  "Constrain crop by default": "切り抜きを既定で制限",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "新しい写真は「切り抜きを制限」がオンで始まります。回転やレンズ補正のあとも切り抜きは写真の内側に収まります。ライブラリにある写真は今の設定のままです。"
 }

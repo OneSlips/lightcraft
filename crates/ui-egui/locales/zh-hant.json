@@ -2888,5 +2888,7 @@
   "Mixer": "混合器",
   "HSL": "HSL",
   "Adjust": "調整",
-  "Color Mixer Layout": "混色器版面"
+  "Color Mixer Layout": "混色器版面",
+  "Constrain crop by default": "預設限制裁切範圍",
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "新照片預設開啟「限制裁切範圍」：旋轉或鏡頭校正後裁切仍保持在照片內。圖庫中已有的照片保留各自的設定。"
 }

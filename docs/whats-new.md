@@ -21,6 +21,9 @@
   and drag. Space no longer zooms out while a tool is in use on a zoomed photo.
 - **An eyedropper pointer** for the white balance selector, Point Color and the Color /
   Luminance Range pickers; its tip is the pixel picked.
+- **Constrain Crop is on for new photos**: the crop stays inside the photo after a rotation or a
+  lens correction. **Settings ▸ Import ▸ Constrain crop by default** turns that off. Photos
+  already in the library, and Lightroom edits, keep theirs.
 
 ## 2026-10-16
 

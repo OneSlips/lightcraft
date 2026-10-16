@@ -336,6 +336,11 @@ pub struct ImportDefaults {
     pub remove_dust: bool,
     /// Open the import review when a camera or memory card is connected.
     pub show_on_card: bool,
+    /// New photos start with Constrain Crop off (Settings ▸ Import ▸ "Constrain crop by default"
+    /// unticked). Off by default: new photos start with it on, so a crop stays inside the photo
+    /// after a rotation or lens correction. Photos already in the library keep theirs.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub crop_unconstrained: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -375,6 +380,13 @@ pub fn apply_import_defaults(s: &Session, p: &mut Photo) {
     }
     if let Some(mp) = d.metadata_preset.as_ref().and_then(|n| s.metadata_presets.iter().find(|m| m.name.eq_ignore_ascii_case(n))) {
         crate::cmd::metadata::apply_to(&mut p.meta, &mp.fields);
+    }
+    // a new photo starts with Constrain Crop as the preference says (on unless turned off); it is
+    // part of the photo's defaults, like its process, so it is not an edit
+    if p.develop.geometry.constrain_crop == d.crop_unconstrained {
+        let mut fresh = (*p.develop).clone();
+        fresh.geometry.constrain_crop = !d.crop_unconstrained;
+        p.develop = std::sync::Arc::new(fresh);
     }
     let base = p.camera_defaults();
     // a raw shown from its embedded JPEG gets the rendered-file default, not the raw one
@@ -1526,6 +1538,12 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 let auto_calibration = p.develop.camera_profile.clone();
                 if let Some(sc) = &sidecar {
                     crate::sidecar::merge_into(&mut p, sc, &now);
+                    // a Lightroom edit (crs: settings) keeps Constrain Crop as it always read: off
+                    if matches!(sc.develop, Some(crate::sidecar::DevelopPatch::Partial(_))) && p.develop.geometry.constrain_crop {
+                        let mut d = (*p.develop).clone();
+                        d.geometry.constrain_crop = false;
+                        p.develop = std::sync::Arc::new(d);
+                    }
                     // Lightroom's camera profile, when it is one of the user's: no warning then
                     let mapped = sc.camera_profile.as_deref().is_some_and(|name| crate::cmd::dcp_profiles::from_xmp_name(s, &mut p, name));
                     // Lightroom's settings without one of the user's camera profiles: they were made

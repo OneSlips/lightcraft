@@ -504,6 +504,19 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     hint(ui, t, crate::i18n::tr("After an import, Remove Dust runs on the new raw photos in the background (their camera's dust map included)."));
+    let mut constrain = !d.crop_unconstrained;
+    row(ui, t, "", |ui| {
+        if check(ui, "settings.constrainCrop", &mut constrain, "Constrain crop by default") {
+            let _ = app.run("library.preferences", json!({"import": {"constrainCrop": constrain}}));
+        }
+    });
+    hint(
+        ui,
+        t,
+        crate::i18n::tr(
+            "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.",
+        ),
+    );
     if per {
         let cams = cameras(app);
         if cams.is_empty() {

@@ -90,13 +90,14 @@ impl DevelopSettings {
         h
     }
 
-    /// True if nothing differs from a fresh default (ignoring white balance "as shot" values, and
-    /// the rendering process: that is not an edit).
+    /// True if nothing differs from a fresh default (ignoring white balance "as shot" values, the
+    /// rendering process and Constrain Crop, which new photos start with on: those are not edits).
     pub fn is_unedited(&self) -> bool {
         let mut a = self.clone();
         let d = DevelopSettings::default();
         a.wb = d.wb;
         a.process = d.process;
+        a.geometry.constrain_crop = d.geometry.constrain_crop;
         a == d
     }
 
