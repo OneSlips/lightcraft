@@ -30,6 +30,8 @@ const LABEL_H: f32 = 20.0;
 const MIN_THUMB_W: f32 = 96.0;
 const MIN_THUMB_W_BIG: f32 = 76.0;
 const BIG_GROUP: usize = 24;
+/// Width of the notes column beside the crops (counts, closed eyes, rows), at most.
+const NOTES_W: f32 = 220.0;
 
 /// The order a big group is shown in: the people to look at first (closed, blurry, half closed,
 /// soft), then those whose eyes can't be seen, then the sharp and open ones.
@@ -246,6 +248,36 @@ pub fn strip_grid(n: usize, w: f32, h: f32, gap: f32, label_h: f32, width: f32, 
     StripGrid { cols, w: tw, h: th, shown }
 }
 
+/// Width (points) of the notes column beside the crops in `room` points (none when there are no
+/// notes): kept from the first frame, never more than a third of the room.
+pub fn notes_width(room: f32, has_notes: bool) -> f32 {
+    if !has_notes || !room.is_finite() { 0.0 } else { NOTES_W.min(room / 3.0).max(0.0) }
+}
+
+/// The scroll bar of a band that holds more rows than it shows: along its right edge.
+fn scroll_track(band: Rect) -> Rect {
+    Rect::from_min_max(pos2(band.right() - 9.0, band.top() + 6.0), pos2(band.right() - 3.0, band.bottom() - 6.0))
+}
+
+/// The first row shown after a drag of `moved` rows from row `from`, kept within `0..=max_first`.
+pub fn rows_after(from: usize, moved: f32, max_first: usize) -> usize {
+    if !moved.is_finite() {
+        return from.min(max_first);
+    }
+    let to = from as f32 + moved;
+    if to <= 0.0 { 0 } else { (to as usize).min(max_first) }
+}
+
+/// The first row shown when the bar `track` is pressed at `y`: the rows shown centred there.
+pub fn row_at(track: Rect, y: f32, rows_all: usize, rows_shown: usize) -> usize {
+    let max_first = rows_all.saturating_sub(rows_shown);
+    if track.height() <= 0.0 || !y.is_finite() || rows_all == 0 {
+        return 0;
+    }
+    let f = ((y - track.top()) / track.height()).clamp(0.0, 1.0) * rows_all as f32 - rows_shown as f32 / 2.0;
+    rows_after(0, f.round(), max_first)
+}
+
 /// Draw the strip across the top of `canvas` for photo `id` (`upcoming`: the photos likely next).
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, id: PhotoId, upcoming: &[PhotoId]) {
     let t = Tokens::get(ui.ctx());
@@ -311,41 +343,64 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     let ppp = ui.ctx().pixels_per_point().max(0.5);
     let n = report.eyes.len();
     let (gap, label_h) = (8.0, LABEL_H);
-    // what the thumbnails don't show, beside them inside the band
+    // what the thumbnails don't show, in a column of its own beside them. Its room is kept from the
+    // first frame (a group always has its count there), so nothing reflows or is pushed off screen
+    // when a note comes in, and the band never grows wider than the loupe.
     let mut notes = Vec::new();
+    let to_look_at = report.eyes.iter().filter(|e| look_first(e.verdict()) < 4).count();
+    if n >= 2 {
+        notes.push(crate::i18n::tr_format!("{n} people, {k} to look at first", n = n, k = to_look_at));
+    }
     if report.blinks() > 0 {
         notes.push(crate::i18n::tr_format!("{} with eyes closed", report.blinks()));
     }
     if report.no_eyes > 0 {
         notes.push(crate::i18n::tr_format!("+{} turned away", report.no_eyes));
     }
+    let room = (canvas.width() - 24.0).max(1.0);
+    let notes_w = notes_width(room, !notes.is_empty() || n >= 2);
+    let max_h = canvas.height() * 0.45;
     // a big group wraps into rows of smaller crops; past what fits, the people to look at come
-    // first and the rest are counted
-    let notes_room = if notes.is_empty() { 0.0 } else { 180.0 };
+    // first and the rest scroll (wheel, drag, or the bar at the band's right edge)
     let grid = strip_grid(
         n,
         lightcraft_engine::eyes::CROP_W as f32 / ppp,
         lightcraft_engine::eyes::CROP_H as f32 / ppp,
         gap,
         label_h,
-        canvas.width() - 24.0 - notes_room,
-        canvas.height() * 0.45,
+        room - notes_w,
+        max_h,
     );
     let (w, h) = (grid.w, grid.h);
     let cols = grid.cols.max(1);
+    let row_h = h + label_h + gap;
     let mut order: Vec<usize> = (0..n).collect();
-    // a group too big for the room: the people to look at first, and the rows scroll (wheel)
     let scrollable = grid.shown < n;
+    let rows_all = n.div_ceil(cols).max(1);
+    let rows_shown = if scrollable { grid.shown.div_ceil(cols).max(1) } else { rows_all };
+    let max_first = rows_all.saturating_sub(rows_shown);
     let mut first_row = 0;
     if scrollable {
         order.sort_by_key(|i| (report.eyes.get(*i).map_or(9, |e| look_first(e.verdict())), *i));
-        let rows_all = n.div_ceil(cols);
-        let rows_shown = grid.shown.div_ceil(cols).max(1);
-        let max_first = rows_all.saturating_sub(rows_shown);
         first_row = if app.eye_strip.scrolled.0 == key { app.eye_strip.scrolled.1.min(max_first) } else { 0 };
-        let band_guess = Rect::from_min_size(pos2(canvas.left(), canvas.top()), vec2(canvas.width(), rows_shown as f32 * (h + label_h + gap) + gap));
+        notes.push(crate::i18n::tr_format!(
+            "Rows {a}–{b} of {c}: scroll for more",
+            a = first_row + 1,
+            b = (first_row + rows_shown).min(rows_all),
+            c = rows_all
+        ));
+    }
+    let wrap = (notes_w - gap).max(1.0);
+    let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout(n, t.font(NOTE_PT), Color32::from_gray(225), wrap)).collect();
+    let notes_h = notes.iter().map(|g| g.size().y + 4.0).sum::<f32>();
+    let thumbs_w = cols.min(n.max(1)) as f32 * (w + gap) + gap;
+    let band_w = (thumbs_w + notes_w).min(canvas.width() - 12.0).max(1.0);
+    let band_h = (rows_shown as f32 * row_h + gap * 0.5).max(notes_h + 2.0 * gap);
+    let band = Rect::from_min_size(pos2(canvas.center().x - band_w / 2.0, canvas.top() + 6.0), vec2(band_w, band_h));
+    if scrollable {
+        // the wheel over the band, a drag on it, or a press / drag on its bar move the rows
         let wheel = ui.input(|i| {
-            if i.pointer.hover_pos().is_some_and(|p| band_guess.contains(p)) {
+            if i.pointer.hover_pos().is_some_and(|p| band.contains(p)) {
                 i.events.iter().map(|e| if let egui::Event::MouseWheel { delta, .. } = e { delta.y } else { 0.0 }).sum::<f32>()
             } else {
                 0.0
@@ -356,41 +411,44 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
         } else if wheel > 0.0 {
             first_row = first_row.saturating_sub(1);
         }
+        let drag = ui.interact(band, egui::Id::new(("eye-strip-drag", key)), Sense::drag());
+        let start_id = egui::Id::new(("eye-strip-drag-from", key));
+        if drag.drag_started() {
+            ui.ctx().data_mut(|d| d.insert_temp(start_id, first_row));
+        }
+        if drag.dragged() {
+            let from = ui.ctx().data(|d| d.get_temp::<usize>(start_id)).unwrap_or(first_row);
+            let moved = (-drag.total_drag_delta().map_or(0.0, |d| d.y) / row_h.max(1.0)).round();
+            first_row = rows_after(from, moved, max_first);
+        }
+        let track = scroll_track(band);
+        let bar = ui.interact(track.expand2(vec2(4.0, 0.0)), egui::Id::new(("eye-strip-bar", key)), Sense::click_and_drag());
+        register(ui.ctx(), "eyes:scrollbar", track);
+        if (bar.clicked() || bar.dragged())
+            && let Some(p) = bar.interact_pointer_pos()
+        {
+            first_row = row_at(track, p.y, rows_all, rows_shown);
+        }
         app.eye_strip.scrolled = (key, first_row);
-        let to_look_at = report.eyes.iter().filter(|e| look_first(e.verdict()) < 4).count();
-        notes.push(crate::i18n::tr_format!("{n} people, {k} to look at first", n = n, k = to_look_at));
-        notes.push(crate::i18n::tr_format!(
-            "Rows {a}–{b} of {c}: scroll for more",
-            a = first_row + 1,
-            b = (first_row + rows_shown).min(rows_all),
-            c = rows_all
-        ));
         order = order.into_iter().skip(first_row.saturating_mul(cols)).take(rows_shown.saturating_mul(cols)).collect();
     }
-    let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout_no_wrap(n, t.font(NOTE_PT), Color32::from_gray(225))).collect();
-    let notes_w = notes.iter().map(|g| g.size().x).fold(0.0f32, f32::max);
-    let rows = order.len().div_ceil(cols).max(1);
-    let thumbs_w = cols.min(order.len().max(1)) as f32 * (w + gap) + gap;
-    let band_w = thumbs_w + if notes.is_empty() { 0.0 } else { notes_w + gap };
-    let band_h = rows as f32 * (h + label_h + gap) + gap * 0.5;
-    let band = Rect::from_min_size(pos2(canvas.center().x - band_w / 2.0, canvas.top() + 6.0), vec2(band_w, band_h));
     let p = ui.painter_at(canvas);
     p.rect_filled(band, 8.0, Color32::from_black_alpha(175));
     register(ui.ctx(), "eyes:strip", band);
     if scrollable {
-        // a thin bar at the band's right edge: where these rows are in the group
-        let rows_all = n.div_ceil(cols).max(1) as f32;
-        let shown_rows = order.len().div_ceil(cols).max(1) as f32;
-        let track = Rect::from_min_max(pos2(band.right() - 5.0, band.top() + 6.0), pos2(band.right() - 2.0, band.bottom() - 6.0));
-        let a = track.top() + track.height() * first_row as f32 / rows_all;
-        let b = (a + track.height() * shown_rows / rows_all).min(track.bottom());
-        p.rect_filled(track, 1.5, Color32::from_white_alpha(30));
-        p.rect_filled(Rect::from_x_y_ranges(track.x_range(), a..=b), 1.5, Color32::from_white_alpha(150));
+        // a bar at the band's right edge: where these rows are in the group
+        let track = scroll_track(band);
+        let a = track.top() + track.height() * first_row as f32 / rows_all as f32;
+        let b = (a + track.height() * rows_shown as f32 / rows_all as f32).min(track.bottom());
+        p.rect_filled(track, 3.0, Color32::from_white_alpha(30));
+        p.rect_filled(Rect::from_x_y_ranges(track.x_range(), a..=b), 3.0, Color32::from_white_alpha(170));
     }
-    let lines = notes.len() as f32;
-    for (k, g) in notes.into_iter().enumerate() {
-        let y = band.top() + gap + (h + label_h) / 2.0 - (lines - 1.0) * 10.0 + k as f32 * 20.0 - g.size().y / 2.0;
-        p.galley(pos2(band.right() - gap - notes_w, y), g, Color32::from_gray(225));
+    let notes_x = band.left() + thumbs_w.min(band_w - notes_w).max(0.0);
+    let mut y = band.top() + gap;
+    for g in notes {
+        let gh = g.size().y;
+        p.galley(pos2(notes_x, y), g, Color32::from_gray(225));
+        y += gh + 4.0;
     }
     for (slot, i) in order.into_iter().enumerate() {
         let (Some(e), Some(tx)) = (report.eyes.get(i), tex.get(i)) else { continue };
@@ -484,6 +542,34 @@ mod tests {
         assert_eq!(junk.shown, 30);
         let narrow = strip_grid(30, 160.0, 100.0, 8.0, LABEL_H, 50.0, 10.0);
         assert!(narrow.cols >= 1 && narrow.shown >= 1);
+    }
+
+    /// A group of 60 (notes item 19): the notes' column is kept from the start, so the crops and the
+    /// notes together fit the loupe at every width, and a bar or a drag scrolls the rows.
+    #[test]
+    fn a_big_group_and_its_notes_never_spill_off_the_loupe() {
+        for canvas_w in [700.0f32, 1000.0, 1400.0, 2400.0] {
+            let room = canvas_w - 24.0;
+            let notes_w = notes_width(room, true);
+            assert!(notes_w > 0.0 && notes_w <= NOTES_W);
+            let g = strip_grid(60, 160.0, 100.0, 8.0, LABEL_H, room - notes_w, 400.0);
+            let thumbs_w = g.cols.min(60) as f32 * (g.w + 8.0) + 8.0;
+            assert!(thumbs_w + notes_w <= room + 0.5, "{canvas_w}: {thumbs_w} + {notes_w} > {room} ({g:?})");
+        }
+        assert_eq!(notes_width(1000.0, false), 0.0);
+        assert_eq!(notes_width(f32::NAN, true), 0.0);
+        // a drag moves whole rows, kept in range
+        assert_eq!(rows_after(2, 1.0, 5), 3);
+        assert_eq!(rows_after(2, -4.0, 5), 0);
+        assert_eq!(rows_after(2, 9.0, 5), 5);
+        assert_eq!(rows_after(2, f32::NAN, 5), 2);
+        // the bar: its top shows the first rows, its bottom the last
+        let track = Rect::from_min_max(pos2(0.0, 0.0), pos2(6.0, 100.0));
+        assert_eq!(row_at(track, 0.0, 10, 2), 0);
+        assert_eq!(row_at(track, 100.0, 10, 2), 8);
+        assert_eq!(row_at(track, 50.0, 10, 2), 4);
+        assert_eq!(row_at(track, f32::NAN, 10, 2), 0);
+        assert_eq!(row_at(Rect::NOTHING, 5.0, 10, 2), 0);
     }
 
     /// The strip has its own switch while importing (on at first: culling) and in the library
