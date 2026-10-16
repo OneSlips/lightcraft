@@ -282,6 +282,16 @@ pub struct Renderer {
     /// The latest loupe renders that reached the screen, oldest first (`ui.inspect` →
     /// `perf.loupeRenders`): how sharp the view was while a slider dragged and how soon after.
     pub loupe_log: std::collections::VecDeque<LoupeRender>,
+    /// Pending requests whose settings hold a content-aware fill (slot → key): solving one can take
+    /// seconds, so while any is out the activity stack says so ([`Self::fill_row`]).
+    fill_jobs: HashMap<Slot, u64>,
+    /// The "Filling spots" row, while [`Self::fill_jobs`] isn't empty.
+    fill_row: Option<lightcraft_engine::activity::TaskGuard>,
+}
+
+/// Whether a render of `s` solves a content-aware fill (a Fill spot).
+fn has_fill(s: &lightcraft_develop::DevelopSettings) -> bool {
+    s.spots.iter().any(|sp| matches!(sp.mode, lightcraft_develop::SpotMode::Fill))
 }
 
 /// How many loupe renders [`Renderer::loupe_log`] keeps.
@@ -380,6 +390,8 @@ impl Renderer {
             natives: HashMap::new(),
             view_requests: HashMap::new(),
             loupe_log: std::collections::VecDeque::new(),
+            fill_jobs: HashMap::new(),
+            fill_row: None,
         }
     }
 }
@@ -553,6 +565,11 @@ impl Renderer {
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
+        if has_fill(&job.settings) {
+            self.fill_jobs.insert(slot, job.key);
+        } else {
+            self.fill_jobs.remove(&slot);
+        }
         if matches!(slot, Slot::Main | Slot::Region) {
             // (requests a drag superseded and that never came back: dropped, the map stays small)
             if self.view_requests.len() > 256 {
@@ -911,12 +928,32 @@ impl Renderer {
         let inline_ms = 0.0;
         let changed = self.collect(ctx, session, inline_ms);
         self.evict_variants();
+        self.track_fills(session);
         #[cfg(not(target_arch = "wasm32"))]
         self.trim_when_idle(ctx);
         if !self.pending.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
         changed
+    }
+
+    /// Hold the "Filling spots" activity row while a render that solves a content-aware fill is out
+    /// (TEST-NOTES 2026-10-16 item 15: a finished patch outline kept the machine busy with no word
+    /// of why). Solved fills are cached, so the row stays only for the first render of a new fill.
+    fn track_fills(&mut self, session: &Session) {
+        let pending = &self.pending;
+        self.fill_jobs.retain(|s, k| pending.get(s).is_some_and(|p| p.0 == *k));
+        if self.fill_jobs.is_empty() {
+            self.fill_row = None;
+        } else if self.fill_row.is_none() {
+            self.fill_row = Some(session.activity.start("fill", "Filling spots", lightcraft_engine::activity::Cancel::No));
+        }
+    }
+
+    /// Whether the "Filling spots" row is up (tests).
+    #[cfg(test)]
+    pub(crate) fn filling(&self) -> bool {
+        self.fill_row.is_some()
     }
 
     /// Ask for the next frame while renders are pending, for requests made after this frame's

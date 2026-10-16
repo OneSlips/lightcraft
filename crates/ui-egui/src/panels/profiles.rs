@@ -101,9 +101,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let th = (cw * 0.75).round();
         for row in list.chunks(COLUMNS) {
             let (rr, _) = ui.allocate_exact_size(vec2(ui.available_width(), th + 30.0), Sense::hover());
+            // only the cells in view ask for their thumbnail: every cell asking re-rendered the
+            // photo once per profile at every edit — hundreds of imported profiles, hundreds of
+            // renders queued at once (TEST-NOTES 2026-10-16 item 15)
+            let in_view = ui.is_rect_visible(rr.expand(th));
             for (i, p) in row.iter().enumerate() {
                 let cell = Rect::from_min_size(pos2(rr.left() + 22.0 + i as f32 * (cw + gap), rr.top()), vec2(cw, th + 24.0));
-                cell_ui(app, ui, &d, id, tag, p, cell, th);
+                cell_ui(app, ui, &d, id, tag, p, cell, th, in_view);
             }
         }
         ui.add_space(6.0);
@@ -149,6 +153,7 @@ fn cell_ui(
     p: &(String, String, String),
     cell: Rect,
     th: f32,
+    in_view: bool,
 ) {
     let (p_id, p_name, p_group) = (p.0.as_str(), p.1.as_str(), p.2.as_str());
     let t = Tokens::get(ui.ctx());
@@ -157,10 +162,13 @@ fn cell_ui(
     crate::widgets::announce(&resp, p_name.to_string());
     register(ui.ctx(), key, cell);
     let thumb = Rect::from_min_size(cell.min, vec2(cell.width(), th));
-    let s = with_profile_id(&app.session, d, p_id);
+    // (the photo's settings with this profile: only for a cell in view or under the pointer)
+    let s = (in_view || resp.hovered()).then(|| with_profile_id(&app.session, d, p_id));
     let painter = ui.painter();
     painter.rect_filled(thumb, 3.0, t.canvas);
-    if let Some(job) = app.session.variant_job(id, &s, THUMB_EDGE)
+    if in_view
+        && let Some(s) = &s
+        && let Some(job) = app.session.variant_job(id, s, THUMB_EDGE)
         && let Some(tex) = app.renderer.variant(job)
     {
         painter.image(tex.id(), thumb, cover_uv(thumb, tex.size), Color32::WHITE);
@@ -184,9 +192,12 @@ fn cell_ui(
         painter.circle_filled(star.center(), 10.0, Color32::from_black_alpha(110));
         paint(painter, star.shrink(4.0), if fav { Icon::StarFilled } else { Icon::Star }, if fav || over_star { t.star } else { Color32::WHITE });
     }
-    if resp.hovered() && !applied && !over_star {
-        app.hover_preview =
-            Some(HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(p_id, p_name)), settings: s.clone() });
+    if resp.hovered()
+        && !applied
+        && !over_star
+        && let Some(s) = s
+    {
+        app.hover_preview = Some(HoverPreview { label: crate::i18n::tr_format!("Profile: {}", crate::i18n::profile_label(p_id, p_name)), settings: s });
         ui.data_mut(|m| m.insert_temp(egui::Id::new("last-profile-hover"), (id, p_id.to_string())));
     }
     let resp = resp.on_hover_text(format!(
