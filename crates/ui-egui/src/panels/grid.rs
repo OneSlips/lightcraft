@@ -124,6 +124,17 @@ pub fn rows_between(rows: &[GridRow], top: f32, bottom: f32) -> &[GridRow] {
     rest.get(..n).unwrap_or(&[])
 }
 
+/// The empty view's way out when filters hide every photo.
+pub(crate) const CLEAR_FILTERS: super::EmptyAction =
+    super::EmptyAction { command: "library.clearFilter", label: "Clear Filters", widget: "button:emptyClearFilters" };
+
+/// Clear every filter (the bottom bar's too: it shows the same filter), saying why if it can't.
+pub(crate) fn clear_filters(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if let Err(e) = app.run("library.clearFilter", json!({})) {
+        app.toast_error(ctx, e);
+    }
+}
+
 fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (generation, ids) = app.session.visible_shared();
@@ -160,23 +171,21 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     super::chips::show(app, ui, &chips);
     app.canvas_rect = Some(ui.max_rect());
     if ids.is_empty() {
-        if !chips.is_empty() {
+        if !chips.is_empty() || app.session.filter != Default::default() {
+            // the way out is right there, not only in a menu
             let body = match total {
-                Some(n) if n > 0 => {
+                Some(n) if n > 0 && !chips.is_empty() => {
                     crate::i18n::tr_format!("{n} photos in {} are hidden by the filters above", crate::i18n::source_title(&app.session), n = n)
                 }
-                _ => "Remove a filter above, or choose Clear all".to_string(),
+                _ if !chips.is_empty() => "Remove a filter above, or choose Clear all".to_string(),
+                _ => "A filter is hiding this view's photos: change it, or clear it".to_string(),
             };
-            super::empty_message(ui, ui.max_rect(), "No photos match the active filters", &body);
-        } else if app.session.filter != Default::default() {
-            super::empty_message(
-                ui,
-                ui.max_rect(),
-                "No matching photos",
-                "A filter is hiding this view's photos: change it, or clear it (View → Clear Filters)",
-            );
+            let title = if chips.is_empty() { "No matching photos" } else { "No photos match the active filters" };
+            if super::empty_state(ui, ui.max_rect(), title, &body, &[CLEAR_FILTERS], None).is_some() {
+                clear_filters(app, ui.ctx());
+            }
         } else if app.session.source == lightcraft_engine::LibrarySource::Folder {
-            super::empty_message(ui, ui.max_rect(), "No photos in this folder", "Turn on Include subfolders, or pick another folder under Local");
+            super::empty_message(ui, ui.max_rect(), "No photos in this folder", "Turn on Include subfolders, or pick another folder under Favorites");
         } else if super::empty_library::shown(&app.session) {
             super::empty_library::show(app, ui, ui.max_rect());
         } else {
@@ -744,6 +753,10 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     // thumbnail
     let size = thumb_px(img_rect.width().max(img_rect.height()), ppp);
     request_thumb(app, id, size, if onscreen { 10 } else { 5 });
+    if onscreen {
+        let has = app.renderer.thumb(id).is_some();
+        app.thumb_first.note(ui.ctx().cumulative_pass_nr(), id, has, crate::now_ms());
+    }
     if let Some(tex) = app.renderer.thumb(id) {
         let [tw, th] = tex.size;
         // Preserve the decoded preview's ratio when it differs from the catalog dimensions.
@@ -768,6 +781,8 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
             p.text(ph.center(), Align2::CENTER_CENTER, "!", t.semibold(18.0), t.text_dim);
         }
     }
+    // the flag's glow, over the picture's bottom and under the marks (a white pick flag stays readable)
+    flag_line(p, &t, pic, photo.flag);
     // labels and badges
     if square && app.ui.show_filenames {
         let m = &photo.meta;
@@ -825,7 +840,6 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
             paint_badges(p, &t, badge_bar.shrink2(vec2(4.0, 0.0)), &photo, true);
         }
     }
-    flag_line(p, &t, r, photo.flag);
     if let Some(name) = &photo.copy_name {
         // virtual copy: a folded-corner tag at the top right
         let g = p.layout_no_wrap(name.clone(), t.semibold(10.5), Color32::WHITE);
@@ -898,8 +912,9 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
 /// they are shown under the pictures.
 pub const BADGE_STRIP: f32 = 16.0;
 
-/// Thickness (points) of the line along a picked or rejected cell's bottom edge.
-pub const FLAG_LINE: f32 = 2.5;
+/// Inset (points) of a picked or rejected cell's glow from the cell's sides and bottom edge, so a
+/// run of marked cells reads as separate cells rather than one border between rows.
+pub const FLAG_GLOW_INSET: f32 = 3.0;
 
 /// A cell's background with its flag in it: a pick slightly lighter, a reject darker (the
 /// selection keeps its own outline, so the two never read alike).
@@ -911,15 +926,41 @@ pub fn flag_tint(base: Color32, flag: Flag) -> Color32 {
     }
 }
 
-/// The flag's line along the bottom edge of `cell`: white for a pick, red for a reject, none
-/// for an unflagged photo.
+/// Where a flag's glow sits in `cell`: inset from its sides and bottom edge, rising about a third of
+/// the cell (12–56 points). `None` for a cell too small to hold one.
+pub fn flag_glow_rect(cell: Rect) -> Option<Rect> {
+    let inner = cell.shrink2(vec2(FLAG_GLOW_INSET, 0.0));
+    let bottom = cell.bottom() - FLAG_GLOW_INSET;
+    let h = (cell.height() * 0.33).clamp(12.0, 56.0).min(bottom - cell.top());
+    (inner.width() > 0.0 && h > 0.0).then(|| Rect::from_min_max(pos2(inner.left(), bottom - h), pos2(inner.right(), bottom)))
+}
+
+/// The flag's mark in `cell`: a glow rising from just inside the bottom edge and fading out
+/// upwards, white for a pick and red for a reject, none for an unflagged photo. Inset on every
+/// side but the top, it belongs to its own cell: a run of picks reads as separate cells, never as
+/// a border along the top of the row below.
 pub fn flag_line(p: &egui::Painter, t: &Tokens, cell: Rect, flag: Flag) {
-    let colour = match flag {
-        Flag::Pick => Color32::from_gray(240),
-        Flag::Reject => t.reject,
+    let (colour, alpha) = match flag {
+        Flag::Pick => (Color32::WHITE, 0.62),
+        Flag::Reject => (t.reject, 0.72),
         Flag::None => return,
     };
-    p.rect_filled(Rect::from_min_max(pos2(cell.left(), cell.bottom() - FLAG_LINE), cell.max), 0.0, colour);
+    let Some(g) = flag_glow_rect(cell) else { return };
+    let strong = colour.gamma_multiply(alpha);
+    let mut mesh = egui::Mesh::default();
+    // a fade in two steps (bright at the edge, quickly softer, then gone), so it reads as a glow
+    // from the bottom rather than a band
+    let mid_y = g.bottom() - g.height() * 0.35;
+    let rows = [(g.top(), Color32::TRANSPARENT), (mid_y, colour.gamma_multiply(alpha * 0.35)), (g.bottom(), strong)];
+    for (y, c) in rows {
+        mesh.colored_vertex(pos2(g.left(), y), c);
+        mesh.colored_vertex(pos2(g.right(), y), c);
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(1, 3, 2);
+    mesh.add_triangle(2, 3, 4);
+    mesh.add_triangle(3, 5, 4);
+    p.add(egui::Shape::mesh(mesh));
 }
 
 /// A photo's culling marks along `bar` (a thumbnail's bottom edge or the strip under it): its flag

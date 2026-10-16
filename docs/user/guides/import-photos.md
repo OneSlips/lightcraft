@@ -24,7 +24,7 @@ The import runs in the background, with a progress row in the activity stack at 
 
 ## Good to know
 
-- Importing a folder scans it for photos. It does not add the folder to **Local**. To work in a folder without importing, use **Local** > **Browse Folder…**.
+- Importing a folder scans it for photos. It does not add the folder to **Favorites** (the favourite folders in the Library sidebar, called Local before).
 - Folder names and `{date}` use the capture time. A photo without one uses today's date.
 - Raw formats LightCraft reads include DNG, Canon CR2 and CR3, Sony ARW, Nikon NEF, Fujifilm RAF, Panasonic RW2, Leica RWL, Pentax PEF and Olympus ORF. Some variants open as **Preview only**. See [A raw photo opens as "Preview only"](../troubleshooting/preview-only-raw.md).
 
