@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Bottom bar
+- **Every button on the bottom bar is the same size.**
+
 ### Scroll bars
 - The grid's and the filmstrip's **scroll bars are slimmer and their handle never hides**. The tick strip of picks and rejects above the filmstrip is gone; the position ("1,263 / 2,233") stays.
 
