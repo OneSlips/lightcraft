@@ -1,5 +1,13 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### AI Denoise
+- Settings ▸ AI Denoise no longer says a model is being trained or promises a download: it says
+  plainly that this version has no AI Denoise model and none can be downloaded from here yet, and
+  that Luminance and Color under Detail reduce noise meanwhile. A LightCraft denoise model you have
+  (a folder with a .onnx file and denoise-model.json) installs with **Install from file…**.
+
 ## 2026-10-16
 
 ### Presets Manager
