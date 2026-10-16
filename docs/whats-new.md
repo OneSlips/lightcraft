@@ -2,6 +2,10 @@
 
 ## 2026-10-16
 
+### Flags, take two
+- The marks under the thumbnails are **smaller**, in a slim row.
+- A **white line** along the bottom of a picked cell and a **red line** under a rejected one; picked cells are slightly lighter, rejected ones darker.
+
 ### Keywords
 - **No more ghost text in the Keywords list.** Some cameras write their whole keyword list as one entry, a keyword a line; LightCraft now reads it as one keyword a line, and repairs libraries that already hold such a keyword when they open.
 
