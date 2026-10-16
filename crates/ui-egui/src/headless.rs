@@ -3247,7 +3247,11 @@ mod tests {
         assert!((first.width() - 900.0).abs() < 2.0 && (first.height() - 640.0).abs() < 2.0, "{first:?}");
         assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1300.0, 820.0)).contains_rect(first), "{first:?}");
         for (tab, _) in crate::panels::settings::TABS.iter().chain(crate::panels::settings::TABS.iter().rev()) {
-            let r = h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{tab}")}), t);
+            // (a tab that doesn't fit the row is under More: opened by its command then)
+            let mut r = h.request("ui.clickWidget", json!({"id": format!("button:settingsTab-{tab}")}), t);
+            if r["ok"] != true {
+                r = h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": tab}}), t);
+            }
             assert_eq!(r["ok"], true, "{tab}: {r}");
             for _ in 0..3 {
                 h.step();
