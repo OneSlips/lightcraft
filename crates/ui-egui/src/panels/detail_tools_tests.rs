@@ -133,6 +133,22 @@ fn a_painted_spot_has_one_outline_not_a_ring_per_dab() {
     assert!(union_arcs(&line, 0.0).is_empty());
 }
 
+/// The outline of a long painted stroke is drawn every frame while painting: it is found through a
+/// grid, not by testing every dab against every other (4,096 dabs took ~16 M distance tests a frame).
+#[test]
+fn a_long_stroke_outline_is_quick() {
+    // a scribble of 4,000 dabs going back and forth
+    let stroke: Vec<Pos2> = (0..4000).map(|i| pos2((i % 400) as f32 * 3.0, (i / 400) as f32 * 12.0)).collect();
+    let t = std::time::Instant::now();
+    let arcs = union_arcs(&stroke, 8.0);
+    let took = t.elapsed();
+    assert!(!arcs.is_empty());
+    for q in arcs.iter().flatten() {
+        assert!(stroke.iter().all(|c| c.distance(*q) >= 7.4), "{q:?} is inside the stroke");
+    }
+    assert!(took < std::time::Duration::from_millis(400), "{took:?}");
+}
+
 #[test]
 fn the_crop_view_turns_the_photo_level_and_fits_it() {
     let mut d = DevelopSettings::default();

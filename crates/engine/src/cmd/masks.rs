@@ -1397,6 +1397,27 @@ pub fn specs() -> Vec<CommandSpec> {
             };
             ok()
         }),
+        cmd!(
+            "spot.deleteAll",
+            "Delete All Spots",
+            [],
+            None,
+            "{} — every Remove spot of the active photo goes, in one undo step (one render, however many spots) → {deleted}",
+            has_active,
+            |s, _| {
+                let c = "spot.deleteAll";
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let n = s.develop_of(id).map_or(0, |d| d.spots.len());
+                if n > 0 {
+                    spots_edit(s, c, "Delete All Spots", |spots| {
+                        spots.clear();
+                        Ok(())
+                    })?;
+                }
+                s.active_spot = None;
+                Ok(json!({"deleted": n}))
+            }
+        ),
         // ---- Red eye / pet eye
         cmd!(
             "redeye.add",

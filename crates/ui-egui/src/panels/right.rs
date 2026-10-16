@@ -626,10 +626,12 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         tool_overlay_options(app, ui);
         ui.add_space(4.0);
-        if !d.spots.is_empty() && text_button(ui, "removeClear", crate::i18n::tr("Delete all spots"), false).clicked() {
-            for i in (0..d.spots.len()).rev() {
-                let _ = app.run("spot.delete", json!({"index": i}));
-            }
+        // one command: one undo step and one render, however many spots
+        if !d.spots.is_empty()
+            && text_button(ui, "removeClear", crate::i18n::tr("Delete all spots"), false).clicked()
+            && let Err(e) = app.run("spot.deleteAll", json!({}))
+        {
+            app.toast_error(ui.ctx(), e.to_string());
         }
     });
 }

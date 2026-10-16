@@ -205,6 +205,24 @@ impl GenfillState {
     pub fn running(&self) -> bool {
         self.job.as_ref().is_some_and(|j| matches!(j.state(), JobState::Running { .. }))
     }
+
+    /// Where generative fill stands, as `genfill.status` and the control protocol's `ui.inspect`
+    /// (`genfill`) report it: `{running, done, total, provider, photo, spot, last: {ok, warnings?,
+    /// id?, error?} | null}`.
+    pub fn status_json(&self) -> serde_json::Value {
+        use serde_json::json;
+        let (running, done, total) = match self.job.as_ref().map(|j| j.state()) {
+            Some(JobState::Running { done, total }) => (true, done, total),
+            _ => (false, 0, 0),
+        };
+        let last = match &self.last {
+            Some(Ok(g)) => json!({"ok": true, "warnings": g.warnings, "id": g.fill.id}),
+            Some(Err(e)) => json!({"ok": false, "error": e}),
+            None => serde_json::Value::Null,
+        };
+        let job = self.job.as_ref();
+        json!({"running": running, "done": done, "total": total, "provider": job.map(|j| j.provider.clone()), "photo": job.map(|j| j.photo.0), "spot": job.map(|j| j.spot), "last": last})
+    }
 }
 
 // ------------------------------------------------------------------------------------------

@@ -204,21 +204,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Err(bad(c, "generative fill is not available in the web version"))
             }
         }),
-        cmd!(query "genfill.status", "Generative Fill Status", [], None, "{} → {running, done, total, provider, last: {ok, warnings?, error?}}", |_| Ok(()), |s, _| {
-            let (running, done, total, provider) = match &s.genfill.job {
-                Some(j) => match j.state() {
-                    crate::genfill::JobState::Running { done, total } => (true, done, total, Some(j.provider.clone())),
-                    _ => (false, 0, 0, Some(j.provider.clone())),
-                },
-                None => (false, 0, 0, None),
-            };
-            let last = match &s.genfill.last {
-                Some(Ok(g)) => json!({"ok": true, "warnings": g.warnings, "id": g.fill.id}),
-                Some(Err(e)) => json!({"ok": false, "error": e}),
-                None => Value::Null,
-            };
-            Ok(json!({"running": running, "done": done, "total": total, "provider": provider, "last": last}))
-        }),
+        cmd!(query "genfill.status", "Generative Fill Status", [], None, "{} → {running, done, total, provider, photo, spot, last: {ok, warnings?, id?, error?}} (also in the control protocol's ui.inspect → genfill)", |_| Ok(()), |s, _| Ok(s.genfill.status_json())),
         cmd!(query "genfill.cancel", "Cancel Generative Fill", [], None, "{} → {cancelled}", |_| Ok(()), |s, _| Ok(json!({"cancelled": s.genfill_cancel()}))),
         cmd!(
             "spot.variation",

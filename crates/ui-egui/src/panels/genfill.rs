@@ -25,6 +25,8 @@ pub struct GenfillUi {
     pub key_input: std::collections::BTreeMap<String, String>,
     /// The consent dialog's preview of the crop: (dialog key, texture, size).
     pub preview: Option<(u64, egui::TextureHandle, [usize; 2])>,
+    /// `genfill.providers`, and when it was read ([`providers`]).
+    pub providers: Option<(std::time::Instant, Vec<Value>)>,
 }
 
 // (no derived Debug: a key being typed must never end up in a debug dump)
@@ -34,8 +36,18 @@ impl std::fmt::Debug for GenfillUi {
     }
 }
 
+/// The providers and their key and consent status. Reading them reads the keys and consent files,
+/// so the panel (drawn every frame, at the pointer's rate while painting) keeps them for a second.
 fn providers(app: &mut LightcraftApp) -> Vec<Value> {
-    app.session.execute("genfill.providers", &json!({})).ok().and_then(|v| v["providers"].as_array().cloned()).unwrap_or_default()
+    if let Some((at, list)) = &app.ui.genfill.providers
+        && at.elapsed() < std::time::Duration::from_secs(1)
+    {
+        return list.clone();
+    }
+    let list: Vec<Value> =
+        app.session.execute("genfill.providers", &json!({})).ok().and_then(|v| v["providers"].as_array().cloned()).unwrap_or_default();
+    app.ui.genfill.providers = Some((std::time::Instant::now(), list.clone()));
+    list
 }
 
 /// The provider's short name ("OpenAI" of "OpenAI (GPT Image)").
@@ -528,6 +540,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                 || r.ending == Some(crate::text_field::Ending::Return);
             if save {
                 let key = app.ui.genfill.key_input.get(&id).cloned().unwrap_or_default();
+                app.ui.genfill.providers = None;
                 if !key.trim().is_empty() {
                     match app.run("genfill.setKey", json!({"provider": id, "key": key})) {
                         Ok(_) => app.toast(ui.ctx(), crate::i18n::tr("API key saved")),
@@ -539,6 +552,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
             if p["keySource"] == "settings" && text_button(ui, &format!("genfillForgetKey-{id}"), crate::i18n::tr("Remove Key"), false).clicked() {
                 let _ = app.run("genfill.setKey", json!({"provider": id, "key": null}));
+                app.ui.genfill.providers = None;
             }
         });
         ui.horizontal(|ui| {
@@ -553,6 +567,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
             if p["consented"] == true && text_button(ui, &format!("genfillWithdraw-{id}"), crate::i18n::tr("Withdraw Consent"), false).clicked() {
                 let _ = app.run("genfill.consent", json!({"provider": id, "accept": false}));
+                app.ui.genfill.providers = None;
             }
         });
         if p["policy"]["trainsByDefault"] == true {
