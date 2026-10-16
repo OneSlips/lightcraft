@@ -64,7 +64,7 @@ fn an_edit_renders_only_the_profile_thumbnails_in_view() {
     let ctx = egui::Context::default();
     crate::theme::install_fonts(&ctx);
     crate::theme::apply(&ctx);
-    let mut frame = |app: &mut LightcraftApp, n: u64| {
+    let frame = |app: &mut LightcraftApp, n: u64| {
         let raw = HeadlessView::raw_input(egui::vec2(320.0, 700.0), 1.0, n as f64 / 60.0, vec![]);
         let mut out = ctx.run_ui(raw, |ui| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
