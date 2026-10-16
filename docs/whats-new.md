@@ -1,5 +1,14 @@
 # What's new in LightCraft
 
+## 2026-10-25
+
+### Color Mixer: HSL
+- **Color Mixer: HSL**, laid out as in Lightroom Classic: **Mixer | Point Color** tabs, then
+  **Adjust: HSL / Color**. HSL shows **Hue, Saturation, Luminance** or **All** (the three stacked,
+  each with its heading): eight colour sliders each, with coloured tracks, and a targeted
+  adjustment per group. HSL is the default and your choice is remembered. Point Color is now the
+  Color Mixer's second tab.
+
 ## 2026-10-24
 
 ### Relative-date filters and smart albums follow the clock

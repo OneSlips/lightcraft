@@ -165,6 +165,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("panel.versions", "Versions", Some("Shift+V"), "Window"),
     ("panel.activity", "History", None, "Window"),
     ("panel.close", "Close Panel", None, ""),
+    // the Color Mixer's layout {tab?: mixer|point, adjust?: hsl|color, group?: hue|sat|lum|all,
+    // band?: red…magenta}: opens it in the Edit panel (the sliders are the mixer.* controls)
+    ("view.colorMixer", "Color Mixer Layout", None, ""),
     // {solo?}: true opens just that section (⌥-click on its header); otherwise opens or closes it
     ("section.light", "Light", Some("Cmd+1"), "Window>Edit Sections"),
     ("section.color", "Color", Some("Cmd+2"), "Window>Edit Sections"),
@@ -304,6 +307,46 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
         app.ui.tool.clear();
     }
     let _ = app.session.end_interaction();
+}
+
+/// `view.colorMixer`: the Color Mixer's tab, Adjust mode, HSL group and Color-mode band, each
+/// optional; the Edit panel opens on it. Returns the layout now shown.
+fn color_mixer_layout(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
+    use crate::panels::edit::{MIXER_ADJUST, MIXER_GROUPS, MIXER_TABS};
+    let choose = |key: &str, items: &[(&str, &str)]| -> Result<Option<String>, String> {
+        match p.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(v)) if items.iter().any(|(_, k)| k == v) => Ok(Some(v.clone())),
+            Some(other) => {
+                let keys: Vec<&str> = items.iter().map(|(_, k)| *k).collect();
+                Err(format!("view.colorMixer: `{key}` must be one of {}, not {other}", keys.join(", ")))
+            }
+        }
+    };
+    let bands: Vec<(&str, &str)> = lightcraft_develop::MIXER_BANDS.iter().map(|b| (*b, *b)).collect();
+    let (tab, adjust, group, band) =
+        (choose("tab", &MIXER_TABS)?, choose("adjust", &MIXER_ADJUST)?, choose("group", &MIXER_GROUPS)?, choose("band", &bands)?);
+    if let Some(v) = tab {
+        app.ui.mixer_tab = v;
+    }
+    if let Some(v) = adjust {
+        app.ui.mixer_adjust = v;
+    }
+    if let Some(v) = group {
+        app.ui.mixer_group = v;
+    }
+    if let Some(v) = band {
+        app.ui.mixer_mode = v;
+    }
+    app.ui.right = RightPanel::Edit;
+    app.ui.view = ViewMode::Detail;
+    if !app.ui.section_open("color") {
+        app.ui.toggle_section("color");
+    }
+    if !app.ui.flyout_open("mixer") {
+        app.ui.toggle_flyout("mixer");
+    }
+    Ok(json!({"tab": app.ui.mixer_tab, "adjust": app.ui.mixer_adjust, "group": app.ui.mixer_group, "band": app.ui.mixer_mode}))
 }
 
 /// `[` / `]` (size ×`k`) and ⇧`[` / ⇧`]` (feather +`df`) for the brush in use: the Remove tool's
@@ -1311,6 +1354,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             Ok(Value::Null)
         }
+        "view.colorMixer" => color_mixer_layout(app, p),
         "panel.close" => {
             app.ui.right = RightPanel::None;
             app.ui.presets = false;
