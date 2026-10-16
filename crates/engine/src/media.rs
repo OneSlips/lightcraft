@@ -1152,6 +1152,10 @@ pub struct QuickJob {
     /// shows its camera JPEG again without reading and decoding it (culling goes back and forth):
     /// the cache (memory only, never its disk) and the key for this photo and edge.
     pub embedded_cache: Option<(Arc<PreviewCache>, Hash128)>,
+    /// Whether [`Self::embedded_cache`] keeps the decoded preview on disk too: a grid thumbnail,
+    /// so a folder seen before fills in from small files at once instead of every raw being read
+    /// and its camera JPEG decoded again (the loupe's large stand-ins stay in memory).
+    pub embedded_on_disk: bool,
     /// Last resort: run this thumbnail job.
     pub small: Option<Box<RenderJob>>,
 }
@@ -1201,13 +1205,17 @@ impl QuickJob {
         }
         if let Some((path, loader, edge)) = &self.embedded {
             if let Some((cache, k)) = &self.embedded_cache
-                && let Some(img) = cache.get_memory(*k)
+                && let Some(img) = if self.embedded_on_disk { cache.get(*k) } else { cache.get_memory(*k) }
             {
                 return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Embedded));
             }
             if let Some(image) = loader(path, *edge) {
                 if let Some((cache, k)) = &self.embedded_cache {
-                    cache.put_memory(*k, Arc::new(image.clone()));
+                    if self.embedded_on_disk {
+                        cache.put_deferred(*k, Arc::new(image.clone()));
+                    } else {
+                        cache.put_memory(*k, Arc::new(image.clone()));
+                    }
                 }
                 return done(rendered(image), Some(QuickSource::Embedded));
             }
@@ -1218,6 +1226,11 @@ impl QuickJob {
         }
         done(Err("no quick preview".into()), None)
     }
+}
+
+/// The thumbnail cache's key for the camera JPEG standing for the thumbnail of cache key `k`.
+fn embedded_thumb_key(k: Hash128) -> Hash128 {
+    Hasher128::new().str("embedded-thumb").u64((k.0 >> 64) as u64).u64(k.0 as u64).finish()
 }
 
 /// What identifies a photo's pixels for caching: its content hash, else its source.
@@ -1600,10 +1613,10 @@ impl crate::Session {
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
         let embedded = self.embedded_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
-        let embedded_cache = embedded.as_ref().map(|(_, _, edge)| {
-            (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish())
-        });
-        Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, small: apply_crop.then(|| Box::new(small)) })
+        let embedded_cache = embedded
+            .as_ref()
+            .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
+        Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, embedded_on_disk: false, small: apply_crop.then(|| Box::new(small)) })
     }
 
     /// The camera's embedded JPEG of an unedited raw at up to `max_edge` pixels (its full size for
@@ -1614,7 +1627,16 @@ impl crate::Session {
         let p = self.catalog.photo(id)?.clone();
         let (path, l) = self.embedded_of(&p)?;
         let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(max_edge as u64).finish().0 as u64;
-        Some(QuickJob { request_id: 0, photo: id, key, cached: Vec::new(), embedded: Some((path, l, max_edge.max(1))), embedded_cache: None, small: None })
+        Some(QuickJob {
+            request_id: 0,
+            photo: id,
+            key,
+            cached: Vec::new(),
+            embedded: Some((path, l, max_edge.max(1))),
+            embedded_cache: None,
+            embedded_on_disk: false,
+            small: None,
+        })
     }
 
     /// A first grid thumbnail for an unedited raw: the cached render for `job` (the real
@@ -1633,7 +1655,10 @@ impl crate::Session {
             key: job.key,
             cached: job.cache.clone().into_iter().collect(),
             embedded: Some((path, l, edge)),
-            embedded_cache: None,
+            // the camera JPEG is this thumbnail (an unedited raw): kept with the rendered ones, under
+            // a key of its own, so the folder's next visit reads it from the thumbnail cache
+            embedded_cache: job.cache.as_ref().map(|(c, k)| (c.clone(), embedded_thumb_key(*k))),
+            embedded_on_disk: true,
             small: Some(Box::new(job.clone())),
         })
     }
@@ -1927,6 +1952,7 @@ mod thumbnail_hash_tests {
             cached: Vec::new(),
             embedded: Some(("x.arw".into(), Arc::new(|_: &str, _: usize| -> Option<Rgba8> { panic!("preview reader bug") }), 256)),
             embedded_cache: None,
+            embedded_on_disk: false,
             small: None,
         };
         let r = quick.run();
