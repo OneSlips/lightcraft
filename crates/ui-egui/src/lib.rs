@@ -207,6 +207,8 @@ mod tests_titlebar;
 #[cfg(test)]
 mod tests_tool_overlay;
 #[cfg(test)]
+mod tests_tool_pan;
+#[cfg(test)]
 mod tests_unsaved;
 #[cfg(test)]
 mod tests_view_cost;

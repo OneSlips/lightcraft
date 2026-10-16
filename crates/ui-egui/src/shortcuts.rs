@@ -472,6 +472,16 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         }
     };
     for (id, params) in aliased {
+        // zoomed in with a tool in use (a tool panel, or a picker armed): Space is the hand that
+        // pans, held while dragging, so it doesn't zoom out from under it
+        if id == "view.zoomToggle"
+            && app.ui.slideshow.is_none()
+            && app.ui.view == crate::state::ViewMode::Detail
+            && (app.ui.right.is_tool() || !app.ui.tool.is_empty())
+            && crate::panels::detail::zoomed_in(app)
+        {
+            continue;
+        }
         // a slideshow: Space pauses / resumes
         if id == "view.zoomToggle" && app.ui.slideshow.is_some() {
             if let Ok(v) = app.run("slideshow.togglePause", json!({})) {

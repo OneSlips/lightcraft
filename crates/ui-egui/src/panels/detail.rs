@@ -999,7 +999,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if !matches!(right, RightPanel::Crop | RightPanel::Masking | RightPanel::Remove | RightPanel::RedEye) {
         general_cursor(app, ui, &resp, img_rect, main_area);
     }
-    if !navigating {
+    // Space+drag pans a zoomed photo whatever tool is armed (and a drag a tool left alone, in
+    // the Masking panel); the tool then doesn't see the press
+    let panning = !navigating && tool_pan(app, ui, &resp, img_rect, main_area);
+    if !navigating && !panning {
         match right {
             RightPanel::Crop => crop_overlay(app, ui, &resp, &map, &frame, &d, id),
             RightPanel::Masking => mask_overlay(app, ui, &resp, &map, &d),
@@ -1898,6 +1901,47 @@ fn clipping_overlay(app: &LightcraftApp, p: &egui::Painter, r: Rect) {
             p.rect_stroke(r.expand(3.0), 0.0, Stroke::new(2.0, Color32::from_rgb(60, 120, 255)), StrokeKind::Outside);
         }
     }
+}
+
+/// Whether the photo is drawn larger than the loupe (so there is somewhere to pan to).
+fn larger_than(img: Rect, canvas: Rect) -> bool {
+    img.width() > canvas.width() + 1.0 || img.height() > canvas.height() + 1.0
+}
+
+/// Whether the loupe shows the photo zoomed in past its pane.
+pub(crate) fn zoomed_in(app: &LightcraftApp) -> bool {
+    matches!((app.image_rect, app.canvas_rect), (Some(img), Some(canvas)) if larger_than(img, canvas))
+}
+
+/// The hand over a zoomed photo while a tool is in use (Lightroom Classic's Space): with Space
+/// held a drag pans, whatever tool is armed, and the tool doesn't get the press; a pan begun so
+/// (or by the Masking panel for a drag that grabs nothing, no tool armed) goes on until the
+/// button is let go, Space or not. Returns whether it has the pointer this frame. A tool's own
+/// gesture already under way keeps it.
+fn tool_pan(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) -> bool {
+    if let Some(Gesture::Pan { .. }) = app.gesture {
+        if resp.dragged() {
+            pan_image(app, canvas, img, resp.drag_delta());
+        }
+        if resp.drag_stopped() || !ui.input(|i| i.pointer.primary_down()) {
+            app.gesture = None;
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+        return true;
+    }
+    if app.gesture.is_some() || !larger_than(img, canvas) || !ui.input(|i| i.key_down(egui::Key::Space)) {
+        return false;
+    }
+    if resp.drag_started() {
+        app.gesture = Some(Gesture::Pan { start: app.ui.pan, at: resp.interact_pointer_pos().unwrap_or(canvas.center()) });
+    }
+    if resp.dragged() {
+        pan_image(app, canvas, img, resp.drag_delta());
+    }
+    if resp.hovered() || resp.dragged() {
+        ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+    }
+    resp.hovered() || resp.dragged()
 }
 
 fn general_cursor(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) {
@@ -3103,6 +3147,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             }
             let _ = app.run("develop.beginInteraction", json!({"label": "Edit Mask"}));
             app.gesture = Some(Gesture::MaskHandle { mask, comp, handle, original_shape });
+        } else if grip.is_none() && app.ui.tool.is_empty() && app.ui.mask_new.is_none() && zoomed_in(app) {
+            // no tool armed and nothing grabbed: the drag pans the zoomed photo, as in the loupe
+            app.gesture = Some(Gesture::Pan { start: app.ui.pan, at: q });
+            if let (Some(img), Some(canvas)) = (app.image_rect, app.canvas_rect) {
+                pan_image(app, canvas, img, resp.drag_delta());
+            }
         }
     }
     if resp.dragged()

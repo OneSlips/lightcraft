@@ -16,6 +16,9 @@
   darkest. Both are stronger than before.
 - **Mask sliders in groups**: thin lines between Temp / Tint, the tone sliders, Texture / Clarity /
   Dehaze, Hue / Saturation and the detail sliders.
+- **Panning while masking**: zoomed in with the Masking panel open and no tool armed, drag the photo
+  to move around. With a tool armed (a brush, a gradient, Remove, Crop, a picker), hold **Space**
+  and drag. Space no longer zooms out while a tool is in use on a zoomed photo.
 
 ## 2026-10-16
 
