@@ -19,6 +19,14 @@
   as Lightroom Classic does. When nothing changed since the last backup (you only looked at
   photos), it doesn't ask and doesn't back up.
 
+### Presets Manager: a proper table
+- **Deleting a group asks right under the group**, not at the top of the list where you couldn't see
+  it. A preset's Delete asks in its own row.
+- The list reads as a table: each group's header is a **shaded band** with its count in a muted
+  column, the presets of an open group hang off an **indent guide** with faint alternate shading,
+  the row under the pointer lights up, and **every action sits in a fixed column at the right**, the
+  same for groups and presets (no more zig-zag after names of different lengths).
+
 ## 2026-10-16
 
 ### Presets Manager

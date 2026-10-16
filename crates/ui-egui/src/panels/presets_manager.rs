@@ -6,25 +6,22 @@
 //! delete. Per group: collapse, rename, move up / down, hide, delete (or move its presets elsewhere),
 //! and New Group…. Import presets (files, folders, Lightroom preset folders, .zip; dropping them on
 //! the window too) and export them (LightCraft `.lcpreset`, Lightroom `.xmp`). Search by name and
-//! group, and "with AI masks only". Only the rows in view are built, so a collection of 11 000+
+//! group, and "with AI masks only". Drawn as the managers' table ([`super::manager_table`]); a
+//! group's Delete asks at the group. Only the rows in view are built, so a collection of 11 000+
 //! presets scrolls smoothly; the rows are rebuilt only when the list, the choices or the search
 //! change.
 
 use std::sync::Arc;
 
-use egui::RichText;
 use serde_json::{Value, json};
 
-use super::profile_manager::{GroupAction, GroupHead, confirm_group_delete, group_header, new_group_row};
+use super::manager_table::{self as table, Col, GroupAction, GroupHead, confirm_group_delete, group_header, new_group_row};
 use super::settings::{check, choices, hint};
 use crate::LightcraftApp;
 use crate::i18n::{tr, tr_format};
 use crate::icons::Icon;
 use crate::theme::Tokens;
 use crate::widgets::{icon_button, register};
-
-/// Height of every row of the list (headers too), so it can be laid out without measuring.
-const ROW_H: f32 = 30.0;
 
 /// Which presets the manager shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -61,8 +58,11 @@ fn state_id() -> egui::Id {
 enum Row {
     /// A group: its name, shown name, members, all hidden.
     Group { name: String, shown: String, count: usize, hidden: bool },
-    /// A preset (develop: index into the session's presets; effects: index into its effects; import: index).
-    Item(usize),
+    /// Asking before this group is deleted (under its header).
+    Confirm(String),
+    /// A preset (develop: index into the session's presets; effects: index into its effects), and
+    /// its place in its group.
+    Item(usize, usize),
 }
 
 pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
@@ -96,16 +96,15 @@ fn search_row(ui: &mut egui::Ui, st: &mut State, ai: bool) -> bool {
     before != (st.query.clone(), st.ai_only)
 }
 
-/// The develop presets' rows, rebuilt only when the list, the choices, the search or a group's
-/// open state changed.
+/// The develop presets' rows, rebuilt only when the list, the choices, the search, a group's open
+/// state or the group asking before a delete changed.
 fn develop_rows(ui: &egui::Ui, app: &LightcraftApp, st: &State) -> Arc<Vec<Row>> {
     let s = &app.session;
     let groups = s.preset_groups();
-    let open: Vec<bool> =
-        groups.iter().map(|g| ui.data(|m| m.get_temp(egui::Id::new(("presetGroup", "open", g.as_str())))).unwrap_or(false)).collect();
-    let key = (s.presets.generation(), s.preset_state_gen, st.query.clone(), st.ai_only, open.clone());
+    let open: Vec<bool> = groups.iter().map(|g| table::group_open(ui.ctx(), "presetGroup", g, false)).collect();
+    let key: RowsKey = (s.presets.generation(), s.preset_state_gen, st.query.clone(), st.ai_only, open.clone(), st.group_confirm.clone());
     let id = egui::Id::new("presetsManagerRows");
-    if let Some((k, rows)) = ui.data(|m| m.get_temp::<((u64, u64, String, bool, Vec<bool>), Arc<Vec<Row>>)>(id))
+    if let Some((k, rows)) = ui.data(|m| m.get_temp::<(RowsKey, Arc<Vec<Row>>)>(id))
         && k == key
     {
         return rows;
@@ -124,22 +123,38 @@ fn develop_rows(ui: &egui::Ui, app: &LightcraftApp, st: &State) -> Arc<Vec<Row>>
                 })
             })
             .collect();
-        if searching && hits.is_empty() {
+        if searching && hits.is_empty() && st.group_confirm.as_deref() != Some(g.as_str()) {
             continue;
         }
         let builtin = members.iter().filter(|i| s.presets.get(**i).is_some_and(|p| p.builtin)).count();
         let hidden = !members.is_empty() && members.iter().all(|i| s.presets.get(*i).is_some_and(|p| !s.preset_shown(p)));
         let shown = crate::i18n::builtin_label(g, builtin > 0 && builtin == members.len()).to_string();
         rows.push(Row::Group { name: g.clone(), shown, count: members.len(), hidden });
+        // asking before the group goes: right under its header, where it was asked
+        if st.group_confirm.as_deref() == Some(g.as_str()) {
+            rows.push(Row::Confirm(g.clone()));
+        }
         // a search opens every group it finds something in
         if is_open || searching {
-            rows.extend(hits.into_iter().map(Row::Item));
+            rows.extend(hits.into_iter().enumerate().map(|(n, i)| Row::Item(i, n)));
         }
     }
     let rows = Arc::new(rows);
     ui.ctx().data_mut(|m| m.insert_temp(id, (key, rows.clone())));
     rows
 }
+
+/// What the develop rows were built from.
+type RowsKey = (u64, u64, String, bool, Vec<bool>, Option<String>);
+
+/// The heights of `rows` (a confirmation is taller).
+fn heights(ctx: &egui::Context, rows: &[Row]) -> Vec<f32> {
+    let confirm = table::confirm_h(ctx);
+    rows.iter().map(|r| if matches!(r, Row::Confirm(_)) { confirm } else { table::ROW_H }).collect()
+}
+
+/// The columns of the develop presets' table.
+const DEVELOP_COLS: table::Columns = table::Columns { info_w: 130.0, for_import: false };
 
 fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut State) {
     hint(
@@ -194,67 +209,57 @@ fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
     let rows = develop_rows(ui, app, st);
     let groups: Vec<String> = rows.iter().filter_map(|r| if let Row::Group { name, .. } = r { Some(name.clone()) } else { None }).collect();
     let all_groups = app.session.preset_groups();
-    // a group whose Delete asks first
-    if let Some(g) = st.group_confirm.clone() {
-        let members: Vec<&lightcraft_develop::Preset> = app.session.presets.iter().filter(|p| p.group == g && app.session.preset_listed(p)).collect();
-        let builtin = members.iter().filter(|p| p.builtin).count();
-        let others: Vec<String> = all_groups.iter().filter(|o| **o != g).cloned().collect();
-        let shown = crate::i18n::builtin_label(&g, builtin > 0 && builtin == members.len()).to_string();
-        let counts = (builtin, members.len() - builtin);
-        if let Some(params) = confirm_group_delete(ui, t, &g, &shown, counts, &others, &mut st.group_move_to, &mut st.group_confirm) {
-            action = Some(("preset.groupRemove", params));
-        }
-    }
     // the rest of the window (the tab scrolls only for the controls above)
     let height = (ui.clip_rect().bottom() - ui.cursor().top() - 8.0).max(360.0);
-    egui::ScrollArea::vertical().id_salt("presetsManagerList").max_height(height).auto_shrink([false, false]).show_rows(
-        ui,
-        ROW_H,
-        rows.len(),
-        |ui, range| {
-            for i in range {
-                let Some(row) = rows.get(i) else { continue };
-                let prev_group = |name: &str| groups.iter().position(|g| g == name).and_then(|j| j.checked_sub(1)).and_then(|j| groups.get(j));
-                let next_group = |name: &str| groups.iter().position(|g| g == name).and_then(|j| groups.get(j + 1));
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), ROW_H),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| match row {
-                        Row::Group { name, shown, count, hidden, .. } => {
-                            let head = GroupHead {
-                                key: "presetGroup",
-                                name,
-                                shown: shown.clone(),
-                                count: *count,
-                                all_hidden: *hidden,
-                                prev: prev_group(name).map(String::as_str),
-                                next: next_group(name).map(String::as_str),
-                                default_open: false,
-                            };
-                            match group_header(ui, t, &head, &mut st.group_rename).1 {
-                                Some(GroupAction::Hide(h)) => action = Some(("preset.groupHide", json!({"group": name, "hidden": h}))),
-                                Some(GroupAction::Rename(n)) => action = Some(("preset.groupRename", json!({"group": name, "name": n}))),
-                                Some(GroupAction::Move { before, other }) => {
-                                    let key = if before { "before" } else { "after" };
-                                    action = Some(("preset.groupMove", json!({"group": name, key: other})));
-                                }
-                                Some(GroupAction::Delete) => {
-                                    st.group_confirm = Some(name.clone());
-                                    st.group_move_to = None;
-                                }
-                                None => {}
-                            }
-                        }
-                        Row::Item(ix) => {
-                            if let Some(a) = develop_row(app, ui, t, st, *ix, &rows, i, &all_groups) {
-                                action = Some(a);
-                            }
-                        }
-                    },
-                );
+    let hs = heights(ui.ctx(), &rows);
+    table::virtual_list(ui, "presetsManagerList", &hs, height, |ui, i| {
+        let Some(row) = rows.get(i) else { return };
+        let prev_group = |name: &str| groups.iter().position(|g| g == name).and_then(|j| j.checked_sub(1)).and_then(|j| groups.get(j));
+        let next_group = |name: &str| groups.iter().position(|g| g == name).and_then(|j| groups.get(j + 1));
+        match row {
+            Row::Group { name, shown, count, hidden } => {
+                let head = GroupHead {
+                    key: "presetGroup",
+                    name,
+                    shown: shown.clone(),
+                    count: *count,
+                    all_hidden: *hidden,
+                    prev: prev_group(name).map(String::as_str),
+                    next: next_group(name).map(String::as_str),
+                    default_open: false,
+                };
+                match group_header(ui, t, &DEVELOP_COLS, &head, &mut st.group_rename).1 {
+                    Some(GroupAction::Hide(h)) => action = Some(("preset.groupHide", json!({"group": name, "hidden": h}))),
+                    Some(GroupAction::Rename(n)) => action = Some(("preset.groupRename", json!({"group": name, "name": n}))),
+                    Some(GroupAction::Move { before, other }) => {
+                        let key = if before { "before" } else { "after" };
+                        action = Some(("preset.groupMove", json!({"group": name, key: other})));
+                    }
+                    Some(GroupAction::Delete) => {
+                        st.group_confirm = Some(name.clone());
+                        st.group_move_to = None;
+                    }
+                    None => {}
+                }
             }
-        },
-    );
+            Row::Confirm(g) => {
+                let members: Vec<&lightcraft_develop::Preset> =
+                    app.session.presets.iter().filter(|p| &p.group == g && app.session.preset_listed(p)).collect();
+                let builtin = members.iter().filter(|p| p.builtin).count();
+                let others: Vec<String> = all_groups.iter().filter(|o| *o != g).cloned().collect();
+                let shown = crate::i18n::builtin_label(g, builtin > 0 && builtin == members.len()).to_string();
+                let counts = (builtin, members.len() - builtin);
+                if let Some(params) = confirm_group_delete(ui, t, g, &shown, counts, &others, &mut st.group_move_to, &mut st.group_confirm) {
+                    action = Some(("preset.groupRemove", params));
+                }
+            }
+            Row::Item(ix, n) => {
+                if let Some(a) = develop_row(app, ui, t, st, (*ix, *n), &rows, i, &all_groups) {
+                    action = Some(a);
+                }
+            }
+        }
+    });
     if let Some((command, params)) = action
         && let Err(e) = app.run(command, params)
     {
@@ -266,18 +271,20 @@ fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
 fn neighbour(app: &LightcraftApp, rows: &[Row], i: usize, up: bool) -> Option<String> {
     let j = if up { i.checked_sub(1)? } else { i + 1 };
     match rows.get(j)? {
-        Row::Item(k) => app.session.presets.get(*k).filter(|p| !p.builtin).map(|p| p.id.clone()),
-        Row::Group { .. } => None,
+        Row::Item(k, _) => app.session.presets.get(*k).filter(|p| !p.builtin).map(|p| p.id.clone()),
+        Row::Group { .. } | Row::Confirm(_) => None,
     }
 }
 
+/// One preset's row: favourite, name, details, then Rename, Group, Move Up / Down, Hide and Delete
+/// in their columns. `(ix, n)`: the preset's index, and its place in its group.
 #[allow(clippy::too_many_arguments)]
 fn develop_row(
     app: &LightcraftApp,
     ui: &mut egui::Ui,
     t: &Tokens,
     st: &mut State,
-    ix: usize,
+    (ix, n): (usize, usize),
     rows: &[Row],
     i: usize,
     groups: &[String],
@@ -288,46 +295,48 @@ fn develop_row(
     let name = if builtin && !app.session.preset_state.names.contains_key(&id) { tr(&p.name).to_string() } else { p.name.clone() };
     let sz = egui::vec2(24.0, 24.0);
     let mut out = None;
-    ui.spacing_mut().item_spacing.x = 4.0;
-    ui.add_space(28.0);
     // asking before a delete takes the row
     if st.confirm.as_deref() == Some(id.as_str()) {
         let text =
             if builtin { tr_format!("Take “{name}” off this computer?", name = name) } else { tr_format!("Delete “{name}”?", name = name) };
-        ui.label(RichText::new(text).color(t.text));
-        let r = ui.button(tr("Delete"));
-        register(ui.ctx(), format!("button:presetDeleteConfirm:{id}"), r.rect);
-        if r.clicked() {
-            st.confirm = None;
-            return Some(("preset.remove", json!({"id": id})));
-        }
-        if ui.button(tr("Cancel")).clicked() {
-            st.confirm = None;
+        match table::confirm_item(ui, t, &DEVELOP_COLS, &format!("preset:{id}"), &text) {
+            Some(true) => {
+                st.confirm = None;
+                return Some(("preset.remove", json!({"id": id})));
+            }
+            Some(false) => st.confirm = None,
+            None => {}
         }
         return None;
     }
-    if icon_button(ui, &format!("presetFav:{id}"), if p.favorite { Icon::StarFilled } else { Icon::Star }, sz, p.favorite, true, "Favorite").clicked()
-    {
+    let (rect, resp, rid) = table::row(ui, table::ROW_H, ("preset", &id));
+    table::paint_item(ui, t, rect, n, resp.contains_pointer());
+    let rr = table::RowRects::new(rect, rid, &DEVELOP_COLS, table::ITEM_NAME_LEFT);
+    let fav = rr.in_lead(ui, table::item_star(rect), |ui| {
+        icon_button(ui, &format!("presetFav:{id}"), if p.favorite { Icon::StarFilled } else { Icon::Star }, sz, p.favorite, true, "Favorite")
+    });
+    if fav.clicked() {
         out = Some(("preset.favorite", json!({"id": id})));
     }
-    let name_w = (ui.available_width() - 330.0).clamp(140.0, 380.0);
     let mut renamed = None;
     if let Some((rid, text)) = st.rename.as_mut().filter(|(rid, _)| rid == &id) {
-        let r = crate::text_field::TextField::singleline(&format!("field:presetRename:{rid}"), text).width(name_w).select_on_focus(true).show(ui);
-        if !r.editing && r.ending.is_none() {
-            r.response.request_focus();
-        }
-        if r.committed() {
-            renamed = Some(Some(text.trim().to_string()));
-        } else if r.cancelled() {
-            renamed = Some(None);
-        }
+        rr.in_name(ui, |ui| {
+            let r = crate::text_field::TextField::singleline(&format!("field:presetRename:{rid}"), text)
+                .width(rr.name.width().min(380.0))
+                .select_on_focus(true)
+                .show(ui);
+            if !r.editing && r.ending.is_none() {
+                r.response.request_focus();
+            }
+            if r.committed() {
+                renamed = Some(Some(text.trim().to_string()));
+            } else if r.cancelled() {
+                renamed = Some(None);
+            }
+        });
     } else {
-        let color = if hidden { t.text_disabled } else { t.text };
-        let (r, _) = ui.allocate_exact_size(egui::vec2(name_w, 22.0), egui::Sense::hover());
-        let g = crate::widgets::one_line(ui.painter(), &name, t.font(13.0), color, name_w - 4.0);
-        ui.painter().galley(egui::pos2(r.left(), r.center().y - g.size().y / 2.0), g, color);
-        register(ui.ctx(), format!("presetRow:{id}"), r);
+        table::text_in(ui, rr.name, &name, t.font(13.0), if hidden { t.text_disabled } else { t.text });
+        register(ui.ctx(), format!("presetRow:{id}"), rr.name);
     }
     if let Some(n) = renamed {
         st.rename = None;
@@ -337,52 +346,59 @@ fn develop_row(
         }
     }
     let mut info: Vec<String> = Vec::new();
-    if builtin {
-        info.push(tr("Built-in").to_string());
-    }
     if p.settings.get("masks").is_some() && p.has_ai_masks() {
         info.push(tr("AI masks").to_string());
+    }
+    if builtin {
+        info.push(tr("Built-in").to_string());
     }
     if hidden {
         info.push(tr("Hidden").to_string());
     }
-    ui.add_sized(egui::vec2(120.0, 22.0), egui::Label::new(RichText::new(info.join(" · ")).size(11.0).color(t.text_dim)).truncate());
-    if icon_button(ui, &format!("presetRename:{id}"), Icon::Pencil, sz, false, true, "Rename").clicked() {
+    table::info_in(ui, t, rr.info, &info.join(" · "));
+    if rr.in_col(ui, Col::Rename, |ui| icon_button(ui, &format!("presetRename:{id}"), Icon::Pencil, sz, false, true, "Rename")).clicked() {
         st.rename = Some((id.clone(), p.name.clone()));
     }
-    let r = crate::widgets::menu_button(ui, tr("Group"), |ui| {
-        ui.set_min_width(200.0);
-        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
-            for g in groups {
-                if ui.selectable_label(*g == p.group, g.as_str()).clicked() {
-                    out = Some(("preset.setGroup", json!({"id": id, "group": g})));
-                    ui.close();
+    let r = rr.in_col(ui, Col::Group, |ui| {
+        crate::widgets::menu_button(ui, tr("Group"), |ui| {
+            ui.set_min_width(200.0);
+            egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                for g in groups {
+                    if ui.selectable_label(*g == p.group, g.as_str()).clicked() {
+                        out = Some(("preset.setGroup", json!({"id": id, "group": g})));
+                        ui.close();
+                    }
                 }
-            }
-        });
+            });
+        })
     });
     register(ui.ctx(), format!("presetGroupMenu:{id}"), r.response.rect);
     let up = if builtin { None } else { neighbour(app, rows, i, true) };
     let down = if builtin { None } else { neighbour(app, rows, i, false) };
-    if icon_button(ui, &format!("presetUp:{id}"), Icon::ChevronUp, sz, false, up.is_some(), "Move Up").clicked()
+    if rr.in_col(ui, Col::Up, |ui| icon_button(ui, &format!("presetUp:{id}"), Icon::ChevronUp, sz, false, up.is_some(), "Move Up")).clicked()
         && let Some(o) = up
     {
         out = Some(("preset.reorder", json!({"id": id, "before": o})));
     }
-    if icon_button(ui, &format!("presetDown:{id}"), Icon::ChevronDown, sz, false, down.is_some(), "Move Down").clicked()
+    if rr
+        .in_col(ui, Col::Down, |ui| icon_button(ui, &format!("presetDown:{id}"), Icon::ChevronDown, sz, false, down.is_some(), "Move Down"))
+        .clicked()
         && let Some(o) = down
     {
         out = Some(("preset.reorder", json!({"id": id, "after": o})));
     }
     let (icon, tip) = if hidden { (Icon::EyeOff, "Show in the Presets panel") } else { (Icon::Eye, "Hide from the Presets panel") };
-    if icon_button(ui, &format!("presetHide:{id}"), icon, sz, hidden, true, tip).clicked() {
+    if rr.in_col(ui, Col::Hide, |ui| icon_button(ui, &format!("presetHide:{id}"), icon, sz, hidden, true, tip)).clicked() {
         out = Some(("preset.hide", json!({"id": id, "hidden": !hidden})));
     }
-    if icon_button(ui, &format!("presetDelete:{id}"), Icon::Trash, sz, false, true, "Delete").clicked() {
+    if rr.in_col(ui, Col::Delete, |ui| icon_button(ui, &format!("presetDelete:{id}"), Icon::Trash, sz, false, true, "Delete")).clicked() {
         st.confirm = Some(id.clone());
     }
     out
 }
+
+/// The columns of the local adjustment presets' table.
+const EFFECT_COLS: table::Columns = table::Columns { info_w: 0.0, for_import: false };
 
 /// Local adjustment (mask effect) presets: by their Effect menu groups.
 fn effects(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut State) {
@@ -406,7 +422,6 @@ fn effects(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
     let order = lightcraft_engine::cmd::mask_effects::menu_order(fx);
     let group_names: Vec<String> = order.iter().map(|(g, _)| g.clone()).filter(|g| !g.is_empty()).collect();
     let mut rows: Vec<Row> = Vec::new();
-    let mut group_of: Vec<String> = Vec::new();
     for (g, ix) in &order {
         let hits: Vec<usize> = ix
             .iter()
@@ -419,158 +434,155 @@ fn effects(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
         let shown = if g.is_empty() { tr("No group").to_string() } else { g.clone() };
         let hidden = ix.iter().all(|i| fx.get(*i).is_some_and(|e| e.hidden));
         rows.push(Row::Group { name: g.clone(), shown, count: ix.len(), hidden });
-        group_of.push(g.clone());
-        let open: bool = ui.data(|m| m.get_temp(egui::Id::new(("effectGroup", "open", g.as_str())))).unwrap_or(true);
-        if open || !q.is_empty() {
-            rows.extend(hits.into_iter().map(Row::Item));
+        if st.group_confirm.as_deref() == Some(g.as_str()) {
+            rows.push(Row::Confirm(g.clone()));
         }
-    }
-    if let Some(g) = st.group_confirm.clone() {
-        let names: Vec<String> = fx.iter().filter(|e| e.group == g).map(|e| e.name.clone()).collect();
-        let others: Vec<String> = group_names.iter().filter(|o| **o != g).cloned().collect();
-        if let Some(params) = confirm_group_delete(ui, t, &g, &g, (0, names.len()), &others, &mut st.group_move_to, &mut st.group_confirm) {
-            action = Some(match params.get("moveTo").and_then(Value::as_str) {
-                Some(to) => ("mask.setEffectGroup", json!({"names": names, "group": to})),
-                None => ("mask.deleteEffect", json!({"names": names})),
-            });
+        if table::group_open(ui.ctx(), "effectGroup", g, true) || !q.is_empty() {
+            rows.extend(hits.into_iter().enumerate().map(|(n, i)| Row::Item(i, n)));
         }
     }
     // the rest of the window (the tab scrolls only for the controls above)
     let height = (ui.clip_rect().bottom() - ui.cursor().top() - 8.0).max(360.0);
-    egui::ScrollArea::vertical().id_salt("effectsManagerList").max_height(height).auto_shrink([false, false]).show_rows(
-        ui,
-        ROW_H,
-        rows.len(),
-        |ui, range| {
-            for i in range {
-                let Some(row) = rows.get(i) else { continue };
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), ROW_H),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| match row {
-                        Row::Group { name, shown, count, hidden, .. } => {
-                            let gi = group_of.iter().position(|g| g == name);
-                            let head = GroupHead {
-                                key: "effectGroup",
-                                name,
-                                shown: shown.clone(),
-                                count: *count,
-                                all_hidden: *hidden,
-                                prev: None,
-                                next: None,
-                                default_open: true,
-                            };
-                            let _ = gi;
-                            let names: Vec<String> = fx.iter().filter(|e| &e.group == name).map(|e| e.name.clone()).collect();
-                            match group_header(ui, t, &head, &mut st.group_rename).1 {
-                                Some(GroupAction::Hide(h)) => action = Some(("mask.hideEffect", json!({"names": names, "hidden": h}))),
-                                Some(GroupAction::Rename(n)) if !name.is_empty() => {
-                                    action = Some(("mask.renameEffectGroup", json!({"group": name, "to": n})))
-                                }
-                                Some(GroupAction::Delete) if !name.is_empty() => {
-                                    st.group_confirm = Some(name.clone());
-                                    st.group_move_to = None;
-                                }
-                                _ => {}
-                            }
-                        }
-                        Row::Item(ix) => {
-                            let Some(e) = fx.get(*ix) else { return };
-                            let sz = egui::vec2(24.0, 24.0);
-                            let key = e.name.clone();
-                            ui.spacing_mut().item_spacing.x = 4.0;
-                            ui.add_space(28.0);
-                            if st.confirm.as_deref() == Some(key.as_str()) {
-                                ui.label(RichText::new(tr_format!("Delete “{name}”?", name = key)).color(t.text));
-                                let r = ui.button(tr("Delete"));
-                                register(ui.ctx(), format!("button:effectDeleteConfirm:{key}"), r.rect);
-                                if r.clicked() {
-                                    st.confirm = None;
-                                    action = Some(("mask.deleteEffect", json!({"name": key})));
-                                }
-                                if ui.button(tr("Cancel")).clicked() {
-                                    st.confirm = None;
-                                }
-                                return;
-                            }
-                            if icon_button(
-                                ui,
-                                &format!("effectFav:{key}"),
-                                if e.favorite { Icon::StarFilled } else { Icon::Star },
-                                sz,
-                                e.favorite,
-                                true,
-                                "Favorite",
-                            )
-                            .clicked()
-                            {
-                                action = Some(("mask.favoriteEffect", json!({"name": key})));
-                            }
-                            let name_w = (ui.available_width() - 260.0).clamp(140.0, 380.0);
-                            let mut renamed = None;
-                            if let Some((rid, text)) = st.rename.as_mut().filter(|(rid, _)| rid == &key) {
-                                let r = crate::text_field::TextField::singleline(&format!("field:effectRename:{rid}"), text)
-                                    .width(name_w)
-                                    .select_on_focus(true)
-                                    .show(ui);
-                                if !r.editing && r.ending.is_none() {
-                                    r.response.request_focus();
-                                }
-                                if r.committed() {
-                                    renamed = Some(Some(text.trim().to_string()));
-                                } else if r.cancelled() {
-                                    renamed = Some(None);
-                                }
-                            } else {
-                                let color = if e.hidden { t.text_disabled } else { t.text };
-                                let (r, _) = ui.allocate_exact_size(egui::vec2(name_w, 22.0), egui::Sense::hover());
-                                let g = crate::widgets::one_line(ui.painter(), &key, t.font(13.0), color, name_w - 4.0);
-                                ui.painter().galley(egui::pos2(r.left(), r.center().y - g.size().y / 2.0), g, color);
-                                register(ui.ctx(), format!("effectRow:{key}"), r);
-                            }
-                            if let Some(n) = renamed {
-                                st.rename = None;
-                                if let Some(n) = n.filter(|n| !n.is_empty() && *n != key) {
-                                    action = Some(("mask.renameEffect", json!({"name": key, "to": n})));
-                                }
-                            }
-                            if icon_button(ui, &format!("effectRename:{key}"), Icon::Pencil, sz, false, true, "Rename").clicked() {
-                                st.rename = Some((key.clone(), key.clone()));
-                            }
-                            let r = crate::widgets::menu_button(ui, tr("Group"), |ui| {
-                                ui.set_min_width(180.0);
-                                if ui.selectable_label(e.group.is_empty(), tr("No group")).clicked() {
-                                    action = Some(("mask.setEffectGroup", json!({"name": key, "group": ""})));
-                                    ui.close();
-                                }
-                                for g in &group_names {
-                                    if ui.selectable_label(*g == e.group, g.as_str()).clicked() {
-                                        action = Some(("mask.setEffectGroup", json!({"name": key, "group": g})));
-                                        ui.close();
-                                    }
-                                }
-                            });
-                            register(ui.ctx(), format!("effectGroupMenu:{key}"), r.response.rect);
-                            let (icon, tip) =
-                                if e.hidden { (Icon::EyeOff, "Show in the Effect menu") } else { (Icon::Eye, "Hide from the Effect menu") };
-                            if icon_button(ui, &format!("effectHide:{key}"), icon, sz, e.hidden, true, tip).clicked() {
-                                action = Some(("mask.hideEffect", json!({"name": key, "hidden": !e.hidden})));
-                            }
-                            if icon_button(ui, &format!("effectDelete:{key}"), Icon::Trash, sz, false, true, "Delete").clicked() {
-                                st.confirm = Some(key.clone());
-                            }
-                        }
-                    },
-                );
+    let hs = heights(ui.ctx(), &rows);
+    table::virtual_list(ui, "effectsManagerList", &hs, height, |ui, i| {
+        let Some(row) = rows.get(i) else { return };
+        match row {
+            Row::Group { name, shown, count, hidden } => {
+                let head = GroupHead {
+                    key: "effectGroup",
+                    name,
+                    shown: shown.clone(),
+                    count: *count,
+                    all_hidden: *hidden,
+                    prev: None,
+                    next: None,
+                    default_open: true,
+                };
+                let names: Vec<String> = fx.iter().filter(|e| &e.group == name).map(|e| e.name.clone()).collect();
+                match group_header(ui, t, &EFFECT_COLS, &head, &mut st.group_rename).1 {
+                    Some(GroupAction::Hide(h)) => action = Some(("mask.hideEffect", json!({"names": names, "hidden": h}))),
+                    Some(GroupAction::Rename(n)) if !name.is_empty() => action = Some(("mask.renameEffectGroup", json!({"group": name, "to": n}))),
+                    Some(GroupAction::Delete) if !name.is_empty() => {
+                        st.group_confirm = Some(name.clone());
+                        st.group_move_to = None;
+                    }
+                    _ => {}
+                }
             }
-        },
-    );
+            Row::Confirm(g) => {
+                let names: Vec<String> = fx.iter().filter(|e| &e.group == g).map(|e| e.name.clone()).collect();
+                let others: Vec<String> = group_names.iter().filter(|o| *o != g).cloned().collect();
+                if let Some(params) = confirm_group_delete(ui, t, g, g, (0, names.len()), &others, &mut st.group_move_to, &mut st.group_confirm) {
+                    action = Some(match params.get("moveTo").and_then(Value::as_str) {
+                        Some(to) => ("mask.setEffectGroup", json!({"names": names, "group": to})),
+                        None => ("mask.deleteEffect", json!({"names": names})),
+                    });
+                }
+            }
+            Row::Item(ix, n) => {
+                if let Some(a) = effect_row(ui, t, st, fx, (*ix, *n), &group_names) {
+                    action = Some(a);
+                }
+            }
+        }
+    });
     if let Some((command, params)) = action
         && let Err(e) = app.run(command, params)
     {
         app.ui.status = e;
     }
 }
+
+/// One local adjustment preset's row. `(ix, n)`: its index, and its place in its group.
+fn effect_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    st: &mut State,
+    fx: &[lightcraft_engine::cmd::mask_effects::MaskEffect],
+    (ix, n): (usize, usize),
+    group_names: &[String],
+) -> Option<(&'static str, Value)> {
+    let e = fx.get(ix)?;
+    let sz = egui::vec2(24.0, 24.0);
+    let key = e.name.clone();
+    let mut out = None;
+    if st.confirm.as_deref() == Some(key.as_str()) {
+        match table::confirm_item(ui, t, &EFFECT_COLS, &format!("effect:{key}"), &tr_format!("Delete “{name}”?", name = key)) {
+            Some(true) => {
+                st.confirm = None;
+                return Some(("mask.deleteEffect", json!({"name": key})));
+            }
+            Some(false) => st.confirm = None,
+            None => {}
+        }
+        return None;
+    }
+    let (rect, resp, rid) = table::row(ui, table::ROW_H, ("effect", &key));
+    table::paint_item(ui, t, rect, n, resp.contains_pointer());
+    let rr = table::RowRects::new(rect, rid, &EFFECT_COLS, table::ITEM_NAME_LEFT);
+    let fav = rr.in_lead(ui, table::item_star(rect), |ui| {
+        icon_button(ui, &format!("effectFav:{key}"), if e.favorite { Icon::StarFilled } else { Icon::Star }, sz, e.favorite, true, "Favorite")
+    });
+    if fav.clicked() {
+        out = Some(("mask.favoriteEffect", json!({"name": key})));
+    }
+    let mut renamed = None;
+    if let Some((rid, text)) = st.rename.as_mut().filter(|(rid, _)| rid == &key) {
+        rr.in_name(ui, |ui| {
+            let r = crate::text_field::TextField::singleline(&format!("field:effectRename:{rid}"), text)
+                .width(rr.name.width().min(380.0))
+                .select_on_focus(true)
+                .show(ui);
+            if !r.editing && r.ending.is_none() {
+                r.response.request_focus();
+            }
+            if r.committed() {
+                renamed = Some(Some(text.trim().to_string()));
+            } else if r.cancelled() {
+                renamed = Some(None);
+            }
+        });
+    } else {
+        table::text_in(ui, rr.name, &key, t.font(13.0), if e.hidden { t.text_disabled } else { t.text });
+        register(ui.ctx(), format!("effectRow:{key}"), rr.name);
+    }
+    if let Some(n) = renamed {
+        st.rename = None;
+        if let Some(n) = n.filter(|n| !n.is_empty() && *n != key) {
+            out = Some(("mask.renameEffect", json!({"name": key, "to": n})));
+        }
+    }
+    if rr.in_col(ui, Col::Rename, |ui| icon_button(ui, &format!("effectRename:{key}"), Icon::Pencil, sz, false, true, "Rename")).clicked() {
+        st.rename = Some((key.clone(), key.clone()));
+    }
+    let r = rr.in_col(ui, Col::Group, |ui| {
+        crate::widgets::menu_button(ui, tr("Group"), |ui| {
+            ui.set_min_width(180.0);
+            if ui.selectable_label(e.group.is_empty(), tr("No group")).clicked() {
+                out = Some(("mask.setEffectGroup", json!({"name": key, "group": ""})));
+                ui.close();
+            }
+            for g in group_names {
+                if ui.selectable_label(*g == e.group, g.as_str()).clicked() {
+                    out = Some(("mask.setEffectGroup", json!({"name": key, "group": g})));
+                    ui.close();
+                }
+            }
+        })
+    });
+    register(ui.ctx(), format!("effectGroupMenu:{key}"), r.response.rect);
+    let (icon, tip) = if e.hidden { (Icon::EyeOff, "Show in the Effect menu") } else { (Icon::Eye, "Hide from the Effect menu") };
+    if rr.in_col(ui, Col::Hide, |ui| icon_button(ui, &format!("effectHide:{key}"), icon, sz, e.hidden, true, tip)).clicked() {
+        out = Some(("mask.hideEffect", json!({"name": key, "hidden": !e.hidden})));
+    }
+    if rr.in_col(ui, Col::Delete, |ui| icon_button(ui, &format!("effectDelete:{key}"), Icon::Trash, sz, false, true, "Delete")).clicked() {
+        st.confirm = Some(key.clone());
+    }
+    out
+}
+
+/// The columns of the import presets' table.
+const IMPORT_COLS: table::Columns = table::Columns { info_w: 0.0, for_import: false };
 
 /// Import presets (named sets of import settings, saved in the Import tab).
 fn import_presets(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut State) {
@@ -581,26 +593,28 @@ fn import_presets(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &m
         return;
     }
     let mut action: Option<(&'static str, Value)> = None;
-    for name in &names {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if st.confirm.as_deref() == Some(name.as_str()) {
-                ui.label(RichText::new(tr_format!("Delete “{name}”?", name = name)).color(t.text));
-                let r = ui.button(tr("Delete"));
-                register(ui.ctx(), format!("button:importPresetDeleteConfirm:{name}"), r.rect);
-                if r.clicked() {
+    let sz = egui::vec2(24.0, 24.0);
+    ui.spacing_mut().item_spacing.y = 0.0;
+    for (n, name) in names.iter().enumerate() {
+        if st.confirm.as_deref() == Some(name.as_str()) {
+            match table::confirm_item(ui, t, &IMPORT_COLS, &format!("importPreset:{name}"), &tr_format!("Delete “{name}”?", name = name)) {
+                Some(true) => {
                     st.confirm = None;
                     action = Some(("import.deletePreset", json!({"name": name})));
                 }
-                if ui.button(tr("Cancel")).clicked() {
-                    st.confirm = None;
-                }
-                return;
+                Some(false) => st.confirm = None,
+                None => {}
             }
-            let mut renamed = None;
-            if let Some((rid, text)) = st.rename.as_mut().filter(|(rid, _)| rid == name) {
+            continue;
+        }
+        let (rect, resp, rid) = table::row(ui, table::ROW_H, ("importPreset", name));
+        table::paint_item(ui, t, rect, n, resp.contains_pointer());
+        let rr = table::RowRects::new(rect, rid, &IMPORT_COLS, 24.0);
+        let mut renamed = None;
+        if let Some((rid, text)) = st.rename.as_mut().filter(|(rid, _)| rid == name) {
+            rr.in_name(ui, |ui| {
                 let r = crate::text_field::TextField::singleline(&format!("field:importPresetRename:{rid}"), text)
-                    .width(300.0)
+                    .width(rr.name.width().min(380.0))
                     .select_on_focus(true)
                     .show(ui);
                 if !r.editing && r.ending.is_none() {
@@ -611,23 +625,24 @@ fn import_presets(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &m
                 } else if r.cancelled() {
                     renamed = Some(None);
                 }
-            } else {
-                let r = ui.add_sized(egui::vec2(300.0, 22.0), egui::Label::new(RichText::new(name).color(t.text)).truncate());
-                register(ui.ctx(), format!("importPresetRow:{name}"), r.rect);
+            });
+        } else {
+            table::text_in(ui, rr.name, name, t.font(13.0), t.text);
+            register(ui.ctx(), format!("importPresetRow:{name}"), rr.name);
+        }
+        if let Some(n) = renamed {
+            st.rename = None;
+            if let Some(n) = n.filter(|n| !n.is_empty() && n != name) {
+                action = Some(("import.renamePreset", json!({"name": name, "to": n})));
             }
-            if let Some(n) = renamed {
-                st.rename = None;
-                if let Some(n) = n.filter(|n| !n.is_empty() && n != name) {
-                    action = Some(("import.renamePreset", json!({"name": name, "to": n})));
-                }
-            }
-            if icon_button(ui, &format!("importPresetRename:{name}"), Icon::Pencil, egui::vec2(24.0, 24.0), false, true, "Rename").clicked() {
-                st.rename = Some((name.clone(), name.clone()));
-            }
-            if icon_button(ui, &format!("importPresetDelete:{name}"), Icon::Trash, egui::vec2(24.0, 24.0), false, true, "Delete").clicked() {
-                st.confirm = Some(name.clone());
-            }
-        });
+        }
+        if rr.in_col(ui, Col::Rename, |ui| icon_button(ui, &format!("importPresetRename:{name}"), Icon::Pencil, sz, false, true, "Rename")).clicked()
+        {
+            st.rename = Some((name.clone(), name.clone()));
+        }
+        if rr.in_col(ui, Col::Delete, |ui| icon_button(ui, &format!("importPresetDelete:{name}"), Icon::Trash, sz, false, true, "Delete")).clicked() {
+            st.confirm = Some(name.clone());
+        }
     }
     if let Some((command, params)) = action
         && let Err(e) = app.run(command, params)

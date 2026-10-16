@@ -78,3 +78,55 @@ fn a_big_collection_stays_quick() {
     let per_frame = t0.elapsed() / 10;
     assert!(per_frame < Duration::from_millis(400), "{per_frame:?} a frame");
 }
+
+/// The rectangle `[x, y, w, h]` of widget `id` on screen.
+fn rect(h: &mut Headless, id: &str) -> Option<[f64; 4]> {
+    let r = h.request("ui.widgets", json!({ "filter": id }), T);
+    let w = r["result"].as_array()?.iter().find(|w| w["id"] == id)?.clone();
+    let v: Vec<f64> = w["rect"].as_array()?.iter().filter_map(|x| x.as_f64()).collect();
+    Some([*v.first()?, *v.get(1)?, *v.get(2)?, *v.get(3)?])
+}
+
+/// LR-PRE-MANAGE: a group's Delete asks at the group, right under its header (not at the top of
+/// the list, out of view), and the actions sit in the same column on every row.
+#[test]
+fn a_groups_delete_asks_at_the_group_and_actions_line_up() {
+    let mut h = app(400);
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "presets".into() });
+    h.step();
+    h.step();
+    // the lowest group header on screen
+    let heads = h.request("ui.widgets", json!({ "filter": "presetGroupHead:" }), T);
+    let mut heads: Vec<(f64, String)> = heads["result"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| (w["rect"][1].as_f64().unwrap(), w["id"].as_str().unwrap().trim_start_matches("presetGroupHead:").to_string()))
+        .collect();
+    heads.sort_by(|a, b| a.0.total_cmp(&b.0));
+    assert!(heads.len() > 5, "{heads:?}");
+    let (_, low) = heads[heads.len() / 2].clone();
+    let (_, high) = heads[1].clone();
+    // the actions form columns: the same x on two groups' rows
+    let a = rect(&mut h, &format!("icon:presetGroupDelete:{high}")).unwrap();
+    let b = rect(&mut h, &format!("icon:presetGroupDelete:{low}")).unwrap();
+    assert_eq!((a[0], a[2]), (b[0], b[2]), "Delete in one column");
+    let a = rect(&mut h, &format!("icon:presetGroupHide:{high}")).unwrap();
+    let b = rect(&mut h, &format!("icon:presetGroupHide:{low}")).unwrap();
+    assert_eq!(a[0], b[0], "Hide in one column");
+    let head = rect(&mut h, &format!("presetGroupHead:{low}")).unwrap();
+    click(&mut h, &format!("icon:presetGroupDelete:{low}"));
+    let ask =
+        rect(&mut h, &format!("label:groupDeleteAsk:{low}")).unwrap_or_else(|| panic!("the question shows: {}", widgets(&mut h, "groupDelete")));
+    assert!(ask[1] > head[1] && ask[1] - (head[1] + head[3]) < 40.0, "under the header: head {head:?}, ask {ask:?}");
+    assert!(rect(&mut h, &format!("button:groupDeleteConfirm:{low}")).is_some_and(|r| r[1] + r[3] < 1000.0), "in view");
+    click(&mut h, &format!("button:groupDeleteConfirm:{low}"));
+    assert!(!h.app.session.presets.iter().any(|p| p.group == low));
+    // one preset's Delete asks in its own row
+    click(&mut h, &format!("icon:presetGroupFold:{high}"));
+    let id = h.app.session.presets.iter().find(|p| p.group == high).unwrap().id.clone();
+    click(&mut h, &format!("icon:presetDelete:{id}"));
+    assert!(rect(&mut h, &format!("button:preset:{id}DeleteConfirm")).is_some());
+    click(&mut h, &format!("button:preset:{id}DeleteConfirm"));
+    assert!(!h.app.session.presets.iter().any(|p| p.id == id));
+}
