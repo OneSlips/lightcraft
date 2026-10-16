@@ -203,7 +203,7 @@ mod tests {
             name: format!("P{i}"),
             group: "G".into(),
             settings: serde_json::json!({"light": {"exposure": i as f64 / 10.0}}),
-            favorite: i % 3 == 0,
+            favorite: i.is_multiple_of(3),
             builtin: false,
         }
     }
