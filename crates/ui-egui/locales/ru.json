@@ -3075,5 +3075,6 @@
   "Show the group in the menus": "Показать группу в меню",
   "The import presets saved in the Import tab, shared by all your libraries.": "Пресеты импорта, сохранённые на вкладке «Импорт», общие для всех библиотек.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Пресеты меню «Эффект» панели «Маски», общие для всех библиотек. «Скрыть» убирает пресет из меню; здесь он остаётся.",
-  "With AI masks only": "Только с ИИ-масками"
+  "With AI masks only": "Только с ИИ-масками",
+  "The model can't take an area this large. Please select a smaller area.": "Модель не может обработать такую большую область. Выберите область поменьше."
 }

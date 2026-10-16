@@ -2922,5 +2922,6 @@
   "Show the group in the menus": "Mostrar o grupo nos menus",
   "The import presets saved in the Import tab, shared by all your libraries.": "As predefinições de importação salvas na aba Importar, compartilhadas por todas as bibliotecas.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "As predefinições do menu Efeito do painel Máscaras, compartilhadas por todas as bibliotecas. Ocultar tira uma do menu; ela continua aqui.",
-  "With AI masks only": "Só com máscaras IA"
+  "With AI masks only": "Só com máscaras IA",
+  "The model can't take an area this large. Please select a smaller area.": "O modelo não aceita uma área tão grande. Selecione uma área menor."
 }

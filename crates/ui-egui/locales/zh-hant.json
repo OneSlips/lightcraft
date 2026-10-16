@@ -2884,5 +2884,6 @@
   "Show the group in the menus": "在選單中顯示此群組",
   "The import presets saved in the Import tab, shared by all your libraries.": "在匯入分頁中儲存的匯入預設，所有圖庫共用。",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "遮色片面板效果選單中的預設，所有圖庫共用。「隱藏」會把它從選單移除，它仍留在這裡。",
-  "With AI masks only": "僅含 AI 遮色片"
+  "With AI masks only": "僅含 AI 遮色片",
+  "The model can't take an area this large. Please select a smaller area.": "模型無法處理這麼大的區域。請選擇較小的區域。"
 }
