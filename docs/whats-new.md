@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Scroll bars
+- The grid's and the filmstrip's **scroll bars are slimmer and their handle never hides**. The tick strip of picks and rejects above the filmstrip is gone; the position ("1,263 / 2,233") stays.
+
 ### Flags, take two
 - The marks under the thumbnails are **smaller**, in a slim row.
 - A **white line** along the bottom of a picked cell and a **red line** under a rejected one; picked cells are slightly lighter, rejected ones darker.
