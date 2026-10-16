@@ -382,8 +382,6 @@
   "Camera card ({label})": "Carte mémoire ({label})",
   "Type {n} to confirm:": "Tapez {n} pour confirmer :",
   "Rejected files to move to the {bin}: {n}": "Fichiers rejetés à déplacer vers la {bin} : {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Photos prêtes : {n}. Masques IA, retouche et aperçus terminés.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Photos prêtes : {n}. Masques IA et retouche terminés.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Photos parcourues ignorées : {n}{0:.0} — les albums contiennent des photos de la bibliothèque (importez-les d’abord)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} rejetées : {closed} yeux fermés, {blurry} yeux flous",
   "+{} more, all sharp and open": "+{} de plus, tous nets et les yeux ouverts",
@@ -425,5 +423,8 @@
   "Take “{name}” off this computer?": "Retirer « {name} » de cet ordinateur ?",
   "default for {bodies}": "par défaut pour {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} éléments intégrés sont retirés de cet ordinateur (Restaurer les ramène).",
-  "{n} of your own: delete them, or move them to another group.": "{n} des vôtres : les supprimer, ou les déplacer vers un autre groupe."
+  "{n} of your own: delete them, or move them to another group.": "{n} des vôtres : les supprimer, ou les déplacer vers un autre groupe.",
+  "Photos ready: {n}.": "Photos prêtes : {n}.",
+  "AI masks: {masks} on {photos} photos.": "Masques IA : {masks} sur {photos} photos.",
+  "Smooth Skin: {n} photos.": "Lisser la peau : {n} photos."
 }

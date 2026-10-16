@@ -3085,5 +3085,6 @@
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Die Vorgaben im Effekt-Menü des Masken-Bedienfelds, von allen Bibliotheken genutzt. Ausblenden nimmt eine aus dem Menü; hier bleibt sie.",
   "With AI masks only": "Nur mit KI-Masken",
   "Presets may change the camera profile": "Vorgaben dürfen das Kameraprofil ändern",
-  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Aus: Jedes Raw behält das Profil seines Kameragehäuses, egal welches Profil eine Vorgabe nennt."
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Aus: Jedes Raw behält das Profil seines Kameragehäuses, egal welches Profil eine Vorgabe nennt.",
+  "Previews built.": "Vorschauen erstellt."
 }

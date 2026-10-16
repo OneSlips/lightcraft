@@ -3082,5 +3082,6 @@
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Пресети меню «Ефект» панелі «Маски», спільні для всіх бібліотек. «Приховати» прибирає пресет із меню; тут він лишається.",
   "With AI masks only": "Лише з ШІ-масками",
   "Presets may change the camera profile": "Пресети можуть змінювати профіль камери",
-  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Вимк.: кожен raw зберігає профіль свого корпусу, хоч який профіль вказує пресет."
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Вимк.: кожен raw зберігає профіль свого корпусу, хоч який профіль вказує пресет.",
+  "Previews built.": "Попередні перегляди створено."
 }

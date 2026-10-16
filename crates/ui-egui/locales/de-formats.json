@@ -382,8 +382,6 @@
   "Camera card ({label})": "Speicherkarte ({label})",
   "Type {n} to confirm:": "Zum Bestätigen {n} eingeben:",
   "Rejected files to move to the {bin}: {n}": "Abgelehnte Dateien, die in den {bin} verschoben werden: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos bereit: {n}. KI-Masken, Retusche und Vorschauen sind fertig.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Fotos bereit: {n}. KI-Masken und Retusche sind fertig.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Übersprungen: {n} durchsuchte Fotos{0:.0} – Alben enthalten Bibliotheksfotos (zuerst importieren)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} abgelehnt: {closed} mit geschlossenen Augen, {blurry} mit unscharfen Augen",
   "+{} more, all sharp and open": "+{} weitere, alle scharf und mit offenen Augen",
@@ -425,5 +423,8 @@
   "Take “{name}” off this computer?": "„{name}“ von diesem Computer entfernen?",
   "default for {bodies}": "Standard für {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} integrierte Einträge werden von diesem Computer entfernt (Wiederherstellen holt sie zurück).",
-  "{n} of your own: delete them, or move them to another group.": "{n} eigene: löschen oder in eine andere Gruppe verschieben."
+  "{n} of your own: delete them, or move them to another group.": "{n} eigene: löschen oder in eine andere Gruppe verschieben.",
+  "Photos ready: {n}.": "Fotos bereit: {n}.",
+  "AI masks: {masks} on {photos} photos.": "KI-Masken: {masks} auf {photos} Fotos.",
+  "Smooth Skin: {n} photos.": "Haut glätten: {n} Fotos."
 }

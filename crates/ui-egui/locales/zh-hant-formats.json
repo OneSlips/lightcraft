@@ -382,8 +382,6 @@
   "Camera card ({label})": "相機記憶卡 ({label})",
   "Type {n} to confirm:": "輸入 {n} 以確認：",
   "Rejected files to move to the {bin}: {n}": "將移到{bin}的已拒絕檔案：{n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "已就緒的照片：{n}。AI 遮罩、修飾和預覽已完成。",
-  "Photos ready: {n}. AI masks and retouch are done.": "已就緒的照片：{n}。AI 遮罩和修飾已完成。",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "已略過瀏覽中的照片：{n}{0:.0}（相簿存放圖庫照片，請先匯入）",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "已拒絕 {n} 張：{closed} 張閉眼，{blurry} 張眼睛模糊",
   "+{} more, all sharp and open": "另有 {} 人，都清晰且睜眼",
@@ -425,5 +423,8 @@
   "Take “{name}” off this computer?": "從此電腦移除「{name}」？",
   "default for {bodies}": "{bodies} 的預設值",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} 個內建項目將從此電腦移除（可還原）。",
-  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。"
+  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。",
+  "Photos ready: {n}.": "相片已就緒：{n} 張。",
+  "AI masks: {masks} on {photos} photos.": "AI 遮色片：{photos} 張相片上共 {masks} 個。",
+  "Smooth Skin: {n} photos.": "平滑皮膚：{n} 張相片。"
 }

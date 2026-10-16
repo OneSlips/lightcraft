@@ -984,13 +984,9 @@ impl LightcraftApp {
         // an import being finished unattended (masks, skin, previews): its note when it is done
         if self.session.finishing.is_some() || self.session.finish_pending.is_some() {
             if self.session.finishing_tick().is_some()
-                && let Some((n, previews)) = self.session.finishing_done
+                && let Some(done) = self.session.finishing_done
+                && let Some(note) = finishing_note(&done)
             {
-                let note = if previews {
-                    i18n::tr_format!("Photos ready: {n}. AI masks, retouch and previews are done.", n = n)
-                } else {
-                    i18n::tr_format!("Photos ready: {n}. AI masks and retouch are done.", n = n)
-                };
                 self.toast_for(ctx, format!("✓ {note}"), 12.0);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
@@ -1752,6 +1748,32 @@ struct PendingShot {
 pub fn now_ms() -> f64 {
     use web_time::{SystemTime, UNIX_EPOCH};
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
+}
+
+/// What a finished import queue tells the user: only what it really did (AI masks only when a
+/// preset had some, with the counts). Nothing when there was nothing to do.
+pub(crate) fn finishing_note(done: &lightcraft_engine::finishing::FinishSummary) -> Option<String> {
+    if !done.did_something() {
+        return None;
+    }
+    let mut note = i18n::tr_format!("Photos ready: {n}.", n = i18n::group_digits(done.photos));
+    if done.masks > 0 {
+        note.push(' ');
+        note.push_str(&i18n::tr_format!(
+            "AI masks: {masks} on {photos} photos.",
+            masks = i18n::group_digits(done.masks),
+            photos = i18n::group_digits(done.mask_photos)
+        ));
+    }
+    if done.skin > 0 {
+        note.push(' ');
+        note.push_str(&i18n::tr_format!("Smooth Skin: {n} photos.", n = i18n::group_digits(done.skin)));
+    }
+    if done.previews {
+        note.push(' ');
+        note.push_str(i18n::tr("Previews built."));
+    }
+    Some(note)
 }
 
 /// Whether the settings render in black & white.

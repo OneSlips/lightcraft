@@ -214,7 +214,9 @@ fn import_run_takes_the_picks_and_finishes_them() {
         }
     }
     assert!(s.finishing.is_none());
-    assert_eq!(s.finishing_note.as_deref(), Some("1 photo ready: masks and retouch done"), "{note:?}");
+    // (a preset without AI masks, no Smooth Skin, no previews: the note says no more than that)
+    assert_eq!(s.finishing_note.as_deref(), Some("1 photo ready"), "{note:?}");
+    assert!(s.finishing_done.is_some_and(|d| !d.did_something() && d.masks == 0), "{:?}", s.finishing_done);
     let e = s.execute("import.run", &json!({"what": "picks"})).unwrap_err().to_string();
     assert!(e.contains("no picks"), "{e}");
 }
@@ -264,4 +266,44 @@ fn import_presets_are_saved_with_the_library() {
     assert_eq!(list[0]["settings"]["mode"], "add", "{list}");
     s.execute("import.deletePreset", &json!({"name": "WEDDING"})).unwrap();
     assert!(s.import_presets.is_empty());
+}
+
+/// LR-IMP-NOTICE: the finishing queue counts the AI masks the presets really bring: none for a
+/// preset without masks, each mask of each photo for one with them.
+#[test]
+fn the_finishing_counts_only_real_ai_masks() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
+    let (mut s, _root, ids) = browsing("notice");
+    let sky = Mask {
+        name: "Sky".into(),
+        components: vec![MaskComponent { name: None, anchor: None, op: MaskOp::Add, invert: false, shape: MaskShape::Sky { seg: None } }],
+        ..Default::default()
+    };
+    s.presets.push(lightcraft_develop::Preset {
+        id: "t.sky".into(),
+        name: "Sky".into(),
+        group: "Test".into(),
+        settings: json!({"masks": [serde_json::to_value(&sky).unwrap()]}),
+        favorite: false,
+        builtin: false,
+    });
+    s.selection = lightcraft_engine_selection(&[ids[0]]);
+    // (no model here: the queue is done at once; while it runs, `import.status` has the counts too)
+    let summary = |s: &mut Session| {
+        for _ in 0..100 {
+            s.finishing_tick();
+            if s.finishing.is_none() {
+                break;
+            }
+        }
+        s.finishing_done.unwrap()
+    };
+    s.execute("import.run", &json!({"what": "selected", "presets": ["t.bright"]})).unwrap();
+    let done = summary(&mut s);
+    assert_eq!((done.masks, done.did_something()), (0, false), "{done:?}");
+    s.selection = lightcraft_engine_selection(&[ids[1], ids[2]]);
+    s.execute("import.run", &json!({"what": "selected", "presets": ["t.bright", "t.sky"]})).unwrap();
+    let done = summary(&mut s);
+    assert_eq!((done.masks, done.mask_photos, done.photos), (2, 2, 2), "{done:?}");
+    assert_eq!(done.note(), "2 photos ready: 2 AI masks on 2 photos");
 }

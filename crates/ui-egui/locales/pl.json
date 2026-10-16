@@ -2435,5 +2435,6 @@
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Ustawienia menu Efekt w panelu Maskowanie, wspólne dla wszystkich bibliotek. Ukryj usuwa je z menu; zostaje tutaj.",
   "With AI masks only": "Tylko z maskami AI",
   "Presets may change the camera profile": "Ustawienia mogą zmienić profil aparatu",
-  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Wyłączone: każdy plik raw zachowuje profil swojego korpusu, niezależnie od profilu w ustawieniu."
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Wyłączone: każdy plik raw zachowuje profil swojego korpusu, niezależnie od profilu w ustawieniu.",
+  "Previews built.": "Podglądy utworzone."
 }

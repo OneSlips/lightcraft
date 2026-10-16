@@ -2340,5 +2340,6 @@
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Předvolby nabídky Efekt v panelu Maskování, sdílené všemi knihovnami. Skrýt ji odebere z nabídky; zůstane tady.",
   "With AI masks only": "Jen s AI maskami",
   "Presets may change the camera profile": "Předvolby smí změnit profil fotoaparátu",
-  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Vypnuto: každý raw si ponechá profil svého těla fotoaparátu, ať předvolba uvádí jakýkoli profil."
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Vypnuto: každý raw si ponechá profil svého těla fotoaparátu, ať předvolba uvádí jakýkoli profil.",
+  "Previews built.": "Náhledy vytvořeny."
 }

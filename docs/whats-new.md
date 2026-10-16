@@ -9,6 +9,11 @@
 - A preset never takes the body's profile away. To let a preset's own camera profile win, tick
   **Presets may change the camera profile** under the Import panel's presets.
 
+### Import notices say what really happened
+- When an import is ready, the notice names only what was done: **AI masks with their counts**
+  ("AI masks: 24 on 12 photos") only when a preset had some, Smooth Skin when it ran, previews when
+  they were built. An import with nothing more to do shows no notice.
+
 ## 2026-10-16
 
 ### Presets Manager

@@ -2924,5 +2924,6 @@
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "As predefinições do menu Efeito do painel Máscaras, compartilhadas por todas as bibliotecas. Ocultar tira uma do menu; ela continua aqui.",
   "With AI masks only": "Só com máscaras IA",
   "Presets may change the camera profile": "As predefinições podem mudar o perfil da câmera",
-  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Desligado: cada raw mantém o perfil do seu corpo de câmera, seja qual for o perfil que uma predefinição indique."
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Desligado: cada raw mantém o perfil do seu corpo de câmera, seja qual for o perfil que uma predefinição indique.",
+  "Previews built.": "Pré-visualizações criadas."
 }

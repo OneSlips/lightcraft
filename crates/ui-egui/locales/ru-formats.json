@@ -382,8 +382,6 @@
   "Camera card ({label})": "Карта камеры ({label})",
   "Type {n} to confirm:": "Введите {n} для подтверждения:",
   "Rejected files to move to the {bin}: {n}": "Отклонённые файлы для перемещения в {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Готово фото: {n}. ИИ-маски, ретушь и превью готовы.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Готово фото: {n}. ИИ-маски и ретушь готовы.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Пропущено просматриваемых фото: {n}{0:.0} — альбомы содержат фото библиотеки (сначала импортируйте их)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Отклонено {n}: {closed} с закрытыми глазами, {blurry} с размытыми глазами",
   "+{} more, all sharp and open": "ещё {}, все резкие и с открытыми глазами",
@@ -425,5 +423,8 @@
   "Take “{name}” off this computer?": "Убрать «{name}» с этого компьютера?",
   "default for {bodies}": "по умолчанию для {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} встроенных элементов будут убраны с этого компьютера (их можно восстановить).",
-  "{n} of your own: delete them, or move them to another group.": "{n} ваших: удалить их или перенести в другую группу."
+  "{n} of your own: delete them, or move them to another group.": "{n} ваших: удалить их или перенести в другую группу.",
+  "Photos ready: {n}.": "Фото готовы: {n}.",
+  "AI masks: {masks} on {photos} photos.": "ИИ-маски: {masks} на {photos} фото.",
+  "Smooth Skin: {n} photos.": "Сглаживание кожи: {n} фото."
 }

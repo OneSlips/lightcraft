@@ -61,9 +61,49 @@ impl Stage {
     }
 }
 
+/// What a finished queue did, for the note: only what really happened is said (an import with a
+/// preset without AI masks says nothing about masks).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct FinishSummary {
+    /// Photos of the import.
+    pub photos: usize,
+    /// Photos whose presets had AI masks, and how many masks were computed in all.
+    pub mask_photos: usize,
+    pub masks: usize,
+    /// Photos whose Smooth Skin found their skin.
+    pub skin: usize,
+    /// Previews were built.
+    pub previews: bool,
+}
+
+impl FinishSummary {
+    /// Anything to tell: masks, skin or previews.
+    pub fn did_something(&self) -> bool {
+        self.masks > 0 || self.skin > 0 || self.previews
+    }
+
+    /// The note in English (the app says it in the UI language).
+    pub fn note(&self) -> String {
+        let plural = |n: usize, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        let mut parts = Vec::new();
+        if self.masks > 0 {
+            parts.push(format!("{} on {}", plural(self.masks, "AI mask", "AI masks"), plural(self.mask_photos, "photo", "photos")));
+        }
+        if self.skin > 0 {
+            parts.push(format!("Smooth Skin on {}", plural(self.skin, "photo", "photos")));
+        }
+        if self.previews {
+            parts.push("previews built".to_string());
+        }
+        let head = format!("{} ready", plural(self.photos, "photo", "photos"));
+        if parts.is_empty() { head } else { format!("{head}: {}", parts.join(", ")) }
+    }
+}
+
 /// A finishing queue at work.
 pub struct Finishing {
     pub plan: FinishPlan,
+    summary: FinishSummary,
     ids: HashSet<PhotoId>,
     stage: Stage,
     /// The photos still waiting for their masks or skin (last tick).
@@ -117,6 +157,9 @@ impl Finishing {
             "running": self.stage != Stage::Done,
             "stage": self.stage.name(),
             "total": self.ids.len(),
+            "masks": self.summary.masks,
+            "maskPhotos": self.summary.mask_photos,
+            "skin": self.summary.skin,
             "analysing": self.analysing,
             "previews": self.plan.previews,
             "previewsDone": self.previews.as_ref().map(|b| b.done.load(std::sync::atomic::Ordering::Relaxed)),
@@ -162,6 +205,7 @@ impl Session {
             ids,
             stage: Stage::Analyse,
             analysing: 0,
+            summary: FinishSummary::default(),
             previews: None,
             waited: false,
             started: Instant::now(),
@@ -172,12 +216,17 @@ impl Session {
         let list: Vec<PhotoId> = f.plan.ids.iter().map(|i| PhotoId(*i)).collect();
         let need: Vec<PhotoId> =
             list.iter().copied().filter(|id| self.develop_of(*id).is_some_and(|d| d.masks.iter().any(|m| m.needs_compute()))).collect();
+        f.summary.photos = list.len();
+        f.summary.mask_photos = need.len();
+        f.summary.masks = need.iter().filter_map(|id| self.develop_of(*id)).map(|d| d.masks.iter().filter(|m| m.needs_compute()).count()).sum();
         if !need.is_empty() {
             let _ = self.compute_masks(&need, false);
         }
         for id in &list {
-            if let Err(e) = self.skin_ensure(*id, false) {
-                log::info!("finishing import: Smooth Skin on {}: {e}", id.0);
+            match self.skin_ensure(*id, false) {
+                Ok(true) => f.summary.skin += 1,
+                Ok(false) => {}
+                Err(e) => log::info!("finishing import: Smooth Skin on {}: {e}", id.0),
             }
         }
         f.analysing = self.still_analysing(&f.ids);
@@ -261,12 +310,13 @@ impl Session {
             return None;
         }
         self.save_finishing(None);
-        let n = f.ids.len();
-        let what = if f.plan.preview_size().is_some() { "masks, retouch and previews done" } else { "masks and retouch done" };
-        let note = format!("{n} photo{} ready: {what}", if n == 1 { "" } else { "s" });
+        let mut summary = f.summary;
+        summary.photos = f.ids.len();
+        summary.previews = f.previews.is_some();
+        let note = summary.note();
         log::info!("finishing import: {note} in {}", duration_text(f.started.elapsed().as_secs()));
         self.finishing_note = Some(note.clone());
-        self.finishing_done = Some((n, f.plan.preview_size().is_some()));
+        self.finishing_done = Some(summary);
         Some(note)
     }
 
@@ -292,5 +342,25 @@ impl Session {
             Ok(_) => {}
             Err(e) => log::warn!("finishing import: {FILE} unreadable, left alone: {e}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FinishSummary;
+
+    /// LR-IMP-NOTICE: the note names masks only when there were some, with the counts.
+    #[test]
+    fn the_note_says_only_what_was_done() {
+        let none = FinishSummary { photos: 1, ..Default::default() };
+        assert!(!none.did_something());
+        assert_eq!(none.note(), "1 photo ready");
+        let masks = FinishSummary { photos: 12, mask_photos: 12, masks: 24, ..Default::default() };
+        assert!(masks.did_something());
+        assert_eq!(masks.note(), "12 photos ready: 24 AI masks on 12 photos");
+        let all = FinishSummary { photos: 2, mask_photos: 1, masks: 1, skin: 2, previews: true };
+        assert_eq!(all.note(), "2 photos ready: 1 AI mask on 1 photo, Smooth Skin on 2 photos, previews built");
+        let previews = FinishSummary { photos: 3, previews: true, ..Default::default() };
+        assert_eq!(previews.note(), "3 photos ready: previews built");
     }
 }
