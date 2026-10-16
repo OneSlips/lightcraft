@@ -13,6 +13,8 @@
   holes in a lace dress; people and clothes edges follow the photo's own edges more closely.
 - **Face Skin** leaves the eyes (lids and lashes, however far they are open), brows and lips out, on
   smiling and squinting faces too, and reaches the hairline on a high forehead.
+- **Clothes** leaves the wearer's skin and hair out (a neckline, arms, hands) and its edge follows the
+  garment's own edge, without a halo.
 - **Landscape**: sky, water, vegetation, mountains, architecture, natural or artificial ground.
 - **Update** recomputes a mask made before its model was installed.
 - Everything runs on your computer, in LightCraft's own code; nothing is uploaded.

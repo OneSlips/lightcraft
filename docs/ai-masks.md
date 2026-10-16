@@ -55,6 +55,8 @@ In the Masking panel (M):
   (the class map alone fades out on a high forehead). Nostrils stay in the skin. On a face seen in profile the
   features can't be located: only hair is left out there, and the app says so. Pick Lips, Eyebrows
   and so on alongside a skin part to add them back.
+  **Clothes** on its own leaves the skin and hair the class map's blur spills onto (a neckline,
+  arms, hands) out, and its edge is pulled onto the photo's.
 - **Landscape**: pick a class under the tiles — Sky, Water, Vegetation, Mountains, Architecture,
   Natural Ground, Artificial Ground.
 - **Update**: a mask made before its model was installed (or an older document) keeps its

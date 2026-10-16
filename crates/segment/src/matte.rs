@@ -199,9 +199,81 @@ pub fn guided_filter(p: &[f32], g: &[f32], w: usize, h: usize, r: usize, eps: f3
         .collect()
 }
 
+/// [`guided_filter`] with a colour guide (`g`: `w × h` RGB, 0..1, interleaved): an edge in colour
+/// alone — a white dress against pale skin of the same lightness — is followed too (He, Sun and
+/// Tang's colour guided filter: a 3 × 3 covariance per window). Inputs of the wrong size come back
+/// unchanged.
+pub fn guided_filter_rgb(p: &[f32], g: &[f32], w: usize, h: usize, r: usize, eps: f32) -> Vec<f32> {
+    let n = w.saturating_mul(h);
+    if n == 0 || p.len() != n || g.len() != n.saturating_mul(3) || r == 0 {
+        return p.to_vec();
+    }
+    let ch = |c: usize| -> Vec<f32> { g.iter().skip(c).step_by(3).copied().collect() };
+    let gc = [ch(0), ch(1), ch(2)];
+    let mean_g: Vec<Vec<f32>> = gc.iter().map(|c| box_mean(c, w, h, r)).collect();
+    let mean_p = box_mean(p, w, h, r);
+    let corr_gp: Vec<Vec<f32>> = gc.iter().map(|c| box_mean(&c.iter().zip(p).map(|(a, b)| a * b).collect::<Vec<_>>(), w, h, r)).collect();
+    // the six distinct products of the colour channels
+    let pairs = [(0, 0), (0, 1), (0, 2), (1, 1), (1, 2), (2, 2)];
+    let corr_gg: Vec<Vec<f32>> =
+        pairs.iter().map(|(i, j)| box_mean(&gc[*i].iter().zip(&gc[*j]).map(|(a, b)| a * b).collect::<Vec<_>>(), w, h, r)).collect();
+    let mut a = [vec![0f32; n], vec![0f32; n], vec![0f32; n]];
+    let mut b = vec![0f32; n];
+    for k in 0..n {
+        let m = [mean_g[0][k], mean_g[1][k], mean_g[2][k]];
+        let s = |q: usize, i: usize, j: usize| corr_gg[q][k] - m[i] * m[j] + if i == j { eps } else { 0.0 };
+        let (s00, s01, s02, s11, s12, s22) = (s(0, 0, 0), s(1, 0, 1), s(2, 0, 2), s(3, 1, 1), s(4, 1, 2), s(5, 2, 2));
+        let cov = [corr_gp[0][k] - m[0] * mean_p[k], corr_gp[1][k] - m[1] * mean_p[k], corr_gp[2][k] - m[2] * mean_p[k]];
+        // the inverse of the symmetric 3 × 3 matrix, by cofactors
+        let (c00, c01, c02) = (s11 * s22 - s12 * s12, s02 * s12 - s01 * s22, s01 * s12 - s02 * s11);
+        let det = s00 * c00 + s01 * c01 + s02 * c02;
+        let (ak, bk) = if det.abs() > 1e-12 && det.is_finite() {
+            let (c11, c12, c22) = (s00 * s22 - s02 * s02, s01 * s02 - s00 * s12, s00 * s11 - s01 * s01);
+            let x = [
+                (c00 * cov[0] + c01 * cov[1] + c02 * cov[2]) / det,
+                (c01 * cov[0] + c11 * cov[1] + c12 * cov[2]) / det,
+                (c02 * cov[0] + c12 * cov[1] + c22 * cov[2]) / det,
+            ];
+            (x, mean_p[k] - x[0] * m[0] - x[1] * m[1] - x[2] * m[2])
+        } else {
+            ([0.0; 3], mean_p[k])
+        };
+        for (c, v) in a.iter_mut().zip(ak) {
+            c[k] = v;
+        }
+        b[k] = bk;
+    }
+    let ma: Vec<Vec<f32>> = a.iter().map(|v| box_mean(v, w, h, r)).collect();
+    let mb = box_mean(&b, w, h, r);
+    (0..n)
+        .map(|k| {
+            let v = ma[0][k] * gc[0][k] + ma[1][k] * gc[1][k] + ma[2][k] * gc[2][k] + mb[k];
+            if v.is_finite() { v.clamp(0.0, 1.0) } else { p[k] }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Two colours of the same lightness side by side (pale skin, a dress tinted the other way):
+    /// the colour guide sees the edge and pulls the soft edge onto it.
+    #[test]
+    fn the_colour_guided_filter_follows_an_edge_in_colour_alone() {
+        let (w, h) = (40usize, 8usize);
+        let g: Vec<f32> = (0..w * h).flat_map(|i| if i % w < 20 { [0.8, 0.6, 0.5] } else { [0.5, 0.6, 0.8] }).collect();
+        let p: Vec<f32> = (0..w * h).map(|i| (((i % w) as f32 - 14.0) / 12.0).clamp(0.0, 1.0)).collect();
+        let q = guided_filter_rgb(&p, &g, w, h, 4, 1e-4);
+        let at = |v: &[f32], x: usize| v[3 * w + x];
+        assert!(at(&q, 18) < at(&p, 18) - 0.05, "{} {}", at(&q, 18), at(&p, 18));
+        assert!(at(&q, 22) > at(&p, 22) + 0.05, "{} {}", at(&q, 22), at(&p, 22));
+        assert!(q.iter().all(|v| (0.0..=1.0).contains(v)));
+        assert_eq!(guided_filter_rgb(&p, &g[..10], w, h, 4, 1e-3), p);
+        // a flat guide: a smooth copy, no NaN
+        let flat = vec![0.5f32; w * h * 3];
+        assert!(guided_filter_rgb(&p, &flat, w, h, 4, 1e-4).iter().all(|v| v.is_finite()));
+    }
 
     /// A ring of coverage with a speck missing inside a blob, and a gap open to the outside.
     #[test]
