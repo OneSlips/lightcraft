@@ -170,8 +170,10 @@ walks the drive.
   order. The histogram is counted on the device (`hist`, atomics, the same sampling grid as
   `Histogram::of_srgb8`, so it is exact).
 - Per-stage hybrid: the camera's local tone mapping (ProRAW gain tables, off by default) runs the
-  scene-linear stage on the CPU and uploads; heuristic mask shapes (Sky, Subject, Background, …) and brushes of more
-  than 4096 dabs are evaluated on the CPU and uploaded; sources over the buffer limit are resampled
+  scene-linear stage on the CPU and uploads; heuristic mask shapes (Sky, Subject, Background, …), brushes with pen pressure and
+  brushes of more than 65 536 dabs (or whose tile lists would pass 8 M words) are evaluated on the CPU and uploaded. The
+  brush kernel bins each stroke's dabs into tiles of about a quarter radius, so a pixel looks only at the dabs that reach
+  its tile instead of every dab of the stroke (a dress brushed over, zoomed to 100 %: tens of seconds before); sources over the buffer limit are resampled
   on the CPU.
 - Stage cache: `GpuStages` mirrors `StageCache` (same keys: source identity + `geo`, `lin_key`,
   per-plane radii) and lives in it as an extension, so the UI needs no change. The uploaded source is

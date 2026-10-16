@@ -73,6 +73,8 @@ pub enum Shown {
 struct Gesture {
     target: String,
     last_input_ms: f64,
+    /// The way the dial last turned (the sign of its ticks).
+    direction: i32,
 }
 
 /// Learn mode: the next control touched is reported instead of acting.
@@ -514,7 +516,18 @@ impl Runtime {
         if self.gesture.is_none() {
             out.push(Effect::Begin { target: target.to_string() });
         }
-        self.gesture = Some(Gesture { target: target.to_string(), last_input_ms: now_ms });
+        // The dial turned back (TactileBridge's `LastInputDirection`): the new way is followed at
+        // once. What the old way gathered but hasn't applied yet is dropped, and the speed starts
+        // again from the floor, so a fast spin turned back doesn't carry on (or overshoot) first.
+        let direction = ticks.signum();
+        let reversed = self.gesture.as_ref().is_some_and(|g| g.direction != 0 && g.direction != direction);
+        if reversed {
+            self.accel.reset(target);
+            if let Some(p) = self.pending.get_mut(target) {
+                *p = 0.0;
+            }
+        }
+        self.gesture = Some(Gesture { target: target.to_string(), last_input_ms: now_ms, direction });
         let tuning = self.settings.tuning_of(target);
         let motion = self.settings.motion.clone();
         let acc = self.accel.acceleration(target, now_ms, &tuning, &motion);
@@ -776,6 +789,66 @@ mod tests {
         assert_eq!(end, [Effect::End { target: "light.exposure".into(), apply_to_selected: false }]);
         assert!(r.flush(5000.0).is_empty());
         assert!(r.turning().is_none());
+    }
+
+    /// TactileBridge's direction rule: a dial turned back follows the new way at once — the old
+    /// way's ticks not applied yet are dropped and the speed starts from the floor again.
+    #[test]
+    fn a_dial_turned_back_follows_the_new_way_at_once() {
+        let mut r = Runtime::new(settings());
+        r.input(turn("dial", 1), 0.0);
+        r.flush(0.0);
+        // a fast spin up: the ceiling (10×)
+        r.input(turn("dial", 1), 5.0);
+        r.input(turn("dial", 1), 10.0);
+        let up = adjusts(&r.flush(20.0));
+        assert!((up - 0.2).abs() < 1e-12, "{up}");
+        // more up, then back down before the next frame: down wins, at the floor speed
+        r.input(turn("dial", 3), 22.0);
+        r.input(turn("dial", -1), 25.0);
+        let f = r.flush(40.0);
+        assert!((adjusts(&f) + 0.01).abs() < 1e-12, "down at once, one step: {f:?}");
+        // still the same gesture (one undo step)
+        assert!(f.iter().all(|e| !matches!(e, Effect::Begin { .. } | Effect::End { .. })), "{f:?}");
+        assert_eq!(r.turning(), Some("light.exposure"));
+    }
+
+    /// Hundreds of ticks in bursts between frames: every frame applies what came in once, nothing
+    /// is left behind (no backlog), and the value moves by exactly the sum of the ticks.
+    #[test]
+    fn hundreds_of_ticks_apply_once_per_frame_and_sum_exactly() {
+        let mut s = settings();
+        // no acceleration: one step a tick
+        s.motion.acceleration = 0.1;
+        let mut r = Runtime::new(s);
+        let (mut total, mut ticks, mut now) = (0.0, 0i64, 0.0);
+        for frame in 0..100 {
+            // 1–7 ticks arrive within each 16 ms frame, the same way
+            for k in 0..(1 + frame % 7) {
+                r.input(turn("dial", 1), now + f64::from(k));
+                ticks += 1;
+            }
+            now += 16.0;
+            let f = r.flush(now);
+            let adjust_count = f.iter().filter(|e| matches!(e, Effect::Adjust { .. })).count();
+            assert_eq!(adjust_count, 1, "one apply per frame: {f:?}");
+            total += adjusts(&f);
+            assert!(!r.holds_feedback("light.exposure"), "nothing pending after a frame");
+        }
+        assert!(ticks >= 300);
+        assert!((total - 0.01 * ticks as f64).abs() < 1e-9, "{total} for {ticks} ticks");
+    }
+
+    /// A key pressed while the dial is turning runs at once (what the dial gathered goes first).
+    #[test]
+    fn a_key_press_runs_at_once_even_mid_turn() {
+        let mut r = Runtime::new(settings());
+        r.input(turn("dial", 1), 0.0);
+        r.input(turn("dial", 1), 300.0);
+        let e = r.input(press("key.1"), 301.0);
+        let cmd = e.iter().position(|e| matches!(e, Effect::Command { .. })).expect("the command");
+        let adj = e.iter().position(|e| matches!(e, Effect::Adjust { .. })).expect("the pending turn");
+        assert!(adj < cmd, "{e:?}");
     }
 
     #[test]

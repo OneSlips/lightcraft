@@ -36,6 +36,7 @@ mod logi_plugin;
 mod native_menu;
 #[cfg(target_os = "macos")]
 mod screen_profile;
+mod threads;
 mod window_gpu;
 
 use dialog_filter::FileDialogExt as _;
@@ -842,6 +843,8 @@ fn open_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_demo: boo
     s.slide_templates_dir = lightcraft_engine::config::config_dir().map(|d| d.join(lightcraft_engine::slide_template::DIR_NAME));
     // Control requests are answered on the UI thread: Add to Apple Photos must not wait there
     s.apple_photos_background = true;
+    // presets.json (40 MB for an imported Lightroom collection) is saved off the UI thread
+    s.background_saves = true;
     (s, problem)
 }
 
@@ -982,6 +985,8 @@ fn main() -> eframe::Result {
         logging::record_panics(logger);
     }
     alloc_release::install();
+    // the shared worker pool leaves cores free and renders run below normal priority
+    threads::install();
     let mut control_port = control_port_from("LIGHTCRAFT_CONTROL_PORT", std::env::var("LIGHTCRAFT_CONTROL_PORT").ok().filter(|v| !v.is_empty()));
     let mut files = Vec::new();
     let mut seed_demo = true;

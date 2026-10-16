@@ -159,14 +159,18 @@ fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context, mo
     let sink = EventSink { tx: etx, open: Arc::clone(&open) };
     serve_lines(read, out, |method, params| {
         if mode == Mode::SurfacesOnly && !method.starts_with("surface.") {
-            return Some(json!({"ok": false, "error": "this port serves control surfaces only (surface.* methods)"}));
+            return Some(Reply::Ready(json!({"ok": false, "error": "this port serves control surfaces only (surface.* methods)"})));
         }
+        let pipelined = PIPELINED.contains(&method.as_str());
         let (req, rrx) = ControlRequest::new(method, params);
         let req = req.on_connection(conn, sink.clone());
         let state = Arc::clone(&req.state);
         tx.send(req).ok()?;
         ctx.request_repaint();
-        Some(await_reply(&rrx, &state, || ctx.cumulative_pass_nr(), || ctx.request_repaint(), NO_FRAMES_AFTER, REPLY_TIMEOUT))
+        let ctx = ctx.clone();
+        let wait: Waiter =
+            Box::new(move || await_reply(&rrx, &state, || ctx.cumulative_pass_nr(), || ctx.request_repaint(), NO_FRAMES_AFTER, REPLY_TIMEOUT));
+        Some(if pipelined { Reply::Pipelined(wait) } else { Reply::Wait(wait) })
     });
     open.store(false, Ordering::SeqCst);
     drop(sink);
@@ -271,34 +275,104 @@ fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -
     Ok(true)
 }
 
+/// Methods whose requests are pipelined: the next line is read (and handed to the app) without
+/// waiting for this one's reply, so a control surface's dial ticks never queue up one per frame in
+/// the socket (TEST-NOTES 2026-10-16 item 8: a knob turned quickly sent ticks faster than the app
+/// drew frames, and they drained seconds late, presses included). The app still runs them in
+/// order, and their replies go out in order, after the replies to every earlier request.
+pub const PIPELINED: &[&str] = &["surface.input"];
+
+/// Requests of one connection handed to the app but not answered yet, at most (the reader waits
+/// beyond that).
+const PIPELINE_DEPTH: usize = 256;
+
+/// Waits for a request's reply.
+type Waiter = Box<dyn FnOnce() -> Value + Send>;
+
+/// How a request is answered.
+enum Reply {
+    /// At once (the request was refused without reaching the app).
+    Ready(Value),
+    /// When the app has run it; the next request is read only after this reply went out.
+    Wait(Waiter),
+    /// When the app has run it; the next request is read at once ([`PIPELINED`]).
+    Pipelined(Waiter),
+}
+
+/// A reply to write, in order: its request's id (`None`: an error that closes the connection),
+/// the reply, and who waits for it to be written.
+struct Queued {
+    id: Option<Value>,
+    reply: Reply,
+    written: Option<std::sync::mpsc::SyncSender<bool>>,
+}
+
+/// Write the replies `queue` hands over, in order, until it closes or a write fails.
+fn write_replies<W: Write>(queue: Receiver<Queued>, mut out: W) {
+    for q in queue {
+        let mut v = match q.reply {
+            Reply::Ready(v) => v,
+            Reply::Wait(f) | Reply::Pipelined(f) => f(),
+        };
+        if let (Some(id), Some(o)) = (q.id, v.as_object_mut()) {
+            o.insert("id".into(), id);
+        }
+        let ok = writeln!(out, "{v}").and_then(|()| out.flush()).is_ok();
+        if let Some(w) = q.written {
+            let _ = w.send(ok);
+        }
+        if !ok {
+            return;
+        }
+    }
+}
+
 /// Serve requests from `read`, answering on `out`, until the peer closes, sends something that is
 /// not a request, or `handle` returns `None` (app gone). `handle` gets `(method, params)` and
-/// returns the reply object (the request's `id` is added here).
-fn serve_lines<R: Read, W: Write>(read: R, mut out: W, mut handle: impl FnMut(String, Value) -> Option<Value>) {
-    let mut reader = BufReader::new(read);
-    let mut buf = Vec::new();
-    loop {
-        let reject = match read_bounded_line(&mut reader, &mut buf, MAX_LINE) {
-            Ok(false) => return,
-            Err(e) => e,
-            Ok(true) => match parse_line(&buf) {
-                Line::Blank => continue,
-                Line::Reject(e) => e,
-                Line::Request { id, method, params } => {
-                    let Some(mut r) = handle(method, params) else { return };
-                    if let Some(o) = r.as_object_mut() {
-                        o.insert("id".into(), id);
-                    }
-                    if writeln!(out, "{r}").and_then(|()| out.flush()).is_err() {
-                        return;
-                    }
-                    continue;
-                }
-            },
+/// says how the request is answered (the request's `id` is added here). Replies go out in the
+/// order of the requests; a [`Reply::Pipelined`] one doesn't hold back reading the next line.
+fn serve_lines<R: Read, W: Write + Send>(read: R, out: W, mut handle: impl FnMut(String, Value) -> Option<Reply>) {
+    std::thread::scope(|scope| {
+        let (queue, rx) = std::sync::mpsc::sync_channel::<Queued>(PIPELINE_DEPTH);
+        let writer = scope.spawn(move || write_replies(rx, out));
+        // hand a reply to the writer; with `wait`, until it is written. Whether to go on.
+        let send = |id: Option<Value>, reply: Reply, wait: bool| -> bool {
+            let (written, done) = if wait {
+                let (t, r) = std::sync::mpsc::sync_channel(1);
+                (Some(t), Some(r))
+            } else {
+                (None, None)
+            };
+            if queue.send(Queued { id, reply, written }).is_err() {
+                return false;
+            }
+            done.is_none_or(|d| d.recv().unwrap_or(false))
         };
-        let _ = writeln!(out, "{}", json!({"ok": false, "error": reject})).and_then(|()| out.flush());
-        return;
-    }
+        let mut reader = BufReader::new(read);
+        let mut buf = Vec::new();
+        loop {
+            let reject = match read_bounded_line(&mut reader, &mut buf, MAX_LINE) {
+                Ok(false) => break,
+                Err(e) => e,
+                Ok(true) => match parse_line(&buf) {
+                    Line::Blank => continue,
+                    Line::Reject(e) => e,
+                    Line::Request { id, method, params } => {
+                        let Some(r) = handle(method, params) else { break };
+                        let wait = !matches!(r, Reply::Pipelined(_));
+                        if !send(Some(id), r, wait) {
+                            break;
+                        }
+                        continue;
+                    }
+                },
+            };
+            send(None, Reply::Ready(json!({"ok": false, "error": reject})), true);
+            break;
+        }
+        drop(queue);
+        let _ = writer.join();
+    });
 }
 
 #[cfg(test)]
@@ -501,12 +575,118 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
     }
 
+    /// TEST-NOTES 2026-10-16 item 8: a knob turned fast sends a tick per request, faster than the
+    /// app draws frames. Ticks used to wait for a frame each (the connection read its next request
+    /// only after the reply), so they queued in the socket and were applied seconds late, a press
+    /// behind them "clicking itself" later. Now hundreds of ticks sent at once, with slow frames
+    /// (40 ms), are all applied within a few frames, the value is their sum, and a press sent
+    /// after them runs in the same breath.
+    #[test]
+    fn a_burst_of_dial_ticks_is_applied_within_a_few_frames_without_a_backlog() {
+        use std::time::Instant;
+
+        use lightcraft_ui_egui::headless::Headless;
+        use lightcraft_ui_egui::{LightcraftApp, Services};
+
+        struct Store(Mutex<Option<String>>);
+        impl lightcraft_ui_egui::surface::SurfaceStore for Store {
+            fn load(&self) -> Result<Option<String>, String> {
+                Ok(self.0.lock().unwrap().clone())
+            }
+            fn save(&self, t: &str) -> Result<(), String> {
+                *self.0.lock().unwrap() = Some(t.to_string());
+                Ok(())
+            }
+        }
+        const TOKEN: &str = "stress-token";
+        let mut settings = lightcraft_surface::SurfaceSettings { enabled: true, ..Default::default() };
+        settings.paired.push(lightcraft_surface::settings::PairedClient {
+            client: "stress".into(),
+            name: "Stress".into(),
+            token_sha256: lightcraft_surface::protocol::token_hash(TOKEN),
+            approved_at: 0,
+        });
+        // no acceleration: every tick is one step (0.01 EV), so the sum is exact
+        settings.motion.acceleration = 0.1;
+        let services = Services { png: None, surface_store: Some(Box::new(Store(Mutex::new(Some(settings.to_json()))))), ..Default::default() };
+        let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::with_demo(), services), [1200.0, 800.0], 1.0);
+        h.settle(Duration::from_secs(20));
+        let first = h.app.session.visible_cloned()[0];
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [first.0]}}), Duration::from_secs(20));
+        h.app.ui.view = lightcraft_ui_egui::state::ViewMode::Detail;
+        h.settle(Duration::from_secs(20));
+        let before = h.app.session.develop_of(first).unwrap().light.exposure;
+        let rating_before = h.app.session.catalog.photo(first).unwrap().rating;
+        let (stop, port) = start_surfaces(0, h.control_sender(), egui::Context::default()).unwrap();
+        const TICKS: usize = 300;
+        let frames = Arc::new(AtomicU64::new(0));
+        let client = {
+            let frames = Arc::clone(&frames);
+            std::thread::spawn(move || {
+                let mut c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+                c.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
+                let mut r = BufReader::new(c.try_clone().unwrap());
+                let mut reply = |id: u64| loop {
+                    let mut line = String::new();
+                    r.read_line(&mut line).unwrap();
+                    let v: Value = serde_json::from_str(line.trim()).unwrap();
+                    if v.get("event").is_none() {
+                        assert_eq!(v["id"], id, "replies come in order: {v}");
+                        return v;
+                    }
+                };
+                writeln!(c, "{}", json!({"id": 1, "method": "surface.hello", "params": {"protocol": 1, "client": "stress", "token": TOKEN}}))
+                    .unwrap();
+                assert_eq!(reply(1)["result"]["paired"], true);
+                // every tick its own request, all at once (as a plugin forwards a fast spin), then a key press
+                let t0 = Instant::now();
+                let f0 = frames.load(Ordering::SeqCst);
+                let mut burst = String::new();
+                for i in 0..TICKS {
+                    burst.push_str(
+                        &json!({"id": 10 + i, "method": "surface.input", "params": {"events": [{"control": "roller", "ticks": 1}]}}).to_string(),
+                    );
+                    burst.push('\n');
+                }
+                let press =
+                    json!({"id": 9999, "method": "surface.input", "params": {"events": [{"action": "c.photo.rate.rating-5", "press": true}]}});
+                burst.push_str(&format!("{press}\n"));
+                c.write_all(burst.as_bytes()).unwrap();
+                for i in 0..TICKS {
+                    assert_eq!(reply(10 + i as u64)["ok"], true);
+                }
+                assert_eq!(reply(9999)["ok"], true);
+                (t0.elapsed(), frames.load(Ordering::SeqCst) - f0)
+            })
+        };
+        let t0 = Instant::now();
+        while !client.is_finished() {
+            h.step();
+            frames.fetch_add(1, Ordering::SeqCst);
+            // a slow frame (a busy app): one tick per frame would take 12 s
+            std::thread::sleep(Duration::from_millis(40));
+            assert!(t0.elapsed() < Duration::from_secs(60), "the client didn't finish");
+        }
+        let (took, used) = client.join().unwrap();
+        // the last flush and gesture end
+        for _ in 0..40 {
+            h.step();
+            std::thread::sleep(Duration::from_millis(30));
+        }
+        let after = h.app.session.develop_of(first).unwrap().light.exposure;
+        assert!((after - before - 0.01 * TICKS as f64).abs() < 1e-6, "{before} → {after}: every tick, once");
+        assert!(used <= 10, "{TICKS} ticks took {used} frames ({took:?}): they queued up");
+        let rating = h.app.session.catalog.photo(first).unwrap().rating;
+        assert!(rating == 5 && rating_before != 5, "the key press ran once the ticks were in: {rating_before} → {rating}");
+        stop.store(true, Ordering::SeqCst);
+    }
+
     fn run(input: &[u8]) -> (Vec<Value>, Vec<String>) {
         let mut out = Vec::new();
         let mut calls = Vec::new();
         serve_lines(input, &mut out, |m, _p| {
             calls.push(m);
-            Some(json!({"ok": true, "result": null}))
+            Some(Reply::Ready(json!({"ok": true, "result": null})))
         });
         let replies = String::from_utf8(out).unwrap().lines().map(|l| serde_json::from_str::<Value>(l).unwrap()).collect();
         (replies, calls)
@@ -592,7 +772,7 @@ mod tests {
         let server = std::thread::spawn(move || {
             let (s, _) = listener.accept().unwrap();
             let read = s.try_clone().unwrap();
-            serve_lines(read, s, |_, _| Some(json!({"ok": true})));
+            serve_lines(read, s, |_, _| Some(Reply::Ready(json!({"ok": true}))));
         });
         let mut c = TcpStream::connect(addr).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();

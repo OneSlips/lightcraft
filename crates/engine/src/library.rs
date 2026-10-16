@@ -147,6 +147,11 @@ impl PresetsSaved {
         }
     }
 
+    /// A state that differs from every session's (the file is saved again).
+    pub(crate) fn stale() -> PresetsSaved {
+        PresetsSaved { generation: 0, profile_favorites: Vec::new(), profile_recent: Vec::new(), hash: 0 }
+    }
+
     /// `s` changed its presets or profile lists since this state.
     pub(crate) fn differs(&self, s: &Session) -> bool {
         self.generation != s.presets.generation() || self.profile_favorites != s.profile_favorites || self.profile_recent != s.profile_recent
@@ -285,14 +290,8 @@ struct PrefsFile {
 pub(crate) fn presets_json(s: &Session) -> String {
     #[cfg(test)]
     PRESETS_SERIALIZED.with(|c| c.set(c.get() + 1));
-    let presets = &s.presets;
-    let f = PresetsFile {
-        user: presets.iter().filter(|p| !p.builtin).cloned().collect(),
-        favorites: presets.iter().filter(|p| p.builtin && p.favorite).map(|p| p.id.clone()).collect(),
-        profile_favorites: s.profile_favorites.clone(),
-        profile_recent: s.profile_recent.clone(),
-    };
-    serde_json::to_string_pretty(&f).unwrap_or_default()
+    // (borrowed: the 10 000+ presets of an imported collection are not copied to be written)
+    crate::presets_save::Snapshot::of(s).json()
 }
 
 /// Finish a background compaction that is done (cheap otherwise). A failed one lost nothing (the
@@ -772,9 +771,29 @@ impl Session {
             }
             return Ok(());
         }
+        if let Some(e) = self.presets_save_failed()
+            && let Some(lib) = self.library.as_mut()
+        {
+            log::warn!("library: saving the presets again after: {e}");
+            lib.presets_saved = PresetsSaved::stale();
+        }
         let due = self.library.as_ref().is_some_and(|l| l.presets_saved.differs(self) && !l.blocked.contains(&"presets.json"));
         if !due {
             return Ok(());
+        }
+        // off the UI thread when it can be (`presets_save`): the bytes are made and compared there
+        if let Some(lib) = self.library.take() {
+            let known = lib.presets_saved.hash;
+            let handed = self.save_presets_in_background(lib.files.as_ref(), known);
+            self.library = Some(lib);
+            if handed {
+                let mut state = PresetsSaved::state_of(self);
+                state.hash = known;
+                if let Some(lib) = self.library.as_mut() {
+                    lib.presets_saved = state;
+                }
+                return Ok(());
+            }
         }
         let presets = presets_json(self);
         let mut state = PresetsSaved::state_of(self);
@@ -821,6 +840,8 @@ impl Session {
         }
         let _ = self.end_interaction();
         let persisted = self.persist();
+        // a presets.json save on its way finishes first (it may be this library's)
+        self.flush_presets();
         self.save_view();
         let unlogged = if persisted.is_err() { self.pending_log.len() as u64 } else { 0 };
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
