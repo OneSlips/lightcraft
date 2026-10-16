@@ -74,14 +74,30 @@ impl Session {
                 favorite: self.profile_favorites.iter().any(|f| f == id),
             }
         };
-        let mut out: Vec<ProfileItem> =
-            PROFILES.iter().filter(|p| !st.removed.iter().any(|r| r == p.id)).map(|p| item(p.id, p.name, p.group, ProfileKind::Builtin)).collect();
+        // the user's own profiles first (their camera profiles and LUT folders), then LightCraft's looks
+        let mut out: Vec<ProfileItem> = self.dcp_profiles.iter().map(|p| item(&p.id, &p.name, DCP_GROUP, ProfileKind::Camera)).collect();
         out.extend(self.lut_profiles.iter().map(|p| item(&p.id, &p.name, &p.group, ProfileKind::Lut)));
-        out.extend(self.dcp_profiles.iter().map(|p| item(&p.id, &p.name, DCP_GROUP, ProfileKind::Camera)));
-        if !st.order.is_empty() {
-            let pos = |id: &str| st.order.iter().position(|o| o == id).unwrap_or(usize::MAX);
-            // stable: those not ordered keep their usual order after the ordered ones of their group
-            out.sort_by_key(|p| pos(&p.id));
+        out.extend(PROFILES.iter().filter(|p| !st.removed.iter().any(|r| r == p.id)).map(|p| item(p.id, p.name, p.group, ProfileKind::Builtin)));
+        let natural = Session::profile_group_order(&out);
+        let group_pos = |g: &str| {
+            st.group_order
+                .iter()
+                .position(|o| o == g)
+                .unwrap_or_else(|| st.group_order.len() + natural.iter().position(|n| n == g).unwrap_or(natural.len()))
+        };
+        let pos = |id: &str| st.order.iter().position(|o| o == id).unwrap_or(usize::MAX);
+        // stable: within a group, those not ordered keep their usual order after the ordered ones
+        out.sort_by_key(|p| (group_pos(&p.group), pos(&p.id)));
+        out
+    }
+
+    /// Every group in the manager's order: those with profiles, and empty ones made in the manager.
+    pub fn profile_groups_all(&self) -> Vec<String> {
+        let mut out = Session::profile_group_order(&self.all_profiles());
+        for (i, g) in self.profile_state.group_order.iter().enumerate() {
+            if !out.contains(g) {
+                out.insert(i.min(out.len()), g.clone());
+            }
         }
         out
     }
@@ -145,6 +161,7 @@ fn manager(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({
         "profiles": items,
         "removedBuiltins": s.profile_state.removed.len(),
+        "groups": s.profile_groups_all(),
         "store": if s.uses_app_store() { "shared" } else { "library" },
     }))
 }
@@ -272,6 +289,153 @@ fn reorder(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"order": s.all_profiles().into_iter().map(|x| x.id).collect::<Vec<_>>()}))
 }
 
+fn group_param(s: &Session, p: &Value, c: &str) -> Result<String> {
+    let g = str_param(p, "group").map(str::trim).filter(|g| !g.is_empty()).ok_or_else(|| bad(c, "missing `group`"))?.to_string();
+    if !s.profile_groups_all().contains(&g) {
+        return Err(bad(c, format!("no profile group `{g}`")));
+    }
+    Ok(g)
+}
+
+fn new_group_name(p: &Value, key: &str, c: &str) -> Result<String> {
+    let name = str_param(p, key).map(str::trim).filter(|g| !g.is_empty()).ok_or_else(|| bad(c, format!("missing `{key}`")))?.to_string();
+    if name.chars().count() > 120 {
+        return Err(bad(c, "the group name is too long (120 characters at most)"));
+    }
+    Ok(name)
+}
+
+/// The profiles of group `g` (hidden ones included).
+fn members(s: &Session, g: &str) -> Vec<ProfileItem> {
+    s.all_profiles().into_iter().filter(|p| p.group == g).collect()
+}
+
+/// Put profile `id` in group `group`: its own group again when that is the one it comes from.
+fn set_group_of(s: &mut Session, item: &ProfileItem, group: &str) {
+    let natural = if item.custom_group {
+        let mut st = s.profile_state.clone();
+        st.groups.remove(&item.id);
+        let saved = std::mem::replace(&mut s.profile_state, st);
+        let g = s.all_profiles().into_iter().find(|x| x.id == item.id).map(|x| x.group).unwrap_or_default();
+        s.profile_state = saved;
+        g
+    } else {
+        item.group.clone()
+    };
+    if natural == group {
+        s.profile_state.groups.remove(&item.id);
+    } else {
+        s.profile_state.groups.insert(item.id.clone(), group.to_string());
+    }
+}
+
+fn group_hide(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.groupHide";
+    let g = group_param(s, p, C)?;
+    let list = members(s, &g);
+    let hidden = p.get("hidden").and_then(Value::as_bool).unwrap_or(!list.iter().all(|x| x.hidden));
+    for it in &list {
+        s.profile_state.hidden.retain(|h| h != &it.id);
+        if hidden {
+            s.profile_state.hidden.push(it.id.clone());
+        }
+    }
+    save(s)?;
+    Ok(json!({"group": g, "hidden": hidden, "profiles": list.len()}))
+}
+
+fn group_remove(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.groupRemove";
+    let g = group_param(s, p, C)?;
+    let move_to = str_param(p, "moveTo").map(str::trim).filter(|m| !m.is_empty()).map(str::to_string);
+    if move_to.as_deref() == Some(g.as_str()) {
+        return Err(bad(C, "moveTo is the group being removed"));
+    }
+    let list = members(s, &g);
+    let (mut removed, mut deleted, mut moved) = (Vec::new(), Vec::new(), Vec::new());
+    for it in &list {
+        if it.kind == ProfileKind::Builtin {
+            // a built-in look: off this install (Restore Built-in Looks brings it back)
+            s.execute("profile.remove", &json!({"id": it.id}))?;
+            removed.push(it.id.clone());
+        } else if let Some(to) = &move_to {
+            set_group_of(s, it, to);
+            moved.push(it.id.clone());
+        } else {
+            s.execute("profile.remove", &json!({"id": it.id}))?;
+            deleted.push(it.id.clone());
+        }
+    }
+    s.profile_state.group_order.retain(|o| o != &g);
+    if let Some(to) = &move_to
+        && !s.profile_groups_all().contains(to)
+    {
+        s.profile_state.group_order.push(to.clone());
+    }
+    save(s)?;
+    Ok(json!({"group": g, "removed": removed, "deleted": deleted, "moved": moved}))
+}
+
+fn group_rename(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.groupRename";
+    let g = group_param(s, p, C)?;
+    let name = new_group_name(p, "name", C)?;
+    for it in members(s, &g) {
+        set_group_of(s, &it, &name);
+    }
+    // its place in the order is kept
+    let mut order = if s.profile_state.group_order.is_empty() { s.profile_groups_all() } else { s.profile_state.group_order.clone() };
+    match order.iter().position(|o| o == &g) {
+        Some(i) => {
+            if let Some(slot) = order.get_mut(i) {
+                *slot = name.clone();
+            }
+        }
+        None => order.push(name.clone()),
+    }
+    let mut seen = Vec::new();
+    order.retain(|o| {
+        let first = !seen.contains(o);
+        seen.push(o.clone());
+        first
+    });
+    s.profile_state.group_order = order;
+    save(s)?;
+    Ok(json!({"group": name}))
+}
+
+fn group_new(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.groupNew";
+    let name = new_group_name(p, "name", C)?;
+    if s.profile_groups_all().contains(&name) {
+        return Err(bad(C, format!("there is a group `{name}` already")));
+    }
+    if s.profile_state.group_order.is_empty() {
+        s.profile_state.group_order = s.profile_groups_all();
+    }
+    // first, where it is seen at once
+    s.profile_state.group_order.insert(0, name.clone());
+    save(s)?;
+    Ok(json!({"group": name}))
+}
+
+fn group_move(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.groupMove";
+    let g = group_param(s, p, C)?;
+    let mut order: Vec<String> = s.profile_groups_all().into_iter().filter(|x| x != &g).collect();
+    let at = if let Some(b) = str_param(p, "before") {
+        order.iter().position(|x| x == b).ok_or_else(|| bad(C, format!("no group `{b}`")))?
+    } else if let Some(a) = str_param(p, "after") {
+        order.iter().position(|x| x == a).map(|i| i + 1).ok_or_else(|| bad(C, format!("no group `{a}`")))?
+    } else {
+        return Err(bad(C, "give {group, before | after: group}"));
+    };
+    order.insert(at.min(order.len()), g);
+    s.profile_state.group_order = order.clone();
+    save(s)?;
+    Ok(json!({"groups": order}))
+}
+
 /// The camera bodies LightCraft knows (the open library's photos, and those the camera profiles name)
 /// with the profile each develops with by default.
 fn bodies(s: &mut Session, _: &Value) -> Result<Value> {
@@ -332,7 +496,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Profile Manager List",
             [],
             None,
-            "{} → {profiles: [{id, name, originalName, group, customGroup, kind: builtin | lut | camera, hidden, favorite, usedBy (photos of this library), cameraModel?, bodies?, bodyDefaults?, file?, missing?}], removedBuiltins, store: shared | library}: every profile not removed, hidden ones included, in the user's order",
+            "{} → {groups: [names in order, empty ones too], profiles: [{id, name, originalName, group, customGroup, kind: builtin | lut | camera, hidden, favorite, usedBy (photos of this library), cameraModel?, bodies?, bodyDefaults?, file?, missing?}], removedBuiltins, store: shared | library}: every profile not removed, hidden ones included, in the user's order",
             always,
             manager
         ),
@@ -400,6 +564,51 @@ pub fn specs() -> Vec<CommandSpec> {
             clear_body_default
         ),
         cmd!(
+            "profile.groupHide",
+            "Hide Profile Group",
+            [],
+            None,
+            "{group, hidden?: bool (default: toggle)} — every profile of the group out of (or back in) the menus and browser",
+            always,
+            group_hide
+        ),
+        cmd!(
+            "profile.groupRemove",
+            "Delete Profile Group",
+            [],
+            None,
+            "{group, moveTo?: group} — its built-in looks are removed from this install (Restore Built-in Looks brings them back); its own LUT and camera profiles are deleted with their files, or moved to `moveTo` → {group, removed, deleted, moved}",
+            always,
+            group_remove
+        ),
+        cmd!(
+            "profile.groupRename",
+            "Rename Profile Group",
+            [],
+            None,
+            "{group, name} — every profile of the group moves to the new name, in the same place",
+            always,
+            group_rename
+        ),
+        cmd!(
+            "profile.groupNew",
+            "New Profile Group",
+            [],
+            None,
+            "{name} — an empty group, first in the list (move profiles into it with profile.setGroup)",
+            always,
+            group_new
+        ),
+        cmd!(
+            "profile.groupMove",
+            "Move Profile Group",
+            [],
+            None,
+            "{group, before | after: group} — the order of the groups in the menus, browser and manager",
+            always,
+            group_move
+        ),
+        cmd!(
             query "profiles.bodies",
             "Camera Bodies and Their Profiles",
             [],
@@ -435,8 +644,8 @@ mod tests {
         let it = s.all_profiles().into_iter().find(|p| p.id == "lc.portrait").unwrap();
         assert_eq!(it.group, "Weddings");
         assert!(!it.builtin_name() && !it.builtin_group());
-        s.execute("profile.reorder", &json!({"id": "lc.portrait", "before": "lc.color"})).unwrap();
-        assert_eq!(s.all_profiles().first().unwrap().id, "lc.portrait");
+        s.execute("profile.reorder", &json!({"id": "lc.vivid", "before": "lc.color"})).unwrap();
+        assert_eq!(s.all_profiles().into_iter().find(|p| p.group == "Basic").unwrap().id, "lc.vivid", "first of its group");
         let menu = s.profile_menu();
         assert!(menu["groups"].as_array().unwrap().iter().any(|g| g["name"] == "Weddings"));
         s.execute("profile.restoreBuiltins", &json!({})).unwrap();
@@ -493,6 +702,49 @@ mod tests {
         assert!(bodies["bodies"].as_array().unwrap().iter().any(|b| b["body"] == "0123456071" && b["profile"] == id.as_str()), "{bodies}");
         s.execute("profile.clearBodyDefault", &json!({"serial": "0123456071"})).unwrap();
         assert_eq!(crate::cmd::dcp_profiles::body_default_for(&s, "LightCraft Test Camera", "0123456071"), None);
+        s.close_library().unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn whole_groups_hide_rename_move_and_go() {
+        let root = std::env::temp_dir().join(format!("lc-pm-groups-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let mut s = Session::new().with_app_store(&root.join("store"));
+        s.open_library(root.join("L"), true).unwrap();
+        let f = root.join("p.dcp");
+        std::fs::write(&f, test_dcp("Wedding")).unwrap();
+        s.execute("profile.import", &json!({"paths": [f.to_string_lossy()]})).unwrap();
+        let dcp = s.dcp_profiles[0].id.clone();
+        // the user's own come first
+        assert_eq!(s.profile_groups_all().first().map(String::as_str), Some(DCP_GROUP));
+        // hide a whole group, and show it again
+        s.execute("profile.groupHide", &json!({"group": "Film"})).unwrap();
+        assert!(!s.shown_profiles().iter().any(|p| p.group == "Film"));
+        s.execute("profile.groupHide", &json!({"group": "Film", "hidden": false})).unwrap();
+        assert!(s.shown_profiles().iter().any(|p| p.group == "Film"));
+        // rename keeps its place; new and move
+        s.execute("profile.groupRename", &json!({"group": "Muted", "name": "Soft"})).unwrap();
+        let groups = s.profile_groups_all();
+        assert!(groups.contains(&"Soft".to_string()) && !groups.contains(&"Muted".to_string()));
+        s.execute("profile.groupNew", &json!({"name": "Weddings"})).unwrap();
+        assert_eq!(s.profile_groups_all().first().map(String::as_str), Some("Weddings"), "an empty group shows");
+        s.execute("profile.groupMove", &json!({"group": "B&W", "before": "Weddings"})).unwrap();
+        assert_eq!(s.profile_groups_all().first().map(String::as_str), Some("B&W"));
+        // removing a group of own profiles can move them instead of deleting the files
+        s.execute("profile.groupRemove", &json!({"group": DCP_GROUP, "moveTo": "Weddings"})).unwrap();
+        assert!(s.dcp_profiles.iter().any(|e| e.id == dcp), "moved, not deleted");
+        assert_eq!(s.all_profiles().into_iter().find(|p| p.id == dcp).unwrap().group, "Weddings");
+        // built-in looks of a removed group come back with Restore
+        s.execute("profile.groupRemove", &json!({"group": "Cinematic"})).unwrap();
+        assert!(!s.profile_groups_all().contains(&"Cinematic".to_string()));
+        s.execute("profile.restoreBuiltins", &json!({})).unwrap();
+        assert!(s.profile_groups_all().contains(&"Cinematic".to_string()));
+        // and own files are deleted when not moved
+        s.execute("profile.groupRemove", &json!({"group": "Weddings"})).unwrap();
+        assert!(s.dcp_profiles.is_empty());
+        assert!(s.execute("profile.groupHide", &json!({"group": "nope"})).is_err());
         s.close_library().unwrap();
         let _ = std::fs::remove_dir_all(&root);
     }

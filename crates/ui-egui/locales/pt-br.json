@@ -2878,5 +2878,14 @@
   "No AI Denoise model is available yet": "Ainda não há modelo de redução de ruído com IA",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Só se você recebeu um modelo de redução de ruído do LightCraft (uma pasta com um arquivo .onnx e denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Quando o modelo estiver pronto, uma atualização o oferecerá aqui para baixar com um clique.",
-  "Why?": "Por quê?"
+  "Why?": "Por quê?",
+  "Delete Everything": "Excluir tudo",
+  "Delete Group": "Excluir grupo",
+  "Hide the group from the menus": "Ocultar o grupo nos menus",
+  "Move Group Down": "Mover grupo para baixo",
+  "Move Group Up": "Mover grupo para cima",
+  "Move Them and Delete the Group": "Movê-los e excluir o grupo",
+  "Move to…": "Mover para…",
+  "Rename Group": "Renomear grupo",
+  "Show the group in the menus": "Mostrar o grupo nos menus"
 }

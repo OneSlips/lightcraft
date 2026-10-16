@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Knihovna zálohována do {path}",
   "The last backup failed: {e}": "Poslední záloha selhala: {e}",
   "The library backup failed: {e}": "Záloha knihovny selhala: {e}",
-  "{n} photos · {size}": "{n} fotografií · {size}"
+  "{n} photos · {size}": "{n} fotografií · {size}",
+  "Delete the group “{name}”?": "Smazat skupinu „{name}“?",
+  "default for {bodies}": "výchozí pro {bodies}",
+  "{n} built-in items are taken off this computer (Restore brings them back).": "{n} vestavěných položek se odebere z tohoto počítače (Obnovit je vrátí).",
+  "{n} of your own: delete them, or move them to another group.": "{n} vlastních: smazat je, nebo přesunout do jiné skupiny."
 }

@@ -415,5 +415,9 @@
   "Library backed up to {path}": "圖庫已備份到 {path}",
   "The last backup failed: {e}": "上次備份失敗：{e}",
   "The library backup failed: {e}": "圖庫備份失敗：{e}",
-  "{n} photos · {size}": "{n} 張照片 · {size}"
+  "{n} photos · {size}": "{n} 張照片 · {size}",
+  "Delete the group “{name}”?": "刪除群組「{name}」？",
+  "default for {bodies}": "{bodies} 的預設值",
+  "{n} built-in items are taken off this computer (Restore brings them back).": "{n} 個內建項目將從此電腦移除（可還原）。",
+  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。"
 }

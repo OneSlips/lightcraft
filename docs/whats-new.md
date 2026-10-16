@@ -2,6 +2,14 @@
 
 ## 2026-10-16
 
+### Profile Manager: whole groups
+- Each group has a header row: **fold**, **rename**, **move up or down**, **hide** the whole group,
+  or **delete** it (LightCraft's looks are taken off this computer and can be restored; your own
+  profiles are deleted with their files, or moved to another group, after asking with the counts).
+  **New Group…** makes an empty group to move profiles into.
+- Your own groups come first: your camera profiles (with the bodies they are the default of) and
+  LUT folders are at the top, LightCraft's looks below.
+
 ### Show Alternatives
 - When a pick doesn't work out while you edit, Photo ▸ **Show Alternatives** (or right-click) shows the frames shot around it, straight from its folder, imported or not. Select one or more and **Import Selected**: they join the library **with the same edit**, and you are back where you were.
 

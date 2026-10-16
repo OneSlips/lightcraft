@@ -2389,5 +2389,14 @@
   "No AI Denoise model is available yet": "Nie ma jeszcze modelu odszumiania AI",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Tylko jeśli otrzymano model odszumiania LightCraft (folder z plikiem .onnx i denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Gdy model będzie gotowy, aktualizacja udostępni go tu do pobrania jednym kliknięciem.",
-  "Why?": "Dlaczego?"
+  "Why?": "Dlaczego?",
+  "Delete Everything": "Usuń wszystko",
+  "Delete Group": "Usuń grupę",
+  "Hide the group from the menus": "Ukryj grupę w menu",
+  "Move Group Down": "Przesuń grupę w dół",
+  "Move Group Up": "Przesuń grupę w górę",
+  "Move Them and Delete the Group": "Przenieś je i usuń grupę",
+  "Move to…": "Przenieś do…",
+  "Rename Group": "Zmień nazwę grupy",
+  "Show the group in the menus": "Pokaż grupę w menu"
 }

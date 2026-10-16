@@ -3031,5 +3031,14 @@
   "No AI Denoise model is available yet": "Модели ИИ-шумоподавления пока нет",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Только если вам дали модель шумоподавления LightCraft (папку с файлом .onnx и denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Когда модель будет готова, обновление предложит скачать её здесь одним щелчком.",
-  "Why?": "Почему?"
+  "Why?": "Почему?",
+  "Delete Everything": "Удалить всё",
+  "Delete Group": "Удалить группу",
+  "Hide the group from the menus": "Скрыть группу из меню",
+  "Move Group Down": "Группу ниже",
+  "Move Group Up": "Группу выше",
+  "Move Them and Delete the Group": "Перенести и удалить группу",
+  "Move to…": "Перенести в…",
+  "Rename Group": "Переименовать группу",
+  "Show the group in the menus": "Показать группу в меню"
 }

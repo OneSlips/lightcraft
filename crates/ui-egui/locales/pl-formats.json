@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Kopia biblioteki zapisana w {path}",
   "The last backup failed: {e}": "Ostatnia kopia nie powiodła się: {e}",
   "The library backup failed: {e}": "Kopia biblioteki nie powiodła się: {e}",
-  "{n} photos · {size}": "{n} zdjęć · {size}"
+  "{n} photos · {size}": "{n} zdjęć · {size}",
+  "Delete the group “{name}”?": "Usunąć grupę „{name}”?",
+  "default for {bodies}": "domyślny dla {bodies}",
+  "{n} built-in items are taken off this computer (Restore brings them back).": "{n} wbudowanych elementów zostanie usuniętych z tego komputera (Przywróć je przywraca).",
+  "{n} of your own: delete them, or move them to another group.": "{n} własnych: usuń je lub przenieś do innej grupy."
 }

@@ -3038,5 +3038,14 @@
   "No AI Denoise model is available yet": "利用できる AI ノイズ除去モデルはまだありません",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "LightCraft のノイズ除去モデル（.onnx ファイルと denoise-model.json を含むフォルダー）を受け取った場合のみ：",
   "When the model is ready, an update will offer it here as a one-click download.": "モデルの準備ができたら、アップデートでここからワンクリックでダウンロードできるようになります。",
-  "Why?": "理由は？"
+  "Why?": "理由は？",
+  "Delete Everything": "すべて削除",
+  "Delete Group": "グループを削除",
+  "Hide the group from the menus": "グループをメニューに表示しない",
+  "Move Group Down": "グループを下へ",
+  "Move Group Up": "グループを上へ",
+  "Move Them and Delete the Group": "移動してグループを削除",
+  "Move to…": "移動先…",
+  "Rename Group": "グループ名を変更",
+  "Show the group in the menus": "グループをメニューに表示"
 }

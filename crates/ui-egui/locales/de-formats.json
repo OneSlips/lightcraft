@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Bibliothek gesichert nach {path}",
   "The last backup failed: {e}": "Das letzte Backup ist fehlgeschlagen: {e}",
   "The library backup failed: {e}": "Das Backup der Bibliothek ist fehlgeschlagen: {e}",
-  "{n} photos · {size}": "{n} Fotos · {size}"
+  "{n} photos · {size}": "{n} Fotos · {size}",
+  "Delete the group “{name}”?": "Gruppe „{name}“ löschen?",
+  "default for {bodies}": "Standard für {bodies}",
+  "{n} built-in items are taken off this computer (Restore brings them back).": "{n} integrierte Einträge werden von diesem Computer entfernt (Wiederherstellen holt sie zurück).",
+  "{n} of your own: delete them, or move them to another group.": "{n} eigene: löschen oder in eine andere Gruppe verschieben."
 }

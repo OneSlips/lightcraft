@@ -3039,5 +3039,14 @@
   "No AI Denoise model is available yet": "Noch kein Modell für KI-Entrauschen verfügbar",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Nur wenn du ein LightCraft-Entrauschungsmodell bekommen hast (ein Ordner mit einer .onnx-Datei und denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Sobald das Modell fertig ist, bietet ein Update es hier zum Download mit einem Klick an.",
-  "Why?": "Warum?"
+  "Why?": "Warum?",
+  "Delete Everything": "Alles löschen",
+  "Delete Group": "Gruppe löschen",
+  "Hide the group from the menus": "Gruppe in den Menüs ausblenden",
+  "Move Group Down": "Gruppe nach unten",
+  "Move Group Up": "Gruppe nach oben",
+  "Move Them and Delete the Group": "Verschieben und Gruppe löschen",
+  "Move to…": "Verschieben nach…",
+  "Rename Group": "Gruppe umbenennen",
+  "Show the group in the menus": "Gruppe in den Menüs zeigen"
 }

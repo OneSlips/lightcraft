@@ -21,6 +21,12 @@ struct Editing {
     rename: Option<(String, String)>,
     new_group: Option<(String, String)>,
     confirm_delete: Option<String>,
+    /// A group being renamed (group, new name), and the name of a new group being typed.
+    group_rename: Option<(String, String)>,
+    group_new: Option<String>,
+    /// A group whose Delete asks first, and where its own profiles would go instead.
+    group_confirm: Option<String>,
+    group_move_to: Option<String>,
 }
 
 fn editing_id() -> egui::Id {
@@ -67,19 +73,48 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     ui.add_space(4.0);
 
     let profiles: Vec<Value> = list["profiles"].as_array().cloned().unwrap_or_default();
-    let mut groups: Vec<String> = Vec::new();
-    for p in &profiles {
-        let g = p["group"].as_str().unwrap_or_default().to_string();
-        if !groups.contains(&g) {
-            groups.push(g);
-        }
-    }
+    let groups: Vec<String> = list["groups"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     let mut action: Option<(&'static str, Value)> = None;
-    for g in &groups {
+    new_group_row(ui, t, "profileGroupNew", &mut ed.group_new, |name| action = Some(("profile.groupNew", json!({"name": name}))));
+    for (gi, g) in groups.iter().enumerate() {
         let members: Vec<&Value> = profiles.iter().filter(|p| p["group"].as_str() == Some(g.as_str())).collect();
-        let builtin_group = members.iter().all(|p| p["kind"] == "builtin" && p["customGroup"] != true);
+        let builtin_group = !members.is_empty() && members.iter().all(|p| p["kind"] == "builtin" && p["customGroup"] != true);
+        let own = members.iter().filter(|p| p["kind"] != "builtin").count();
+        let head = GroupHead {
+            key: "profileGroup",
+            name: g,
+            shown: crate::i18n::builtin_label(g, builtin_group).to_string(),
+            count: members.len(),
+            all_hidden: !members.is_empty() && members.iter().all(|p| p["hidden"] == true),
+            prev: gi.checked_sub(1).and_then(|j| groups.get(j)).map(String::as_str),
+            next: groups.get(gi + 1).map(String::as_str),
+            default_open: true,
+        };
         ui.add_space(6.0);
-        ui.label(RichText::new(crate::i18n::builtin_label(g, builtin_group)).font(t.semibold(12.0)).color(t.text_label));
+        let (open, asked) = group_header(ui, t, &head, &mut ed.group_rename);
+        match asked {
+            Some(GroupAction::Hide(hidden)) => action = Some(("profile.groupHide", json!({"group": g, "hidden": hidden}))),
+            Some(GroupAction::Rename(name)) => action = Some(("profile.groupRename", json!({"group": g, "name": name}))),
+            Some(GroupAction::Move { before, other }) => {
+                let key = if before { "before" } else { "after" };
+                action = Some(("profile.groupMove", json!({"group": g, key: other})));
+            }
+            Some(GroupAction::Delete) => {
+                ed.group_confirm = Some(g.clone());
+                ed.group_move_to = None;
+            }
+            None => {}
+        }
+        if ed.group_confirm.as_deref() == Some(g.as_str()) {
+            let others: Vec<String> = groups.iter().filter(|o| *o != g).cloned().collect();
+            let counts = (members.len() - own, own);
+            if let Some(params) = confirm_group_delete(ui, t, g, &head.shown, counts, &others, &mut ed.group_move_to, &mut ed.group_confirm) {
+                action = Some(("profile.groupRemove", params));
+            }
+        }
+        if !open {
+            continue;
+        }
         for (i, p) in members.iter().enumerate() {
             let prev = i.checked_sub(1).and_then(|j| members.get(j)).and_then(|q| q["id"].as_str());
             let next = members.get(i + 1).and_then(|q| q["id"].as_str());
@@ -93,6 +128,183 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         app.ui.status = e;
     }
     bodies_section(app, ui, t);
+}
+
+/// A group's header row as the managers (profiles, presets) draw it.
+pub(super) struct GroupHead<'a> {
+    /// Widget id prefix (`{key}Fold:{name}`, `{key}Hide:{name}`…).
+    pub key: &'a str,
+    pub name: &'a str,
+    /// The name as shown (a built-in group's in the UI language).
+    pub shown: String,
+    pub count: usize,
+    pub all_hidden: bool,
+    pub prev: Option<&'a str>,
+    pub next: Option<&'a str>,
+    /// Open until the user folds it.
+    pub default_open: bool,
+}
+
+/// What a group header asked for.
+pub(super) enum GroupAction {
+    Hide(bool),
+    Rename(String),
+    Move { before: bool, other: String },
+    Delete,
+}
+
+/// A group's header: collapse / expand, its name and count, Rename, Move up / down, Hide / Show and
+/// Delete. Returns whether it is open, and what was asked.
+pub(super) fn group_header(ui: &mut egui::Ui, t: &Tokens, h: &GroupHead, renaming: &mut Option<(String, String)>) -> (bool, Option<GroupAction>) {
+    let open_id = egui::Id::new((h.key, "open", h.name));
+    let open: bool = ui.data(|m| m.get_temp(open_id)).unwrap_or(h.default_open);
+    let mut out = None;
+    let sz = egui::vec2(24.0, 24.0);
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        let fold = if open { Icon::ChevronDown } else { Icon::ChevronRight };
+        if icon_button(ui, &format!("{}Fold:{}", h.key, h.name), fold, sz, false, true, if open { "Collapse" } else { "Expand" }).clicked() {
+            ui.data_mut(|m| m.insert_temp(open_id, !open));
+        }
+        let mut done = None;
+        if let Some((rg, text)) = renaming.as_mut().filter(|(rg, _)| rg == h.name) {
+            let r =
+                crate::text_field::TextField::singleline(&format!("field:{}Rename:{rg}", h.key), text).width(240.0).select_on_focus(true).show(ui);
+            if !r.editing && r.ending.is_none() {
+                r.response.request_focus();
+            }
+            if r.committed() {
+                done = Some(Some(text.trim().to_string()).filter(|n| !n.is_empty() && n != h.name));
+            } else if r.cancelled() {
+                done = Some(None);
+            }
+        } else {
+            let color = if h.all_hidden { t.text_disabled } else { t.text_label };
+            let r = ui.label(RichText::new(&h.shown).font(t.semibold(13.0)).color(color));
+            register(ui.ctx(), format!("{}Head:{}", h.key, h.name), r.rect);
+            ui.label(RichText::new(h.count.to_string()).size(11.0).color(t.text_dim));
+        }
+        if let Some(name) = done {
+            *renaming = None;
+            if let Some(n) = name {
+                out = Some(GroupAction::Rename(n));
+            }
+        }
+        ui.add_space(8.0);
+        if icon_button(ui, &format!("{}Rename:{}", h.key, h.name), Icon::Pencil, sz, false, true, "Rename Group").clicked() {
+            *renaming = Some((h.name.to_string(), h.name.to_string()));
+        }
+        if icon_button(ui, &format!("{}Up:{}", h.key, h.name), Icon::ChevronUp, sz, false, h.prev.is_some(), "Move Group Up").clicked()
+            && let Some(o) = h.prev
+        {
+            out = Some(GroupAction::Move { before: true, other: o.to_string() });
+        }
+        if icon_button(ui, &format!("{}Down:{}", h.key, h.name), Icon::ChevronDown, sz, false, h.next.is_some(), "Move Group Down").clicked()
+            && let Some(o) = h.next
+        {
+            out = Some(GroupAction::Move { before: false, other: o.to_string() });
+        }
+        let (icon, tip) = if h.all_hidden { (Icon::EyeOff, "Show the group in the menus") } else { (Icon::Eye, "Hide the group from the menus") };
+        if icon_button(ui, &format!("{}Hide:{}", h.key, h.name), icon, sz, h.all_hidden, h.count > 0, tip).clicked() {
+            out = Some(GroupAction::Hide(!h.all_hidden));
+        }
+        if icon_button(ui, &format!("{}Delete:{}", h.key, h.name), Icon::Trash, sz, false, true, "Delete Group").clicked() {
+            out = Some(GroupAction::Delete);
+        }
+    });
+    (open, out)
+}
+
+/// "New Group…" and its name field; `create` gets the name typed.
+pub(super) fn new_group_row(ui: &mut egui::Ui, t: &Tokens, key: &str, typing: &mut Option<String>, create: impl FnOnce(String)) {
+    ui.horizontal(|ui| match typing.as_mut() {
+        Some(text) => {
+            ui.label(RichText::new(tr("New group:")).color(t.text_label));
+            let r = crate::text_field::TextField::singleline(&format!("field:{key}"), text).width(240.0).show(ui);
+            if !r.editing && r.ending.is_none() {
+                r.response.request_focus();
+            }
+            if r.committed() {
+                let name = text.trim().to_string();
+                *typing = None;
+                if !name.is_empty() {
+                    create(name);
+                }
+            } else if r.cancelled() {
+                *typing = None;
+            }
+        }
+        None => {
+            let r = ui.button(tr("New Group…"));
+            register(ui.ctx(), format!("button:{key}"), r.rect);
+            if r.clicked() {
+                *typing = Some(String::new());
+            }
+        }
+    });
+}
+
+/// Asking before a group is deleted: what happens to its built-in and own items (`counts`), and
+/// (with own items) a group to move them to instead. Returns the `groupRemove` parameters once
+/// confirmed.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn confirm_group_delete(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    group: &str,
+    shown: &str,
+    counts: (usize, usize),
+    others: &[String],
+    move_to: &mut Option<String>,
+    confirm: &mut Option<String>,
+) -> Option<Value> {
+    let (builtin, own) = counts;
+    let mut out = None;
+    egui::Frame::NONE.fill(t.inset).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+        let mut text = tr_format!("Delete the group “{name}”?", name = shown);
+        if builtin > 0 {
+            text.push(' ');
+            text.push_str(&tr_format!("{n} built-in items are taken off this computer (Restore brings them back).", n = builtin));
+        }
+        if own > 0 {
+            text.push(' ');
+            text.push_str(&tr_format!("{n} of your own: delete them, or move them to another group.", n = own));
+        }
+        ui.add(egui::Label::new(RichText::new(text).color(t.text)).wrap());
+        ui.horizontal(|ui| {
+            if own > 0 && !others.is_empty() {
+                let label = move_to.clone().unwrap_or_else(|| tr("Move to…").to_string());
+                let r = crate::widgets::combo_box(("groupMoveTo", group)).width(200.0).selected_text(label).show_ui(ui, |ui| {
+                    for o in others {
+                        if ui.selectable_label(move_to.as_deref() == Some(o.as_str()), o.as_str()).clicked() {
+                            *move_to = Some(o.clone());
+                        }
+                    }
+                });
+                register(ui.ctx(), format!("combo:groupMoveTo:{group}"), r.response.rect);
+                if let Some(to) = move_to.clone() {
+                    let r = ui.button(tr("Move Them and Delete the Group"));
+                    register(ui.ctx(), format!("button:groupMove:{group}"), r.rect);
+                    if r.clicked() {
+                        out = Some(json!({"group": group, "moveTo": to}));
+                        *confirm = None;
+                    }
+                }
+            }
+            let r = ui.button(if own > 0 { tr("Delete Everything") } else { tr("Delete") });
+            register(ui.ctx(), format!("button:groupDeleteConfirm:{group}"), r.rect);
+            if r.clicked() {
+                out = Some(json!({"group": group}));
+                *confirm = None;
+            }
+            let r = ui.button(tr("Cancel"));
+            register(ui.ctx(), format!("button:groupDeleteCancel:{group}"), r.rect);
+            if r.clicked() {
+                *confirm = None;
+            }
+        });
+    });
+    out
 }
 
 /// Import profile files or folders and say what happened.
@@ -169,6 +381,17 @@ fn profile_row(
             _ => tr("Built-in look").to_string(),
         };
         let mut info = what;
+        // the bodies it is the default of (…71, …74)
+        let defaults: Vec<String> = p["bodyDefaults"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(lightcraft_engine::cmd::dcp_profiles::body_label)
+            .collect();
+        if !defaults.is_empty() {
+            info.push_str(&format!(" · {}", tr_format!("default for {bodies}", bodies = defaults.join(", "))));
+        }
         if used > 0 {
             info.push_str(&format!(" · {}", tr_format!("{n} photos here", n = used)));
         }

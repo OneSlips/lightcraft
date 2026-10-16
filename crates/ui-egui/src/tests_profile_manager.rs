@@ -59,3 +59,16 @@ fn hide_delete_and_restore_a_look_from_the_profile_manager() {
     h.app.run("app.settings", json!({"tab": "profiles"})).unwrap();
     assert_eq!(h.app.ui.dialog, Some(Dialog::Settings { tab: "profiles".into() }));
 }
+
+#[test]
+fn profile_groups_hide_and_delete_from_their_header() {
+    let mut h = app(lightcraft_engine::Session::with_demo());
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "profiles".into() });
+    h.step();
+    h.step();
+    click(&mut h, "icon:profileGroupHide:Film");
+    assert!(!h.app.session.shown_profiles().iter().any(|p| p.group == "Film"));
+    click(&mut h, "icon:profileGroupDelete:Film");
+    click(&mut h, "button:groupDeleteConfirm:Film");
+    assert!(!h.app.session.profile_groups_all().contains(&"Film".to_string()));
+}

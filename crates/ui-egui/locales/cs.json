@@ -2294,5 +2294,14 @@
   "No AI Denoise model is available yet": "Zatím není k dispozici žádný model pro redukci šumu pomocí AI",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Jen pokud jste dostali model LightCraftu pro redukci šumu (složku se souborem .onnx a denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Až bude model hotový, aktualizace ho tu nabídne ke stažení jedním klepnutím.",
-  "Why?": "Proč?"
+  "Why?": "Proč?",
+  "Delete Everything": "Smazat vše",
+  "Delete Group": "Smazat skupinu",
+  "Hide the group from the menus": "Skrýt skupinu v nabídkách",
+  "Move Group Down": "Posunout skupinu dolů",
+  "Move Group Up": "Posunout skupinu nahoru",
+  "Move Them and Delete the Group": "Přesunout je a smazat skupinu",
+  "Move to…": "Přesunout do…",
+  "Rename Group": "Přejmenovat skupinu",
+  "Show the group in the menus": "Zobrazit skupinu v nabídkách"
 }

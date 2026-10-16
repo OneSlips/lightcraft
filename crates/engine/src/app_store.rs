@@ -67,6 +67,10 @@ pub struct ProfileState {
     pub groups: BTreeMap<String, String>,
     /// Profiles in the order the user put them (the others follow in their usual order).
     pub order: Vec<String>,
+    /// Groups in the order the user put them, empty groups made in the manager included (the
+    /// others follow: the user's own first, then LightCraft's).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub group_order: Vec<String>,
 }
 
 impl ProfileState {
@@ -96,6 +100,11 @@ impl ProfileState {
         for id in other.order.into_iter().map(map) {
             if !self.order.contains(&id) {
                 self.order.push(id);
+            }
+        }
+        for g in other.group_order {
+            if !self.group_order.contains(&g) {
+                self.group_order.push(g);
             }
         }
     }

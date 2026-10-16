@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Резервная копия библиотеки: {path}",
   "The last backup failed: {e}": "Последнее резервное копирование не удалось: {e}",
   "The library backup failed: {e}": "Резервное копирование библиотеки не удалось: {e}",
-  "{n} photos · {size}": "{n} фото · {size}"
+  "{n} photos · {size}": "{n} фото · {size}",
+  "Delete the group “{name}”?": "Удалить группу «{name}»?",
+  "default for {bodies}": "по умолчанию для {bodies}",
+  "{n} built-in items are taken off this computer (Restore brings them back).": "{n} встроенных элементов будут убраны с этого компьютера (их можно восстановить).",
+  "{n} of your own: delete them, or move them to another group.": "{n} ваших: удалить их или перенести в другую группу."
 }
