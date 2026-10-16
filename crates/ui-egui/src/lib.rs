@@ -79,6 +79,8 @@ mod tests_chart_profile;
 #[cfg(test)]
 mod tests_chart_profile_view;
 #[cfg(test)]
+mod tests_color_mixer;
+#[cfg(test)]
 mod tests_compare;
 #[cfg(test)]
 mod tests_copy_paste_dialogs;

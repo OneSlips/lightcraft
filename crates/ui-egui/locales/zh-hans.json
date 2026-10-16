@@ -2921,5 +2921,9 @@
   "Show the group in the menus": "在菜单中显示此组",
   "The import presets saved in the Import tab, shared by all your libraries.": "在导入选项卡中保存的导入预设，所有图库共享。",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "蒙版面板效果菜单中的预设，所有图库共享。“隐藏”会把它从菜单移除，它仍留在这里。",
-  "With AI masks only": "仅含 AI 蒙版"
+  "With AI masks only": "仅含 AI 蒙版",
+  "Mixer": "混合器",
+  "HSL": "HSL",
+  "Adjust": "调整",
+  "Color Mixer Layout": "颜色混合器布局"
 }

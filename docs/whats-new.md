@@ -6,6 +6,11 @@
 - **The Edit panel comes back after Masking, Crop, Remove or Red Eye**: close the tool and the
   sliders are there again, at the same width and scroll position, and the photo doesn't move. If
   the panel was hidden before, it stays hidden.
+- **Color Mixer: HSL**, laid out as in Lightroom Classic: **Mixer | Point Color** tabs, then
+  **Adjust: HSL / Color**. HSL shows **Hue, Saturation, Luminance** or **All** (the three stacked,
+  each with its heading): eight colour sliders each, with coloured tracks, and a targeted
+  adjustment per group. HSL is the default and your choice is remembered. Point Color is now the
+  Color Mixer's second tab.
 
 ## 2026-10-16
 

@@ -3082,5 +3082,9 @@
   "Show the group in the menus": "Mostrar el grupo en los menús",
   "The import presets saved in the Import tab, shared by all your libraries.": "Los ajustes de importación guardados en la pestaña Importar, compartidos por todas tus bibliotecas.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Los ajustes del menú Efecto del panel Máscaras, compartidos por todas tus bibliotecas. Ocultar quita uno del menú; sigue aquí.",
-  "With AI masks only": "Solo con máscaras IA"
+  "With AI masks only": "Solo con máscaras IA",
+  "Mixer": "Mezclador",
+  "HSL": "HSL",
+  "Adjust": "Ajustar",
+  "Color Mixer Layout": "Disposición del mezclador de color"
 }
