@@ -2,6 +2,9 @@
 
 ## 2026-10-16
 
+### Keywords
+- **No more ghost text in the Keywords list.** Some cameras write their whole keyword list as one entry, a keyword a line; LightCraft now reads it as one keyword a line, and repairs libraries that already hold such a keyword when they open.
+
 ### Show Alternatives
 - When a pick doesn't work out while you edit, Photo ▸ **Show Alternatives** (or right-click) shows the frames shot around it, straight from its folder, imported or not. Select one or more and **Import Selected**: they join the library **with the same edit**, and you are back where you were.
 
