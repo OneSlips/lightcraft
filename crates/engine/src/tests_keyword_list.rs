@@ -339,3 +339,17 @@ fn importing_keywords_reads_a_list() {
     assert!(s.execute("keyword.import", &json!({})).is_err(), "a path or text");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A library whose photos got a whole keyword list as one keyword (line breaks inside) is
+/// repaired when it opens: one keyword a line, journaled.
+#[test]
+fn line_separated_keywords_are_split_when_the_library_opens() {
+    let mut s = Session::with_demo();
+    let id = s.visible_cloned()[0];
+    let mut meta = s.catalog.photo(id).unwrap().meta.clone();
+    meta.keywords = vec!["Bride\r\n Groom\r\n Happy Couple".into()];
+    s.catalog.apply(lightcraft_catalog::Op::SetMeta { id, meta: Box::new(meta) }).unwrap();
+    assert_eq!(s.split_multiline_keywords(), 1);
+    assert_eq!(s.catalog.photo(id).unwrap().meta.keywords, vec!["Bride", "Groom", "Happy Couple"]);
+    assert_eq!(s.split_multiline_keywords(), 0, "nothing left to split");
+}

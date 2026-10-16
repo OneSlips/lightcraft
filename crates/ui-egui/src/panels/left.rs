@@ -132,6 +132,10 @@ fn row_sensed(
     mark: Option<egui::Color32>,
 ) -> egui::Response {
     let label = if matches!(id, "all" | "recentlyAdded" | "picks" | "missing" | "recentlyDeleted") { crate::i18n::tr(label) } else { label };
+    // a name is drawn on one line: one holding line breaks (a whole keyword list read as one
+    // keyword) would spill over the rows around it
+    let one_line = lightcraft_catalog::keywords::one_line(label);
+    let label: &str = &one_line;
     let t = Tokens::get(ui.ctx());
     let indent = drawn_indent(ui, indent);
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_HEIGHT), sense);
