@@ -485,6 +485,158 @@ fn grown(poly: &[[f32; 2]], sx: f32, sy: f32) -> Vec<[f32; 2]> {
     poly.iter().map(|p| [c[0] + (p[0] - c[0]) * sx, c[1] + (p[1] - c[1]) * sy]).collect()
 }
 
+/// The ellipse an eye's cut-out takes (centre, unit axis from corner to corner, semi-axes along
+/// and across it, photo pixels): the eye's width plus a little for the corners and lashes, and at
+/// least a third of its width tall, wider when the eye is wide open. `None` for a degenerate eye.
+fn eye_ellipse(lm: &[[f32; 2]], eye: &[usize; 16]) -> Option<([f32; 2], [f32; 2], f32, f32)> {
+    let (a, b) = (*lm.get(eye[0])?, *lm.get(eye[8])?);
+    let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
+    let w = dx.hypot(dy);
+    if !(w.is_finite() && w > 0.5) {
+        return None;
+    }
+    let ax = [dx / w, dy / w];
+    let pts = points(lm, eye);
+    let n = pts.len().max(1) as f32;
+    let c = pts.iter().fold([0f32; 2], |s, p| [s[0] + p[0] / n, s[1] + p[1] / n]);
+    // the opening's height across the axis
+    let across = pts.iter().map(|p| -(p[0] - c[0]) * ax[1] + (p[1] - c[1]) * ax[0]).fold((0f32, 0f32), |(lo, hi), v| (lo.min(v), hi.max(v)));
+    let open = across.1 - across.0;
+    let semi_b = (0.8 * open).max(0.3 * w);
+    (c.iter().all(|v| v.is_finite()) && semi_b.is_finite()).then_some((c, ax, 0.62 * w, semi_b))
+}
+
+/// A brow's cut-out: the band between its upper and lower lines, grown, and at least a fifth of
+/// its length thick (FaceMesh often draws thin or plucked brows as two lines close together, and
+/// the hairs beyond them are brow too).
+fn brow_band(upper: &[[f32; 2]], lower: &[[f32; 2]]) -> Vec<[f32; 2]> {
+    let len = upper.windows(2).map(|w| (w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1])).sum::<f32>();
+    let mut top = Vec::new();
+    let mut bottom = Vec::new();
+    for (u, l) in upper.iter().zip(lower) {
+        let m = [(u[0] + l[0]) / 2.0, (u[1] + l[1]) / 2.0];
+        let (nx, ny) = (u[0] - l[0], u[1] - l[1]);
+        let d = nx.hypot(ny);
+        let half = (0.5 * d * 1.4).max(0.1 * len);
+        let n = if d > 1e-3 { [nx / d, ny / d] } else { [0.0, -1.0] };
+        top.push([m[0] + n[0] * half, m[1] + n[1] * half]);
+        bottom.push([m[0] - n[0] * half, m[1] - n[1] * half]);
+    }
+    let mut poly = grown(&top, 1.08, 1.0);
+    poly.extend(grown(&bottom, 1.08, 1.0).into_iter().rev());
+    poly
+}
+
+/// Forehead landmarks the face's own skin is sampled at (mid forehead, above each brow).
+const FOREHEAD: [usize; 3] = [151, 108, 337];
+/// The top and bottom of the face oval (forehead top, chin).
+const OVAL_TOP: usize = 10;
+const CHIN: usize = 152;
+
+/// Mean and spread of the opponent colour (0..1 scale) in a disc of radius `r` around `c`.
+fn colour_stats(rgb: &[u8], w: usize, h: usize, pts: &[[f32; 2]], r: f32) -> Option<([f32; 3], [f32; 3])> {
+    let mut v = Vec::new();
+    for c in pts {
+        let step = (r / 3.0).max(1.0);
+        let mut y = c[1] - r;
+        while y <= c[1] + r {
+            let mut x = c[0] - r;
+            while x <= c[0] + r {
+                if let Some(o) = opponent_at(rgb, w, h, [x, y]) {
+                    v.push(o);
+                }
+                x += step;
+            }
+            y += step;
+        }
+    }
+    if v.len() < 6 {
+        return None;
+    }
+    let n = v.len() as f32;
+    let mean = v.iter().fold([0f32; 3], |m, o| [m[0] + o[0] / n, m[1] + o[1] / n, m[2] + o[2] / n]);
+    let var = v
+        .iter()
+        .fold([0f32; 3], |m, o| [m[0] + (o[0] - mean[0]).powi(2) / n, m[1] + (o[1] - mean[1]).powi(2) / n, m[2] + (o[2] - mean[2]).powi(2) / n]);
+    Some((mean, var.map(f32::sqrt)))
+}
+
+/// The photo's colour at `p` (3 × 3 mean) as opponent channels: lightness, red–green, yellow–blue.
+fn opponent_at(rgb: &[u8], w: usize, h: usize, p: [f32; 2]) -> Option<[f32; 3]> {
+    let (cx, cy) = (p[0].round() as isize, p[1].round() as isize);
+    if !(p[0].is_finite() && p[1].is_finite()) || cx < 1 || cy < 1 || cx + 1 >= w as isize || cy + 1 >= h as isize {
+        return None;
+    }
+    let mut s = [0f32; 3];
+    for dy in -1..=1isize {
+        for dx in -1..=1isize {
+            let i = ((cy + dy) as usize * w + (cx + dx) as usize) * 3;
+            let px = rgb.get(i..i + 3)?;
+            for (a, b) in s.iter_mut().zip(px) {
+                *a += f32::from(*b) / (255.0 * 9.0);
+            }
+        }
+    }
+    Some([(s[0] + s[1] + s[2]) / 3.0, s[0] - s[1], (s[0] + s[1]) / 2.0 - s[2]])
+}
+
+/// Face skin up to the hairline (one face, `lm` in photo pixels): Selfie Multiclass's face-skin
+/// class fades out on the upper forehead (its 256-cell map, a high forehead, a receding hairline),
+/// so above the brows, inside the face oval stretched up to where the hair starts, cells coloured
+/// like the face's own forehead (sampled at [`FOREHEAD`]) and not hair (`hair(u, v)`: the class
+/// map's hair probability at a normalized point) are skin. Raises `skin` (coverage 0..1), never
+/// lowers it.
+pub fn forehead(grid: &Grid, skin: &mut [f32], lm: &[[f32; 2]], rgb: &[u8], hair: impl Fn(f32, f32) -> f32) {
+    if lm.len() < MESH_POINTS || grid.w == 0 || grid.h == 0 {
+        return;
+    }
+    let (Some(top), Some(chin)) = (lm.get(OVAL_TOP).copied(), lm.get(CHIN).copied()) else { return };
+    let (ux, uy) = (top[0] - chin[0], top[1] - chin[1]);
+    let face_h = ux.hypot(uy);
+    if !(face_h.is_finite() && face_h > 4.0) {
+        return;
+    }
+    let up = [ux / face_h, uy / face_h];
+    // the brow line: the highest brow point along `up`
+    let height = |p: [f32; 2]| (p[0] - chin[0]) * up[0] + (p[1] - chin[1]) * up[1];
+    let brow = BROWS.iter().flat_map(|(u, _)| u.iter()).filter_map(|i| lm.get(*i)).map(|p| height(*p)).fold(f32::MIN, f32::max);
+    if !brow.is_finite() {
+        return;
+    }
+    // the oval with its upper part stretched up by up to a fifth of the face's height
+    let oval: Vec<[f32; 2]> = points(lm, &FACE_OVAL)
+        .into_iter()
+        .map(|p| {
+            let t = ((height(p) - brow) / (face_h - brow).max(1.0)).clamp(0.0, 1.0);
+            let k = 0.2 * face_h * t;
+            [p[0] + up[0] * k, p[1] + up[1] * k]
+        })
+        .collect();
+    let Some((mean, spread)) = colour_stats(rgb, grid.w, grid.h, &points(lm, &FOREHEAD), (face_h * 0.03).max(1.5)) else { return };
+    // how far a colour may stray from the forehead's (lightness varies with the light across it)
+    let tol = [spread[0].max(0.05) * 3.0, spread[1].max(0.02) * 3.0, spread[2].max(0.02) * 3.0];
+    let (gw, gh) = (grid.w as f32, grid.h as f32);
+    let like = |p: [f32; 2]| -> f32 {
+        if height(p) < brow || !inside(&oval, p) {
+            return 0.0;
+        }
+        let Some(o) = opponent_at(rgb, grid.w, grid.h, p) else { return 0.0 };
+        let d: f32 = (0..3).map(|i| ((o[i] - mean[i]) / tol[i]).powi(2)).sum();
+        let sim = (1.0 - d).clamp(0.0, 1.0);
+        sim * (1.0 - 1.5 * hair(p[0] / gw, p[1] / gh)).clamp(0.0, 1.0)
+    };
+    let bb = bbox(&oval, 1.0);
+    let (cols, rows) = grid.cells(bb);
+    for j in rows {
+        for i in cols.clone() {
+            let v = like(grid.centre(i, j));
+            if let Some(c) = skin.get_mut(j * grid.side + i) {
+                *c = c.max(v);
+            }
+        }
+    }
+}
+
 /// Luminance (0..255) of the photo at `p`, and its spread (standard deviation) over the 5 × 5
 /// pixels around it — how textured the spot is.
 fn luma_texture(rgb: &[u8], w: usize, h: usize, p: [f32; 2]) -> Option<(f32, f32)> {
@@ -526,11 +678,19 @@ pub fn feature_holes(grid: &Grid, holes: &mut [f32], lm: &[[f32; 2]], rgb: &[u8]
     for eye in &EYES {
         let poly = grown(&points(lm, eye), 1.18, 1.6);
         coverage(grid, holes, bbox(&poly, 1.0), |p| inside(&poly, p));
+        // the whole eye, lids and lashes, however far it is open: a smiling or blinking eye's
+        // opening is a sliver, and the lashes and lid line around it aren't skin either
+        if let Some((c, ax, a, b)) = eye_ellipse(lm, eye) {
+            let r = a.max(b);
+            coverage(grid, holes, [c[0] - r - 1.0, c[1] - r - 1.0, c[0] + r + 1.0, c[1] + r + 1.0], |p| {
+                let (dx, dy) = (p[0] - c[0], p[1] - c[1]);
+                let (x, y) = (dx * ax[0] + dy * ax[1], -dx * ax[1] + dy * ax[0]);
+                (x / a).powi(2) + (y / b).powi(2) <= 1.0
+            });
+        }
     }
     for (upper, lower) in BROWS {
-        let mut poly = points(lm, &upper);
-        poly.extend(points(lm, &lower).into_iter().rev());
-        let poly = grown(&poly, 1.08, 1.35);
+        let poly = brow_band(&points(lm, &upper), &points(lm, &lower));
         coverage(grid, holes, bbox(&poly, 1.0), |p| inside(&poly, p));
     }
     let mouth = grown(&points(lm, &LIPS_OUTER), 1.06, 1.1);
