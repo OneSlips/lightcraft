@@ -980,13 +980,14 @@ fn a_zoomed_window_of_a_big_brush_matches_and_is_quick() {
                 .collect();
             strokes.push(BrushStroke { points, size: 0.02, auto_mask, ..Default::default() });
         }
-        let mut s = DevelopSettings::default();
-        s.masks = vec![Mask {
-            components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
-            adjust: lightcraft_develop::LocalAdjustments { exposure: 1.0, saturation: -40.0, ..Default::default() },
+        DevelopSettings {
+            masks: vec![Mask {
+                components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Brush { strokes } }],
+                adjust: lightcraft_develop::LocalAdjustments { exposure: 1.0, saturation: -40.0, ..Default::default() },
+                ..Default::default()
+            }],
             ..Default::default()
-        }];
-        s
+        }
     };
     let bench = std::env::var_os("LC_BRUSH_BENCH").is_some();
     let (fw, fh) = if bench { (8192, 5464) } else { (4096, 2732) };
