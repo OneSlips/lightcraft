@@ -40,6 +40,10 @@
 - **Ratings, flags and labels under the thumbnails**, big enough to read at a glance, in the grid and the filmstrip (Settings ▸ Interface ▸ Grid; on). Rejects are no longer greyed out.
 
 ### Mask tools
+- **A tool makes mask after mask**: after one Radial or Linear, drag again on the photo (away from
+  the gradient's pins, lines and body) for the next one, or press the tool again; it no longer has
+  to be switched off and on. Pressing a tool that hasn't drawn anything yet puts it away.
+- **A new gradient appears where you drag it**: a second Radial landed on the first one's spot.
 - **Add, Subtract and Intersect offer every kind of mask** that Create New Mask does, in the same
   order and with the same icons: also Background, People, Remembered, Landscape and Color. A Radial
   minus the Background is two clicks. People, Remembered and Landscape open their picker under the
