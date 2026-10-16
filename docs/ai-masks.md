@@ -50,7 +50,11 @@ In the Masking panel (M):
   and **Body Skin** are skin only: the eyes (with the lash line), eyebrows, lips and mouth
   (teeth, tongue) are cut out, and so is facial hair — the model's hair class, plus, in the lower
   face, pixels clearly darker and more textured than the cheeks (beards, moustaches, stubble; skin
-  in shadow is dark but smooth and stays). Nostrils stay in the skin. On a face seen in profile the
+  in shadow is dark but smooth and stays). Each eye is cut out whole, lids and lashes, however far it
+  is open (a smiling or blinking eye's opening is only a sliver), and each brow at least a fifth of
+  its length thick. Face Skin reaches the hairline: above the brows, inside the face's outline
+  stretched up to where the hair starts, what has the forehead's own colour and isn't hair is skin
+  (the class map alone fades out on a high forehead). Nostrils stay in the skin. On a face seen in profile the
   features can't be located: only hair is left out there, and the app says so. Pick Lips, Eyebrows
   and so on alongside a skin part to add them back.
 - **Landscape**: pick a class under the tiles — Sky, Water, Vegetation, Mountains, Architecture,

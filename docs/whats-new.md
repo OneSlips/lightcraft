@@ -1,5 +1,12 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### Face Skin masks
+- **The eyes, brows and lips are left out again** on real faces, smiling and squinting ones too: the
+  whole eye (lids and lashes) is cut out, however far it is open.
+- **Face Skin reaches the hairline**: a high forehead is no longer faded out towards the top.
+
 ## 2026-10-16
 
 ### Presets Manager

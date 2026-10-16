@@ -536,6 +536,10 @@ pub fn people_mask_with(
         holes = mediapipe::soften(&holes, side);
     }
     let (skin_classes, other_classes): (Vec<usize>, Vec<usize>) = req.classes.iter().partition(|c| SKIN.contains(c));
+    // skin and the other classes apart: the skin is refined on its own, then the features are cut
+    // out of it (refining after the cut filled the eye and brow holes back in)
+    let mut skin_cov = vec![0f32; if skin { side * side } else { 0 }];
+    let mut mine = vec![true; if skin { side * side } else { 0 }];
     if let Some(map) = map.filter(|_| req.needs_people()) {
         let r = grid.rect;
         for j in 0..side {
@@ -543,15 +547,18 @@ pub fn people_mask_with(
                 let u = (r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) as f32;
                 let v = (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) as f32;
                 if req.person > 0 && instances.and_then(|i| i.owner(u, v)).or_else(|| owner(u, v)).is_none_or(|o| !chosen.contains(&o)) {
+                    if let Some(m) = mine.get_mut(j * side + i) {
+                        *m = false;
+                    }
                     continue;
                 }
                 let value = if whole {
                     1.0 - map.at(&[0], u, v)
                 } else {
-                    let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
-                    let skin = if skin_classes.is_empty() { 0.0 } else { map.at(&skin_classes, u, v) * (1.0 - hole) };
-                    let other = if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) };
-                    skin + other
+                    if let Some(s) = skin_cov.get_mut(j * side + i) {
+                        *s = map.at(&skin_classes, u, v);
+                    }
+                    if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) }
                 };
                 if let Some(c) = cov.get_mut(j * side + i) {
                     *c = value.clamp(0.0, 1.0);
@@ -560,7 +567,28 @@ pub fn people_mask_with(
         }
     }
     if map.is_some() && req.needs_people() {
-        refine(&grid, &mut cov, rgb, whole || req.classes.contains(&4));
+        if whole || !other_classes.is_empty() {
+            refine(&grid, &mut cov, rgb, whole || req.classes.contains(&4));
+        }
+        if skin {
+            // the face skin up to the hairline (the class map fades out on the upper forehead)
+            for (k, f) in faces.iter().enumerate() {
+                if req.person > 0 && !chosen.contains(&k) {
+                    continue;
+                }
+                if let (Some(lm), Some(map)) = (&f.landmarks, map) {
+                    mediapipe::forehead(&grid, &mut skin_cov, lm, rgb, |u, v| map.at(&[1], u, v));
+                }
+            }
+            refine(&grid, &mut skin_cov, rgb, false);
+            for (k, c) in cov.iter_mut().enumerate() {
+                let own = mine.get(k).copied().unwrap_or(true);
+                let s = skin_cov.get(k).copied().unwrap_or(0.0) * (1.0 - holes.get(k).copied().unwrap_or(0.0));
+                if own {
+                    *c = (*c + s).clamp(0.0, 1.0);
+                }
+            }
+        }
     }
     for i in &chosen {
         let Some(lm) = faces.get(*i).and_then(|f| f.landmarks.as_ref()) else { continue };
@@ -778,6 +806,81 @@ mod tests {
         // asking for skin and lips: lips come back on top of the skin's hole
         let m5 = people_mask(&PeopleRequest::parse(0, &["Face Skin".into(), "Lips".into()]).unwrap(), &rgb, 1000, 1000, Some(&map), &faces).unwrap();
         assert!(m5.logits[(650 * 1024 / 1000) * 1024 + 500 * 1024 / 1000] > 2.0);
+    }
+
+    /// Regression (the user's bug, a man and a woman at a dinner table): on real faces the eyes,
+    /// brows and lips were tinted — the edge refinement ran after the features were cut and
+    /// filled the small holes back in, and a smiling eye's opening is too thin a sliver to cut
+    /// anyway — and the man's upper forehead was left out where the class map fades before the
+    /// hairline. A small face (eyes 20 pixels wide, squinting): the eyes, brows and lips are 0,
+    /// the forehead up to the hair is skin, the hair isn't.
+    #[test]
+    fn small_smiling_faces_lose_eyes_and_lips_and_keep_the_forehead() {
+        let mut lm = synthetic_face();
+        // the oval starting at the top (landmark 10), the chin (152) at the bottom
+        for (k, i) in mediapipe::FACE_OVAL.iter().enumerate() {
+            let a = k as f32 / mediapipe::FACE_OVAL.len() as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+            lm[*i] = [500.0 + 300.0 * a.cos(), 500.0 + 400.0 * a.sin()];
+        }
+        // squinting: the lids nearly meet
+        for (e, cx) in [(0, 380.0f32), (1, 620.0)] {
+            for (k, i) in mediapipe::EYES[e].iter().enumerate() {
+                let a = k as f32 / 16.0 * std::f32::consts::TAU;
+                lm[*i] = [cx + 50.0 * a.cos(), 400.0 + 4.0 * a.sin()];
+            }
+        }
+        // the face 0.2× in a 400-pixel photo, centred at (200, 200): 120 wide, the oval's top at 120
+        let lm: Vec<[f32; 2]> = lm.iter().map(|p| [200.0 + (p[0] - 500.0) * 0.2, 200.0 + (p[1] - 500.0) * 0.2]).collect();
+        let (w, h) = (400usize, 400usize);
+        let in_head = |x: f32, y: f32| ((x - 200.0) / 66.0).powi(2) + ((y - 205.0) / 92.0).powi(2) <= 1.0;
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let c = if y < 118 && in_head(x as f32, y as f32) {
+                    [45, 32, 25] // hair
+                } else if in_head(x as f32, y as f32) {
+                    // skin, with a little texture so the refinement has something to follow
+                    let n = ((x * 7 + y * 13) % 5) as u8;
+                    [205 - n, 150, 125]
+                } else {
+                    [70, 90, 120]
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&c);
+            }
+        }
+        // the class map: hair on top, face skin only from the brows down (it fades on the forehead)
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i as f32 + 0.5) * w as f32 / side as f32, (j as f32 + 0.5) * h as f32 / side as f32);
+                let c = if !in_head(x, y) {
+                    0
+                } else if y < 118.0 {
+                    1
+                } else if y < 160.0 {
+                    0
+                } else {
+                    3
+                };
+                probs[(j * side + i) * 6 + c] = 1.0;
+            }
+        }
+        let map = PeopleMap { side, probs };
+        let det = Detection { x0: 140.0, y0: 120.0, x1: 260.0, y1: 280.0, score: 0.9, keypoints: [[0.0; 2]; 6] };
+        let faces = [Face { detection: det, landmarks: Some(lm) }];
+        let m = people_mask(&PeopleRequest::parse(0, &["Face Skin".into()]).unwrap(), &rgb, w, h, Some(&map), &faces).unwrap();
+        let at = |x: f32, y: f32| m.logits[((y / h as f32 * m.side as f32) as usize) * m.side + (x / w as f32 * m.side as f32) as usize];
+        for (what, x, y) in
+            [("eye", 176.0, 180.0), ("eye", 224.0, 180.0), ("lid above the eye", 176.0, 177.0), ("brow", 176.0, 168.5), ("lips", 200.0, 230.0)]
+        {
+            assert!(at(x, y) < -1.0, "{what} is not skin: {}", at(x, y));
+        }
+        for (what, x, y) in [("cheek", 160.0, 212.0), ("forehead", 200.0, 145.0), ("upper forehead", 200.0, 128.0)] {
+            assert!(at(x, y) > 1.0, "{what} is skin: {}", at(x, y));
+        }
+        assert!(at(200.0, 105.0) < -1.0, "the hair is not skin: {}", at(200.0, 105.0));
+        assert!(at(30.0, 30.0) < -1.0, "the background is not skin");
     }
 
     /// Facial hair: dark, textured pixels in the lower face are cut out of skin; dark but smooth
