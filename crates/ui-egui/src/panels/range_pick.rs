@@ -105,12 +105,12 @@ pub(crate) fn color_tool(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Re
         register(ui.ctx(), format!("colorPin:{}", pin.index), Rect::from_center_size(at, vec2(14.0, 14.0)));
     }
     if let Some(h) = hover {
-        let cursor = match near(h) {
-            Some(_) if alt => egui::CursorIcon::NotAllowed,
-            Some(_) => egui::CursorIcon::Move,
-            None => egui::CursorIcon::Crosshair,
-        };
-        ui.ctx().set_cursor_icon(cursor);
+        match near(h) {
+            Some(_) if alt => ui.ctx().set_cursor_icon(egui::CursorIcon::NotAllowed),
+            Some(_) => ui.ctx().set_cursor_icon(egui::CursorIcon::Move),
+            // away from the samples: the eyedropper picks another colour
+            None => crate::eyedropper::show(ui.ctx(), h),
+        }
     }
     let press = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
     if resp.drag_started()
@@ -165,8 +165,8 @@ pub(crate) fn color_tool(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Re
 /// the tones of the area; ⇧ widens the range to take them in.
 pub(crate) fn luminance_tool(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Response, map: &CanvasMap, p: &egui::Painter) {
     let shift = ui.input(|i| i.modifiers.shift);
-    if resp.hovered() {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+    if let Some(q) = resp.hover_pos() {
+        crate::eyedropper::show(ui.ctx(), q);
     }
     let press = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos());
     if resp.drag_started()

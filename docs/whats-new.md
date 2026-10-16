@@ -19,6 +19,8 @@
 - **Panning while masking**: zoomed in with the Masking panel open and no tool armed, drag the photo
   to move around. With a tool armed (a brush, a gradient, Remove, Crop, a picker), hold **Space**
   and drag. Space no longer zooms out while a tool is in use on a zoomed photo.
+- **An eyedropper pointer** for the white balance selector, Point Color and the Color /
+  Luminance Range pickers; its tip is the pixel picked.
 
 ## 2026-10-16
 
