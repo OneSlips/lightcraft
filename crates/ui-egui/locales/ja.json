@@ -3038,5 +3038,20 @@
   "No AI Denoise model is available yet": "利用できる AI ノイズ除去モデルはまだありません",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "LightCraft のノイズ除去モデル（.onnx ファイルと denoise-model.json を含むフォルダー）を受け取った場合のみ：",
   "When the model is ready, an update will offer it here as a one-click download.": "モデルの準備ができたら、アップデートでここからワンクリックでダウンロードできるようになります。",
-  "Why?": "理由は？"
+  "Why?": "理由は？",
+  "In place": "その場で",
+  "Camera profiles": "カメラプロファイル",
+  "Each body's own profile": "ボディごとのプロファイル",
+  "LightCraft colour (no profile set)": "LightCraft の色（プロファイル未設定）",
+  "These files don't say which body took them: they develop with the camera's default.": "これらのファイルには撮影ボディの情報がありません：カメラの既定で現像されます。",
+  "No camera profiles yet: import or create them in the Profile Manager": "カメラプロファイルがまだありません：プロファイルマネージャーで読み込むか作成してください",
+  "The profile this body's raws develop with: it becomes the body's default": "このボディの RAW を現像するプロファイル：ボディの既定になります",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "専用プロファイルのないボディは LightCraft の色で現像されます。上で選ぶと、そのボディの既定になります。",
+  "Profile Manager…": "プロファイルマネージャー…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "読み込むものがありません：写真に採用フラグ (P) を付けるか、選択するか、すべてを選んでください",
+  "Flagged as picks (P)": "採用フラグ付き (P)",
+  "The photos selected here": "ここで選択中の写真",
+  "Every photo here that isn't in the library yet": "まだライブラリにない、ここのすべての写真",
+  "Include subfolders: on": "サブフォルダーを含める：オン",
+  "Include subfolders: off": "サブフォルダーを含める：オフ"
 }

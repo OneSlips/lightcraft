@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Резервна копія бібліотеки: {path}",
   "The last backup failed: {e}": "Останнє резервне копіювання не вдалося: {e}",
   "The library backup failed: {e}": "Резервне копіювання бібліотеки не вдалося: {e}",
-  "{n} photos · {size}": "{n} фото · {size}"
+  "{n} photos · {size}": "{n} фото · {size}",
+  "{who}: {n} photos": "{who}: {n} фото",
+  "{n} not imported": "{n} не імпортовано",
+  "Import {n}": "Імпортувати {n}",
+  "Import these photos into {library}, with the settings on the right": "Імпортувати ці фото до {library} з налаштуваннями праворуч"
 }

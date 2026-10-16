@@ -415,5 +415,9 @@
   "Library backed up to {path}": "ライブラリを {path} にバックアップしました",
   "The last backup failed: {e}": "前回のバックアップに失敗しました：{e}",
   "The library backup failed: {e}": "ライブラリのバックアップに失敗しました：{e}",
-  "{n} photos · {size}": "{n} 枚 · {size}"
+  "{n} photos · {size}": "{n} 枚 · {size}",
+  "{who}: {n} photos": "{who}：{n} 枚",
+  "{n} not imported": "未読み込み {n}",
+  "Import {n}": "{n} 枚を読み込む",
+  "Import these photos into {library}, with the settings on the right": "右の設定でこれらの写真を {library} に読み込む"
 }

@@ -2840,5 +2840,20 @@
   "No AI Denoise model is available yet": "暫無可用的 AI 降噪模型",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "僅當你拿到了 LightCraft 降噪模型（含 .onnx 檔案和 denoise-model.json 的資料夾）時：",
   "When the model is ready, an update will offer it here as a one-click download.": "模型就緒後，更新會在這裡提供一鍵下載。",
-  "Why?": "為什麼？"
+  "Why?": "為什麼？",
+  "In place": "原位",
+  "Camera profiles": "相機描述檔",
+  "Each body's own profile": "每個機身自己的描述檔",
+  "LightCraft colour (no profile set)": "LightCraft 色彩（未設定描述檔）",
+  "These files don't say which body took them: they develop with the camera's default.": "這些檔案沒有說明是哪台機身拍攝的：將使用相機的預設值沖印。",
+  "No camera profiles yet: import or create them in the Profile Manager": "還沒有相機描述檔：請在描述檔管理員中匯入或建立",
+  "The profile this body's raws develop with: it becomes the body's default": "此機身 RAW 的沖印描述檔：將成為該機身的預設值",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "沒有自己描述檔的機身將使用 LightCraft 色彩沖印。在上方選擇一個：它將成為該機身的預設值。",
+  "Profile Manager…": "描述檔管理員…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "沒有可匯入的：將照片標為留用 (P)、選擇一些，或選擇全部",
+  "Flagged as picks (P)": "已標為留用 (P)",
+  "The photos selected here": "此處選中的照片",
+  "Every photo here that isn't in the library yet": "這裡所有尚未進入圖庫的照片",
+  "Include subfolders: on": "包含子資料夾：開",
+  "Include subfolders: off": "包含子資料夾：關"
 }

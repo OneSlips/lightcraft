@@ -3036,5 +3036,20 @@
   "No AI Denoise model is available yet": "Aucun modèle de débruitage IA n’est encore disponible",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Seulement si l’on vous a donné un modèle de débruitage LightCraft (un dossier avec un fichier .onnx et denoise-model.json) :",
   "When the model is ready, an update will offer it here as a one-click download.": "Quand le modèle sera prêt, une mise à jour le proposera ici en téléchargement en un clic.",
-  "Why?": "Pourquoi ?"
+  "Why?": "Pourquoi ?",
+  "In place": "Sur place",
+  "Camera profiles": "Profils d’appareil",
+  "Each body's own profile": "Le profil propre à chaque boîtier",
+  "LightCraft colour (no profile set)": "Couleur LightCraft (aucun profil)",
+  "These files don't say which body took them: they develop with the camera's default.": "Ces fichiers n’indiquent pas le boîtier : ils sont développés avec le réglage par défaut de l’appareil.",
+  "No camera profiles yet: import or create them in the Profile Manager": "Aucun profil d’appareil : importez-en ou créez-en dans le gestionnaire de profils",
+  "The profile this body's raws develop with: it becomes the body's default": "Le profil de développement des raws de ce boîtier : il devient son profil par défaut",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "Un boîtier sans profil propre est développé avec la couleur LightCraft. Choisissez-en un ci-dessus : il devient le profil par défaut de ce boîtier.",
+  "Profile Manager…": "Gestionnaire de profils…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "Rien à importer : marquez des photos comme retenues (P), sélectionnez-en ou choisissez Toutes",
+  "Flagged as picks (P)": "Marquées comme retenues (P)",
+  "The photos selected here": "Les photos sélectionnées ici",
+  "Every photo here that isn't in the library yet": "Toutes les photos d’ici pas encore dans la bibliothèque",
+  "Include subfolders: on": "Inclure les sous-dossiers : oui",
+  "Include subfolders: off": "Inclure les sous-dossiers : non"
 }

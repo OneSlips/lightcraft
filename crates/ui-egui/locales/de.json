@@ -3039,5 +3039,20 @@
   "No AI Denoise model is available yet": "Noch kein Modell für KI-Entrauschen verfügbar",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Nur wenn du ein LightCraft-Entrauschungsmodell bekommen hast (ein Ordner mit einer .onnx-Datei und denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Sobald das Modell fertig ist, bietet ein Update es hier zum Download mit einem Klick an.",
-  "Why?": "Warum?"
+  "Why?": "Warum?",
+  "In place": "Am Ort",
+  "Camera profiles": "Kameraprofile",
+  "Each body's own profile": "Eigenes Profil jedes Gehäuses",
+  "LightCraft colour (no profile set)": "LightCraft-Farbe (kein Profil festgelegt)",
+  "These files don't say which body took them: they develop with the camera's default.": "Diese Dateien verraten nicht, welches Gehäuse sie aufgenommen hat: sie werden mit der Vorgabe der Kamera entwickelt.",
+  "No camera profiles yet: import or create them in the Profile Manager": "Noch keine Kameraprofile: im Profilmanager importieren oder erstellen",
+  "The profile this body's raws develop with: it becomes the body's default": "Das Profil, mit dem die Raws dieses Gehäuses entwickelt werden: es wird zur Vorgabe des Gehäuses",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "Ein Gehäuse ohne eigenes Profil wird mit der LightCraft-Farbe entwickelt. Oben eines wählen: es wird zur Vorgabe dieses Gehäuses.",
+  "Profile Manager…": "Profilmanager…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "Nichts zu importieren: Fotos als ausgewählt markieren (P), einige auswählen oder Alle wählen",
+  "Flagged as picks (P)": "Als ausgewählt markiert (P)",
+  "The photos selected here": "Die hier markierten Fotos",
+  "Every photo here that isn't in the library yet": "Alle Fotos hier, die noch nicht in der Bibliothek sind",
+  "Include subfolders: on": "Unterordner einbeziehen: ein",
+  "Include subfolders: off": "Unterordner einbeziehen: aus"
 }

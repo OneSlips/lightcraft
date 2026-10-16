@@ -2878,5 +2878,20 @@
   "No AI Denoise model is available yet": "Ainda não há modelo de redução de ruído com IA",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Só se você recebeu um modelo de redução de ruído do LightCraft (uma pasta com um arquivo .onnx e denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Quando o modelo estiver pronto, uma atualização o oferecerá aqui para baixar com um clique.",
-  "Why?": "Por quê?"
+  "Why?": "Por quê?",
+  "In place": "No local",
+  "Camera profiles": "Perfis de câmera",
+  "Each body's own profile": "O perfil próprio de cada corpo",
+  "LightCraft colour (no profile set)": "Cor do LightCraft (sem perfil)",
+  "These files don't say which body took them: they develop with the camera's default.": "Estes arquivos não dizem qual corpo os fez: são revelados com o padrão da câmera.",
+  "No camera profiles yet: import or create them in the Profile Manager": "Ainda sem perfis de câmera: importe ou crie no Gerenciador de perfis",
+  "The profile this body's raws develop with: it becomes the body's default": "O perfil com que os raws deste corpo são revelados: passa a ser o padrão do corpo",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "Um corpo sem perfil próprio é revelado com a cor do LightCraft. Escolha um acima: ele passa a ser o padrão desse corpo.",
+  "Profile Manager…": "Gerenciador de perfis…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "Nada a importar: marque fotos como escolhidas (P), selecione algumas ou escolha Todas",
+  "Flagged as picks (P)": "Marcadas como escolhidas (P)",
+  "The photos selected here": "As fotos selecionadas aqui",
+  "Every photo here that isn't in the library yet": "Todas as fotos daqui que ainda não estão na biblioteca",
+  "Include subfolders: on": "Incluir subpastas: sim",
+  "Include subfolders: off": "Incluir subpastas: não"
 }

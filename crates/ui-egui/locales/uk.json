@@ -3036,5 +3036,20 @@
   "No AI Denoise model is available yet": "Моделі ШІ-шумозаглушення поки немає",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Лише якщо вам дали модель шумозаглушення LightCraft (теку з файлом .onnx і denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Коли модель буде готова, оновлення запропонує завантажити її тут одним клацанням.",
-  "Why?": "Чому?"
+  "Why?": "Чому?",
+  "In place": "На місці",
+  "Camera profiles": "Профілі камери",
+  "Each body's own profile": "Власний профіль кожного корпусу",
+  "LightCraft colour (no profile set)": "Колір LightCraft (профіль не задано)",
+  "These files don't say which body took them: they develop with the camera's default.": "У файлах не вказано корпус: вони проявляються з типовим налаштуванням камери.",
+  "No camera profiles yet: import or create them in the Profile Manager": "Профілів камери ще немає: імпортуйте або створіть їх у Менеджері профілів",
+  "The profile this body's raws develop with: it becomes the body's default": "Профіль для raw цього корпусу: він стане типовим для корпусу",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "Корпус без власного профілю проявляється в кольорі LightCraft. Виберіть профіль вище: він стане типовим для корпусу.",
+  "Profile Manager…": "Менеджер профілів…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "Нічого імпортувати: позначте фото (P), виділіть їх або виберіть «Усі»",
+  "Flagged as picks (P)": "Позначені (P)",
+  "The photos selected here": "Виділені тут фото",
+  "Every photo here that isn't in the library yet": "Усі фото звідси, яких ще немає в бібліотеці",
+  "Include subfolders: on": "Включно з підтеками: увімк.",
+  "Include subfolders: off": "Включно з підтеками: вимк."
 }

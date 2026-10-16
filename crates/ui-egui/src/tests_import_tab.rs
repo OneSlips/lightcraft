@@ -135,3 +135,90 @@ fn delete_does_nothing_to_browsed_photos() {
     assert!(dir.join("p0.png").exists(), "nothing happens before the count is typed");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn rect(h: &Headless, id: &str) -> egui::Rect {
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("no widget {id}"))
+}
+
+/// The bar over the grid is one row: the badge, the breadcrumb, Include subfolders, Culling saved,
+/// Picks / Selected / not imported and the Import button share one line, the buttons one height.
+#[test]
+fn the_browse_bar_is_one_row_of_one_height() {
+    let mut h = app();
+    h.settle(SETTLE);
+    let dir = folder("bar", 3);
+    run(&mut h, "library.browse", json!({"path": dir.to_string_lossy()})).unwrap();
+    let bar = rect(&h, "grid:folderHeader");
+    assert!(bar.height() <= 46.0, "one row: {bar:?}");
+    let ids =
+        ["badge:import", "check:includeSubfolders", "label:cullingSaved", "button:importTake-picks", "button:importTake-all", "button:importNow"];
+    for id in ids {
+        let r = rect(&h, id);
+        assert!((r.center().y - bar.center().y).abs() < 1.0, "{id} is on the bar's line: {r:?} in {bar:?}");
+        assert!(bar.contains_rect(r), "{id} inside the bar");
+    }
+    let hs: Vec<f32> =
+        ["check:includeSubfolders", "button:importTake-picks", "button:importTake-selected", "button:importTake-all", "button:importNow"]
+            .iter()
+            .map(|id| rect(&h, id).height())
+            .collect();
+    assert!(hs.iter().all(|x| (x - hs[0]).abs() < 0.5), "one height: {hs:?}");
+    let seg: Vec<f32> =
+        ["button:importTake-picks", "button:importTake-selected", "button:importTake-all"].iter().map(|id| rect(&h, id).width()).collect();
+    assert!(seg.iter().all(|x| (x - seg[0]).abs() < 0.5), "one segment size: {seg:?}");
+    // the last folder is always in the breadcrumb
+    let parts = crate::panels::grid::crumbs(&dir.to_string_lossy()).len();
+    assert!(h.app.widgets.iter().any(|(w, _)| *w == format!("crumb:{}", parts - 1)));
+    // nothing to import: the button is off (and says why on hover)
+    assert!(h.app.ui.import_settings.take == "picks");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The settings panel never cuts anything off: at a narrow width every control ends inside it.
+#[test]
+fn the_import_settings_fit_a_narrow_panel() {
+    for width in [240.0, 300.0] {
+        let mut h = app();
+        h.settle(SETTLE);
+        let dir = folder("narrow", 2);
+        run(&mut h, "library.browse", json!({"path": dir.to_string_lossy()})).unwrap();
+        run(
+            &mut h,
+            "import.configure",
+            json!({"copy": true, "organize": "custom", "folderTemplate": "{date:%Y}/{date:%Y%m%d}", "presets": ["lc.warm-glow"]}),
+        )
+        .unwrap();
+        h.request("ui.set", json!({"rightWidth": width}), T);
+        h.settle(SETTLE);
+        h.settle(SETTLE);
+        let panel = rect(&h, "panel:importSettings");
+        let inside: Vec<(String, egui::Rect)> = h
+            .app
+            .widgets
+            .iter()
+            .filter(|(w, _)| {
+                [
+                    "button:importMode-",
+                    "button:importPreviews-",
+                    "button:importPresetAction-",
+                    "button:importDest-",
+                    "combo:import",
+                    "radio:browse",
+                    "field:import",
+                    "label:importPreset-",
+                ]
+                .iter()
+                .any(|p| w.starts_with(p))
+            })
+            .cloned()
+            .collect();
+        assert!(
+            inside.iter().any(|(w, _)| w == "button:importMode-move") && inside.iter().any(|(w, _)| w == "button:importPreviews-full"),
+            "{inside:?}"
+        );
+        for (id, r) in &inside {
+            assert!(r.right() <= panel.right() + 0.5, "{width}: {id} ends at {} past the panel's {}", r.right(), panel.right());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

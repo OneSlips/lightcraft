@@ -415,5 +415,9 @@
   "Library backed up to {path}": "Bibliothek gesichert nach {path}",
   "The last backup failed: {e}": "Das letzte Backup ist fehlgeschlagen: {e}",
   "The library backup failed: {e}": "Das Backup der Bibliothek ist fehlgeschlagen: {e}",
-  "{n} photos · {size}": "{n} Fotos · {size}"
+  "{n} photos · {size}": "{n} Fotos · {size}",
+  "{who}: {n} photos": "{who}: {n} Fotos",
+  "{n} not imported": "{n} nicht importiert",
+  "Import {n}": "{n} importieren",
+  "Import these photos into {library}, with the settings on the right": "Diese Fotos mit den Einstellungen rechts in {library} importieren"
 }

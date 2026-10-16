@@ -2389,5 +2389,20 @@
   "No AI Denoise model is available yet": "Nie ma jeszcze modelu odszumiania AI",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Tylko jeśli otrzymano model odszumiania LightCraft (folder z plikiem .onnx i denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Gdy model będzie gotowy, aktualizacja udostępni go tu do pobrania jednym kliknięciem.",
-  "Why?": "Dlaczego?"
+  "Why?": "Dlaczego?",
+  "In place": "Na miejscu",
+  "Camera profiles": "Profile aparatu",
+  "Each body's own profile": "Własny profil każdego korpusu",
+  "LightCraft colour (no profile set)": "Kolor LightCraft (brak profilu)",
+  "These files don't say which body took them: they develop with the camera's default.": "Te pliki nie mówią, którym korpusem je zrobiono: wywołują się z domyślnym ustawieniem aparatu.",
+  "No camera profiles yet: import or create them in the Profile Manager": "Brak profili aparatu: zaimportuj je lub utwórz w Menedżerze profili",
+  "The profile this body's raws develop with: it becomes the body's default": "Profil, z którym wywołują się RAW-y tego korpusu: staje się jego domyślnym",
+  "A body without a profile of its own develops with LightCraft colour. Pick one above: it becomes that body's default.": "Korpus bez własnego profilu wywołuje się w kolorze LightCraft. Wybierz profil powyżej: stanie się domyślnym dla korpusu.",
+  "Profile Manager…": "Menedżer profili…",
+  "Nothing to import: flag photos as picks (P), select some, or choose All": "Nic do importu: oznacz zdjęcia jako wybrane (P), zaznacz je lub wybierz Wszystkie",
+  "Flagged as picks (P)": "Oznaczone jako wybrane (P)",
+  "The photos selected here": "Zdjęcia zaznaczone tutaj",
+  "Every photo here that isn't in the library yet": "Wszystkie zdjęcia stąd, których nie ma jeszcze w bibliotece",
+  "Include subfolders: on": "Uwzględnij podfoldery: wł.",
+  "Include subfolders: off": "Uwzględnij podfoldery: wył."
 }
