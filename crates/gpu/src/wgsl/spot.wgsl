@@ -81,7 +81,7 @@ fn spot_prep(@builtin(global_invocation_id) gid: vec3<u32>) {
     wt[i] = outside;
 }
 
-// Blend the (healed) patch into the image (df, wt: the blurred difference and weights).
+// Blend the (healed) patch into the image (df: Heal's tone correction, the membrane).
 @compute @workgroup_size(16, 16)
 fn spot_apply(@builtin(global_invocation_id) gid: vec3<u32>) {
     let bw = pu(4u);
@@ -96,8 +96,7 @@ fn spot_apply(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     var v = vec3<f32>(sp[3u * i], sp[3u * i + 1u], sp[3u * i + 2u]);
     if (pu(12u) != 0u) {
-        let m = max(wt[i], 1e-4);
-        v = v + vec3<f32>(df[3u * i] / m, df[3u * i + 1u] / m, df[3u * i + 2u] / m);
+        v = v + vec3<f32>(df[3u * i], df[3u * i + 1u], df[3u * i + 2u]);
     }
     let gi = (pu(3u) + gid.y) * pu(0u) + pu(2u) + gid.x;
     let t = vec3<f32>(img[3u * gi], img[3u * gi + 1u], img[3u * gi + 2u]);
@@ -174,4 +173,130 @@ fn spot_score(@builtin(global_invocation_id) gid: vec3<u32>) {
         s += var_ * 72.0 * 0.5;
     }
     al[j] = s;
+}
+
+// Heal's membrane (`spots::membrane`), cascadic multigrid with red-black SOR, level by level.
+
+// One level coarser: a coarse pixel is known when any of its children is, with their mean; unknown
+// ones start at 0. Parameters: FW, FH, CW, CH. df / wt: the fine values (3 per pixel) and known
+// flags; sp / al: the coarse ones.
+@compute @workgroup_size(16, 16)
+fn mem_restrict(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let fw = pu(0u);
+    let fh = pu(1u);
+    let cw = pu(2u);
+    let ch = pu(3u);
+    if (gid.x >= cw || gid.y >= ch) {
+        return;
+    }
+    var s = vec3<f32>(0.0);
+    var n = 0.0;
+    for (var dy = 0u; dy < 2u; dy++) {
+        for (var dx = 0u; dx < 2u; dx++) {
+            let x = gid.x * 2u + dx;
+            let y = gid.y * 2u + dy;
+            if (x < fw && y < fh) {
+                let j = y * fw + x;
+                if (wt[j] > 0.5) {
+                    s = s + vec3<f32>(df[3u * j], df[3u * j + 1u], df[3u * j + 2u]);
+                    n = n + 1.0;
+                }
+            }
+        }
+    }
+    let i = gid.y * cw + gid.x;
+    var v = vec3<f32>(0.0);
+    var k = 0.0;
+    if (n > 0.0) {
+        v = s / n;
+        k = 1.0;
+    }
+    sp[3u * i] = v.x;
+    sp[3u * i + 1u] = v.y;
+    sp[3u * i + 2u] = v.z;
+    al[i] = k;
+}
+
+fn coarse_at(x: u32, y: u32, cw: u32) -> vec3<f32> {
+    let i = y * cw + x;
+    return vec3<f32>(sp[3u * i], sp[3u * i + 1u], sp[3u * i + 2u]);
+}
+
+// The unknown pixels of a level from the coarser solution (bilinear, pixel centres). Parameters:
+// FW, FH, CW, CH. sp: the coarse values; df / wt: the fine values and known flags.
+@compute @workgroup_size(16, 16)
+fn mem_prolong(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let fw = pu(0u);
+    let fh = pu(1u);
+    let cw = pu(2u);
+    let ch = pu(3u);
+    if (gid.x >= fw || gid.y >= fh) {
+        return;
+    }
+    let i = gid.y * fw + gid.x;
+    if (wt[i] > 0.5) {
+        return;
+    }
+    let fy = clamp((f32(gid.y) + 0.5) / 2.0 - 0.5, 0.0, f32(ch - 1u));
+    let y0 = u32(floor(fy));
+    let y1 = min(y0 + 1u, ch - 1u);
+    let ty = fy - f32(y0);
+    let fx = clamp((f32(gid.x) + 0.5) / 2.0 - 0.5, 0.0, f32(cw - 1u));
+    let x0 = u32(floor(fx));
+    let x1 = min(x0 + 1u, cw - 1u);
+    let tx = fx - f32(x0);
+    let a = coarse_at(x0, y0, cw);
+    let b = coarse_at(x1, y0, cw);
+    let c = coarse_at(x0, y1, cw);
+    let d = coarse_at(x1, y1, cw);
+    let top = a + (b - a) * tx;
+    let bot = c + (d - c) * tx;
+    let v = top + (bot - top) * ty;
+    df[3u * i] = v.x;
+    df[3u * i + 1u] = v.y;
+    df[3u * i + 2u] = v.z;
+}
+
+fn level_at(j: u32) -> vec3<f32> {
+    return vec3<f32>(df[3u * j], df[3u * j + 1u], df[3u * j + 2u]);
+}
+
+// Half an SOR sweep in place: the unknown pixels with (x + y) % 2 == PARITY, from their neighbours
+// (the other half). Parameters: W, H, PARITY, OMEGA. df / wt: the values and known flags.
+@compute @workgroup_size(16, 16)
+fn mem_sor(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let w = pu(0u);
+    let h = pu(1u);
+    if (gid.x >= w || gid.y >= h || (gid.x + gid.y) % 2u != pu(2u)) {
+        return;
+    }
+    let i = gid.y * w + gid.x;
+    if (wt[i] > 0.5) {
+        return;
+    }
+    var s = vec3<f32>(0.0);
+    var n = 0.0;
+    if (gid.x > 0u) {
+        s = s + level_at(i - 1u);
+        n = n + 1.0;
+    }
+    if (gid.x + 1u < w) {
+        s = s + level_at(i + 1u);
+        n = n + 1.0;
+    }
+    if (gid.y > 0u) {
+        s = s + level_at(i - w);
+        n = n + 1.0;
+    }
+    if (gid.y + 1u < h) {
+        s = s + level_at(i + w);
+        n = n + 1.0;
+    }
+    if (n > 0.0) {
+        let old = level_at(i);
+        let v = old + pf(3u) * (s / n - old);
+        df[3u * i] = v.x;
+        df[3u * i + 1u] = v.y;
+        df[3u * i + 2u] = v.z;
+    }
 }

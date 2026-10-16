@@ -1134,7 +1134,7 @@ fn soft_proofs_match() {
 }
 
 /// Spot removal on the device: Clone, Heal and Remove (automatic source, scored on the device),
-/// brushed strokes, overlapping spots (each reads what the earlier ones left), feather 0 and
+/// brushed strokes, a large healed area, overlapping spots (each reads what the earlier ones left), feather 0 and
 /// spots cut by the image edge.
 #[test]
 fn spots_match() {
@@ -1160,6 +1160,11 @@ fn spots_match() {
         ("remove (auto source)", vec![spot(SpotMode::Remove, &[(0.5, 0.45)], 0.03, 50.0, None)]),
         ("remove near the edge (auto)", vec![spot(SpotMode::Remove, &[(0.04, 0.5)], 0.03, 50.0, None)]),
         ("brushed heal stroke", vec![spot(SpotMode::Heal, &[(0.2, 0.7), (0.3, 0.72), (0.4, 0.69)], 0.02, 30.0, Some((0.0, -0.15)))]),
+        // a large area: every level of Heal's membrane
+        (
+            "large brushed heal",
+            vec![spot(SpotMode::Heal, &(0..14).map(|i| (0.2 + i as f64 * 0.045, 0.55)).collect::<Vec<_>>(), 0.09, 20.0, Some((0.0, -0.38)))],
+        ),
         ("feather 0, half opacity", vec![Spot { opacity: 50.0, ..spot(SpotMode::Clone, &[(0.7, 0.3)], 0.04, 0.0, Some((-0.2, 0.0))) }]),
         ("cut by the edge", vec![spot(SpotMode::Heal, &[(0.99, 0.02)], 0.05, 50.0, Some((-0.2, 0.2)))]),
         (

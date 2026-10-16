@@ -64,7 +64,7 @@ const MODULES: &[Module] = &[
     Module {
         src: include_str!("wgsl/spot.wgsl"),
         bindings: &[("img", true, "f32"), ("pts", false, "f32"), ("al", true, "f32"), ("sp", true, "f32"), ("df", true, "f32"), ("wt", true, "f32")],
-        entries: &["spot_prep", "spot_apply", "spot_score"],
+        entries: &["spot_prep", "spot_apply", "spot_score", "mem_restrict", "mem_prolong", "mem_sor"],
     },
     Module { src: include_str!("wgsl/hist.wgsl"), bindings: &[("px", false, "u32"), ("bins", true, "atomic<u32>")], entries: &["histogram"] },
     Module {
