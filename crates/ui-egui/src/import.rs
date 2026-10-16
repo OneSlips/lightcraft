@@ -106,6 +106,9 @@ pub struct ImportDialog {
     pub adopt: Vec<String>,
     /// One of LightCraft's looks put on every photo ("" = none).
     pub look: String,
+    /// A preset's own camera profile may replace the body's (`presetProfile`; off: each raw keeps
+    /// its body's profile through the presets).
+    pub preset_profile: bool,
 }
 
 /// A candidate's file type, as the review groups them: its format, or its extension when the
@@ -1751,6 +1754,9 @@ impl ImportDialog {
         }
         if !d.presets.is_empty() {
             params["presets"] = json!(d.presets);
+        }
+        if d.preset_profile {
+            params["presetProfile"] = json!(true);
         }
         if !d.metadata_preset.is_empty() {
             params["metadataPreset"] = json!(d.metadata_preset);

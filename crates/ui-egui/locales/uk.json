@@ -3080,5 +3080,7 @@
   "Show the group in the menus": "Показати групу в меню",
   "The import presets saved in the Import tab, shared by all your libraries.": "Пресети імпорту, збережені на вкладці «Імпорт», спільні для всіх бібліотек.",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "Пресети меню «Ефект» панелі «Маски», спільні для всіх бібліотек. «Приховати» прибирає пресет із меню; тут він лишається.",
-  "With AI masks only": "Лише з ШІ-масками"
+  "With AI masks only": "Лише з ШІ-масками",
+  "Presets may change the camera profile": "Пресети можуть змінювати профіль камери",
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "Вимк.: кожен raw зберігає профіль свого корпусу, хоч який профіль вказує пресет."
 }

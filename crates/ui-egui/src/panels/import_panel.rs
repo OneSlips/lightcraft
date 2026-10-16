@@ -609,6 +609,11 @@ fn preset_stack(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::impor
     if d.presets.len() > 1 {
         help(ui, "Applied in this order: each sets its settings and adds its masks.");
     }
+    if !d.presets.is_empty() {
+        let r = ui.checkbox(&mut d.preset_profile, crate::i18n::tr("Presets may change the camera profile"));
+        register(ui.ctx(), "check:importPresetProfile", r.rect);
+        help(ui, "Off: each raw keeps its camera body's profile, whatever profile a preset names.");
+    }
 }
 
 fn metadata(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::import::ImportDialog, w: f32) {

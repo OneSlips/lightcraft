@@ -3082,5 +3082,7 @@
   "Show the group in the menus": "グループをメニューに表示",
   "The import presets saved in the Import tab, shared by all your libraries.": "読み込みタブで保存した読み込みプリセット。すべてのライブラリで共有されます。",
   "The presets of the Masking panel's Effect menu, shared by all your libraries. Hide takes one out of the menu; it stays here.": "マスクパネルの効果メニューのプリセット。すべてのライブラリで共有されます。「非表示」はメニューから外し、ここには残ります。",
-  "With AI masks only": "AI マスクありのみ"
+  "With AI masks only": "AI マスクありのみ",
+  "Presets may change the camera profile": "プリセットでカメラプロファイルを変更できる",
+  "Off: each raw keeps its camera body's profile, whatever profile a preset names.": "オフ：プリセットがどのプロファイルを指定していても、各 RAW はそのカメラ本体のプロファイルを保ちます。"
 }

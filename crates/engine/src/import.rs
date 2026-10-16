@@ -115,6 +115,10 @@ pub struct ImportOptions {
     pub camera_profile: crate::import_profiles::ProfileChoice,
     /// One of LightCraft's looks put on every imported photo (on its camera profile).
     pub look: Option<String>,
+    /// The presets' own camera profile wins over the body's (`presetProfile`). Off: a raw keeps the
+    /// camera profile of its body through the preset stack (and the look that profile brings, where
+    /// a preset only names LightCraft's standard colour).
+    pub preset_profile: bool,
 }
 
 /// How copies are filed in the destination. The date is the capture time, else the time of the
@@ -1633,12 +1637,34 @@ fn apply_settings(s: &Session, p: &mut Photo, opts: &ImportOptions, now: &str, p
             p.meta.keywords.push(k);
         }
     }
+    // the body's camera profile (and its own look) before the presets: a preset doesn't take it away
+    // unless the import says so
+    let body = (!opts.preset_profile)
+        .then(|| (p.develop.camera_profile.clone(), p.develop.profile.clone()))
+        .filter(|(cal, _)| crate::cmd::dcp_profiles::is_dcp_id(cal));
     for preset in &opts.presets {
-        let d = std::sync::Arc::new(preset.apply(&p.develop, 1.0, crate::smart_masks::aspect_of(p)));
+        let mut d = preset.apply(&p.develop, 1.0, crate::smart_masks::aspect_of(p));
+        if let Some((cal, look)) = &body {
+            keep_body_profile(&mut d, cal, look);
+        }
+        let d = std::sync::Arc::new(d);
         let label = format!("Preset: {}", preset.name);
         p.develop = d.clone();
         p.edited = Some(now.to_string());
         p.history.push(lightcraft_catalog::HistoryStep { label, settings: d });
+    }
+}
+
+/// After a preset: the camera profile `cal` the photo had stays, and so does the profile's own
+/// look (`look`) where the preset only put LightCraft's standard colour in its place (what a
+/// Lightroom preset's "Adobe Color" becomes). A preset's other looks stay on top of the profile.
+fn keep_body_profile(d: &mut lightcraft_develop::DevelopSettings, cal: &str, look: &lightcraft_develop::Profile) {
+    if d.camera_profile != cal {
+        d.camera_profile = cal.to_string();
+    }
+    let standard = d.profile.id == lightcraft_develop::Profile::default().id || crate::cmd::dcp_profiles::is_dcp_id(&d.profile.id);
+    if look.id != d.profile.id && crate::cmd::dcp_profiles::is_dcp_id(&look.id) && standard {
+        d.profile = look.clone();
     }
 }
 
@@ -1655,7 +1681,13 @@ fn promote_ops(s: &Session, id: PhotoId, opts: &ImportOptions, now: &str, stored
     };
     let mut p = (**old).clone();
     let history0 = p.history.len();
-    apply_settings(s, &mut p, opts, now, &path, old.edited.is_some(), report);
+    let decided = old.edited.is_some();
+    if !decided {
+        // browsed before its body had the profile it has now (set in the Import panel, say): the
+        // body's profile as it is at import
+        crate::cmd::dcp_profiles::refresh_auto(s, &mut p);
+    }
+    apply_settings(s, &mut p, opts, now, &path, decided, report);
     if p.develop != old.develop {
         // (the History steps the settings added, then the settings themselves)
         let label = p.history.last().map(|h| h.label.clone()).unwrap_or_else(|| "Import".into());

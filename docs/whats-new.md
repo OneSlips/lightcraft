@@ -1,5 +1,14 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### Import keeps each body's camera profile
+- Photos imported from the Import tab now always get **their camera body's profile**, also when the
+  body's profile was set after the folder was opened (in the Import panel, say), and with a preset
+  stack. Before, such a photo could arrive with plain "Color".
+- A preset never takes the body's profile away. To let a preset's own camera profile win, tick
+  **Presets may change the camera profile** under the Import panel's presets.
+
 ## 2026-10-16
 
 ### Presets Manager
