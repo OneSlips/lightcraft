@@ -20,7 +20,8 @@ fn main() {
         Some("bin") if args.len() == 4 => bin(&args[2], &args[3]),
         Some("noise") if args.len() == 3 => noise(&args[2]),
         Some("selftest") if args.len() == 4 => selftest(&args[2], &args[3]),
-        _ => Err("usage: rawdump bin <raw> <out-prefix> | rawdump noise <raw> | rawdump selftest <onnx> <manifest>".into()),
+        Some("noisy") if args.len() == 7 => noisy(&args[2], &args[3], &args[4], &args[5], &args[6]),
+        _ => Err("usage: rawdump bin <raw> <out-prefix> | rawdump noise <raw> | rawdump selftest <onnx> <manifest> | rawdump noisy <raw> <out.dng> <a> <b> <k>".into()),
     };
     if let Err(e) = r {
         eprintln!("error: {e}");
@@ -172,4 +173,45 @@ fn selftest(onnx: &str, manifest: &str) -> Result<(), String> {
         println!("  [{}] {text}", if *ok { "pass" } else { "FAIL" });
     }
     if t.ok { Ok(()) } else { Err("self-test failed".into()) }
+}
+
+/// A synthetic test pair for comparing noise reduction: the raw darkened by `k` (exposure) with Poisson-Gaussian
+/// noise of `variance = a * x + b` added (normalised units, white = 1), written as a DNG. With a = b = 0 it is the
+/// clean reference at the same exposure. The noise is deterministic (fixed seed).
+fn noisy(path: &str, out: &str, a: &str, b: &str, k: &str) -> Result<(), String> {
+    let num = |s: &str| s.parse::<f32>().map_err(|e| format!("{s}: {e}"));
+    let (a, b, k) = (num(a)?, num(b)?, num(k)?);
+    let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+    let mut raw = lightcraft_raw::decode(&bytes).map_err(|e| e.to_string())?;
+    if raw.cpp != 1 {
+        return Err("not a mosaic".into());
+    }
+    let (w, area) = (raw.width, raw.active_area);
+    let range = raw.white_at(0) - raw.black.mean();
+    let mut seed = 0x1234_5678_9abc_def0u64;
+    let mut uniform = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        ((seed >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+    };
+    let mut gauss = move || {
+        let (u, v) = (uniform(), uniform());
+        ((-2.0 * u.ln()).sqrt() * (std::f64::consts::TAU * v).cos()) as f32
+    };
+    let black: Vec<f32> = (0..area.height * area.width).map(|i| raw.black.at(i % area.width, i / area.width, 0, 1)).collect();
+    let lightcraft_raw::RawData::U16(data) = &mut raw.data else { return Err("float raws are not supported".into()) };
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let i = (area.y + y) * w + area.x + x;
+            let bl = black[y * area.width + x];
+            let v = (data[i] as f32 - bl) / range * k;
+            let var = (a * v.max(0.0) + b).max(0.0);
+            let n = v + var.sqrt() * gauss();
+            data[i] = (bl + n.min(1.0) * range).round().clamp(0.0, 65535.0) as u16;
+        }
+    }
+    let dng = lightcraft_raw::write_dng(&raw, &lightcraft_raw::DngWriteOptions::default()).map_err(|e| e.to_string())?;
+    std::fs::write(out, dng).map_err(|e| e.to_string())?;
+    Ok(())
 }
