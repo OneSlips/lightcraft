@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "„{name}“ von diesem Computer entfernen?",
   "default for {bodies}": "Standard für {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} integrierte Einträge werden von diesem Computer entfernt (Wiederherstellen holt sie zurück).",
-  "{n} of your own: delete them, or move them to another group.": "{n} eigene: löschen oder in eine andere Gruppe verschieben."
+  "{n} of your own: delete them, or move them to another group.": "{n} eigene: löschen oder in eine andere Gruppe verschieben.",
+  "on {n} photos": "bei {n} Fotos",
+  "Undo: {what}": "Rückgängig: {what}",
+  "Redo: {what}": "Wiederholen: {what}",
+  "Profile {name} applied to {n} photos": "Profil {name} auf {n} Fotos angewendet",
+  "Profile {name}": "Profil {name}",
+  "{n} stars": "{n} Sterne",
+  "Label: {name}": "Farbmarkierung: {name}"
 }

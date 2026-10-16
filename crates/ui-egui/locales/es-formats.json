@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "¿Quitar «{name}» de este ordenador?",
   "default for {bodies}": "predeterminado de {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "Se quitan {n} elementos integrados de este ordenador (Restaurar los recupera).",
-  "{n} of your own: delete them, or move them to another group.": "{n} propios: eliminarlos o moverlos a otro grupo."
+  "{n} of your own: delete them, or move them to another group.": "{n} propios: eliminarlos o moverlos a otro grupo.",
+  "on {n} photos": "en {n} fotos",
+  "Undo: {what}": "Deshacer: {what}",
+  "Redo: {what}": "Rehacer: {what}",
+  "Profile {name} applied to {n} photos": "Perfil {name} aplicado a {n} fotos",
+  "Profile {name}": "Perfil {name}",
+  "{n} stars": "{n} estrellas",
+  "Label: {name}": "Etiqueta: {name}"
 }

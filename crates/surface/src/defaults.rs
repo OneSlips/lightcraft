@@ -204,7 +204,29 @@ pub fn tool_pages() -> Vec<(Page, &'static [&'static str])> {
     ]
 }
 
+/// The Actions Ring's slots in every built-in profile: undo, redo, pick, reject, previous and
+/// next photo, before / after and fit (nothing that deletes or resets).
+pub fn ring() -> Vec<(String, Binding)> {
+    [
+        cmd("edit.undo"),
+        cmd("edit.redo"),
+        cmd("photo.pick"),
+        cmd("photo.reject"),
+        cmd("library.previous"),
+        cmd("library.next"),
+        cmd("view.beforeAfter"),
+        cmd("view.zoomFit"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(i, b)| (format!("ring.{}", i + 1), b))
+    .collect()
+}
+
 fn finish(mut p: Profile) -> Profile {
+    for (c, b) in ring() {
+        p.base.entry(c).or_insert(b);
+    }
     let first_keys = p.pages_in(PageGroup::Keys).next().map(|p| p.name.clone());
     let first_dials = p.pages_in(PageGroup::Dials).next().map(|p| p.name.clone());
     p.contexts.insert("default".into(), first_keys.into_iter().chain(first_dials).collect());
@@ -442,7 +464,7 @@ mod tests {
                     assert!(crate::targets::target_spec(target).is_some(), "{} → {target}", p.name);
                 }
             }
-            assert_eq!(p.base.len(), 4, "{}", p.name);
+            assert_eq!(p.base.len(), 12, "{}: four Dialpad buttons, eight Actions Ring slots", p.name);
             assert!(p.contexts.contains_key("default") && p.contexts.contains_key("crop") && p.contexts.contains_key("masking.mask.brush"));
             let mut clone = p.clone();
             clone.sanitize();
