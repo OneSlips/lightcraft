@@ -164,14 +164,32 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     egui::Frame::NONE.inner_margin(egui::Margin { left: 12, right: 12, top: 8, bottom: 8 }).show(ui, |ui| {
         super::mask_tree::show(app, ui, id, &d);
     });
-    let Some(mid) = app.session.active_mask else { return };
-    let Some(m) = d.masks.iter().find(|m| m.id == mid).cloned() else { return };
+    // Reset Settings on New Mask follows the remembered choice (also after a restart)
+    if app.session.mask_reset_new != app.ui.mask_reset_new {
+        let _ = app.run("mask.next", json!({"resetNew": app.ui.mask_reset_new}));
+    }
+    let selected = app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid).cloned());
     if app.ui.tool == "brush" {
         divider(ui);
         brush_settings(app, ui);
     }
     divider(ui);
-    super::mask_effects::effect_row(app, ui, &m);
+    // no mask selected: the effect and sliders still show and work, for the next new mask (set
+    // the look first, then draw)
+    let shown = match &selected {
+        Some(m) => m.clone(),
+        None => {
+            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 0 }).show(ui, |ui| {
+                let r =
+                    ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tr("Settings for the next mask")).color(t.text_dim).size(11.5)).wrap());
+                register(ui.ctx(), "maskNextSettings", r.rect);
+            });
+            // (id 0: no mask; the effect menu then sets the next mask's settings)
+            lightcraft_develop::Mask { id: 0, adjust: app.session.mask_next, ..Default::default() }
+        }
+    };
+    super::mask_effects::effect_row(app, ui, &shown);
+    reset_new_row(app, ui);
     // how strongly the mask's adjustments apply (Lightroom's Amount, Capture One's layer opacity)
     let amt = ControlSpec {
         id: "amount",
@@ -184,13 +202,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         decimals: 0,
         track: Track::Plain,
     };
-    let out = slider(ui, &amt, m.adjust.amount, true, None);
+    // (with no mask selected, mask.adjust sets the next mask's settings)
+    let out = slider(ui, &amt, shown.adjust.amount, true, None);
     apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
     for s in LOCAL {
-        let v = local_get(&m.adjust, s.id);
+        let v = local_get(&shown.adjust, s.id);
         let out = slider(ui, s, v, true, None);
         apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
     }
+    let Some(m) = selected else {
+        ui.add_space(30.0);
+        return;
+    };
     let refine = ControlSpec {
         id: "refine",
         label: "Refine Edges",
@@ -208,6 +231,22 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     mask_sections(app, ui, id, &m);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
+}
+
+/// Reset Settings on New Mask (Lightroom's Reset Sliders Automatically): off, a new mask starts
+/// with the last mask's settings; on, at zero. Remembered.
+fn reset_new_row(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 4 }).show(ui, |ui| {
+        let mut on = app.ui.mask_reset_new;
+        let r = ui
+            .checkbox(&mut on, crate::i18n::tr("Reset settings on new mask"))
+            .on_hover_text(crate::i18n::tr("Off: a new mask starts with the last mask's settings. On: every new mask starts at zero."));
+        register(ui.ctx(), "check:maskResetNew", r.rect);
+        if r.changed() {
+            app.ui.mask_reset_new = on;
+            let _ = app.run("mask.next", json!({"resetNew": on}));
+        }
+    });
 }
 
 /// Sections of a mask's adjustments below its sliders: the mask's own Curve and Point Color, each a

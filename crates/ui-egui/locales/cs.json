@@ -2294,5 +2294,8 @@
   "No AI Denoise model is available yet": "Zatím není k dispozici žádný model pro redukci šumu pomocí AI",
   "Only if you were given a LightCraft denoise model (a folder with a .onnx file and denoise-model.json):": "Jen pokud jste dostali model LightCraftu pro redukci šumu (složku se souborem .onnx a denoise-model.json):",
   "When the model is ready, an update will offer it here as a one-click download.": "Až bude model hotový, aktualizace ho tu nabídne ke stažení jedním klepnutím.",
-  "Why?": "Proč?"
+  "Why?": "Proč?",
+  "Settings for the next mask": "Nastavení pro další masku",
+  "Reset settings on new mask": "U nové masky vynulovat nastavení",
+  "Off: a new mask starts with the last mask's settings. On: every new mask starts at zero.": "Vypnuto: nová maska začne s nastavením poslední masky. Zapnuto: každá nová maska začne na nule."
 }

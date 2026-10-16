@@ -454,7 +454,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Ok(json!({"pending": true}));
                 }
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
-                // the effect last applied to a mask of this kind
+                // the settings a new mask starts with (the last mask's, or set for it beforehand)
                 let adjust = super::mask_effects::new_mask_adjust(s, &kind);
                 let out = masks_edit(s, "mask.add", "Add Mask", |masks, active| {
                     masks.push(Mask {
@@ -542,7 +542,9 @@ pub fn specs() -> Vec<CommandSpec> {
                 };
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let want = p.get("id").and_then(Value::as_u64).map(|v| v as u32).or(s.active_mask);
-                let adjust = super::mask_effects::new_mask_adjust(s, "brush");
+                // (a new mask's starting settings are used up only when a new mask is made)
+                let exists = want.is_some_and(|m| s.active().and_then(|id| s.develop_of(id)).is_some_and(|d| d.masks.iter().any(|x| x.id == m)));
+                let adjust = if exists { LocalAdjustments::default() } else { super::mask_effects::new_mask_adjust(s, "brush") };
                 let again = bool_or(p, "continue", false);
                 masks_edit(s, "mask.brushStroke", "Brush", |masks, active| {
                     let i = match want.and_then(|m| masks.iter().position(|x| x.id == m)) {
@@ -1054,15 +1056,50 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             |s, p| {
                 let vals = p.get("values").cloned().ok_or_else(|| bad("mask.adjust", "missing values"))?;
-                let mid = mask_id(p, s.active_mask, "mask.adjust")?;
-                masks_edit(s, "mask.adjust", "Mask Adjustment", |masks, _| {
-                    let i = find(masks, mid, "mask.adjust")?;
-                    let mut v = serde_json::to_value(masks[i].adjust).unwrap_or_default();
+                let merged = |a: LocalAdjustments| -> Result<LocalAdjustments> {
+                    let mut v = serde_json::to_value(a).unwrap_or_default();
                     lightcraft_develop::presets::deep_merge(&mut v, &vals);
                     let a: LocalAdjustments = serde_json::from_value(v).map_err(|e| bad("mask.adjust", e.to_string()))?;
-                    masks[i].adjust = clamp_local(a);
+                    Ok(clamp_local(a))
+                };
+                // no mask selected (nor named): the settings for the next new mask
+                if s.active_mask.is_none() && p.get("id").and_then(Value::as_u64).is_none() {
+                    s.mask_next = merged(s.mask_next)?;
+                    s.mask_next_set = true;
+                    return Ok(json!({"next": s.mask_next}));
+                }
+                let mid = mask_id(p, s.active_mask, "mask.adjust")?;
+                let mut last = None;
+                let out = masks_edit(s, "mask.adjust", "Mask Adjustment", |masks, _| {
+                    let i = find(masks, mid, "mask.adjust")?;
+                    masks[i].adjust = merged(masks[i].adjust)?;
+                    last = Some(masks[i].adjust);
                     Ok(())
-                })
+                })?;
+                // the next new mask starts with these (unless Reset Settings on New Mask is on)
+                if let Some(a) = last {
+                    s.mask_next = a;
+                    s.mask_next_set = false;
+                }
+                Ok(out)
+            }
+        ),
+        cmd!(
+            "mask.next",
+            "New Mask Settings",
+            [],
+            None,
+            "{resetNew?: bool (Reset Settings on New Mask: a new mask starts at zero instead of the last mask's settings), clear?: bool (zero the settings set for the next mask)} — the settings the next new mask starts with → {next, set, resetNew}",
+            super::always,
+            |s, p| {
+                if let Some(on) = p.get("resetNew").and_then(Value::as_bool) {
+                    s.mask_reset_new = on;
+                }
+                if p.get("clear").and_then(Value::as_bool) == Some(true) {
+                    s.mask_next = LocalAdjustments::default();
+                    s.mask_next_set = false;
+                }
+                Ok(json!({"next": s.mask_next, "set": s.mask_next_set, "resetNew": s.mask_reset_new}))
             }
         ),
         cmd!("mask.select", "Select Mask", [], None, "{id|null}", has_active, |s, p| {
