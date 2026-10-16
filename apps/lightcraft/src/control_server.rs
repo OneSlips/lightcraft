@@ -635,17 +635,21 @@ mod tests {
                         return v;
                     }
                 };
-                writeln!(c, "{}", json!({"id": 1, "method": "surface.hello", "params": {"protocol": 1, "client": "stress", "token": TOKEN}})).unwrap();
+                writeln!(c, "{}", json!({"id": 1, "method": "surface.hello", "params": {"protocol": 1, "client": "stress", "token": TOKEN}}))
+                    .unwrap();
                 assert_eq!(reply(1)["result"]["paired"], true);
                 // every tick its own request, all at once (as a plugin forwards a fast spin), then a key press
                 let t0 = Instant::now();
                 let f0 = frames.load(Ordering::SeqCst);
                 let mut burst = String::new();
                 for i in 0..TICKS {
-                    burst.push_str(&json!({"id": 10 + i, "method": "surface.input", "params": {"events": [{"control": "roller", "ticks": 1}]}}).to_string());
+                    burst.push_str(
+                        &json!({"id": 10 + i, "method": "surface.input", "params": {"events": [{"control": "roller", "ticks": 1}]}}).to_string(),
+                    );
                     burst.push('\n');
                 }
-                let press = json!({"id": 9999, "method": "surface.input", "params": {"events": [{"action": "c.photo.rate.rating-5", "press": true}]}});
+                let press =
+                    json!({"id": 9999, "method": "surface.input", "params": {"events": [{"action": "c.photo.rate.rating-5", "press": true}]}});
                 burst.push_str(&format!("{press}\n"));
                 c.write_all(burst.as_bytes()).unwrap();
                 for i in 0..TICKS {
