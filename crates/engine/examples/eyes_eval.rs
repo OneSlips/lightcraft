@@ -67,6 +67,7 @@ fn main() {
     std::fs::create_dir_all(&out).unwrap();
     let model = lightcraft_segment::people::FaceModel::load(&models.join("mediapipe-face-landmarker")).unwrap();
     println!("full-range detector: {}", model.has_far());
+    let people = lightcraft_segment::people::PeopleModel::load(&models.join("mediapipe-selfie-multiclass")).ok();
     let loader = lightcraft_engine::files::fs_preview_loader();
     // `@list.txt`: one photo per line
     let files: Vec<String> = args[2..]
@@ -80,6 +81,8 @@ fn main() {
     // numbered in `eyes.tsv`, for judging by eye
     let norm = std::env::var("LC_EYES_NORM").ok().map(PathBuf::from);
     let mut tiles: Vec<Rgba8> = Vec::new();
+    // and each face (1.4× its box), for judging whether it is one at all
+    let mut faces: Vec<Rgba8> = Vec::new();
     let mut tsv = String::new();
     for f in &files {
         let p = Path::new(f);
@@ -95,7 +98,7 @@ fn main() {
             continue;
         };
         let load_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let r = eyes::analyze(&model, &img, PhotoId(0)).unwrap();
+        let r = eyes::analyze(&model, people.as_ref(), &img, PhotoId(0)).unwrap();
         if std::env::var("LC_EYES_FACES").is_ok() {
             let rgb: Vec<u8> = img.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
             for d in eyes::find_faces(&model, &img).unwrap() {
@@ -215,7 +218,7 @@ fn main() {
                     }
                 }
                 tsv += &format!(
-                    "{}	{stem}	{:.1}	{:.1}	{:?}	{:?}	{:.0}	{:.2}	{:.3}	{:.2}	{:.2}	{:.2}	{:.2}	{:.2}	{}
+                    "{}	{stem}	{:.1}	{:.1}	{:?}	{:?}	{:.0}	{:.2}	{:.3}	{:.2}	{:.2}	{:.2}	{:.2}	{:.2}	{}	{:.0}	{}	{:.2}
 ",
                     tiles.len(),
                     e.sharpness,
@@ -230,9 +233,37 @@ fn main() {
                     e.look.map_or(-1.0, |l| l.under),
                     e.openness.unwrap_or(-1.0),
                     e.iris.unwrap_or(-1.0),
-                    if e.both_eyes { "both" } else { "one" }
+                    if e.both_eyes { "both" } else { "one" },
+                    (e.face[2] - e.face[0]) * img.width as f32,
+                    if e.landmarks { "mesh" } else { "nomesh" },
+                    people
+                        .as_ref()
+                        .and_then(|pm| {
+                            let (iw, ih) = (img.width as f32, img.height as f32);
+                            eyes::head_share(pm, &img, [e.face[0] * iw, e.face[1] * ih, e.face[2] * iw, e.face[3] * ih])
+                        })
+                        .unwrap_or(-1.0)
                 );
                 tiles.push(t);
+                let fs = 128usize;
+                let (fx0, fy0, fx1, fy1) =
+                    (e.face[0] * img.width as f32, e.face[1] * img.height as f32, e.face[2] * img.width as f32, e.face[3] * img.height as f32);
+                let (fcx, fcy, side) = ((fx0 + fx1) / 2.0, (fy0 + fy1) / 2.0, (fx1 - fx0).max(fy1 - fy0) * 1.4);
+                let mut ft = Rgba8::new(fs, fs);
+                for y in 0..fs {
+                    for x in 0..fs {
+                        let sx = fcx + (x as f32 / fs as f32 - 0.5) * side;
+                        let sy = fcy + (y as f32 / fs as f32 - 0.5) * side;
+                        if sx >= 0.0
+                            && sy >= 0.0
+                            && (sx as usize) < img.width
+                            && let Some(p) = img.data.get(sy as usize * img.width + sx as usize)
+                        {
+                            ft.data[y * fs + x] = *p;
+                        }
+                    }
+                }
+                faces.push(ft);
             }
         }
         // contact sheet of crops, 10 across
@@ -282,6 +313,18 @@ fn main() {
                 }
             }
             save_jpeg(&sheet, &dir.join(format!("sheet{k:02}.jpg")));
+        }
+        for (k, chunk) in faces.chunks(64).enumerate() {
+            let mut sheet = Rgba8::new(8 * 130, 8 * 130);
+            for (i, t) in chunk.iter().enumerate() {
+                let (ox, oy) = ((i % 8) * 130, (i / 8) * 130);
+                for y in 0..t.height {
+                    for x in 0..t.width {
+                        sheet.data[(oy + y) * sheet.width + ox + x] = t.data[y * t.width + x];
+                    }
+                }
+            }
+            save_jpeg(&sheet, &dir.join(format!("faces{k:02}.jpg")));
         }
     }
 }
