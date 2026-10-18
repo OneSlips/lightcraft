@@ -903,8 +903,9 @@ mod tests_mask_local;
 #[cfg(test)]
 mod tests_nr_scale;
 #[cfg(test)]
-mod tests_skin;
 mod tests_sharpen;
+#[cfg(test)]
+mod tests_skin;
 #[cfg(test)]
 mod tests_tone;
 #[cfg(test)]
