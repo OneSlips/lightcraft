@@ -253,6 +253,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
         ("local sharpness", |s| {
             s.masks = vec![Mask {
                 components: vec![MaskComponent {
+                    anchor: None,
                     name: None,
                     op: MaskOp::Add,
                     invert: false,
