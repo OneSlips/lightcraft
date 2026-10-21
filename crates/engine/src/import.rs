@@ -1813,6 +1813,7 @@ impl Session {
             cached: Vec::new(),
             embedded,
             embedded_cache: None,
+            embedded_on_disk: false,
             small: Some(Box::new(small)),
         })
     }

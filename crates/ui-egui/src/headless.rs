@@ -1902,7 +1902,9 @@ mod tests {
     /// The bottom bar's filters drive `library.filter`; More filters saves the view as a smart album.
     #[test]
     fn filter_bar_filters_and_saves_a_smart_album() {
-        let mut h = demo([1600.0, 800.0]);
+        // wide enough for every quick filter with its counts beside the open right panel (an
+        // active filter keeps its counts, so on a narrower bar the colour labels give way)
+        let mut h = demo([1800.0, 800.0]);
         let t = Duration::from_secs(10);
         let all = h.app.session.visible_cloned().len();
         let ids: Vec<u64> = h.app.session.visible_cloned().iter().take(6).map(|p| p.0).collect();

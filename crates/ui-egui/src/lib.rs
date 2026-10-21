@@ -53,6 +53,7 @@ pub mod sync;
 pub mod tasks;
 pub mod text_field;
 pub mod theme;
+pub mod thumb_first;
 pub mod titlebar;
 pub mod widgets;
 pub mod window_place;
@@ -107,6 +108,8 @@ mod tests_empty_library;
 mod tests_error_kinds;
 #[cfg(test)]
 mod tests_filmstrip;
+#[cfg(test)]
+mod tests_filter_bar;
 #[cfg(test)]
 mod tests_focus_point;
 #[cfg(test)]
@@ -497,6 +500,8 @@ pub struct LightcraftApp {
     pub loupe_timing: loupe_timing::LoupeTiming,
     /// The eye focus strip's results and its eye finder (`view.eyeFocus`).
     pub(crate) eye_strip: eye_strip::EyeStrip,
+    /// How long thumbnails on screen wait for their first pixels (`ui.inspect` → `thumbFirst`).
+    pub thumb_first: thumb_first::ThumbFirst,
     /// The eye finder's key for the photo the strip last showed (for `ui.inspect`).
     pub(crate) eye_key: Option<u64>,
     /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
@@ -631,6 +636,7 @@ impl LightcraftApp {
             loupe_shown: None,
             loupe_timing: Default::default(),
             eye_strip: Default::default(),
+            thumb_first: Default::default(),
             eye_key: None,
             look_ahead: Default::default(),
             region_view: None,

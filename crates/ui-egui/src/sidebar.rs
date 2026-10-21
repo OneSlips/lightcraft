@@ -38,7 +38,7 @@ impl SidebarSection {
     pub const fn title(self) -> &'static str {
         match self {
             SidebarSection::Albums => "Albums",
-            SidebarSection::Local => "Local",
+            SidebarSection::Local => "Favorites",
             SidebarSection::ByDate => "By Date",
             SidebarSection::Folders => "Folders",
             SidebarSection::Keywords => "Keywords",

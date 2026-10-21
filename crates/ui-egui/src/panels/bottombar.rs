@@ -146,6 +146,8 @@ struct Facts {
     label: Option<ColorLabel>,
     has_photo: bool,
     position: String,
+    /// The widest the position can read in this view ("2,233 / 2,233"): its room on the bar.
+    position_room: String,
 }
 
 fn facts(app: &mut LightcraftApp) -> Facts {
@@ -158,8 +160,11 @@ fn facts(app: &mut LightcraftApp) -> Facts {
         Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(ids.len())),
         None => crate::i18n::group_digits(ids.len()),
     };
+    let most = crate::i18n::group_digits(tally.total.max(ids.len()));
+    let mut position_room = format!("{most} / {most}");
     if n_sel > 1 {
         position.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(n_sel)));
+        position_room.push_str(&crate::i18n::tr_format!(" · {n} selected", n = most));
     }
     Facts {
         tally,
@@ -169,6 +174,16 @@ fn facts(app: &mut LightcraftApp) -> Facts {
         label: active.as_ref().and_then(|p| p.label),
         has_photo: active.is_some(),
         position,
+        position_room,
+    }
+}
+
+/// Change the view's filter from the bar: the bar draws what the view's filter is each frame, so
+/// the two never drift apart. A change the engine refuses is said, never silently dropped (a bar
+/// whose buttons "do nothing" leaves the user stuck).
+fn filter(app: &mut LightcraftApp, ctx: &egui::Context, patch: Value) {
+    if let Err(e) = app.run("library.filter", patch) {
+        app.toast_error(ctx, e);
     }
 }
 
@@ -240,6 +255,31 @@ fn rating_count(t: &Tally, f: &lightcraft_catalog::Filter) -> usize {
     (0..=5u8).filter(|r| f.rating_matches(*r)).map(|r| t.stars.get(usize::from(r)).copied().unwrap_or(0)).sum()
 }
 
+/// The room (points) a count on the bar is given: the width of the view's total, which no count
+/// exceeds.
+fn count_slot(ui: &egui::Ui, t: &Tokens, x: &Facts) -> f32 {
+    ui.painter().layout_no_wrap(crate::i18n::group_digits(x.tally.total), t.font(11.5), t.text).size().x
+}
+
+/// The room the rating filter's words are given: the widest they can be, so the bar doesn't move
+/// when the choice changes.
+fn rating_words_room(ui: &egui::Ui, t: &Tokens) -> f32 {
+    let words = [crate::i18n::tr("Any").to_string(), crate::i18n::tr("Unrated").to_string(), "≥ 5 +0".to_string(), "≤ 5 +0".to_string()];
+    words.iter().map(|w| ui.painter().layout_no_wrap(w.clone(), t.font(12.0), t.text).size().x).fold(0.0, f32::max)
+}
+
+/// Whether a quick filter on the bar is on: a part that shows an active filter never gives way
+/// (a filter hiding photos must stay where it can be seen and switched off).
+fn part_active(part: Part, f: &lightcraft_catalog::Filter) -> bool {
+    match part {
+        Part::FilterFlags => !flags_on(f).is_empty(),
+        Part::FilterLabels => !labels_on(f).is_empty() || f.unlabeled,
+        Part::FilterStars => f.rating > 0 || f.unrated,
+        Part::MoreFilters => more_filters_active(f),
+        _ => false,
+    }
+}
+
 /// A part as the bar lays it out: its width, and whether it is drawn compact (no counts, no
 /// caption, short words).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -252,9 +292,11 @@ struct Placed {
 /// The width of `part` (points), full or `compact`.
 fn width(ui: &egui::Ui, t: &Tokens, x: &Facts, part: Part, compact: bool) -> f32 {
     let text_w = |s: &str, size: f32| ui.painter().layout_no_wrap(s.to_string(), t.font(size), t.text).size().x;
-    let count_w = |n: usize| text_w(&crate::i18n::group_digits(n), 11.5);
+    // a count is given the room of the view's total (no count is bigger), so a button keeps its
+    // place while counts change under the user's clicks
+    let count_w = |_: usize| count_slot(ui, t, x);
     match part {
-        Part::Position => text_w(&x.position, 12.0) + 4.0,
+        Part::Position => text_w(&x.position, 12.0).max(text_w(&x.position_room, 12.0)) + 4.0,
         Part::Stars => 5.0 * STAR + 4.0,
         Part::Flags => 3.0 * FLAG + 4.0,
         Part::Labels => 6.0 * CHIP + 5.0 * 2.0,
@@ -262,7 +304,7 @@ fn width(ui: &egui::Ui, t: &Tokens, x: &Facts, part: Part, compact: bool) -> f32
             let caption = if compact { 0.0 } else { text_w(crate::i18n::tr("Filter"), 12.0) + 6.0 };
             caption + FLAG_FILTERS.iter().map(|(f, _, _)| 22.0 + 3.0 + count_w(flag_count(&x.tally, *f)) + 8.0).sum::<f32>()
         }
-        Part::FilterStars => 16.0 + 4.0 + text_w(&rating_words(&x.filter), 12.0) + 5.0 + count_w(rating_count(&x.tally, &x.filter)) + 18.0,
+        Part::FilterStars => 16.0 + 4.0 + rating_words_room(ui, t) + 5.0 + count_w(rating_count(&x.tally, &x.filter)) + 18.0,
         Part::FilterLabels if compact => 6.0 * BTN,
         Part::FilterLabels => {
             ColorLabel::ALL.iter().map(|l| 14.0 + 3.0 + count_w(x.tally.label(*l)) + 6.0).sum::<f32>() + 14.0 + 3.0 + count_w(x.tally.unlabeled)
@@ -309,7 +351,7 @@ fn fitting(ui: &egui::Ui, t: &Tokens, x: &Facts, room: f32) -> Vec<Vec<Placed>> 
         }
         if keep {
             compact.push(part);
-        } else {
+        } else if !part_active(part, &x.filter) {
             hidden.push(part);
         }
         groups = layout(ui, t, x, &compact, &hidden);
@@ -430,7 +472,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 let on = on_now.contains(&f);
                 let count = crate::i18n::group_digits(n);
                 let g = c.painter().layout_no_wrap(count, t.font(11.5), if on { t.text } else { t.text_dim });
-                let (br, resp) = c.allocate_exact_size(vec2(22.0 + 3.0 + g.size().x + 8.0, BTN), Sense::click());
+                let (br, resp) = c.allocate_exact_size(vec2(22.0 + 3.0 + count_slot(&c, t, x) + 8.0, BTN), Sense::click());
                 register(c.ctx(), format!("filter:{id}"), br);
                 crate::widgets::announce_selected(&resp, format!("{} {n}", crate::i18n::tr(tip)), on);
                 if on {
@@ -461,7 +503,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                             Flag::None => "none",
                         })
                         .collect();
-                    let _ = app.run("library.filter", json!({"flag": Value::Null, "flags": names}));
+                    filter(app, c.ctx(), json!({"flag": Value::Null, "flags": names}));
                 }
             }
         }
@@ -502,7 +544,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 };
                 let shown = if compact { String::new() } else { crate::i18n::group_digits(n) };
                 let g = c.painter().layout_no_wrap(shown, t.font(11.5), if on { t.text } else { t.text_dim });
-                let w = if compact { BTN } else { 14.0 + 3.0 + g.size().x + 6.0 };
+                let w = if compact { BTN } else { 14.0 + 3.0 + count_slot(&c, t, x) + 6.0 };
                 let (br, resp) = c.allocate_exact_size(vec2(w, BTN), Sense::click());
                 let id = l.map_or("none".to_string(), |l| format!("{l:?}").to_lowercase());
                 register(c.ctx(), format!("filter:label-{id}"), br);
@@ -529,7 +571,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                     }
                     labels.sort();
                     let names: Vec<String> = labels.iter().map(|v| format!("{v:?}").to_lowercase()).collect();
-                    let _ = app.run("library.filter", json!({"label": Value::Null, "labels": names, "unlabeled": unlabeled}));
+                    filter(app, c.ctx(), json!({"label": Value::Null, "labels": names, "unlabeled": unlabeled}));
                 }
             }
         }
@@ -583,7 +625,7 @@ fn rating_filter_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, tally: &Tally,
         let r = ui.selectable_label(on, format!("{label}    {}", crate::i18n::group_digits(n)));
         register(ui.ctx(), format!("filter:stars:{id}"), r.rect);
         if r.clicked() {
-            let _ = app.run("library.filter", patch);
+            filter(app, ui.ctx(), patch);
             ui.close();
         }
     };

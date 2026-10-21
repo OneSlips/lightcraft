@@ -862,7 +862,7 @@ fn local_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, now: &LocalNow) {
     if hidden > 0 {
         let label = crate::i18n::tr_format!("Show {hidden} hidden location{}", if hidden == 1 { "" } else { "s" }, hidden = hidden);
         if row(app, ui, "local:restoreHidden", Icon::Folder, &label, None, false, 0.0)
-            .on_hover_text(crate::i18n::tr("Put the locations you removed from Local back (no files change)"))
+            .on_hover_text(crate::i18n::tr("Put the folders you removed from Favorites back (no files change)"))
             .clicked()
         {
             let _ = app.run("local.restoreHidden", json!({}));

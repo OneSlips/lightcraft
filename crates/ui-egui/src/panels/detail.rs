@@ -3694,8 +3694,22 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let ppp = ui.ctx().pixels_per_point();
     let thumb_px = film_thumb_px(cell_w, ppp);
     if ids.is_empty() {
-        let why = if app.session.filter != Default::default() { "No photos match the filters (View → Clear Filters)" } else { "No photos" };
-        ui.painter().text(r.center(), Align2::CENTER_CENTER, why, t.font(12.5), t.text_dim);
+        if app.session.filter != Default::default() {
+            // the way out is right there, not only in a menu
+            let g = ui.painter().layout_no_wrap(crate::i18n::tr("No photos match the filters").to_string(), t.font(12.5), t.text_dim);
+            let label = crate::i18n::tr("Clear Filters");
+            let bw = ui.painter().layout_no_wrap(label.to_string(), t.font(12.5), t.text).size().x + 24.0;
+            let w = g.size().x + 12.0 + bw;
+            let x = r.center().x - w / 2.0;
+            ui.painter().galley(pos2(x, r.center().y - g.size().y / 2.0), g, t.text_dim);
+            let br = Rect::from_min_size(pos2(x + w - bw, r.center().y - 13.0), vec2(bw, 26.0));
+            register(ui.ctx(), "button:filmClearFilters", br);
+            if ui.put(br, egui::Button::new(label)).clicked() {
+                super::grid::clear_filters(app, ui.ctx());
+            }
+        } else {
+            ui.painter().text(r.center(), Align2::CENTER_CENTER, crate::i18n::tr("No photos"), t.font(12.5), t.text_dim);
+        }
         return;
     }
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r.shrink2(vec2(0.0, 4.0))));
@@ -3744,7 +3758,6 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                 super::grid::flag_tint(t.canvas, flag)
             };
             p.rect_filled(cr, 0.0, crate::theme::label_background(base, label, selected));
-            super::grid::flag_line(p, &t, cr, flag);
             let names = app.ui.settings.film_names;
             if let Some(ph) = app.session.catalog.photo(*id).filter(|_| names) {
                 let name = ph.file_name.rsplit_once('.').map(|(n, _)| n).unwrap_or(&ph.file_name);
@@ -3755,11 +3768,12 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let under = app.ui.settings.badges_under && app.ui.settings.film_badges;
             let strip = if under { (cr.height() * 0.11).clamp(12.0, 16.0) } else { 0.0 };
             let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0 + strip));
-            if under && let Some(ph) = app.session.catalog.photo(*id) {
-                let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
-                super::grid::paint_badges(p, &t, bar, ph, false);
+            // the cells on screen first, then the few either side of them
+            super::grid::request_thumb(app, *id, thumb_px, if local.intersects(vp) { 10 } else { 5 });
+            if local.intersects(vp) {
+                let has = app.renderer.thumb(*id).is_some();
+                app.thumb_first.note(ui.ctx().cumulative_pass_nr(), *id, has, crate::now_ms());
             }
-            super::grid::request_thumb(app, *id, thumb_px, 8);
             if let Some(tex) = app.renderer.thumb(*id) {
                 let [tw, th] = tex.size;
                 let s = (img_area.width() / tw as f32).min(img_area.height() / th as f32);
@@ -3785,6 +3799,12 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     crate::icons::paint(p, Rect::from_min_size(br.min + vec2(4.0, 2.0), vec2(11.0, 11.0)), crate::icons::Icon::Stack, Color32::WHITE);
                     p.galley(pos2(br.min.x + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
                 }
+            }
+            // the flag's glow over the picture's bottom, under the marks (a white pick flag stays readable)
+            super::grid::flag_line(p, &t, Rect::from_min_max(cr.min, pos2(cr.right(), cr.bottom() - strip)), flag);
+            if under && let Some(ph) = app.session.catalog.photo(*id) {
+                let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
+                super::grid::paint_badges(p, &t, bar, ph, false);
             }
             if resp.clicked() {
                 let m = ui.input(|i| i.modifiers);

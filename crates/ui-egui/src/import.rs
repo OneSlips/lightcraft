@@ -1100,7 +1100,7 @@ pub(crate) fn options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut Import
             register(ui.ctx(), "label:importSource", r.rect);
         });
         ui.label(
-            egui::RichText::new(crate::i18n::tr("Importing scans the source for photos; it doesn't add the folder to Local (use Local → Browse Folder… to work in a folder without importing)."))
+            egui::RichText::new(crate::i18n::tr("Importing scans the source for photos; it doesn't add the folder to Favorites."))
                 .color(t.text_dim)
                 .small(),
         );
