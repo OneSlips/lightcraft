@@ -57,9 +57,26 @@ fn rawnind_bayer() -> Known {
     Known { manifest, download: Some(download), entry: Some("model_bayer.onnx") }
 }
 
-/// Where LightCraft's own model is to be downloaded from. Proposed: a release asset of the LightCraft repository.
-/// The `lightcraft-model` feature offers it, so turn that on only once this file is published here.
-pub const LIGHTCRAFT_BAYER_URL: &str = "https://github.com/storytold/lightcraft/releases/download/denoise-model-0.1.0/lightcraft-bayer-0.1.0.onnx";
+/// Where LightCraft's own model is downloaded from by default: radfilms.com.au, the trainer's site (the maintainers'
+/// decision, 2026-10-17). `LIGHTCRAFT_DENOISE_MODEL_URL` (an `https://` address) replaces it, so a build or a
+/// maintainer can host the same file elsewhere; the size and SHA-256 below are checked wherever it comes from.
+pub const LIGHTCRAFT_BAYER_URL: &str = "https://radfilms.com.au/lightcraft/models/lightcraft-bayer-0.1.0.onnx";
+
+/// The environment variable that replaces [`LIGHTCRAFT_BAYER_URL`].
+pub const LIGHTCRAFT_BAYER_URL_ENV: &str = "LIGHTCRAFT_DENOISE_MODEL_URL";
+
+/// The address LightCraft's own model is fetched from: [`LIGHTCRAFT_BAYER_URL_ENV`] when it holds an `https://`
+/// address, else [`LIGHTCRAFT_BAYER_URL`].
+pub fn lightcraft_bayer_url() -> String {
+    url_or_default(std::env::var(LIGHTCRAFT_BAYER_URL_ENV).ok().as_deref())
+}
+
+fn url_or_default(set: Option<&str>) -> String {
+    match set.map(str::trim) {
+        Some(u) if u.starts_with("https://") && u.len() > "https://".len() && !u.contains(char::is_whitespace) => u.to_string(),
+        _ => LIGHTCRAFT_BAYER_URL.to_string(),
+    }
+}
 /// SHA-256 and size of that `.onnx` (`tools/denoise-train/export.py` prints both).
 #[cfg(any(feature = "lightcraft-model", test))]
 const LIGHTCRAFT_BAYER_SHA256: &str = "abd3c4cdea163b27439cefae8972a21755510bce18ee036e991d20cf3247dea9";
@@ -79,13 +96,18 @@ fn lightcraft_bayer() -> Known {
             name: "MIT OR Apache-2.0".into(),
             commercial: Commercial::Yes,
             url: Some("https://github.com/storytold/lightcraft/blob/main/LICENSE-MIT".into()),
-            notice: "LightCraft's own denoise model, trained by the LightCraft contributors. The weights are licensed MIT OR                      Apache-2.0, like LightCraft: you may use them for any purpose, including commercial work, and pass them on                      with this notice. Training pictures: low-ISO raw samples from raw.pixls.us, each dedicated to the public                      domain (CC0) by its contributor; thank you."
+            notice: "LightCraft's own denoise model, trained by the LightCraft contributors. The weights are licensed MIT OR \
+                     Apache-2.0, like LightCraft: you may use them for any purpose, including commercial work, and pass them on \
+                     with this notice. Training pictures: low-ISO raw samples from raw.pixls.us, each dedicated to the public \
+                     domain (CC0) by its contributor; thank you."
                 .into(),
         },
         source: Some("https://github.com/storytold/lightcraft/tree/main/tools/denoise-train".into()),
         sha256: Some(LIGHTCRAFT_BAYER_SHA256.into()),
         size_bytes: Some(LIGHTCRAFT_BAYER_BYTES),
-        provenance: "Trained by LightCraft contributors with LightCraft's open training tools (tools/denoise-train) on clean                      low-ISO raw photos published on raw.pixls.us under CC0, with synthetic sensor noise calibrated on real                      cameras (numbers only). No photos with other licences were used."
+        provenance: "Trained by LightCraft contributors with LightCraft's open training tools (tools/denoise-train) on clean \
+                     low-ISO raw photos published on raw.pixls.us under CC0, with synthetic sensor noise calibrated on real \
+                     cameras (numbers only). No photos with other licences were used."
             .into(),
         domain: Domain::BayerToRgb,
         tile: 512,
@@ -94,7 +116,7 @@ fn lightcraft_bayer() -> Known {
     };
     let download = Download {
         id: manifest.id.clone(),
-        url: LIGHTCRAFT_BAYER_URL.into(),
+        url: lightcraft_bayer_url(),
         file_name: "lightcraft-bayer-0.1.0.onnx".into(),
         size_bytes: LIGHTCRAFT_BAYER_BYTES,
         sha256: LIGHTCRAFT_BAYER_SHA256.into(),
@@ -171,6 +193,16 @@ mod tests {
         assert_eq!(m.size_bytes, Some(d.size_bytes));
         assert!(d.url.starts_with("https://") && d.file_name.ends_with(".onnx"));
         assert_eq!(m.gain, Gain::None);
+    }
+
+    #[test]
+    fn the_model_address_can_be_replaced_with_another_https_one() {
+        assert_eq!(url_or_default(None), LIGHTCRAFT_BAYER_URL);
+        assert_eq!(url_or_default(Some("https://example.org/m.onnx")), "https://example.org/m.onnx");
+        assert_eq!(url_or_default(Some("http://example.org/m.onnx")), LIGHTCRAFT_BAYER_URL, "only https");
+        assert_eq!(url_or_default(Some("https://")), LIGHTCRAFT_BAYER_URL);
+        assert_eq!(url_or_default(Some("https://a b")), LIGHTCRAFT_BAYER_URL);
+        assert!(!lightcraft_bayer().manifest.licence.notice.contains("  "), "one space between words");
     }
 }
 
