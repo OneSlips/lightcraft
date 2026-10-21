@@ -728,7 +728,7 @@ pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
     use lightcraft_catalog::SortKey;
     let asc = sort.ascending;
     match sort.key {
-        SortKey::CaptureDate | SortKey::ImportDate | SortKey::EditDate => {
+        SortKey::CaptureDate | SortKey::ImportDate | SortKey::EditDate | SortKey::Custom => {
             let mut keyed: Vec<(Option<std::time::SystemTime>, String)> =
                 files.iter().map(|f| (std::fs::metadata(f).and_then(|m| m.modified()).ok(), f.clone())).collect();
             keyed.sort_by(|a, b| match (a.0, b.0) {

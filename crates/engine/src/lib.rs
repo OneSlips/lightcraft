@@ -1310,7 +1310,7 @@ impl Session {
             });
             // Views whose order or photos are not the query's alone are worked out whole each time: an album in
             // its own order, Recently Added (how far back it reaches moves with every import), Missing Photos.
-            let own_order = matches!(self.source, LibrarySource::Album(a) if self.sort.key == lightcraft_catalog::SortKey::CaptureDate
+            let own_order = matches!(self.source, LibrarySource::Album(a) if self.sort.key == lightcraft_catalog::SortKey::Custom
                 && self.filter == Filter::default()
                 && self.catalog.album(a).is_some_and(|al| !al.is_smart()));
             let whole = own_order || matches!(self.source, LibrarySource::RecentlyAdded | LibrarySource::Missing);
@@ -1350,7 +1350,7 @@ impl Session {
                 return self.visible();
             }
             if matches!(self.source, LibrarySource::Album(_))
-                && self.sort.key == lightcraft_catalog::SortKey::CaptureDate
+                && self.sort.key == lightcraft_catalog::SortKey::Custom
                 && let LibrarySource::Album(a) = self.source
                 && let Some(al) = self.catalog.album(a)
                 && !al.is_smart()
@@ -1368,16 +1368,12 @@ impl Session {
             }
             if self.source == LibrarySource::RecentlyAdded {
                 // newest import first, whatever the sort direction (the grid groups by import day);
-                // a batch stays in file order (name, then id)
-                let cat = &self.catalog;
-                visible.sort_by(|a, b| {
-                    let key = |id: &PhotoId| cat.photo(*id).map(|p| p.imported.clone()).unwrap_or_default();
-                    let name = |id: &PhotoId| cat.photo(*id).map(|p| p.file_name.as_str());
-                    let by_name = match (name(a), name(b)) {
-                        (Some(x), Some(y)) => lightcraft_catalog::query::cmp_name(x, y),
-                        _ => std::cmp::Ordering::Equal,
-                    };
-                    key(b).cmp(&key(a)).then(by_name).then(a.cmp(b))
+                // inside one import, the sort chosen (a two-camera import by capture time interleaves
+                // the bodies through the day, not one card after the other: note 50)
+                let (cat, sort) = (&self.catalog, self.sort);
+                visible.sort_by(|a, b| match (cat.photo(*a), cat.photo(*b)) {
+                    (Some(x), Some(y)) => y.imported.cmp(&x.imported).then_with(|| sort.order(x, y)),
+                    _ => a.cmp(b),
                 });
             }
             if self.source == LibrarySource::Missing {
@@ -1580,6 +1576,8 @@ mod tests_autosync;
 mod tests_body_profiles;
 #[cfg(test)]
 mod tests_camera_layers;
+#[cfg(test)]
+mod tests_capture_sort;
 #[cfg(test)]
 mod tests_chart_profile;
 #[cfg(test)]
