@@ -1644,6 +1644,8 @@ mod tests_culling;
 #[cfg(test)]
 mod tests_dcp;
 #[cfg(test)]
+mod tests_dcp_corpus;
+#[cfg(test)]
 mod tests_denoise;
 #[cfg(test)]
 mod tests_export;
