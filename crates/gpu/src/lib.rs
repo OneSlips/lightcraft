@@ -515,9 +515,8 @@ pub fn adopt_window_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu:
             Err(format!("software adapter ({}) skipped: the CPU pipeline is faster", info.name))
         } else {
             // (building the kernels is a long call into the driver: the crash sentinel covers it)
-            let limits = device.limits();
             backend::with_init_marker(wgpu::Backends::from(info.backend), || {
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx::Gpu::with_device(device, queue, info, limits, true)))
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ctx::Gpu::adopt(device, queue, info)))
                     .unwrap_or_else(|_| Err("kernel setup panicked".into()))
             })
         };
@@ -536,6 +535,21 @@ pub fn adopt_window_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu:
         (Ok(_), None) => Err("a device of its own was created first".into()),
         (Err(e), None) => Err(e.clone()),
     }
+}
+
+/// The pixels of a texture on `device` (a [`DisplayFrame`]'s, or any `Rgba8Unorm` texture with
+/// `COPY_SRC`): for a headless screenshot of a view drawn straight from the GPU, and for tests. The
+/// app never needs them to draw. Waits for the GPU (at most a few seconds); `Err` when the copy or
+/// the wait fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_texture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: usize,
+    height: usize,
+) -> Result<lightcraft_raster::Rgba8, String> {
+    ctx::read_texture(device, queue, texture, width, height)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
