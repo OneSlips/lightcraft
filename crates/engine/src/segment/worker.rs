@@ -579,6 +579,21 @@ fn ensure<M, T>(
     load(slot, shared, dir, name, open).map(|_| ())
 }
 
+/// The MediaPipe face model, loaded again when its small-face detector arrived after it was loaded (fetched in the
+/// background for a model an older LightCraft installed), so group photos' small faces are found from then on.
+fn ensure_face<T>(
+    slot: &mut Option<(PathBuf, FaceModel)>,
+    cache: &mut Option<(u64, T)>,
+    shared: &Shared,
+    dir: &std::path::Path,
+) -> Result<(), String> {
+    if slot.as_ref().is_some_and(|(d, m)| d == dir && !m.has_far() && dir.join(lightcraft_segment::people::FAR_FILE).is_file()) {
+        *slot = None;
+        *cache = None;
+    }
+    ensure(slot, cache, shared, dir, "MediaPipe faces", FaceModel::load)
+}
+
 /// An automatic selection; `None` when nothing of the kind was found.
 fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, model: AutoModel, target: &Target) -> Result<Option<SegMask>, String> {
     let invert = |l: Vec<f32>| l.into_iter().map(|v| -v).collect::<Vec<f32>>();
@@ -630,7 +645,7 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let mut req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
             let faces: Vec<Face> = match &face {
                 Some(dir) => {
-                    ensure(&mut state.face, &mut state.faces_cache, shared, dir, "MediaPipe faces", FaceModel::load)?;
+                    ensure_face(&mut state.face, &mut state.faces_cache, shared, dir)?;
                     // a face FaceMesh can't fit (3/4 view, small) stays when the class map sees a face there
                     cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
                         m.faces_confirmed(&i.rgb, i.w, i.h, map)
@@ -732,7 +747,7 @@ fn skin(
     use lightcraft_develop::SkinArea;
     ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
     cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
-    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    ensure_face(&mut state.face, &mut state.faces_cache, shared, face)?;
     let seen = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
     let faces: Vec<Face> = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
         m.faces_confirmed(&i.rgb, i.w, i.h, seen)
@@ -768,7 +783,7 @@ fn retouch(
     let _row = row(job, "Finding the parts of people to retouch");
     ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
     cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
-    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    ensure_face(&mut state.face, &mut state.faces_cache, shared, face)?;
     let seen = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
     let faces: Vec<Face> = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
         m.faces_confirmed(&i.rgb, i.w, i.h, seen)
@@ -919,7 +934,7 @@ fn found_faces(
         ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
         cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
     }
-    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    ensure_face(&mut state.face, &mut state.faces_cache, shared, face)?;
     let seen = people.and(state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m));
     let faces = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
         m.faces_confirmed(&i.rgb, i.w, i.h, seen)

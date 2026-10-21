@@ -17,6 +17,9 @@ use lightcraft_geom::Orientation;
 use super::FoundFace;
 use crate::Session;
 
+/// The AI models Retouch finds the parts of people with (MediaPipe's, Apache-2.0).
+pub(crate) const MODELS: [&str; 2] = ["people", "face"];
+
 /// One request: which photo, which parts, the photo turned how.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct RetouchKey {
@@ -175,6 +178,13 @@ impl Session {
             return Err("Retouch couldn't find these parts on this photo before; use Find Again to try again".into());
         }
         if self.segmenter.background {
+            // the face models download by themselves (no dialog); the request waits for them
+            if self.retouch_fetch_models() {
+                if !self.segmenter.retouch_waiting.contains(&id) {
+                    self.segmenter.retouch_waiting.push(id);
+                }
+                return Ok(true);
+            }
             match self.segment_retouch_later(&key) {
                 Ok(()) => {
                     self.segmenter.retouch_pending.push(key);
@@ -197,6 +207,23 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// Start downloading the models Retouch needs that aren't installed. True while one of them is on its way
+    /// (the request waits); false when they are all there, or none could be started (the request then reports
+    /// why, as before).
+    fn retouch_fetch_models(&mut self) -> bool {
+        let mut waiting = false;
+        for key in MODELS {
+            if self.segmenter.model_installed(key) {
+                continue;
+            }
+            match self.segmenter.start_model_download(key, &self.activity) {
+                Ok(_) => waiting = true,
+                Err(e) => log::warn!("Retouch: the {key} model can't be downloaded ({e})"),
+            }
+        }
+        waiting
     }
 
     /// After a command: every photo whose settings it set, and whose retouch wants parts it

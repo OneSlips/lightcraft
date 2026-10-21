@@ -323,6 +323,12 @@ pub struct Segmenter {
     /// Retouch requests queued, and those that failed (asked again only on request).
     pub(crate) retouch_pending: Vec<RetouchKey>,
     pub(crate) retouch_failed: Vec<RetouchKey>,
+    /// Photos whose retouch waits for the face models, which it is downloading by itself (zero setup: the user's
+    /// decision, 2026-10-17); asked again once they are installed.
+    pub(crate) retouch_waiting: Vec<PhotoId>,
+    /// The face model's companions (the small-face detector) were looked for this session.
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
+    pub(crate) face_checked: bool,
     #[cfg(feature = "sam")]
     worker: worker::Worker,
     #[cfg(feature = "sam")]
@@ -354,6 +360,8 @@ impl Default for Segmenter {
             skin_failed: Vec::new(),
             retouch_pending: Vec::new(),
             retouch_failed: Vec::new(),
+            retouch_waiting: Vec::new(),
+            face_checked: false,
             #[cfg(feature = "sam")]
             worker: worker::Worker::default(),
             #[cfg(feature = "sam")]
@@ -1086,8 +1094,40 @@ impl Session {
             if idle {
                 self.segmenter.pending = None;
             }
+            self.poll_face_models(&mut polled);
         }
         polled
+    }
+
+    /// Once a session, an installed face model that lacks its companions (the small-face detector, installed by an
+    /// older LightCraft) fetches them; retouch requests that wait for the face models go ahead once they are there,
+    /// or report why not when their download stopped.
+    #[cfg(feature = "sam")]
+    fn poll_face_models(&mut self, polled: &mut Polled) {
+        if !self.segmenter.face_checked {
+            self.segmenter.face_checked = true;
+            if self.segmenter.model_installed("face")
+                && let Err(e) = self.segmenter.top_up_model("face", &self.activity)
+            {
+                log::warn!("faces: the small-face detector can't be fetched ({e})");
+            }
+        }
+        if self.segmenter.retouch_waiting.is_empty() {
+            return;
+        }
+        let missing: Vec<&str> = retouch::MODELS.into_iter().filter(|k| !self.segmenter.model_installed(k)).collect();
+        if missing.iter().any(|k| self.segmenter.model_download_status(k).running) {
+            return;
+        }
+        for id in std::mem::take(&mut self.segmenter.retouch_waiting) {
+            if !missing.is_empty() {
+                polled.messages.push(format!("Retouch: the face models could not be downloaded ({}); Find Again tries again", missing.join(", ")));
+                break;
+            }
+            if let Err(e) = self.retouch_ensure(id, true) {
+                polled.messages.push(format!("Retouch: {e}"));
+            }
+        }
     }
 
     #[cfg(feature = "sam")]
