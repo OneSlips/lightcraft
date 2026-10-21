@@ -382,8 +382,6 @@
   "Camera card ({label})": "Karta aparatu ({label})",
   "Type {n} to confirm:": "Wpisz {n}, aby potwierdzić:",
   "Rejected files to move to the {bin}: {n}": "Odrzucone pliki do przeniesienia do {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Gotowe zdjęcia: {n}. Maski AI, retusz i podglądy są gotowe.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Gotowe zdjęcia: {n}. Maski AI i retusz są gotowe.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Pominięte przeglądane zdjęcia: {n}{0:.0} — albumy zawierają zdjęcia z biblioteki (najpierw je zaimportuj)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odrzucono {n}: {closed} z zamkniętymi oczami, {blurry} z nieostrymi oczami",
   "+{} more, all sharp and open": "+{} więcej, wszyscy ostrzy i z otwartymi oczami",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Profil {name} zastosowany do {n} zdjęć",
   "Profile {name}": "Profil {name}",
   "{n} stars": "Gwiazdki: {n}",
-  "Label: {name}": "Etykieta: {name}"
+  "Label: {name}": "Etykieta: {name}",
+  "Photos ready: {n}.": "Zdjęcia gotowe: {n}.",
+  "AI masks: {masks} on {photos} photos.": "Maski AI: {masks} na {photos} zdjęciach.",
+  "Smooth Skin: {n} photos.": "Wygładzanie skóry: {n} zdjęć.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Utworzyć kopię zapasową „{library}” przed zamknięciem LightCraft? Kopia zawiera katalog, jego ustawienia, twoje ustawienia predefiniowane i profile; bez zdjęć.",
+  "Preset {name} on {n} photos": "Ustawienie {name} na {n} zdjęciach"
 }

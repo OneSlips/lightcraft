@@ -106,6 +106,9 @@ pub struct ImportDialog {
     pub adopt: Vec<String>,
     /// One of LightCraft's looks put on every photo ("" = none).
     pub look: String,
+    /// A preset's own camera profile may replace the body's (`presetProfile`; off: each raw keeps
+    /// its body's profile through the presets).
+    pub preset_profile: bool,
 }
 
 /// A candidate's file type, as the review groups them: its format, or its extension when the
@@ -1408,15 +1411,12 @@ fn preset_stack(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog
                 _ => {}
             }
             let label = if d.presets.is_empty() { crate::i18n::tr("Add a preset…") } else { crate::i18n::tr("Add another preset…") };
-            let combo = crate::widgets::combo_box("import-preset-add").width(combo_width(ui)).truncate().selected_text(label).height(300.0).show_ui(
-                ui,
-                |ui| {
-                    if let Some(pid) = crate::panels::presets::picker_rows(ui, "import-preset", &app.session.presets, None) {
-                        d.presets.push(pid);
-                    }
-                },
-            );
-            register(ui.ctx(), "combo:importPresetAdd", combo.response.rect);
+            let w = combo_width(ui);
+            if let Some(crate::preset_picker::Picked::Preset(pid)) =
+                crate::preset_picker::Picker::new("importReviewPresetAdd").for_import(true).button(app, ui, label, w)
+            {
+                d.presets.push(pid);
+            }
             if d.presets.len() > 1 {
                 ui.label(
                     egui::RichText::new(crate::i18n::tr("Applied in this order: each sets its settings and adds its masks."))
@@ -1751,6 +1751,9 @@ impl ImportDialog {
         }
         if !d.presets.is_empty() {
             params["presets"] = json!(d.presets);
+        }
+        if d.preset_profile {
+            params["presetProfile"] = json!(true);
         }
         if !d.metadata_preset.is_empty() {
             params["metadataPreset"] = json!(d.metadata_preset);

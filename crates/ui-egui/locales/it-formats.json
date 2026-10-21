@@ -382,8 +382,6 @@
   "Camera card ({label})": "Scheda della fotocamera ({label})",
   "Type {n} to confirm:": "Digita {n} per confermare:",
   "Rejected files to move to the {bin}: {n}": "File scartati da spostare nel {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Foto pronte: {n}. Maschere IA, ritocco e anteprime completati.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Foto pronte: {n}. Maschere IA e ritocco completati.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Foto sfogliate saltate: {n}{0:.0} — gli album contengono foto della libreria (importale prima)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Rifiutate {n}: {closed} con occhi chiusi, {blurry} con occhi sfocati",
   "+{} more, all sharp and open": "+{} altri, tutti nitidi e con gli occhi aperti",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Profilo {name} applicato a {n} foto",
   "Profile {name}": "Profilo {name}",
   "{n} stars": "{n} stelle",
-  "Label: {name}": "Etichetta: {name}"
+  "Label: {name}": "Etichetta: {name}",
+  "Photos ready: {n}.": "Foto pronte: {n}.",
+  "AI masks: {masks} on {photos} photos.": "Maschere IA: {masks} su {photos} foto.",
+  "Smooth Skin: {n} photos.": "Leviga pelle: {n} foto.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Eseguire il backup di «{library}» prima di uscire da LightCraft? Il backup conserva il catalogo, le sue impostazioni, i tuoi predefiniti e profili; non le foto.",
+  "Preset {name} on {n} photos": "Predefinito {name} su {n} foto"
 }

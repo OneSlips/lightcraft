@@ -382,8 +382,6 @@
   "Camera card ({label})": "相机存储卡 ({label})",
   "Type {n} to confirm:": "输入 {n} 以确认：",
   "Rejected files to move to the {bin}: {n}": "将移到{bin}的已拒绝文件：{n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "已就绪的照片：{n}。AI 蒙版、修饰和预览已完成。",
-  "Photos ready: {n}. AI masks and retouch are done.": "已就绪的照片：{n}。AI 蒙版和修饰已完成。",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "已跳过浏览中的照片：{n}{0:.0}（相册存放图库照片，请先导入）",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "已拒绝 {n} 张：{closed} 张闭眼，{blurry} 张眼睛模糊",
   "+{} more, all sharp and open": "另有 {} 人，都清晰且睁眼",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "已将配置文件 {name} 应用到 {n} 张照片",
   "Profile {name}": "配置文件 {name}",
   "{n} stars": "{n} 星",
-  "Label: {name}": "标签：{name}"
+  "Label: {name}": "标签：{name}",
+  "Photos ready: {n}.": "照片已就绪：{n} 张。",
+  "AI masks: {masks} on {photos} photos.": "AI 蒙版：{photos} 张照片上共 {masks} 个。",
+  "Smooth Skin: {n} photos.": "平滑皮肤：{n} 张照片。",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "退出 LightCraft 前备份“{library}”吗？备份包含目录、其设置、你的预设和配置文件；不含照片。",
+  "Preset {name} on {n} photos": "预设 {name} 已应用到 {n} 张照片"
 }

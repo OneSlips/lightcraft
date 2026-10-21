@@ -673,6 +673,27 @@ pub fn auto_pick(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
     true
 }
 
+/// A photo whose profile was picked automatically (an unedited one, browsed before it joins the
+/// library): its body's default as it is now. A profile no longer the body's default goes (back to
+/// LightCraft's colour when the body has none). True when it changed.
+pub fn refresh_auto(s: &Session, p: &mut lightcraft_catalog::Photo) -> bool {
+    if !p.develops_raw() {
+        return false;
+    }
+    let want = body_default_keys(s, &p.meta.camera, &catalog_keys(p));
+    let have = p.develop.calibration_id().filter(|c| is_dcp_id(c)).map(str::to_string);
+    if have.is_some() && have != want {
+        let mut d = (*p.develop).clone();
+        d.camera_profile.clear();
+        if is_dcp_id(&d.profile.id) {
+            d.profile.id = lightcraft_develop::Profile::default().id;
+        }
+        p.develop = Arc::new(d);
+    }
+    auto_pick(s, p);
+    p.develop.calibration_id().filter(|c| is_dcp_id(c)) != have.as_deref()
+}
+
 /// How profile `e` relates to a photo of body `serial`: its own (`body`), model-wide (`model`), or
 /// made for other bodies (`otherBody`).
 pub fn relation(e: &DcpEntry, serial: Option<&str>) -> &'static str {

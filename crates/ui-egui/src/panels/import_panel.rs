@@ -522,12 +522,15 @@ fn look(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::import::Impor
         let name = app.session.profile_info(&d.look).map(|(n, _)| n).unwrap_or(&d.look);
         crate::i18n::profile_label(&d.look, name).to_string()
     };
+    // LightCraft's looks the Profile Manager still shows (not hidden, not taken off this computer)
+    let shown: std::collections::HashSet<String> = app.session.shown_profiles().into_iter().map(|p| p.id).collect();
     let r = combo("import-look", w).selected_text(cur).height(300.0).show_ui(ui, |ui| {
         if ui.selectable_label(d.look.is_empty(), crate::i18n::tr("None")).clicked() {
             d.look.clear();
         }
-        for p in lightcraft_engine::presets::PROFILES.iter().filter(|p| p.id != lightcraft_develop::BUILTIN_CAMERA_COLOR) {
-            if ui.selectable_label(d.look == p.id, crate::i18n::profile_label(p.id, p.name)).clicked() {
+        for p in lightcraft_engine::presets::PROFILES.iter().filter(|p| p.id != lightcraft_develop::BUILTIN_CAMERA_COLOR && shown.contains(p.id)) {
+            let name = app.session.profile_info(p.id).map_or(p.name, |(n, _)| n);
+            if ui.selectable_label(d.look == p.id, crate::i18n::profile_label(p.id, name)).clicked() {
                 d.look = p.id.to_string();
             }
         }
@@ -600,14 +603,19 @@ fn preset_stack(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::impor
         _ => {}
     }
     let label = if d.presets.is_empty() { crate::i18n::tr("Add a preset…") } else { crate::i18n::tr("Add another preset…") };
-    let r = combo("import-preset-add", w).selected_text(label).height(300.0).show_ui(ui, |ui| {
-        if let Some(pid) = super::presets::picker_rows(ui, "import-preset", &app.session.presets, None) {
-            d.presets.push(pid);
-        }
-    });
-    register(ui.ctx(), "combo:importPresetAdd", r.response.rect);
+    // (the shared picker: Favorites and For Import first, search, groups, a preview on the photo)
+    if let Some(crate::preset_picker::Picked::Preset(pid)) =
+        crate::preset_picker::Picker::new("importPresetAdd").for_import(true).button(app, ui, label, w)
+    {
+        d.presets.push(pid);
+    }
     if d.presets.len() > 1 {
         help(ui, "Applied in this order: each sets its settings and adds its masks.");
+    }
+    if !d.presets.is_empty() {
+        let r = ui.checkbox(&mut d.preset_profile, crate::i18n::tr("Presets may change the camera profile"));
+        register(ui.ctx(), "check:importPresetProfile", r.rect);
+        help(ui, "Off: each raw keeps its camera body's profile, whatever profile a preset names.");
     }
 }
 

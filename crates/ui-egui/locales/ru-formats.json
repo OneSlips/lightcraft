@@ -382,8 +382,6 @@
   "Camera card ({label})": "Карта камеры ({label})",
   "Type {n} to confirm:": "Введите {n} для подтверждения:",
   "Rejected files to move to the {bin}: {n}": "Отклонённые файлы для перемещения в {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Готово фото: {n}. ИИ-маски, ретушь и превью готовы.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Готово фото: {n}. ИИ-маски и ретушь готовы.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Пропущено просматриваемых фото: {n}{0:.0} — альбомы содержат фото библиотеки (сначала импортируйте их)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Отклонено {n}: {closed} с закрытыми глазами, {blurry} с размытыми глазами",
   "+{} more, all sharp and open": "ещё {}, все резкие и с открытыми глазами",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Профиль {name} применён к {n} фото",
   "Profile {name}": "Профиль {name}",
   "{n} stars": "Звёзды: {n}",
-  "Label: {name}": "Метка: {name}"
+  "Label: {name}": "Метка: {name}",
+  "Photos ready: {n}.": "Фото готовы: {n}.",
+  "AI masks: {masks} on {photos} photos.": "ИИ-маски: {masks} на {photos} фото.",
+  "Smooth Skin: {n} photos.": "Сглаживание кожи: {n} фото.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Сделать резервную копию «{library}» перед выходом из LightCraft? В копию входят каталог, его настройки, ваши пресеты и профили; фото — нет.",
+  "Preset {name} on {n} photos": "Пресет {name} на {n} фото"
 }

@@ -382,8 +382,6 @@
   "Camera card ({label})": "カメラのカード ({label})",
   "Type {n} to confirm:": "確認のため {n} と入力してください：",
   "Rejected files to move to the {bin}: {n}": "{bin}へ移動する除外ファイル：{n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "準備完了の写真：{n}。AI マスク、レタッチ、プレビューが完了しました。",
-  "Photos ready: {n}. AI masks and retouch are done.": "準備完了の写真：{n}。AI マスクとレタッチが完了しました。",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "閲覧中の写真をスキップ：{n}{0:.0}（アルバムにはライブラリの写真が入ります。先に読み込んでください）",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} 枚を却下：目を閉じた写真 {closed}、目がぼけた写真 {blurry}",
   "+{} more, all sharp and open": "ほか{}人（すべてシャープで目が開いています）",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "プロファイル {name} を {n} 枚の写真に適用",
   "Profile {name}": "プロファイル {name}",
   "{n} stars": "{n}つ星",
-  "Label: {name}": "ラベル：{name}"
+  "Label: {name}": "ラベル：{name}",
+  "Photos ready: {n}.": "写真の準備完了：{n} 枚。",
+  "AI masks: {masks} on {photos} photos.": "AI マスク：{photos} 枚の写真に {masks} 個。",
+  "Smooth Skin: {n} photos.": "肌を滑らかに：{n} 枚。",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "LightCraft を終了する前に「{library}」をバックアップしますか？バックアップにはカタログ、その設定、プリセットとプロファイルが含まれます（写真は含まれません）。",
+  "Preset {name} on {n} photos": "プリセット {name} を {n} 枚に適用"
 }

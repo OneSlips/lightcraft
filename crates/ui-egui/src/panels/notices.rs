@@ -59,7 +59,7 @@ pub fn may_close(app: &mut LightcraftApp) -> bool {
         return false;
     }
     if app.session.unsaved().is_none() {
-        return true;
+        return backup_question(app);
     }
     let _ = app.session.persist();
     if app.session.unsaved().is_some()
@@ -68,7 +68,7 @@ pub fn may_close(app: &mut LightcraftApp) -> bool {
         log::error!("quit: library not saved: {e}");
     }
     match app.session.unsaved() {
-        None => true,
+        None => backup_question(app),
         Some((n, e)) => {
             app.quit_prompt = Some(QuitPrompt::Unsaved(crate::i18n::tr_format!(
                 "{n} change{} couldn't be written to disk: {e}\nIf you quit now, {} lost.",
@@ -82,11 +82,32 @@ pub fn may_close(app: &mut LightcraftApp) -> bool {
     }
 }
 
+/// Last before closing: a backup due (Settings ▸ Backups) with something changed since the last one
+/// asks Back Up and Quit / Skip This Time, as Lightroom Classic does. Nothing changed: no question,
+/// no backup. `true`: the window may close.
+fn backup_question(app: &mut LightcraftApp) -> bool {
+    if app.backup_on_quit != crate::BackupOnQuit::Ask || !app.session.backup_due() {
+        return true;
+    }
+    if !app.session.backup_changed() {
+        app.backup_on_quit = crate::BackupOnQuit::Skip;
+        return true;
+    }
+    let name = app.session.library.as_ref().and_then(|l| l.dir.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    app.quit_prompt = Some(QuitPrompt::Backup(crate::i18n::tr_format!(
+        "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.",
+        library = name
+    )));
+    false
+}
+
 enum Choice {
     Retry,
     QuitAnyway,
     Cancel,
     Ok,
+    BackUp,
+    Skip,
 }
 
 fn window(ctx: &egui::Context, id: &str, title: &str, text: &str, buttons: &[(&str, &str, Choice)]) -> Option<usize> {
@@ -139,6 +160,27 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         }
         return;
     }
+    if let Some(QuitPrompt::Backup(text)) = app.quit_prompt.clone() {
+        let buttons = [
+            ("quitBackUp", "Back Up and Quit", Choice::BackUp),
+            ("quitSkipBackup", "Skip This Time", Choice::Skip),
+            ("quitCancel", "Cancel", Choice::Cancel),
+        ];
+        let Some(i) = window(ctx, "quit-backup", "Back Up the Library?", &text, &buttons) else { return };
+        app.quit_prompt = None;
+        match buttons[i].2 {
+            Choice::BackUp => {
+                app.backup_on_quit = crate::BackupOnQuit::Now;
+                app.ui.quit = true;
+            }
+            Choice::Skip => {
+                app.backup_on_quit = crate::BackupOnQuit::Skip;
+                app.ui.quit = true;
+            }
+            _ => {}
+        }
+        return;
+    }
     if let Some(QuitPrompt::Unsaved(text)) = app.quit_prompt.clone() {
         let buttons = [
             ("quitRetry", "Try Saving Again", Choice::Retry),
@@ -158,7 +200,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 app.quit_confirmed = true;
                 app.ui.quit = true;
             }
-            Choice::Cancel | Choice::Ok => app.quit_prompt = None,
+            _ => app.quit_prompt = None,
         }
         return;
     }

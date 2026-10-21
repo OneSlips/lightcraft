@@ -382,8 +382,6 @@
   "Camera card ({label})": "Tarjeta de cámara ({label})",
   "Type {n} to confirm:": "Escribe {n} para confirmar:",
   "Rejected files to move to the {bin}: {n}": "Archivos rechazados que se moverán a la {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos listas: {n}. Las máscaras de IA, el retoque y las previsualizaciones están hechos.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Fotos listas: {n}. Las máscaras de IA y el retoque están hechos.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Fotos exploradas omitidas: {n}{0:.0} — los álbumes contienen fotos de la biblioteca (impórtalas primero)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} rechazadas: {closed} con ojos cerrados, {blurry} con ojos borrosos",
   "+{} more, all sharp and open": "+{} más, todos nítidos y con los ojos abiertos",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Perfil {name} aplicado a {n} fotos",
   "Profile {name}": "Perfil {name}",
   "{n} stars": "{n} estrellas",
-  "Label: {name}": "Etiqueta: {name}"
+  "Label: {name}": "Etiqueta: {name}",
+  "Photos ready: {n}.": "Fotos listas: {n}.",
+  "AI masks: {masks} on {photos} photos.": "Máscaras de IA: {masks} en {photos} fotos.",
+  "Smooth Skin: {n} photos.": "Suavizar piel: {n} fotos.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "¿Hacer una copia de seguridad de «{library}» antes de salir de LightCraft? La copia guarda el catálogo, sus ajustes, tus ajustes preestablecidos y perfiles; no las fotos.",
+  "Preset {name} on {n} photos": "Ajuste {name} en {n} fotos"
 }

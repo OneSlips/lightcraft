@@ -369,3 +369,97 @@ fn browsing_develops_each_body_with_its_default_profile() {
     assert_eq!(of(&s, "B71.dng"), "lc.color", "a body without a default keeps LightCraft's colour");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A user preset `id` with `settings`.
+fn add_preset(s: &mut Session, id: &str, settings: Value) {
+    s.presets.push(lightcraft_develop::Preset { id: id.into(), name: id.into(), group: "Studio".into(), settings, favorite: false, builtin: false });
+}
+
+/// LR-IMP-PROFILE: the Import tab imports browsed photos. A body whose default profile was set after
+/// the card was browsed (in the Import panel, say) still gets it at import, with a preset stack or
+/// without; a preset that names another camera profile or LightCraft's standard colour doesn't take
+/// it away unless the import says so (`presetProfile`).
+#[test]
+fn import_gives_each_body_its_profile_with_and_without_a_preset() {
+    let dir = temp_dir("import-body");
+    let mut s = Session::new().with_fs().with_app_store(&dir.join("store"));
+    s.open_library(dir.join("lib"), false).unwrap();
+    let made = chart(&dir, "MADE74.dng", "D65", Some("SN74"));
+    let pid = s.execute("profile.createFromChart", &json!({"path": made, "illuminant": "D65", "apply": false})).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let other = s.execute("profile.createFromChart", &json!({"path": made, "illuminant": "A", "apply": false, "name": "Other"})).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // model-wide profiles (the user's own .dcp files): the body has no default yet while the card
+    // is browsed
+    for e in &mut s.dcp_profiles {
+        e.bodies.clear();
+        e.body_defaults.clear();
+    }
+    let card = dir.join("card");
+    std::fs::create_dir_all(&card).unwrap();
+    for n in ["A74.dng", "B74.dng", "C74.dng", "D74.dng"] {
+        chart(&card, n, "D65", Some("SN74"));
+    }
+    s.execute("library.browse", &json!({"path": card.to_string_lossy()})).unwrap();
+    let id_of = |s: &Session, name: &str| s.catalog.photos().find(|p| p.file_name == name).unwrap().id;
+    assert_eq!(profile_of(&s, id_of(&s, "A74.dng")), "lc.color", "no default while browsing");
+    // now the body gets its profile (the Import panel's body row)
+    s.execute("profile.setBodyDefault", &json!({"profile": pid, "serial": "SN74"})).unwrap();
+    add_preset(&mut s, "u.studio", json!({"light": {"exposure": 0.3}, "treatment": "color"}));
+    // a preset of LightCraft's own that carries a camera profile and the standard look
+    add_preset(&mut s, "u.withProfile", json!({"camera_profile": other, "profile": {"id": "lc.color", "amount": 100.0}}));
+    let import = |s: &mut Session, name: &str, extra: Value| {
+        let id = id_of(s, name);
+        s.selection = crate::Selection::single(id);
+        let mut p = json!({"what": "selected", "previews": "none"});
+        if let (Some(o), Some(e)) = (p.as_object_mut(), extra.as_object()) {
+            o.extend(e.clone());
+        }
+        let r = s.execute("import.run", &p).unwrap();
+        assert_eq!(r["imported"].as_array().map(Vec::len), Some(1), "{r}");
+        id
+    };
+    let plain = import(&mut s, "A74.dng", json!({}));
+    assert_eq!(profile_of(&s, plain), pid, "without a preset");
+    let with = import(&mut s, "B74.dng", json!({"presets": ["u.studio"]}));
+    assert_eq!(profile_of(&s, with), pid, "with a preset");
+    assert_eq!(s.catalog.photo(with).unwrap().develop.light.exposure, 0.3, "the preset applied");
+    let kept = import(&mut s, "C74.dng", json!({"presets": ["u.studio", "u.withProfile"]}));
+    assert_eq!(profile_of(&s, kept), pid, "a preset's own profile doesn't win by itself");
+    let chosen = import(&mut s, "D74.dng", json!({"presets": ["u.withProfile"], "presetProfile": true}));
+    assert_eq!(profile_of(&s, chosen), other, "it wins when the import says so");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A browsed photo picked up its body's profile automatically; the body's default changed before
+/// the import: it imports with the new one.
+#[test]
+fn a_browsed_photo_takes_its_bodys_new_default_at_import() {
+    let dir = temp_dir("import-body-new");
+    let mut s = Session::new().with_fs().with_app_store(&dir.join("store"));
+    s.open_library(dir.join("lib"), false).unwrap();
+    let made = chart(&dir, "MADE71.dng", "D65", Some("SN71"));
+    let first = s.execute("profile.createFromChart", &json!({"path": made, "illuminant": "D65", "apply": false})).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let card = dir.join("card");
+    std::fs::create_dir_all(&card).unwrap();
+    chart(&card, "A71.dng", "D65", Some("SN71"));
+    s.execute("library.browse", &json!({"path": card.to_string_lossy()})).unwrap();
+    let id = s.catalog.photos().find(|p| p.file_name == "A71.dng").unwrap().id;
+    assert_eq!(profile_of(&s, id), first);
+    let second = s.execute("profile.createFromChart", &json!({"path": made, "illuminant": "A", "apply": false, "name": "Second"})).unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    s.execute("profile.setBodyDefault", &json!({"profile": second, "serial": "SN71"})).unwrap();
+    s.selection = crate::Selection::single(id);
+    s.execute("import.run", &json!({"what": "selected"})).unwrap();
+    assert_eq!(profile_of(&s, id), second);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1757,6 +1757,12 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
         }
         "app.quit" => {
+            app.backup_on_quit = match p.get("backup").and_then(Value::as_str) {
+                Some("now") => crate::BackupOnQuit::Now,
+                Some("skip") => crate::BackupOnQuit::Skip,
+                Some("auto") => crate::BackupOnQuit::Auto,
+                _ => crate::BackupOnQuit::Ask,
+            };
             app.ui.quit = true;
             Ok(Value::Null)
         }

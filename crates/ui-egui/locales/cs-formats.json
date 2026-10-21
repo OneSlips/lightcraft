@@ -382,8 +382,6 @@
   "Camera card ({label})": "Paměťová karta ({label})",
   "Type {n} to confirm:": "Pro potvrzení napište {n}:",
   "Rejected files to move to the {bin}: {n}": "Zamítnuté soubory k přesunutí do {bin}: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Připravené fotky: {n}. AI masky, retuš a náhledy jsou hotové.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Připravené fotky: {n}. AI masky a retuš jsou hotové.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Přeskočené procházené fotky: {n}{:.0}; alba obsahují fotky z knihovny (nejprve je importujte)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "Odmítnuto {n}: {closed} se zavřenýma očima, {blurry} s rozmazanýma očima",
   "+{} more, all sharp and open": "+{} dalších, všichni ostří a s otevřenýma očima",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Profil {name} použit u {n} fotografií",
   "Profile {name}": "Profil {name}",
   "{n} stars": "Hvězdičky: {n}",
-  "Label: {name}": "Štítek: {name}"
+  "Label: {name}": "Štítek: {name}",
+  "Photos ready: {n}.": "Fotky připraveny: {n}.",
+  "AI masks: {masks} on {photos} photos.": "AI masky: {masks} na {photos} fotkách.",
+  "Smooth Skin: {n} photos.": "Vyhlazení pleti: {n} fotek.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Zálohovat „{library}“ před ukončením LightCraftu? Záloha uchová katalog, jeho nastavení, vaše předvolby a profily; ne fotky.",
+  "Preset {name} on {n} photos": "Předvolba {name} na {n} fotkách"
 }

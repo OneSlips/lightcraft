@@ -358,8 +358,6 @@
   "Paired: {name}": "Paired: {name}",
   "Person {n}": "Person {n}",
   "Photos from body {body} develop with this profile by default": "Photos from body {body} develop with this profile by default",
-  "Photos ready: {n}. AI masks and retouch are done.": "Photos ready: {n}. AI masks and retouch are done.",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Photos ready: {n}. AI masks, retouch and previews are done.",
   "Picks ({n})": "Picks ({n})",
   "Plugin {version} installed": "Plugin {version} installed",
   "Read {name}'s policy": "Read {name}'s policy",
@@ -432,5 +430,10 @@
   "Redo: {what}": "Redo: {what}",
   "Undo: {what}": "Undo: {what}",
   "on {n} photos": "on {n} photos",
-  "{n} stars": "{n} stars"
+  "{n} stars": "{n} stars",
+  "AI masks: {masks} on {photos} photos.": "AI masks: {masks} on {photos} photos.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.",
+  "Photos ready: {n}.": "Photos ready: {n}.",
+  "Preset {name} on {n} photos": "Preset {name} on {n} photos",
+  "Smooth Skin: {n} photos.": "Smooth Skin: {n} photos."
 }

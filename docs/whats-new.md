@@ -52,6 +52,48 @@
   the person wearing it, and their hair, are left out; People ▸ Clothes too.
 - **Crisp edges, no halo**: the outline follows the dress's own edge instead of a soft glow around
   it (the model's coarse mask is now refined on the photo).
+### Import keeps each body's camera profile
+- Photos imported from the Import tab now always get **their camera body's profile**, also when the
+  body's profile was set after the folder was opened (in the Import panel, say), and with a preset
+  stack. Before, such a photo could arrive with plain "Color".
+- A preset never takes the body's profile away. To let a preset's own camera profile win, tick
+  **Presets may change the camera profile** under the Import panel's presets.
+
+### Import notices say what really happened
+- When an import is ready, the notice names only what was done: **AI masks with their counts**
+  ("AI masks: 24 on 12 photos") only when a preset had some, Smooth Skin when it ran, previews when
+  they were built. An import with nothing more to do shows no notice.
+
+### Backup when quitting: asks first
+- With a backup due (Settings ▸ Backups), quitting asks **Back Up and Quit** or **Skip This Time**,
+  as Lightroom Classic does. When nothing changed since the last backup (you only looked at
+  photos), it doesn't ask and doesn't back up.
+
+### Presets Manager: a proper table
+- **Deleting a group asks right under the group**, not at the top of the list where you couldn't see
+  it. A preset's Delete asks in its own row.
+- The list reads as a table: each group's header is a **shaded band** with its count in a muted
+  column, the presets of an open group hang off an **indent guide** with faint alternate shading,
+  the row under the pointer lights up, and **every action sits in a fixed column at the right**, the
+  same for groups and presets (no more zig-zag after names of different lengths).
+- The **Profile Manager** has the same table look; its confirmations stay next to what they are
+  about.
+
+### One preset picker everywhere
+- Choosing a preset in the **Import panel**, the import review, **Quick Develop** (new: **Saved
+  Preset** applies one to all the selected photos) and the default presets in Settings now opens
+  the same picker:
+  - a **search** field;
+  - **Favorites** and **For Import** first: mark the presets you use on import with the import
+    arrow at the right of a row (or in the Presets Manager's new column, or the Presets panel's
+    right-click menu). When importing, the picker shows just those until you choose **All Presets**;
+  - then **groups that fold**, in the Presets Manager's order: your own groups ("001-…", "002-…")
+    before LightCraft's;
+  - long names left-aligned, cut short with … (the full name on hover);
+  - rest the pointer on a preset to **see it on a photo** of the folder, beside the list.
+- Hidden presets and built-in presets you deleted no longer show in the Import panel, nor do looks
+  you hid or deleted in the Profile Manager.
+- The Presets panel has the same search and the Favorites and For Import groups at the top.
 
 ## 2026-10-16
 

@@ -145,11 +145,12 @@ impl eframe::App for App {
             log::error!("saving the library failed: {e}");
         }
         // Back up on exit (Settings ▸ Backups): a backup already running finishes first, else one
-        // is made when it is due. A copy of the catalog and settings files: well under a second
+        // is made when it is due, something changed since the last one and the quit prompt's Skip
+        // This Time wasn't chosen. A copy of the catalog and settings files: well under a second
         // on a local disk.
         if self.0.session.backup_running() {
             let _ = self.0.session.wait_backup(std::time::Duration::from_secs(120));
-        } else if self.0.session.backup_due() {
+        } else if self.0.backup_at_exit() {
             let t0 = std::time::Instant::now();
             match self.0.session.back_up_library(false) {
                 Ok(v) => log::info!("backup on exit: {} ({:.0} ms)", v["path"].as_str().unwrap_or_default(), t0.elapsed().as_secs_f64() * 1000.0),

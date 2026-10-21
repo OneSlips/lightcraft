@@ -382,8 +382,6 @@
   "Camera card ({label})": "Speicherkarte ({label})",
   "Type {n} to confirm:": "Zum Bestätigen {n} eingeben:",
   "Rejected files to move to the {bin}: {n}": "Abgelehnte Dateien, die in den {bin} verschoben werden: {n}",
-  "Photos ready: {n}. AI masks, retouch and previews are done.": "Fotos bereit: {n}. KI-Masken, Retusche und Vorschauen sind fertig.",
-  "Photos ready: {n}. AI masks and retouch are done.": "Fotos bereit: {n}. KI-Masken und Retusche sind fertig.",
   "{n} browsed photo{} skipped: albums hold library photos (import them first)": "Übersprungen: {n} durchsuchte Fotos{0:.0} – Alben enthalten Bibliotheksfotos (zuerst importieren)",
   "Rejected {n}: {closed} with closed eyes, {blurry} with blurry eyes": "{n} abgelehnt: {closed} mit geschlossenen Augen, {blurry} mit unscharfen Augen",
   "+{} more, all sharp and open": "+{} weitere, alle scharf und mit offenen Augen",
@@ -432,5 +430,10 @@
   "Profile {name} applied to {n} photos": "Profil {name} auf {n} Fotos angewendet",
   "Profile {name}": "Profil {name}",
   "{n} stars": "{n} Sterne",
-  "Label: {name}": "Farbmarkierung: {name}"
+  "Label: {name}": "Farbmarkierung: {name}",
+  "Photos ready: {n}.": "Fotos bereit: {n}.",
+  "AI masks: {masks} on {photos} photos.": "KI-Masken: {masks} auf {photos} Fotos.",
+  "Smooth Skin: {n} photos.": "Haut glätten: {n} Fotos.",
+  "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "„{library}“ sichern, bevor LightCraft beendet wird? Die Sicherung enthält den Katalog, seine Einstellungen, Ihre Vorgaben und Profile; nicht die Fotos.",
+  "Preset {name} on {n} photos": "Vorgabe {name} auf {n} Fotos"
 }
