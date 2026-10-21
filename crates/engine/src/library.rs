@@ -238,6 +238,9 @@ struct PrefsFile {
     import: crate::import::ImportDefaults,
     /// Thumbnail disk cache budget (MB, 0 = default).
     cache_mb: u32,
+    /// This library's own background preparation settings (`None`: the app-wide ones).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    prep: Option<crate::prep::PrepSettings>,
     /// Folder for smart previews (default: `Smart Previews` in the library).
     smart_previews_dir: Option<String>,
     /// Days after which untouched Local records of unbrowsed folders are forgotten (missing =
@@ -513,6 +516,7 @@ impl Session {
         self.recent_keywords = prefs.recent_keywords;
         self.import_defaults = prefs.import;
         self.cache_mb = prefs.cache_mb;
+        self.prep.library = prefs.prep.map(crate::prep::PrepSettings::sanitized);
         self.slideshow = prefs.slideshow.sanitized();
         self.slide_layout = prefs.slide_layout.sanitized();
         self.slide_overlays = prefs.slide_overlays.sanitized();
@@ -782,6 +786,7 @@ impl Session {
             recent_keywords: self.recent_keywords.clone(),
             import: self.import_defaults.clone(),
             cache_mb: self.cache_mb,
+            prep: self.prep.library,
             smart_previews_dir: self.smart_previews_dir.as_ref().map(|d| d.to_string_lossy().to_string()),
             forget_local_days: Some(self.forget_local_days),
             slideshow: self.slideshow.clone(),
@@ -809,9 +814,21 @@ impl Session {
         new
     }
 
-    /// The thumbnail disk cache budget in bytes ([`Session::cache_mb`], else the default).
+    /// The thumbnail disk cache budget in bytes ([`Session::cache_mb`], else the default, which
+    /// grows with the library: [`crate::media::default_disk_cache_bytes`]).
     pub fn cache_bytes(&self) -> u64 {
-        if self.cache_mb == 0 { crate::media::DISK_CACHE_BYTES } else { u64::from(self.cache_mb) << 20 }
+        if self.cache_mb == 0 { crate::media::default_disk_cache_bytes(self.catalog.len()) } else { u64::from(self.cache_mb) << 20 }
+    }
+
+    /// Bring the disk cache's budget up to date with the library (photos were added since it was
+    /// set): cheap, nothing is read or written. Called before previews are built.
+    pub fn fit_disk_cache(&mut self) {
+        let want = self.cache_bytes();
+        if let Some(d) = self.media.rendered.disk()
+            && d.budget() != want
+        {
+            d.set_budget(want);
+        }
     }
 
     /// Change the thumbnail disk cache budget (MB, 0 = default) in place: the cached thumbnails

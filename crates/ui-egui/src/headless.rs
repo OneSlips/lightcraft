@@ -5476,6 +5476,82 @@ mod tests {
         assert!(h.step_until(SETTLE, |h| h.app.loupe_shown.is_some_and(|l| l.1 == "render") && !has(h, "loupe:renderFailed")));
     }
 
+    /// Note 47: stepping in the loupe to a photo whose preview was built shows that preview as the
+    /// photo (fitted to the loupe, no render), and standard previews are built at the loupe's size.
+    #[test]
+    fn the_loupe_shows_built_previews_without_rendering_again() {
+        use crate::render::Slot;
+        use lightcraft_engine::media::QuickSource;
+        let mut h = demo([1000.0, 700.0]);
+        let t = Duration::from_secs(10);
+        // nothing prepared ahead here: what the loupe shows comes from the build alone
+        h.request(
+            "engine.execute",
+            json!({"command": "prefs.setBackgroundPrep", "params": {"settings": {"library": {"ahead": 0, "previews": false}}}}),
+            t,
+        );
+        h.request("ui.set", json!({"view": "detail", "right": "none"}), t);
+        h.settle(SETTLE);
+        let edge = h.app.session.loupe_edge;
+        assert!(edge > 100, "the loupe said its size: {edge}");
+        let ids = h.app.session.visible_cloned();
+        let all: Vec<u64> = ids.iter().map(|i| i.0).collect();
+        let r = h.request("engine.execute", json!({"command": "library.buildPreviews", "params": {"wait": true, "edge": edge, "ids": all}}), t);
+        assert_eq!(r["result"]["done"], ids.len(), "{r}");
+        let next = ids.get(1).copied().expect("a second photo");
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [next.0], "active": next.0}}), t);
+        assert!(h.step_until(SETTLE, |h| h.app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == next)));
+        let main = h.app.renderer.textures.get(&Slot::Main).unwrap();
+        assert_eq!(main.quick, Some(QuickSource::Cached), "the built preview is the loupe's picture");
+        let r = h.request("ui.inspect", json!({}), t);
+        assert!(r["result"]["perf"]["previewCache"]["memEntries"].as_u64().unwrap_or(0) > 0, "{}", r["result"]["perf"]["previewCache"]);
+    }
+
+    /// The app-wide background preparation settings are kept with the app settings (`ui.json`):
+    /// the saved ones reach the session at launch, and a change made through the command is saved.
+    #[test]
+    fn app_wide_preparation_settings_are_saved_with_the_app_settings() {
+        let mut h = demo([1000.0, 700.0]);
+        let t = Duration::from_secs(10);
+        let mut saved = lightcraft_engine::prep::PrepSettings::default();
+        saved.library.ahead = 3;
+        // (as if read from ui.json before the first frame)
+        h.app.ui.settings.background_prep = saved;
+        h.app.prep_synced = false;
+        h.step();
+        assert_eq!(h.app.session.prep.app, saved, "the saved settings reach the session");
+        h.request("engine.execute", json!({"command": "prefs.setBackgroundPrep", "params": {"settings": {"library": {"ahead": 10}}}}), t);
+        h.step();
+        assert_eq!(h.app.ui.settings.background_prep.library.ahead, 10, "a change is kept with the app settings");
+        assert_eq!(h.app.session.prep.app.library.ahead, 10);
+    }
+
+    /// Note 48: the loupe prepares as many photos ahead as the settings say, a few at a time, and
+    /// none when that is off.
+    #[test]
+    fn the_loupe_prepares_the_photos_ahead_the_settings_ask_for() {
+        let mut h = demo([1000.0, 700.0]);
+        let t = Duration::from_secs(10);
+        let n = h.app.session.visible_cloned().len();
+        assert!(n >= 4, "the demo has photos to step through");
+        h.request("engine.execute", json!({"command": "prefs.setBackgroundPrep", "params": {"settings": {"library": {"ahead": 3}}}}), t);
+        h.request("ui.set", json!({"view": "detail", "right": "none"}), t);
+        h.settle(SETTLE);
+        for _ in 0..40 {
+            h.step();
+        }
+        h.settle(SETTLE);
+        // the first photo: three ahead (no photo behind it)
+        assert_eq!(h.app.renderer.prefetch_slots_asked(), 3.min(n - 1));
+        h.app.renderer.forget_all();
+        h.request("engine.execute", json!({"command": "prefs.setBackgroundPrep", "params": {"settings": {"library": {"ahead": 0}}}}), t);
+        for _ in 0..40 {
+            h.step();
+        }
+        h.settle(SETTLE);
+        assert_eq!(h.app.renderer.prefetch_slots_asked(), 0, "off: nothing prepared ahead");
+    }
+
     #[test]
     fn screenshot_request_is_answered_without_a_window() {
         let mut h = demo([800.0, 500.0]);

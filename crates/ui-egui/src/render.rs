@@ -654,6 +654,21 @@ impl Renderer {
         );
     }
 
+    /// Prepared-ahead jobs ([`Slot::Prefetch`]) queued or running.
+    pub fn prefetches_pending(&self) -> usize {
+        self.pending.keys().filter(|s| matches!(s, Slot::Prefetch(_))).count()
+    }
+
+    /// Prepared-ahead slots asked for since the renderer last forgot everything.
+    pub fn prefetch_slots_asked(&self) -> usize {
+        self.prefetched.keys().filter(|s| matches!(s, Slot::Prefetch(_))).count()
+    }
+
+    /// Whether `slot` was last asked for the job of `key` (queued, running or done).
+    pub fn prefetch_asked(&self, slot: Slot, key: u64) -> bool {
+        self.prefetched.get(&slot) == Some(&key)
+    }
+
     /// Drop the slideshow slides other than `keep`: their textures and their requests that have
     /// not started (a slide that is no longer near is not worth rendering).
     pub fn release_slides(&mut self, keep: &[lightcraft_engine::slideshow::Item]) {
@@ -1025,7 +1040,8 @@ impl Renderer {
                     );
                 }
             }
-            if slot == Slot::Main {
+            // (a preview taken from the cache says nothing about how long a render takes)
+            if slot == Slot::Main && r.quick.is_none() {
                 self.last_main_ms = ms;
             }
             changed = true;

@@ -658,6 +658,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // one axis only. A box that matches the source to rounding is rendered at exactly its size.
     let short = |e: usize, a: f32| ((e as f32 / a).round() as usize).max(1);
     let (rw, rh) = if aspect >= 1.0 { (want, short(want, aspect)) } else { (short(want, 1.0 / aspect), want) };
+    // the most the loupe shows a whole photo at (the canvas's long side; a photo of another shape
+    // than this one may fill it): standard previews are built at least this big
+    if matches!(app.ui.zoom, Zoom::Fit) && !interacting && !split && !split_view {
+        let canvas_long = sizes.canvas_long;
+        if canvas_long.is_finite() && canvas_long >= 1.0 {
+            app.session.loupe_edge = canvas_long.ceil() as usize;
+        }
+    }
     // hover and before renders are stand-ins: the preview size is plenty and keeps them cheap
     let se = app.ui.settings.stand_in_edge(want, texture_side);
     let (sw, sh) = if aspect >= 1.0 { (se, short(se, aspect)) } else { (short(se, 1.0 / aspect), se) };
@@ -671,6 +679,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(crate::loupe_timing::SETTLE_SECS / 2.0));
     }
     if !settling && let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
+        // the photo on screen comes first: background preparation waits while it is being made
+        lightcraft_engine::prep::foreground();
         let job = if interacting { job.draft() } else { job };
         // at rest the render is shrunk to exactly the size it is drawn at with a Lanczos filter on
         // the worker, so the window draws it texel for texel instead of shrinking it with 2-tap
@@ -705,11 +715,25 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // kept, view render cached) so stepping to them is instant
     if !interacting && !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id) {
         let ids = app.session.visible_cloned();
-        if let Some(i) = ids.iter().position(|p| *p == id) {
-            let next = ids.get(i + 1).copied();
-            let prev = i.checked_sub(1).and_then(|j| ids.get(j)).copied();
-            for (n, nid) in [next, prev].into_iter().enumerate() {
-                let Some(nid) = nid else { continue };
+        let mode = prep_mode(app);
+        let prep = app.session.prep_settings();
+        let ahead = prep.ahead(mode);
+        // editing: the next photos are decoded and kept, ready for their edits (their view render is not
+        // what is wanted, and a cached one would leave the photo undecoded)
+        let develop = mode == lightcraft_engine::prep::Mode::Develop;
+        if let Some(i) = ids.iter().position(|p| *p == id).filter(|_| ahead > 0) {
+            let mut targets = app.look_ahead.targets_n(&ids, i, ahead, BEHIND);
+            if prep.scope(mode) == lightcraft_engine::prep::Scope::Marked {
+                targets.retain(|t| lightcraft_engine::prep::marked(&app.session, *t));
+            }
+            // a few at a time, nearest first (the pool keeps workers free for the photo the user goes to)
+            let mut room = PREFETCH_AT_ONCE.saturating_sub(app.renderer.prefetches_pending());
+            let todo: Vec<(usize, PhotoId)> = targets.into_iter().filter_map(|nid| ids.iter().position(|p| *p == nid).map(|at| (at, nid))).collect();
+            for (at, nid) in todo {
+                if room == 0 {
+                    break;
+                }
+                let n = prefetch_slot(at);
                 let Some(np) = app.session.catalog.photo(nid).cloned() else { continue };
                 let nf = Frame::with_lens(np.width.max(1) as usize, np.height.max(1) as usize, &np.develop, !crop_tool, np.embedded_lens.as_ref());
                 let na = nf.aspect() as f32;
@@ -717,8 +741,16 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let nw =
                     app.ui.settings.prefetch_edge(nr.width().max(nr.height()) * ppp, output_px(&nf).into_iter().max().unwrap_or(1), texture_side);
                 let (w, h) = if na >= 1.0 { (nw, (nw as f32 / na) as usize) } else { ((nw as f32 * na) as usize, nw) };
-                if let Some(job) = app.session.loupe_job(nid, w.max(8), h.max(8), !crop_tool) {
-                    app.renderer.prefetch(Slot::Prefetch(n as u8), job, PREFETCH_PRIORITY);
+                if let Some(mut job) = app.session.loupe_job(nid, w.max(8), h.max(8), !crop_tool) {
+                    if develop {
+                        job.view_cache = None;
+                    }
+                    // (asked for already, in this slot: queued, running or made)
+                    if app.renderer.prefetch_asked(n, job.key) {
+                        continue;
+                    }
+                    room -= 1;
+                    app.renderer.prefetch(n, job, PREFETCH_PRIORITY);
                 }
             }
         }
@@ -1524,6 +1556,26 @@ fn navigator(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, img: Rect
 
 /// Neighbour prefetch: below on-screen thumbnails, above background thumbnail refreshes.
 const PREFETCH_PRIORITY: u32 = 4;
+/// Photos prepared ahead at once (each render spreads over the cores already): the others wait,
+/// so the photo the user steps to next finds a worker free.
+const PREFETCH_AT_ONCE: usize = 2;
+/// Prepared-ahead slots, by the photo's place in the view: a step keeps the photos still ahead in
+/// the slots they have (nothing is asked for twice), and the jump to another part of the shoot
+/// replaces what was waiting.
+const PREFETCH_SLOTS: usize = 32;
+
+fn prefetch_slot(at: usize) -> Slot {
+    Slot::Prefetch((at % PREFETCH_SLOTS) as u8)
+}
+
+/// What the user is doing, for the background preparation: editing (a tool panel open), else
+/// culling a folder or browsing the library.
+pub fn prep_mode(app: &LightcraftApp) -> lightcraft_engine::prep::Mode {
+    match app.ui.right {
+        RightPanel::Edit | RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye => lightcraft_engine::prep::Mode::Develop,
+        _ => lightcraft_engine::prep::Mode::of(&app.session),
+    }
+}
 
 /// How many photos ahead (in the direction of travel) the loupe makes its stand-in for, and how
 /// many behind (a step back is common when culling).
@@ -1553,11 +1605,23 @@ impl LookAhead {
     /// The photos to prepare around `id` at position `i` of `ids`: [`AHEAD`] in the direction of
     /// travel, nearest first, then [`BEHIND`] the other way.
     fn targets(&self, ids: &[PhotoId], i: usize) -> Vec<PhotoId> {
+        self.targets_n(ids, i, AHEAD, BEHIND)
+    }
+
+    /// `ahead` photos in the direction of travel from position `i` of `ids`, nearest first, then
+    /// `behind` the other way.
+    pub fn targets_n(&self, ids: &[PhotoId], i: usize, ahead: usize, behind: usize) -> Vec<PhotoId> {
         let dir: isize = if self.dir < 0 { -1 } else { 1 };
         let at = |k: isize| i.checked_add_signed(k).and_then(|j| ids.get(j)).copied();
-        let ahead = (1..=AHEAD as isize).filter_map(|k| at(dir * k));
-        let behind = (1..=BEHIND as isize).filter_map(|k| at(-dir * k));
+        let cap = |n: usize| n.min(ids.len()) as isize;
+        let ahead = (1..=cap(ahead)).filter_map(|k| at(dir * k));
+        let behind = (1..=cap(behind)).filter_map(|k| at(-dir * k));
         ahead.chain(behind).collect()
+    }
+
+    /// Whether the user is stepping backwards.
+    pub fn backward(&self) -> bool {
+        self.dir < 0
     }
 }
 

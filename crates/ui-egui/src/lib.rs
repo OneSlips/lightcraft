@@ -517,6 +517,9 @@ pub struct LightcraftApp {
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
     /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
     pub loupe_timing: loupe_timing::LoupeTiming,
+    /// The app-wide background preparation settings were handed from the saved app settings to
+    /// the session ([`Self::background_prep`]).
+    prep_synced: bool,
     /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
     /// catalog revision and the edge, so it is worked out again only when one of them changes.
     pub(crate) look_ahead: panels::detail::LookAhead,
@@ -674,6 +677,7 @@ impl LightcraftApp {
             brush_live: None,
             loupe_shown: None,
             loupe_timing: Default::default(),
+            prep_synced: false,
             look_ahead: Default::default(),
             region_view: None,
             region_before_view: None,
@@ -1121,6 +1125,32 @@ impl LightcraftApp {
             Some(DownloadOutcome::Failed(e)) => self.toast_error(ctx, e),
             None if self.session.place_names.downloading() => ctx.request_repaint_after(std::time::Duration::from_millis(500)),
             None => {}
+        }
+    }
+
+    /// The app-wide background preparation settings live with the app settings (`ui.json`): taken
+    /// into the session once, then a change made through `prefs.setBackgroundPrep` is saved with
+    /// them. Run at the start of every logic pass, before any command of that pass (also before
+    /// the fonts are ready and the window is drawn).
+    fn sync_prep_settings(&mut self) {
+        if !self.prep_synced {
+            self.session.prep.app = self.ui.settings.background_prep.sanitized();
+            self.prep_synced = true;
+        } else if self.session.prep.app != self.ui.settings.background_prep {
+            self.ui.settings.background_prep = self.session.prep.app;
+        }
+    }
+
+    /// Preparing photos in the background ([`lightcraft_engine::prep`]): the whole view's previews
+    /// once the user is culling in the loupe, built from the photo on screen in the direction of travel.
+    fn background_prep(&mut self, ctx: &egui::Context) {
+        let mode = panels::detail::prep_mode(self);
+        let loupe = self.ui.fullscreen || self.ui.view == state::ViewMode::Detail;
+        let at = if loupe { self.session.active() } else { None };
+        let backward = self.look_ahead.backward();
+        self.session.prep_tick(mode, at, backward);
+        if self.session.preview_build.as_ref().is_some_and(|b| b.running()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
 
@@ -1892,6 +1922,7 @@ impl LightcraftApp {
     /// hidden, from `Context::run_logic`. It may read the refreshed viewport fields only: never
     /// `i.time`, events, keys or dropped files.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        self.sync_prep_settings();
         i18n::set_language(self.ui.language);
         // The fork's AccessKit root language and bidi runs follow the locale; presentation only.
         // Compare against the cached string: `Context::language()` allocates on every call, and
@@ -2626,6 +2657,7 @@ impl LightcraftApp {
         self.library_changed(&ctx);
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
+        self.background_prep(&ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default()

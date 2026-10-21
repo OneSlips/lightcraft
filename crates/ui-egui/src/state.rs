@@ -494,6 +494,9 @@ pub struct AppSettings {
     /// View ▸ View Options ▸ Show message when loading or rendering photos: the loupe says
     /// "Rendering…" while the photo it shows is not the finished render.
     pub loupe_messages: bool,
+    /// Settings ▸ Performance ▸ Prepare photos in the background, app-wide (a library may keep its
+    /// own in its `prefs.json`): handed to the session at launch and kept in step with it.
+    pub background_prep: lightcraft_engine::prep::PrepSettings,
     /// Shortcuts the user changed (Help ▸ Keyboard Shortcuts): command id → shortcut, `""` = none.
     pub keymap: crate::shortcuts::Keymap,
     /// Auto (follow the system), Dark or Light.
@@ -561,6 +564,7 @@ impl Default for AppSettings {
             film_badges: true,
             grid_badges: GridBadges::Auto,
             loupe_messages: true,
+            background_prep: Default::default(),
             keymap: Default::default(),
             appearance_mode: AppearanceMode::Dark,
             dark_theme: DarkTheme::Charcoal,
