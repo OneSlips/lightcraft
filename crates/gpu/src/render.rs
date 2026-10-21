@@ -1327,7 +1327,8 @@ fn masks(
     if list.is_empty() {
         return (None, Vec::new());
     }
-    let terms = list.iter().map(|m| mask_terms(&m.adjust)).collect();
+    let mut terms: Vec<_> = list.iter().map(|m| mask_terms(&m.adjust)).collect();
+    lightcraft_pipeline::finish::with_tone(&mut terms, &plan.mask_tone);
     let key = lightcraft_pipeline::masks::alpha_key(&s.masks, s.light.exposure as f32, plan.w, plan.h, plan.mattes.as_deref());
     let chroma = planes.chroma.as_ref().filter(|_| prep.chroma.is_some()).map(|(k, _)| *k);
     if let Some(m) = planes.masks.as_ref().filter(|m| m.fits(key, chroma, plan.mattes.as_ref())) {

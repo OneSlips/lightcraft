@@ -2,6 +2,12 @@
 
 ## 2026-10-22
 
+### Develop
+- **A mask's Whites and Blacks adapt to what is under the mask**, as in Lightroom: Whites works up to the
+  brightest tones of that mask and Blacks down to its darkest, so Whites on a white dress pushes the dress's own
+  highlights and Blacks on a dark suit its own shadows. The tones are measured once on the whole photo, so the
+  preview, a zoomed view and the export look the same.
+
 ### Library
 - **Albums are now Collections**, as in Lightroom: the Library sidebar's **Collections**, **New Collection…**,
   **New Smart Collection…**, the target collection (**B** adds to it) and every menu and message that named albums.

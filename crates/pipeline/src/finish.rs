@@ -114,7 +114,14 @@ pub const LOCAL_BLACKS: (f32, f32) = (-5.5, 1.0);
 pub const LOCAL_WB_EV: f32 = 1.5;
 
 /// Number of per-mask terms in [`mask_terms`].
-pub const MASK_TERMS: usize = 21;
+pub const MASK_TERMS: usize = 25;
+
+/// Where a mask's own tone range starts in its [`mask_terms`]: Whites from nothing to full, then Blacks from full
+/// to nothing (log2 luminance over middle grey; [`crate::mask_tone`] fits them to the tones under the mask).
+pub const MASK_TONE: usize = 21;
+
+/// The tone range a mask's Whites / Blacks act on when nothing better is known: [`LOCAL_WHITES`], [`LOCAL_BLACKS`].
+pub const DEFAULT_MASK_TONE: [f32; 4] = [LOCAL_WHITES.0, LOCAL_WHITES.1, LOCAL_BLACKS.0, LOCAL_BLACKS.1];
 
 /// Number of alpha-weighted terms at the start of [`mask_terms`].
 pub const MASK_SUMS: usize = 17;
@@ -122,7 +129,8 @@ pub const MASK_SUMS: usize = 17;
 /// A mask's local adjustments as the per-pixel stage uses them (alpha-weighted sums), in order:
 /// exposure, temp, tint, contrast, highlights, shadows, whites, blacks, texture, clarity, dehaze,
 /// saturation, hue, sharpness, noise, moiré, defringe, then the colour overlay: on (0/1), cos and
-/// sin of its OkLCh hue, and its strength.
+/// sin of its OkLCh hue, and its strength; then the tone range of its Whites and Blacks ([`MASK_TONE`],
+/// [`DEFAULT_MASK_TONE`] here: [`with_tone`] gives it the mask's own).
 pub fn mask_terms(j: &LocalAdjustments) -> [f32; MASK_TERMS] {
     let (on, cos, sin, amt) = if j.color_sat > 0.0 {
         let hue = crate::colorops::oklch_hue_of_srgb_hue(j.color_hue);
@@ -152,7 +160,24 @@ pub fn mask_terms(j: &LocalAdjustments) -> [f32; MASK_TERMS] {
         cos,
         sin,
         amt,
+        DEFAULT_MASK_TONE[0],
+        DEFAULT_MASK_TONE[1],
+        DEFAULT_MASK_TONE[2],
+        DEFAULT_MASK_TONE[3],
     ]
+}
+
+/// `terms` (one per evaluated mask) with the masks' own tone ranges (`tone`, in the same order; left as they are
+/// when the two lists don't line up).
+pub fn with_tone(terms: &mut [[f32; MASK_TERMS]], tone: &[[f32; 4]]) {
+    if terms.len() != tone.len() {
+        return;
+    }
+    for (t, r) in terms.iter_mut().zip(tone) {
+        if let Some(dst) = t.get_mut(MASK_TONE..MASK_TONE + 4) {
+            dst.copy_from_slice(r);
+        }
+    }
 }
 
 /// A mask's local Curve and Point Color, resolved for the per-pixel stage. They apply where the
@@ -457,7 +482,8 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     let (hl, sh, clar, tex, dehaze, sharpen, sharpen_mask, air, air_pre, gain, ev) =
         (*hl, *sh, *clar, *tex, *dehaze, *sharpen, *sharpen_mask, *air, *air_pre, *gain, *ev);
     let (sharpen_limit, sharpen_gain) = (*sharpen_limit, *sharpen_gain);
-    let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
+    let mut terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
+    with_tone(&mut terms, &p.mask_tone);
     // (only when it lines up with the evaluated masks, which it does unless a caller mixed settings)
     let local: &[MaskLocal] = if fp.local.len() == p.masks.len() { &fp.local } else { &[] };
     let out_to_norm = fp.out_to_norm;
@@ -559,16 +585,23 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
                 let wh = smooth(-1.0, 2.8, base);
                 delta += ss * 1.7 * ws * ws.sqrt() + hh * 1.7 * wh;
             }
-            // local Whites / Blacks: the brightest (darkest) tones under the mask, from just above
-            // (below) middle grey and strongest towards the white point (deep shadows), so a bright
-            // subject's highlights (a white dress) move, not only what is already near clipping
-            if l_wh != 0.0 {
-                let w = smooth(LOCAL_WHITES.0, LOCAL_WHITES.1, l1);
-                delta += l_wh * LOCAL_WB_EV * w * w.sqrt();
-            }
-            if l_bl != 0.0 {
-                let b = 1.0 - smooth(LOCAL_BLACKS.0, LOCAL_BLACKS.1, l1);
-                delta += l_bl * LOCAL_WB_EV * b;
+            // local Whites / Blacks: the brightest (darkest) tones under each mask, fitted to that
+            // mask's own tones (crate::mask_tone), so a white dress's highlights move as a sky's do
+            if l_wh != 0.0 || l_bl != 0.0 {
+                for (m, t) in p.masks.iter().zip(&terms) {
+                    let a = m.alpha.data[i];
+                    if a <= 0.0 {
+                        continue;
+                    }
+                    if t[6] != 0.0 {
+                        let w = smooth(t[MASK_TONE], t[MASK_TONE + 1], l1);
+                        delta += a * t[6] * LOCAL_WB_EV * w * w.sqrt();
+                    }
+                    if t[7] != 0.0 {
+                        let b = 1.0 - smooth(t[MASK_TONE + 2], t[MASK_TONE + 3], l1);
+                        delta += a * t[7] * LOCAL_WB_EV * b;
+                    }
+                }
             }
             if l_con != 0.0 {
                 delta += l_con * 0.14 * l1.clamp(-6.0, 4.0);
