@@ -4,6 +4,12 @@ The Effects panel's Grain (`ctl:grain.*`, `crates/pipeline/src/grain.rs`, GPU po
 `crates/gpu/src/wgsl/finish.wgsl`) renders grain particles on the spot, per output pixel, rather
 than overlaying a noise texture.
 
+This is the grain of **process V3** and later ([process-versions.md](process-versions.md)). Photos
+on V1 or V2 keep the value-noise grain they were edited with (`finish::ValueGrain`), so opening an
+older catalog never changes a photo's grain; Update to Current Process (`develop.updateProcess`)
+moves a photo to the particle grain, as one undo step. Size Variation, Clumping, Color and Response
+only act on V3; Size, Roughness (Shape) and Seed act on both models.
+
 ## Model
 
 Implemented from the published Boolean model of Newson, Delon & Galerne, *Realistic Film Grain

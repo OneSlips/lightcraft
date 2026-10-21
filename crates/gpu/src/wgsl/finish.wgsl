@@ -290,6 +290,39 @@ fn refine_saturation(before: vec3<f32>, after: vec3<f32>, refine: f32) -> vec3<f
     return y1 + (after - y1) * k;
 }
 
+// --- value-noise grain of processes V1 and V2 (frozen): `value_grain_noise` in
+// `lightcraft_pipeline::finish`
+fn vghash(i: i32, j: i32, seed: u32) -> f32 {
+    var v = (bitcast<u32>(i) * GRAIN_VH0) ^ (bitcast<u32>(j) * GRAIN_VH1) ^ (seed * GRAIN_VH2);
+    v ^= v >> 13u;
+    v = v * GRAIN_VH3;
+    v ^= v >> 15u;
+    return f32(v & 0xffffu) / 32768.0 - 1.0;
+}
+
+fn value_grain_noise(x: f32, y: f32, seed: u32) -> f32 {
+    let x0 = floor(x);
+    let y0 = floor(y);
+    let fx = x - x0;
+    let fy = y - y0;
+    let i = i32(x0);
+    let j = i32(y0);
+    let u = fx * fx * (3.0 - 2.0 * fx);
+    let v = fy * fy * (3.0 - 2.0 * fy);
+    let a = vghash(i, j, seed) + (vghash(i + 1, j, seed) - vghash(i, j, seed)) * u;
+    let b = vghash(i, j + 1, seed) + (vghash(i + 1, j + 1, seed) - vghash(i, j + 1, seed)) * u;
+    return a + (b - a) * v;
+}
+
+fn value_grain(gx: f32, gy: f32, lum: f32) -> f32 {
+    let sc = pf(F_GRAIN_SC);
+    let rough = pf(F_GRAIN_ROUGH);
+    let seed = pu(F_GRAIN_SEED);
+    var g = value_grain_noise(gx * sc, gy * sc, seed);
+    g = g * (1.0 - rough * 0.5) + value_grain_noise(gx * sc * 2.3, gy * sc * 2.3, seed ^ 0x55u) * rough * 0.7;
+    return pf(F_GRAIN_AMT) * g * (0.35 + 2.6 * lum * (1.0 - lum));
+}
+
 // --- film grain: a port of `lightcraft_pipeline::grain` (keep in step with it)
 fn gpcg(v: u32) -> u32 {
     let s = v * 747796405u + 2891336453u;
@@ -900,7 +933,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let gx = pf(F_GRAIN_AFF) * px + pf(F_GRAIN_AFF + 2u) * py + pf(F_GRAIN_AFF + 4u);
         let gy = pf(F_GRAIN_AFF + 1u) * px + pf(F_GRAIN_AFF + 3u) * py + pf(F_GRAIN_AFF + 5u);
         let lum = 0.2126 * e.x + 0.7152 * e.y + 0.0722 * e.z;
-        e = e + grain_apply(gx, gy, lum);
+        if (pu(F_GRAIN_MODEL) == 0u) {
+            e = e + value_grain(gx, gy, lum);
+        } else {
+            e = e + grain_apply(gx, gy, lum);
+        }
     }
     if (pu(F_LUT) != 0u) {
         let m = lut_apply(clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)));

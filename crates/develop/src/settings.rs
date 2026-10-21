@@ -84,7 +84,10 @@ pub enum Process {
     /// Highlights and Shadows keep the local contrast of the tones they move: their edge-aware base
     /// is taken of a fine median of log luminance (issue #632).
     V2,
-    /// Pixel-scale sharpening with working Radius and Detail controls.
+    /// Pixel-scale sharpening with working Radius and Detail controls (issue #757), and film grain
+    /// as clumps of irregular particles (a filtered Boolean model, resolution
+    /// independent) with Size Variation, Clumping, Color and Response; V1 and V2 keep their value
+    /// noise and their texture-band sharpening.
     V3,
 }
 
