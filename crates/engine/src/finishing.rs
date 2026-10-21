@@ -103,6 +103,9 @@ impl FinishSummary {
 /// A finishing queue at work.
 pub struct Finishing {
     pub plan: FinishPlan,
+    /// Of the plan's photos, those left over from a queue that was at work when this import came
+    /// (an earlier import, or one a restart resumed): said in the row ("544 new + 456 from earlier").
+    pub earlier: usize,
     summary: FinishSummary,
     ids: HashSet<PhotoId>,
     stage: Stage,
@@ -163,9 +166,32 @@ impl Finishing {
             "analysing": self.analysing,
             "previews": self.plan.previews,
             "previewsDone": self.previews.as_ref().map(|b| b.done.load(std::sync::atomic::Ordering::Relaxed)),
+            "previewsSkipped": self.previews.as_ref().map(|b| b.skipped.load(std::sync::atomic::Ordering::Relaxed)),
+            "earlier": self.earlier,
             "progress": (self.fraction() * 1000.0).round() / 1000.0,
             "eta": self.eta(),
         })
+    }
+}
+
+impl Finishing {
+    /// The row's detail: what is at work, how far it is, the time left, and where the photos come
+    /// from when leftovers of an earlier queue were taken along.
+    pub fn detail(&self) -> String {
+        let n = self.ids.len();
+        let stage = match (self.stage, &self.previews) {
+            (Stage::Analyse, _) => format!("AI masks and skin {} of {n}", n.saturating_sub(self.analysing)),
+            (_, Some(b)) => format!("Previews {} of {}", b.done.load(std::sync::atomic::Ordering::Relaxed).min(b.total), b.total),
+            (_, None) => "Previews".to_string(),
+        };
+        let mut parts = vec![stage];
+        if let Some(eta) = self.eta() {
+            parts.push(format!("about {} left", duration_text(eta)));
+        }
+        if self.earlier > 0 {
+            parts.push(format!("{} new + {} from earlier", n.saturating_sub(self.earlier), self.earlier));
+        }
+        parts.join(" · ")
     }
 }
 
@@ -182,10 +208,18 @@ impl Session {
     /// Start finishing `plan` (replacing a queue at work: its photos are taken along). Saved in the
     /// library so a restart resumes it.
     pub fn finish_import(&mut self, mut plan: FinishPlan) -> Value {
+        let mut earlier = 0;
         if let Some(old) = self.finishing.take() {
+            // its preview build is stopped: the merged queue builds them all, once (the photos it
+            // built already are skipped)
+            if let Some(b) = &old.previews {
+                b.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            let new: HashSet<u64> = plan.ids.iter().copied().collect();
             for id in old.plan.ids {
-                if !plan.ids.contains(&id) {
+                if !new.contains(&id) && self.catalog.photo(PhotoId(id)).is_some() {
                     plan.ids.push(id);
+                    earlier += 1;
                 }
             }
         }
@@ -202,6 +236,7 @@ impl Session {
         let ids: HashSet<PhotoId> = plan.ids.iter().map(|i| PhotoId(*i)).collect();
         let mut f = Finishing {
             plan,
+            earlier,
             ids,
             stage: Stage::Analyse,
             analysing: 0,
@@ -283,7 +318,9 @@ impl Session {
                         f.waited = true;
                     } else {
                         let ids: Vec<u64> = f.plan.ids.clone();
-                        match self.execute("library.buildPreviews", &json!({"ids": ids, "size": size})) {
+                        // one row for the whole queue (this one): the build has none of its own;
+                        // photos whose previews are there already are skipped
+                        match self.execute("library.buildPreviews", &json!({"ids": ids, "size": size, "row": false})) {
                             Ok(_) => f.previews = self.preview_build.clone(),
                             Err(e) => {
                                 log::warn!("finishing import: previews: {e}");
@@ -300,14 +337,11 @@ impl Session {
             }
         }
         let frac = f.fraction();
-        f.guard.progress((frac * 1000.0) as u64, 1000);
-        let detail = match (f.stage, f.eta()) {
-            (Stage::Analyse, Some(eta)) => format!("AI masks and skin · about {} left", duration_text(eta)),
-            (Stage::Analyse, None) => "AI masks and skin".to_string(),
-            (_, Some(eta)) => format!("Previews · about {} left", duration_text(eta)),
-            (_, None) => "Previews".to_string(),
-        };
-        f.guard.detail(&detail);
+        // the whole queue in per cent (its stages differ in size), and in the detail the photos of
+        // the stage at work: "Previews 160 of 544"
+        f.guard.set_unit(crate::activity::Unit::Percent);
+        f.guard.progress((frac * 100.0).round() as u64, 100);
+        f.guard.detail(&f.detail());
         if f.stage != Stage::Done {
             self.finishing = Some(f);
             return None;

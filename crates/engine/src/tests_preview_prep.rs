@@ -257,6 +257,40 @@ fn a_library_can_keep_its_own_background_settings() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Note 49: an import's queue shows one row (the overall progress in per cent, the stage's photos
+/// in its detail), its preview build has no row of its own, and leftovers of an earlier queue are
+/// said as such.
+#[test]
+fn the_import_queue_shows_one_row_and_names_the_leftovers() {
+    let (mut s, root, ids) = library("finish", 3);
+    // an earlier queue with photo 0, held at its previews by a build already running
+    s.preview_build = Some(std::sync::Arc::new(crate::cmd::previews::PreviewBuild { total: 1, ..Default::default() }));
+    s.finish_import(crate::finishing::FinishPlan { ids: vec![ids[0].0], previews: "standard".into(), started: String::new() });
+    // the next import brings photos 1 and 2: the queue takes photo 0 along, and says so
+    s.finish_import(crate::finishing::FinishPlan { ids: vec![ids[1].0, ids[2].0], previews: "standard".into(), started: String::new() });
+    let f = s.finishing.as_ref().unwrap();
+    assert_eq!(f.earlier, 1);
+    assert_eq!(f.plan.ids.len(), 3);
+    assert!(f.detail().contains("2 new + 1 from earlier"), "{}", f.detail());
+    s.preview_build = None;
+    let mut rows = Vec::new();
+    for _ in 0..1000 {
+        s.finishing_tick();
+        rows.extend(s.activity.list());
+        if s.finishing.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(s.finishing.is_none(), "done");
+    assert!(rows.iter().all(|t| t.kind != "previews"), "the build had no row of its own: {rows:?}");
+    let finishing: Vec<_> = rows.iter().filter(|t| t.kind == "finishing").collect();
+    assert!(!finishing.is_empty());
+    assert!(finishing.iter().all(|t| t.unit == crate::activity::Unit::Percent && t.total == 100), "{finishing:?}");
+    assert!(finishing.iter().any(|t| t.detail.contains("Previews") && t.detail.contains("of 3")), "{finishing:?}");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Note 47: Build Previews with one photo open (selected) builds every photo in view, as its menu
 /// item says ("Visible"); it built only the open photo, so culling after it found nothing built.
 #[test]
