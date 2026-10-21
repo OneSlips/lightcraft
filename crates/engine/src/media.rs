@@ -62,7 +62,7 @@ impl SettingsHashes {
 }
 
 /// Bump when the pipeline's output changes, to invalidate cached thumbnails.
-pub const RENDER_CACHE_VERSION: u64 = 64;
+pub const RENDER_CACHE_VERSION: u64 = 65;
 
 /// Thumbnails render at one of these long edges (so window/cell size changes reuse the cache).
 pub const THUMB_SIZES: [usize; 4] = [128, 256, 384, 512];
@@ -277,7 +277,9 @@ impl SourceRef {
                 if from.image.width.max(from.image.height) <= *max_edge {
                     return Ok((**from).clone());
                 }
-                let image = lightcraft_raster::resample::fit(&from.image, *max_edge, *max_edge, lightcraft_raster::resample::Filter::Box);
+                // Lanczos, not a box average: a box at 2-3:1 halves the contrast of detail near
+                // the output's resolution limit and aliases what is finer
+                let image = lightcraft_raster::resample::fit(&from.image, *max_edge, *max_edge, lightcraft_raster::resample::Filter::Lanczos3);
                 return Ok(DecodedSource { image: Arc::new(image), denoised: None, ..(**from).clone() });
             }
             SourceRef::Demo { scene, max_edge } => crate::demo::scene_pixels(scene, *max_edge)?,
@@ -764,6 +766,24 @@ pub struct RenderJob {
     /// A face tile that can be cut from the raw's embedded preview, tried before `source`
     /// ([`crate::Session::face_job`]; `None` for every other job).
     pub preview_cut: Option<crate::face_tiles::PreviewCut>,
+    /// Shrink a full-quality result to fit this size (physical pixels) with a Lanczos filter once
+    /// it is rendered. The loupe renders a little larger than it is drawn (its edge is rounded up
+    /// to a 64 px step) and the window would otherwise shrink the texture with 2-tap bilinear sampling, which blurs fine detail at
+    /// small ratios and aliases it at large ones. The caches keep the full render.
+    pub display_fit: Option<(usize, usize)>,
+}
+
+/// `img` shrunk to fit `max_w × max_h` with a Lanczos filter (see [`RenderJob::display_fit`]).
+pub fn fit_for_display(img: &Rgba8, max_w: usize, max_h: usize) -> Rgba8 {
+    use lightcraft_raster::resample::{Filter, fit};
+    let f = lightcraft_raster::Image {
+        width: img.width,
+        height: img.height,
+        data: img.data.iter().map(|p| [f32::from(p[0]), f32::from(p[1]), f32::from(p[2]), f32::from(p[3])]).collect(),
+    };
+    let small = fit(&f, max_w.max(1), max_h.max(1), Filter::Lanczos3);
+    let c = |v: f32| v.round().clamp(0.0, 255.0) as u8;
+    Rgba8 { width: small.width, height: small.height, data: small.data.iter().map(|p| [c(p[0]), c(p[1]), c(p[2]), c(p[3])]).collect() }
 }
 
 /// A render left on the GPU for the window to draw ([`RenderResult::frame`]).
@@ -801,6 +821,14 @@ pub struct RenderResult {
 
 impl RenderJob {
     /// Render at draft quality (interactive drags). Gets its own result key.
+    /// Shrink the full-quality result to fit `w × h` pixels with a Lanczos filter (see
+    /// [`Self::display_fit`]). Gets its own result key, so a change of drawn size renders again.
+    pub fn with_display_fit(mut self, w: usize, h: usize) -> Self {
+        self.display_fit = Some((w, h));
+        self.key ^= ((w as u64) << 32 | h as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        self
+    }
+
     pub fn draft(mut self) -> Self {
         if self.request.quality != Quality::Draft {
             self.request.quality = Quality::Draft;
@@ -1051,6 +1079,15 @@ impl RenderJob {
                     && (display.is_none() || srgb.is_some())
                 {
                     cache.put_deferred_at(self.cache_generation, *key, Arc::new(srgb.unwrap_or_else(|| rendered.image.clone())));
+                }
+                // the display fit, after the caches have the full render
+                if let Some((fw, fh)) = self.display_fit
+                    && self.request.quality == Quality::Full
+                {
+                    let (w, h) = (rendered.image.width, rendered.image.height);
+                    if w > fw.max(1) || h > fh.max(1) {
+                        rendered.image = fit_for_display(&rendered.image, fw, fh);
+                    }
                 }
                 RenderResult {
                     request_id: self.request_id,
@@ -1345,6 +1382,7 @@ impl crate::Session {
             on_screen: false,
             slide: None,
             preview_cut: None,
+            display_fit: None,
         })
     }
 
@@ -1399,6 +1437,7 @@ impl crate::Session {
             on_screen: false,
             slide: None,
             preview_cut: None,
+            display_fit: None,
         })
     }
 
@@ -1454,6 +1493,7 @@ impl crate::Session {
             on_screen: false,
             slide: None,
             preview_cut,
+            display_fit: None,
         })
     }
 
@@ -1879,6 +1919,28 @@ mod thumbnail_hash_tests {
 mod tests {
     use super::*;
 
+    /// A loupe job with a display fit returns its image shrunk to the drawn size, aspect kept;
+    /// a draft, and a render no larger than the drawn size, are left as rendered.
+    #[test]
+    fn a_display_fit_shrinks_the_loupe_render_to_the_drawn_size() {
+        let mut s = crate::Session::with_demo();
+        let id = s.active().unwrap();
+        let plain = s.loupe_job(id, 1024, 1024, true).unwrap().run().rendered.unwrap().image;
+        let long = plain.width.max(plain.height);
+        assert!(long >= 600, "the demo renders at least 600 px at 1024: {long}");
+        let fitted = s.loupe_job(id, 1024, 1024, true).unwrap().with_display_fit(400, 400).run().rendered.unwrap().image;
+        assert_eq!(fitted.width.max(fitted.height), 400, "{}x{}", fitted.width, fitted.height);
+        let aspect = |i: &Rgba8| i.width as f32 / i.height as f32;
+        assert!((aspect(&fitted) - aspect(&plain)).abs() < 0.02, "aspect kept");
+        let draft = s.loupe_job(id, 1024, 1024, true).unwrap().draft().with_display_fit(400, 400).run().rendered.unwrap().image;
+        assert_eq!(draft.width.max(draft.height), long, "a draft is not shrunk");
+        let same = s.loupe_job(id, 1024, 1024, true).unwrap().with_display_fit(plain.width, plain.height).run().rendered.unwrap().image;
+        assert_eq!((same.width, same.height), (plain.width, plain.height), "no larger than drawn: left as rendered");
+        let a = s.loupe_job(id, 1024, 1024, true).unwrap();
+        let b = s.loupe_job(id, 1024, 1024, true).unwrap().with_display_fit(400, 400);
+        assert_ne!(a.key, b.key, "the fit is part of the result key");
+    }
+
     #[test]
     fn renders_know_the_original_size_whichever_level_they_come_from() {
         // issue #960: noise reduction works in the original's pixels, so a grid cell drawn from the
@@ -2268,6 +2330,40 @@ mod tests {
         assert_eq!((a.width, a.height), (b.width, b.height));
         let mean = |i: &Rgba8| i.data.iter().map(|p| p[1] as f64).sum::<f64>() / i.data.len() as f64;
         assert!(mean(&a) > mean(&b) + 10.0, "two stops brighter after: {} vs {}", mean(&a), mean(&b));
+    }
+
+    // LR-VIEW-ZOOM: what the loupe shows at 1:1 is what an export at full size writes. A window of
+    // the zoomed frame (the photo's own pixels) is pixel-for-pixel the export, at the centre and
+    // at a corner, with tone, colour and detail edits on a camera-sized photo
+    #[test]
+    fn one_to_one_window_pixels_are_export_pixels() {
+        use lightcraft_pipeline::{OutputDepth, OutputSpace, PixelWindow};
+        let mut s = crate::Session::with_demo();
+        let id = s.active().unwrap();
+        let p = s.catalog.photo(id).unwrap().clone();
+        let (w, h) = (p.width as usize, p.height as usize);
+        assert!(w.max(h) > 2560, "larger than the preview cap: {w}×{h}");
+        let mut d = (*s.develop_of(id).unwrap()).clone();
+        d.light.exposure = 0.7;
+        d.light.contrast = 25.0;
+        d.color.saturation = 20.0;
+        s.set_develop(id, d, "Edits").unwrap();
+        let export = s.render_export(id, w, h, OutputSpace::Srgb, OutputDepth::U8).unwrap().image;
+        assert_eq!((export.width, export.height), (w, h), "a full-size export");
+        for win in [PixelWindow { x: w / 2 - 256, y: h / 2 - 256, w: 512, h: 384 }, PixelWindow { x: 0, y: h - 300, w: 400, h: 300 }] {
+            let tile = s.region_job(id, w, h, win, true).unwrap().run().rendered.unwrap().image;
+            assert_eq!((tile.width, tile.height), (win.w, win.h));
+            let mut worst = 0u8;
+            for y in 0..win.h {
+                for x in 0..win.w {
+                    let (a, b) = (tile.data[y * win.w + x], export.data[(win.y + y) * w + win.x + x]);
+                    for k in 0..3 {
+                        worst = worst.max(a[k].abs_diff(b[k]));
+                    }
+                }
+            }
+            assert!(worst <= 1, "window {win:?}: the 1:1 view differs from the export by up to {worst} levels");
+        }
     }
 
     /// The thumbnail of a photo whose preview-level source is decoded is cut from it: the file (here

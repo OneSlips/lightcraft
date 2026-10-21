@@ -1,6 +1,56 @@
 # What's new in LightCraft
 
+## 2026-10-19
+
+### Hidden Local locations come back one at a time
+- With several locations removed from Local, "Show N hidden locations" now lists them, so each comes back on its own
+  (Restore All is there too). The row used to bring every hidden location back at once (issue #2114).
+
+## 2026-10-18
+
+### Fill Location from GPS: no more neighbouring town in City
+- The offline place names list towns of 15,000 people or more, so a photo taken in a smaller one got the nearest larger
+  town in City, sometimes another municipality (issue #2242). The Fill Location tooltip and the command help now say so,
+  and `metadata.reverseGeocode` takes `maxDistance` (metres): past it, City stays empty (State and Country still fill)
+  and the reply names the town it found as `nearestCity`.
+
+### A preset that couldn't be saved is no longer lost silently
+- When presets.json can't be written (a full disk, or the browser's storage quota), the new or changed preset now
+  counts as unsaved, like other changes: the top bar warns, saving is retried, and quitting asks first (issue #2266).
+  Before, the failure was only logged, and the preset could be lost without any warning.
+
+### Portrait crop ratios stay portrait
+- A crop ratio no longer flips to the photo's orientation (issue #2253): after X turns the crop portrait, picking
+  another ratio (4 × 5, 2 × 3…) keeps it portrait, as in Lightroom, and a Custom ratio taller than wide gives a
+  portrait crop.
+
+## 2026-10-15
+
+### Constrain Crop tightens the crop you see
+- Geometry ▸ Constrain Crop now changes the crop itself, as in Lightroom (issue #1927). Ticking it, or moving a
+  Geometry slider, Upright or a lens correction while it is ticked, shrinks the crop about its centre until the blank
+  corners left by the correction are gone, and the Crop tool shows the tighter crop. Before, it only applied when the
+  photo was shown outside the Crop tool, so in the Crop panel, where the checkbox is, nothing seemed to change. A crop
+  you draw by hand is kept as drawn, and unticking keeps the tighter crop.
+
+### Web: no backup that misses unsaved changes
+- In the browser version, File ▸ Back Up Library… no longer reports success while a save is failing (storage full or
+  cleared): the backup copies the stored library, so it left out the changes that couldn't be saved (issue #1508). It
+  now refuses to start and says how many changes are unsaved and why. LightCraft retries the save with every change;
+  back up once nothing is left unsaved.
+
+### Web: an unreadable library is not opened
+- In the browser version, a library file that exists but can't be read at start-up is no longer taken for a missing
+  one (issue #1507). LightCraft used to open the library without it, showing an incomplete catalog that the next save
+  would write over the stored copy. It now leaves the library unopened, saves nothing and says which file couldn't be
+  read; reload the page to try again.
+
 ## 2026-10-14
+
+### Model downloads time out on a name that doesn't resolve
+- Model downloads (AI denoise, faces, SAM) give up on a server name that doesn't resolve within the connect timeout,
+  and Cancel stops a download that is still looking the name up (issue #1532). The lookup used to block with no time
+  limit, and each of a server's addresses then got the whole connect timeout of its own.
 
 ### Lightroom radial masks on the right side
 - Radial masks brought over from Lightroom Classic (catalog import, XMP sidecars, edits inside DNGs and presets) now
@@ -146,6 +196,12 @@
 - In dialogs, the confirm button is on the right with Cancel to its left, and filled with the accent when it makes or
   brings in something (Import N Photos, Merge, Save, Create, Download…). Delete and Remove stay plain, so a destructive
   choice is never the eye-catching default.
+### Straight brush strokes with ⇧-click
+- With the brush, click once, then ⇧-click somewhere else: the brush paints a straight line between the two, and
+  further ⇧-clicks carry on from the last point, as in Lightroom. Change the brush size, feather or flow before the
+  ⇧-click and the line tapers from the old values to the new ones. The whole line is one undo step.
+  `mask.brushStroke {connect: true}` does the same for agents.
+
 ### Hard-edged Heal and Clone spots
 - A spot with Feather at 0 no longer draws black pixels exactly on its radius. This also fixes spots at 0% Opacity
   changing pixels along their edge. The hard edge now leaves pixels on the radius unchanged.
@@ -259,6 +315,23 @@
   else (issue #1504): trimming or clearing the cache can't delete files outside it, and thumbnails are never read
   from or written through such a link.
 
+### Synchronize Folder asks a network share less
+- A Synchronize Folder scan no longer asks the disk about every photo of the library in the folder (is its file
+  there, has it a sidecar): it has just listed the folder, and reads the answers off the listing. On a network share
+  each of those questions is a round trip. Measured on a hard disk over SMB, for folders of 1,600 to 2,400 photos
+  that had not changed: 4.6 to 7.1 s of questions after the listing (about 3 ms a photo), now under 0.05 s. The
+  listing itself took 4 to 5 s and is as it was.
+- The disk is still asked wherever a listing can't be sure what a file system would say: about a name that is
+  there in another case, a link, a name Windows reads another way (`aux.jpg`, a `~`, a `:`, a dot or a space at the
+  end), a folder the scan did not walk to its end, and, in a folder that holds any name with a character outside
+  ASCII (an umlaut, a curly apostrophe, a dash), about every name the folder does not list. Names it does list are
+  answered there too. In such a folder the scan saves less, and its checks now start after the listing where they
+  ran beside it.
+- A photo the folder lists is there for the scan, also where its file could not be opened by its path (a folder
+  that may be listed but not searched, a path longer than the system takes): such photos used to be listed as
+  missing. And a share that drops after the scan has listed a folder no longer turns that folder's photos into
+  missing ones.
+
 ### Large libraries: Synchronize Folder, import and sidecars start sooner
 - Opening Synchronize Folder, an import review or an import no longer makes a table of every photo in the library
   before it looks at the first file. In a library of 3.5 million photos that held the window for about 6 s before
@@ -328,6 +401,12 @@
   with NVIDIA), LightCraft still stops, because its window can't keep drawing on the lost device, but it now says
   "LightCraft stopped unexpectedly" and why, instead of "could not open its window", and the next start renders
   on the CPU and explains how to turn the GPU back on.
+
+### Resetting a slider
+- Resting the pointer on a slider's name or its thumb now says that a double-click resets it ("Exposure — double-click
+  to reset it"), in every language (issue #1436).
+- A double-click on the thumb is a single step in History and Undo. Its first click no longer nudges the value to
+  where the pointer landed, and a single click on the thumb leaves the value alone.
 
 ### Slider drags on large raws
 - Dragging a slider no longer re-renders the edited photo's filmstrip thumbnail on every frame; it follows once you

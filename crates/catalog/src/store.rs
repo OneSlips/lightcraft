@@ -242,7 +242,6 @@ impl Store for MemStore {
     }
 }
 
-// (its one test plants a symlink, so the module is Unix-only: elsewhere `use super::*` would be unused)
 #[cfg(all(test, unix))]
 mod tests_staging {
     use super::*;
