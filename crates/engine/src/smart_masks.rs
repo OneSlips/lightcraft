@@ -436,6 +436,7 @@ impl Session {
                             faces: None,
                             payload: Default::default(),
                             note: None,
+                            notice: None,
                         };
                         if self.apply_recipe_outcome(o, &mut polled) {
                             updated += 1;

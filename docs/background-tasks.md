@@ -61,6 +61,7 @@ guard.detail(&file_name);
 | Face scan, AI Denoise | `crates/engine/src/cmd/face_recognize.rs`, `crates/engine/src/denoise.rs` | a continuous job with no ✕, kept in session state |
 | Find Missing Photos | `crates/ui-egui/src/tasks.rs` | a generic background task with a row (`kind: Some(..)`) |
 | Camera sensor maps, Remove Dust on a selection | `crates/engine/src/cmd/sensor.rs` | one job in session state; results applied on the UI thread by a pump (`dust.pump`) |
+| Reload from Disk | `crates/ui-egui/src/reload.rs`, `crates/engine/src/cmd/reload.rs` | a command split into plan / probe / apply so the app reads the files on a worker thread (`tasks::spawn_tracked`: progress and `Cancel::Flag`); the result is committed through `Session::execute_fn` (undo step, save, XMP auto-write), and dropped for a photo a later-started reload has already updated; `wait: true` runs it in place |
 | Reading focus points | `crates/engine/src/focus_scan.rs` | a worker paced by the UI's per-frame pump (`focus.pump {pace}`); `Cancel::Flag`; commits in batches without undo steps |
 | Filling spots | `crates/ui-egui/src/render.rs` (`Renderer::track_fills`) | a row held while a render that solves a content-aware fill is out, with no ✕ (`Cancel::No`); solved fills are cached, so it shows for a new fill only |
 

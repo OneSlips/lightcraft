@@ -197,7 +197,7 @@ fn recipe_results_complete_the_step_and_undo_cancels_the_rest() {
         let tag = Tag::Recipe { photo, mask, comp: 0, part: Part::Seg(AutoKind::Sky), batch: 99 };
         let mut polled = Polled::default();
         assert!(s.apply_recipe_outcome(
-            Outcome { tag, result: Ok(Some(seg())), superseded: false, faces: None, payload: Default::default(), note: None },
+            Outcome { tag, result: Ok(Some(seg())), superseded: false, faces: None, payload: Default::default(), note: None, notice: None },
             &mut polled
         ));
         assert!(masks(&s)[0].components[0].shape.has_seg(), "computed");
@@ -212,7 +212,7 @@ fn recipe_results_complete_the_step_and_undo_cancels_the_rest() {
         // a late result for a mask that is gone changes nothing
         let tag = Tag::Recipe { photo, mask: 4242, comp: 0, part: Part::Seg(AutoKind::Sky), batch: 99 };
         assert!(!s.apply_recipe_outcome(
-            Outcome { tag, result: Ok(Some(seg())), superseded: false, faces: None, payload: Default::default(), note: None },
+            Outcome { tag, result: Ok(Some(seg())), superseded: false, faces: None, payload: Default::default(), note: None, notice: None },
             &mut polled
         ));
     }

@@ -231,7 +231,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     if shown != look {
                         r = r.on_hover_text(&look);
                     }
-                    egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d));
+                    let below = r.rect.bottom();
+                    egui::Popup::menu(&r).show(|ui| profile_menu(app, ui, &d, below));
                 });
             });
         });
@@ -514,8 +515,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 }
 
 /// The profile dropdown: Favorites, Recent, one submenu per group, then favourite toggle and
-/// Browse….
-fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+/// Browse…. Like the menu bar's menus, the dropdown and each submenu stay inside the window and
+/// scroll when their rows don't fit (issue #2059: a folder of many imported profiles ran past the
+/// window's bottom edge). `below` is the dropdown's bottom edge, which the menu hangs from.
+fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, below: f32) {
+    crate::menu_level::level(ui, 1, Some(below), |ui| profile_menu_rows(app, ui, d, below));
+}
+
+fn profile_menu_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, below: f32) {
     let t = Tokens::get(ui.ctx());
     ui.set_min_width(200.0);
     let cur = d.profile.id.as_str();
@@ -552,12 +559,17 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
         group_names.iter().filter(|g| shown.iter().filter(|p| &p.group == *g).all(|p| p.builtin_group())).cloned().collect();
     for g in &builtin_groups {
         let r = crate::widgets::menu_button(ui, crate::i18n::tr(g), |ui| {
-            ui.set_min_width(170.0);
-            for p in shown.iter().filter(|p| &p.group == g) {
-                item(ui, "group", &p.id, &p.name, &mut pick);
-            }
+            crate::menu_level::level(ui, 2, Some(below), |ui| {
+                ui.set_min_width(170.0);
+                for p in shown.iter().filter(|p| &p.group == g) {
+                    item(ui, "group", &p.id, &p.name, &mut pick);
+                }
+            });
         });
         register(ui.ctx(), format!("profileMenu:groupMenu:{g}"), r.response.rect);
+        if r.inner.is_some() {
+            crate::menu_level::set_anchor(ui.ctx(), 2, r.response.rect);
+        }
     }
     // imported profile groups (and groups of the user's own): LUT folders, then camera profiles
     let imported: Vec<(String, String, String)> =
@@ -568,16 +580,21 @@ fn profile_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
     for g in &lut_groups {
         // a folder's name as it is, and its own widget id even when it matches a built-in group
         let r = crate::widgets::menu_button(ui, g.as_str(), |ui| {
-            ui.set_min_width(170.0);
-            if g == lightcraft_engine::cmd::dcp_profiles::DCP_GROUP {
-                camera_profiles_menu(app, ui, photo, cur, &mut pick, &mut action);
-                return;
-            }
-            for (id, name, _) in imported.iter().filter(|p| &p.2 == g) {
-                item(ui, "group", id, name, &mut pick);
-            }
+            crate::menu_level::level(ui, 2, Some(below), |ui| {
+                ui.set_min_width(170.0);
+                if g == lightcraft_engine::cmd::dcp_profiles::DCP_GROUP {
+                    camera_profiles_menu(app, ui, photo, cur, &mut pick, &mut action);
+                    return;
+                }
+                for (id, name, _) in imported.iter().filter(|p| &p.2 == g) {
+                    item(ui, "group", id, name, &mut pick);
+                }
+            });
         });
         register(ui.ctx(), format!("profileMenu:lutGroupMenu:{g}"), r.response.rect);
+        if r.inner.is_some() {
+            crate::menu_level::set_anchor(ui.ctx(), 2, r.response.rect);
+        }
     }
     if let Some((command, params)) = action {
         let _ = app.run(command, params);
@@ -2295,13 +2312,16 @@ fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
 }
 
 /// The preview-only notice's Reload from Disk: re-read the photo's file (a raw a newer version can
-/// decode, whose drive was offline when the library opened), and say what came of it.
+/// decode, whose drive was offline when the library opened) in the background; a toast says what
+/// came of it once it's done (`crate::reload`).
 pub(crate) fn reload_preview_only(app: &mut LightcraftApp, ctx: &egui::Context, id: PhotoId) {
-    let r = app.run("photo.reload", json!({"ids": [id.0]}));
-    let decoded = app.session.catalog.photo(id).is_some_and(|p| p.preview_only.is_none());
-    match r {
+    match app.run("photo.reload", json!({"ids": [id.0]})) {
         Err(e) => app.toast_error(ctx, e),
-        Ok(_) if decoded => app.toast(ctx, crate::i18n::tr("This raw is now developed from its raw data")),
+        Ok(r) if r["background"] == true => {}
+        // nothing to read in the background (a photo without a file): answered in place
+        Ok(_) if app.session.catalog.photo(id).is_some_and(|p| p.preview_only.is_none()) => {
+            app.toast(ctx, crate::i18n::tr("This raw is now developed from its raw data"))
+        }
         Ok(_) => app.toast(ctx, crate::i18n::tr("This raw variant still can't be decoded")),
     }
 }
