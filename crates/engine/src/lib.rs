@@ -1256,6 +1256,8 @@ mod tests_crop_angle;
 #[cfg(test)]
 mod tests_dcp;
 #[cfg(test)]
+mod tests_dcp_corpus;
+#[cfg(test)]
 mod tests_denoise;
 #[cfg(test)]
 mod tests_export;
