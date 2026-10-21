@@ -194,6 +194,8 @@ struct SharedFile {
     import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
     /// The Presets Manager's choices.
     preset_state: PresetState,
+    /// Preparing photos in the background ([`crate::prep`]): the app-wide settings.
+    prep: crate::prep::PrepSettings,
 }
 
 const SHARED_VERSION: u32 = 1;
@@ -493,6 +495,7 @@ impl Session {
         self.profile_state = shared.profiles;
         self.import_presets = shared.import_presets;
         self.preset_state = shared.preset_state;
+        self.prep.app = shared.prep.sanitized();
         self.set_presets_from(presets.unwrap_or_default());
         self.shared_presets_saved = crate::library::PresetsSaved::state_of(self);
         // what was just read is on disk already
@@ -540,6 +543,7 @@ impl Session {
             merged,
             import_presets: self.import_presets.clone(),
             preset_state: self.preset_state.clone(),
+            prep: self.prep.app,
         };
         serde_json::to_vec_pretty(&f).unwrap_or_default()
     }

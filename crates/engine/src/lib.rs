@@ -73,6 +73,7 @@ pub mod open_path;
 pub mod originals;
 mod pdf;
 pub mod people_store;
+pub mod prep;
 pub mod preset_import;
 pub mod preset_luminar;
 pub mod preset_manager;
@@ -429,6 +430,12 @@ pub struct Session {
     pub slideshow_export: Option<std::sync::Arc<slideshow_export::ExportRun>>,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
+    /// Preparing photos in the background: settings (app-wide and this library's) and the build
+    /// it runs ([`prep`]).
+    pub prep: prep::PrepState,
+    /// The long edge (px) the loupe renders at on this screen, as the frontend last said
+    /// (0: not known). Standard previews are built at least this big, so the loupe can use them.
+    pub loupe_edge: usize,
     /// Getting just-imported photos ready (masks, skin, previews: [`finishing`]).
     pub finishing: Option<finishing::Finishing>,
     /// An unfinished plan the library kept, resumed by the next [`Session::finishing_tick`].
@@ -595,6 +602,8 @@ impl Session {
             activity: Default::default(),
             genfill: Default::default(),
             preview_build: None,
+            prep: Default::default(),
+            loupe_edge: 0,
             finishing: None,
             finish_pending: None,
             finishing_note: None,
@@ -1648,6 +1657,8 @@ mod tests_persist;
 mod tests_prefs;
 #[cfg(test)]
 mod tests_presets_scale;
+#[cfg(test)]
+mod tests_preview_prep;
 #[cfg(test)]
 mod tests_print;
 #[cfg(test)]

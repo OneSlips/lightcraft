@@ -1045,6 +1045,19 @@ impl LightcraftApp {
         }
     }
 
+    /// Preparing photos in the background ([`lightcraft_engine::prep`]): the whole view's previews
+    /// once the user is culling in the loupe, built from the photo on screen in the direction of travel.
+    fn background_prep(&mut self, ctx: &egui::Context) {
+        let mode = panels::detail::prep_mode(self);
+        let loupe = self.ui.fullscreen || self.ui.view == state::ViewMode::Detail;
+        let at = if loupe { self.session.active() } else { None };
+        let backward = self.look_ahead.backward();
+        self.session.prep_tick(mode, at, backward);
+        if self.session.preview_build.as_ref().is_some_and(|b| b.running()) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+    }
+
     /// AI masks: apply finished background requests (clicks, descriptions, detail passes) and
     /// show their errors; start a zoomed-in detail pass once the clicking stops
     /// (`ui.detail_due`); watch the model download. Never waits for the model.
@@ -1773,6 +1786,7 @@ impl LightcraftApp {
         // (and the mask row or pin under the pointer: the overlay shows that mask)
         self.ui.mask_hover_prev = self.ui.mask_hover.take();
         self.ai_mask_detail(&ctx);
+        self.background_prep(&ctx);
         crate::panels::genfill::frame(self, &ctx);
         self.place_names_outcome(&ctx);
         if self.ui.fullscreen {
