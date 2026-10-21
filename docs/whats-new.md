@@ -106,6 +106,11 @@
 - **Teeth**: **Whiten** takes the yellow out, **Brighten** lifts them a little; only the teeth showing
   change. The teeth are found by themselves, in the background, the first time you move a slider.
 - **Window ▸ Edit Sections ▸ Retouch** opens it.
+### AI Denoise
+- Settings ▸ AI Denoise no longer says a model is being trained or promises a download: it says
+  plainly that this version has no AI Denoise model and none can be downloaded from here yet, and
+  that Luminance and Color under Detail reduce noise meanwhile. A LightCraft denoise model you have
+  (a folder with a .onnx file and denoise-model.json) installs with **Install from file…**.
 
 ## 2026-10-16
 

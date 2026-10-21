@@ -153,11 +153,7 @@ pub fn detail_status(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, am
         PhotoState::NotApplicable | PhotoState::Ready => {}
         PhotoState::NoModel => {
             egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
-                note(
-                    ui,
-                    "AI Denoise needs a model, and none is available for this version yet. Meanwhile, Luminance and Color under Detail reduce noise.",
-                    t.text_dim,
-                );
+                note(ui, "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.", t.text_dim);
                 ui.add_space(2.0);
                 let r = ui.small_button(crate::i18n::tr("Why?"));
                 register(ui.ctx(), "denoise:setup", r.rect);
@@ -292,17 +288,16 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     work_section(app, ui, t, &list);
 }
 
-/// No model can be had yet: say so plainly, and what to use meanwhile, instead of a file prompt.
+/// No model is installed and none can be downloaded: say so plainly, and what to use meanwhile, without promising one.
 fn no_model_yet(ui: &mut egui::Ui, t: &Tokens) {
     ui.add_space(4.0);
     let r = egui::Frame::NONE.fill(t.inset).corner_radius(6.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
         ui.set_max_width(ui.available_width().min(680.0));
-        ui.label(RichText::new(tr("No AI Denoise model is available yet")).font(t.semibold(13.0)).color(t.text));
+        ui.label(RichText::new(tr("No AI Denoise model is installed")).font(t.semibold(13.0)).color(t.text));
         ui.add_space(2.0);
         for line in [
-            "LightCraft's own denoise model is still being trained, so this version comes without one and there is nothing to download yet. You don't need to find or install anything.",
+            "This version doesn't come with an AI Denoise model, and none can be downloaded from here yet.",
             "Meanwhile your raw photos use the standard noise reduction: Luminance and Color under Detail in the Edit panel. It works on every photo.",
-            "When the model is ready, an update will offer it here as a one-click download.",
         ] {
             ui.add(egui::Label::new(RichText::new(tr(line)).size(12.0).color(t.text_label)).wrap());
             ui.add_space(2.0);
