@@ -3082,5 +3082,14 @@
   "Adjust": "Настройка",
   "Color Mixer Layout": "Вид цветового микшера",
   "Constrain crop by default": "Ограничивать кадрирование по умолчанию",
-  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Новые фото начинаются с включённым ограничением кадрирования: кадр остаётся внутри фото после поворота или коррекции объектива. Фото, уже находящиеся в библиотеке, сохраняют своё."
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Новые фото начинаются с включённым ограничением кадрирования: кадр остаётся внутри фото после поворота или коррекции объектива. Фото, уже находящиеся в библиотеке, сохраняют своё.",
+  "Click to type a value, drag to change it": "Щёлкните, чтобы ввести значение, или перетащите, чтобы изменить",
+  "Run face models on the CPU only": "Запускать модели лиц только на ЦП",
+  "Detection": "Обнаружение",
+  "Recognition": "Распознавание",
+  "Not loaded yet": "Ещё не загружена",
+  "Checking the GPU…": "Проверка ГП…",
+  "CPU": "ЦП",
+  "A face model uses the GPU only when a check shows it gives the same results faster.": "Модель лиц использует ГП, только если проверка показала, что он даёт те же результаты быстрее.",
+  "Checking the GPU for faces": "Проверка ГП для лиц"
 }

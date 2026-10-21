@@ -36,6 +36,8 @@ pub mod backend;
 mod ctx;
 #[cfg(not(target_arch = "wasm32"))]
 mod exit;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod faces;
 /// Matrix products for the AI mask models.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod gemm;
@@ -250,7 +252,7 @@ pub fn wait_idle(timeout: std::time::Duration) -> bool {
     }
 }
 
-/// Why GPU compute that has a device of its own (denoise) is switched off by the user's settings, or `None`: the
+/// Why GPU compute that has a device of its own (denoise, faces) is switched off by the user's settings, or `None`: the
 /// environment switches and the rendering preference, but not a render-device failure (the devices are separate).
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn switched_off() -> Option<String> {

@@ -190,6 +190,8 @@ mod tests_sam_setup;
 #[cfg(test)]
 mod tests_scroll;
 #[cfg(test)]
+mod tests_slider_reset;
+#[cfg(test)]
 mod tests_slideshow;
 #[cfg(test)]
 mod tests_smart_presets;

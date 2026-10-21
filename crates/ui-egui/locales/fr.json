@@ -3087,5 +3087,14 @@
   "Adjust": "Régler",
   "Color Mixer Layout": "Disposition du mélangeur de couleurs",
   "Constrain crop by default": "Contraindre le recadrage par défaut",
-  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Les nouvelles photos commencent avec Contraindre le recadrage activé : le recadrage reste dans la photo après une rotation ou une correction d’objectif. Les photos déjà dans la bibliothèque gardent le leur."
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Les nouvelles photos commencent avec Contraindre le recadrage activé : le recadrage reste dans la photo après une rotation ou une correction d’objectif. Les photos déjà dans la bibliothèque gardent le leur.",
+  "Click to type a value, drag to change it": "Cliquez pour saisir une valeur, faites glisser pour la modifier",
+  "Run face models on the CPU only": "Exécuter les modèles de visages sur le processeur uniquement",
+  "Detection": "Détection",
+  "Recognition": "Reconnaissance",
+  "Not loaded yet": "Pas encore chargé",
+  "Checking the GPU…": "Vérification du GPU…",
+  "CPU": "Processeur",
+  "A face model uses the GPU only when a check shows it gives the same results faster.": "Un modèle de visages n’utilise le GPU que si une vérification montre qu’il donne les mêmes résultats plus vite.",
+  "Checking the GPU for faces": "Vérification du GPU pour les visages"
 }

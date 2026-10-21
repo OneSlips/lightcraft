@@ -3090,5 +3090,14 @@
   "Adjust": "Anpassen",
   "Color Mixer Layout": "Farbmischer-Ansicht",
   "Constrain crop by default": "Zuschnitt standardmäßig beschränken",
-  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Neue Fotos beginnen mit „Zuschnitt beschränken“: Der Zuschnitt bleibt nach einer Drehung oder Objektivkorrektur im Foto. Fotos, die schon in der Bibliothek sind, behalten ihre Einstellung."
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Neue Fotos beginnen mit „Zuschnitt beschränken“: Der Zuschnitt bleibt nach einer Drehung oder Objektivkorrektur im Foto. Fotos, die schon in der Bibliothek sind, behalten ihre Einstellung.",
+  "Click to type a value, drag to change it": "Klicken, um einen Wert einzugeben, ziehen, um ihn zu ändern",
+  "Run face models on the CPU only": "Gesichtsmodelle nur auf der CPU ausführen",
+  "Detection": "Erkennung",
+  "Recognition": "Wiedererkennung",
+  "Not loaded yet": "Noch nicht geladen",
+  "Checking the GPU…": "GPU wird geprüft …",
+  "CPU": "CPU",
+  "A face model uses the GPU only when a check shows it gives the same results faster.": "Ein Gesichtsmodell nutzt die GPU nur, wenn eine Prüfung zeigt, dass sie dieselben Ergebnisse schneller liefert.",
+  "Checking the GPU for faces": "GPU für Gesichter wird geprüft"
 }

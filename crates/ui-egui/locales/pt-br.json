@@ -2929,5 +2929,20 @@
   "Adjust": "Ajustar",
   "Color Mixer Layout": "Disposição do misturador de cores",
   "Constrain crop by default": "Restringir o corte por padrão",
-  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Fotos novas começam com Restringir corte ativado: o corte fica dentro da foto depois de uma rotação ou correção de lente. Fotos que já estão na biblioteca mantêm o seu."
+  "New photos start with Constrain Crop on: the crop stays inside the photo after a rotation or lens correction. Photos already in the library keep theirs.": "Fotos novas começam com Restringir corte ativado: o corte fica dentro da foto depois de uma rotação ou correção de lente. Fotos que já estão na biblioteca mantêm o seu.",
+  "Click to type a value, drag to change it": "Clique para digitar um valor, arraste para alterá-lo",
+  "Run face models on the CPU only": "Executar os modelos de rostos só na CPU",
+  "Detection": "Detecção",
+  "Recognition": "Reconhecimento",
+  "Not loaded yet": "Ainda não carregado",
+  "Checking the GPU…": "Verificando a GPU…",
+  "CPU": "CPU",
+  "A face model uses the GPU only when a check shows it gives the same results faster.": "Um modelo de rostos só usa a GPU quando uma verificação mostra que ela dá os mesmos resultados mais rápido.",
+  "Checking the GPU for faces": "Verificando a GPU para rostos",
+  "Include selected photos": "Incluir fotos selecionadas",
+  "Color Overlay": "Sobreposição de cor",
+  "Color Overlay on B&W": "Sobreposição de cor em P&B",
+  "Image on Black": "Imagem sobre preto",
+  "Image on White": "Imagem sobre branco",
+  "White on Black": "Branco sobre preto"
 }
