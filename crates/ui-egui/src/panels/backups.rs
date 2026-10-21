@@ -35,7 +35,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     hint(
         ui,
         t,
-        "A backup is a copy of the catalog (your edits, ratings, keywords, albums), the library's settings and LightCraft's settings with your presets and profiles. Never the photos themselves or the thumbnail cache: it takes a moment.",
+        "A backup is a copy of the catalog (your edits, ratings, keywords, collections), the library's settings and LightCraft's settings with your presets and profiles. Never the photos themselves or the thumbnail cache: it takes a moment.",
     );
     let mut freq = st["frequency"].as_str().unwrap_or("daily").to_string();
     let freq_now = freq.clone();

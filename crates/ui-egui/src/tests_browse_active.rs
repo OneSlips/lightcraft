@@ -82,8 +82,8 @@ fn choosing_an_album_keeps_or_picks_the_active_photo() {
     let mut h = demo();
     h.settle(SETTLE);
     let album = h.app.session.catalog.albums().find(|a| !a.folder && !a.is_smart() && a.photos.len() > 1).map(|a| (a.id, a.photos.clone()));
-    let (album, photos) = album.expect("the demo library has an album");
-    let outside = h.app.session.visible_cloned().into_iter().find(|p| !photos.contains(p)).expect("a photo outside the album");
+    let (album, photos) = album.expect("the demo library has a collection");
+    let outside = h.app.session.visible_cloned().into_iter().find(|p| !photos.contains(p)).expect("a photo outside the collection");
     exec(&mut h, "library.select", json!({"ids": [outside.0]}));
     exec(&mut h, "library.source", json!({"kind": "album", "id": album.0}));
     let vis = h.app.session.visible_cloned();

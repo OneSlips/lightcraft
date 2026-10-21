@@ -1073,7 +1073,7 @@ fn importing_a_deleted_photo_again_after_reopening_the_library_brings_it_back() 
     let p = s.catalog.photo(lightcraft_catalog::PhotoId(id)).unwrap();
     assert!(!p.deleted && p.rating == 2, "restored with its edits");
     let album = s.catalog.albums().find(|a| a.name == "Trip").unwrap();
-    assert_eq!(album.photos, vec![lightcraft_catalog::PhotoId(id)], "still in its album");
+    assert_eq!(album.photos, vec![lightcraft_catalog::PhotoId(id)], "still in its collection");
     assert_eq!(s.visible_cloned().len(), 1);
     let _ = std::fs::remove_dir_all(&src);
 }
@@ -1210,7 +1210,7 @@ fn emptying_trashed_photos_of_one_album_and_stack_leaves_nothing_dangling() {
     let r = s.execute("library.emptyRecentlyDeleted", &json!({})).unwrap();
     assert_eq!(r["deleted"], 2, "{r}");
     assert_eq!(s.catalog.len(), 0);
-    assert!(s.catalog.album(lightcraft_catalog::AlbumId(al)).unwrap().photos.is_empty(), "album still lists a removed photo");
+    assert!(s.catalog.album(lightcraft_catalog::AlbumId(al)).unwrap().photos.is_empty(), "collection still lists a removed photo");
     assert!(ids.iter().all(|i| s.catalog.stack_of(lightcraft_catalog::PhotoId(*i)).is_none()));
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(s.catalog.len(), 2, "one undo step brings both back");
@@ -1239,7 +1239,7 @@ fn deleting_several_photos_permanently_leaves_nothing_dangling() {
     reopened.replay(&log).unwrap();
     assert_eq!(reopened.to_snapshot(), removed);
     s.execute("edit.undo", &json!({})).unwrap();
-    assert_eq!(s.catalog.to_snapshot(), snapshot, "one undo restores photos, album and stack");
+    assert_eq!(s.catalog.to_snapshot(), snapshot, "one undo restores photos, collection and stack");
     s.execute("edit.redo", &json!({})).unwrap();
     assert_eq!(s.catalog.to_snapshot(), removed);
     for (path, bytes) in files {
@@ -1267,7 +1267,7 @@ fn restore_import_applies_the_album_to_restored_photos() {
     let (mut s, src, ids, _) = trashed_photo_ids("trash-restore-album");
     let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()], "onDeleted": "restore", "albumName": "Back"})).unwrap();
     assert_eq!(r["restored"], json!(ids), "{r}");
-    let album = r["album"].as_u64().expect("album created for the restored photos");
+    let album = r["album"].as_u64().expect("collection created for the restored photos");
     assert_eq!(s.catalog.album(lightcraft_catalog::AlbumId(album)).unwrap().photos.len(), 1);
     let _ = std::fs::remove_dir_all(&src);
 }

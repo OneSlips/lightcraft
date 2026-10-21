@@ -70,7 +70,7 @@ fn scale_100k() {
     time("query, capture date", || c.query(&all, &Sort::default()));
     time("query, file name", || c.query(&all, &Sort { key: SortKey::FileName, ..Default::default() }));
     time("query, text", || c.query(&Filter { text: "kw42".into(), ..Default::default() }, &Sort::default()));
-    time("query, album of 20k", || c.query(&Filter { album: Some(album), ..Default::default() }, &Sort::default()));
+    time("query, collection of 20k", || c.query(&Filter { album: Some(album), ..Default::default() }, &Sort::default()));
     let only: Vec<PhotoId> = (0..5000).map(|i| PhotoId(i * 7 + 1)).collect();
     time("query, only 5k ids", || c.query(&Filter { only: only.clone(), ..Default::default() }, &Sort::default()));
     let stacked = smart(&mut c, 10, json!({"match": "all", "rules": [{"field": "stacked", "op": "is", "value": true}]}));
@@ -82,8 +82,10 @@ fn scale_100k() {
     let keyword = smart(&mut c, 12, json!({"match": "all", "rules": [{"field": "keywords", "op": "contains", "value": "kw42"}]}));
     let in_album = smart(&mut c, 13, json!({"match": "all", "rules": [{"field": "album", "op": "is", "value": album.0}]}));
     let recent = smart(&mut c, 14, json!({"match": "all", "rules": [{"field": "captureDate", "op": "inLast", "value": {"n": 2, "unit": "years"}}]}));
-    for (what, a) in [("stacked", stacked), ("flag + kind", flagged), ("keyword", keyword), ("in album", in_album), ("in the last 2 years", recent)] {
-        let n = time(&format!("smart album count, {what}"), || c.album_count(a));
+    for (what, a) in
+        [("stacked", stacked), ("flag + kind", flagged), ("keyword", keyword), ("in collection", in_album), ("in the last 2 years", recent)]
+    {
+        let n = time(&format!("smart collection count, {what}"), || c.album_count(a));
         eprintln!("  = {n}");
     }
     time("albums_of", || c.albums_of(PhotoId(6)));

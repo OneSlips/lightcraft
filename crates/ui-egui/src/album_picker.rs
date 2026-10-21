@@ -191,7 +191,7 @@ impl<'a> AlbumPicker<'a> {
     pub fn show(self, ui: &mut Ui) -> Response {
         let AlbumPicker { id, value, entries, width } = self;
         let chosen = value.filter(|v| entries.iter().any(|e| e.id == *v && !e.folder));
-        let text = chosen.map_or_else(|| crate::i18n::tr("Choose an album…").to_string(), |c| path_label(entries, c));
+        let text = chosen.map_or_else(|| crate::i18n::tr("Choose a collection…").to_string(), |c| path_label(entries, c));
         // the name, and a drop-down arrow painted at the right (the UI font has no arrow glyph)
         let mut button = ui.add_sized(vec2(width, ui.spacing().interact_size.y), egui::Button::new(text).truncate().right_text(" "));
         let arrow_color = crate::theme::Tokens::get(ui.ctx()).icon;
@@ -209,7 +209,7 @@ impl<'a> AlbumPicker<'a> {
             ui.set_min_width(width.max(260.0));
             ui.set_max_width(width.max(260.0) + 120.0);
             let search_box =
-                ui.add(egui::TextEdit::singleline(&mut state.query).hint_text(crate::i18n::tr("Search albums")).desired_width(f32::INFINITY));
+                ui.add(egui::TextEdit::singleline(&mut state.query).hint_text(crate::i18n::tr("Search collections")).desired_width(f32::INFINITY));
             register(ui.ctx(), format!("albumPickerSearch:{id}"), search_box.rect);
             if state.focus {
                 search_box.request_focus();
@@ -284,7 +284,7 @@ impl<'a> AlbumPicker<'a> {
                         }
                     }
                     if entries.iter().all(|e| e.folder) {
-                        ui.label(RichText::new(crate::i18n::tr("No albums yet")).weak());
+                        ui.label(RichText::new(crate::i18n::tr("No collections yet")).weak());
                     }
                 } else {
                     let hits = search(entries, &state.query);
@@ -325,7 +325,7 @@ impl<'a> AlbumPicker<'a> {
                         );
                     }
                     if hits.is_empty() {
-                        ui.label(RichText::new(crate::i18n::tr("No albums match")).weak());
+                        ui.label(RichText::new(crate::i18n::tr("No collections match")).weak());
                     }
                 }
             });

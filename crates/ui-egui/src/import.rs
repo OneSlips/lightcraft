@@ -1281,10 +1281,10 @@ pub(crate) fn options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut Import
         v.sort_by_key(|(_, n)| n.to_lowercase());
         v
     };
-    field(ui, "Album", |ui| {
+    field(ui, "Collection", |ui| {
         let cur = match d.album {
             Some(a) => albums.iter().find(|x| x.0 == a).map(|x| x.1.clone()).unwrap_or_default(),
-            None if !d.new_album.is_empty() => crate::i18n::tr("New album").into(),
+            None if !d.new_album.is_empty() => crate::i18n::tr("New collection").into(),
             None => crate::i18n::tr("None").into(),
         };
         crate::widgets::combo_box("import-album").width(combo_width(ui)).truncate().selected_text(cur).show_ui(ui, |ui| {
@@ -1292,7 +1292,7 @@ pub(crate) fn options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut Import
                 d.album = None;
                 d.new_album.clear();
             }
-            if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New album…")).clicked() {
+            if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New collection…")).clicked() {
                 d.album = None;
                 if d.new_album.is_empty() {
                     d.new_album = crate::i18n::tr("Imported Photos").into();

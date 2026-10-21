@@ -191,7 +191,7 @@ fn a_view_that_asks_about_the_last_days_follows_the_clock_too() {
         s.execute("library.select", &json!({"ids": [ids[0].0]})).unwrap();
         s.execute("photo.rate", &json!({"rating": 3})).unwrap();
         assert_eq!(s.visible_cloned(), s.visible_in_full());
-        assert_eq!(s.view_followed, followed, "a view that looks into a clocked album is asked whole too");
+        assert_eq!(s.view_followed, followed, "a view that looks into a clocked collection is asked whole too");
     }
 }
 

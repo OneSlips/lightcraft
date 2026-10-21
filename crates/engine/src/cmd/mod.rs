@@ -125,7 +125,7 @@ pub fn has_library_selection(s: &Session) -> std::result::Result<(), String> {
     if s.selected().iter().any(|id| s.catalog.photo(*id).is_none_or(|p| !p.local)) { Ok(()) } else { Err(LOCAL_ONLY.into()) }
 }
 /// Why an album command refused a Local-only selection.
-pub const LOCAL_ONLY: &str = "only browsed photos: albums hold library photos (import them first)";
+pub const LOCAL_ONLY: &str = "only browsed photos: collections hold library photos (import them first)";
 pub fn can_undo(s: &Session) -> std::result::Result<(), String> {
     if s.undo.is_empty() { Err("nothing to undo".into()) } else { Ok(()) }
 }

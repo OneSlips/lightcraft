@@ -1930,7 +1930,7 @@ mod tests {
         assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::NewSmartAlbum { .. })));
         let r = h.request("ui.dialog.confirm", json!({}), t);
         assert_eq!(r["ok"], true, "{r}");
-        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart album").id;
+        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart collection").id;
         assert_eq!(h.app.session.catalog.album_count(smart), n);
         h.request("engine.execute", json!({"command": "view.filterBar"}), t);
         h.step();
@@ -2069,7 +2069,7 @@ mod tests {
         let first = h.app.session.visible_cloned()[0].0;
         h.request("engine.execute", json!({"command": "photo.setMeta", "params": {"ids": [first], "addKeywords": ["holiday"]}}), t);
         let album = |h: &Headless, name: &str| h.app.session.catalog.albums().find(|a| a.name == name).map(|a| a.id.0);
-        let garden = album(&h, "Garden").expect("the demo's Garden album");
+        let garden = album(&h, "Garden").expect("the demo's Garden collection");
         let confirm = |h: &mut Headless, dialog: Dialog, typed: &str| {
             h.app.ui.dialog = Some(dialog);
             h.settle(SETTLE);
@@ -2081,16 +2081,16 @@ mod tests {
             assert_eq!(h.app.ui.dialog, None, "Return confirmed the dialog ({typed})");
         };
         confirm(&mut h, Dialog::NewAlbum { name: String::new(), folder: false, parent: None, include_selected: true }, "Weddings");
-        assert!(album(&h, "Weddings").is_some(), "New Album");
+        assert!(album(&h, "Weddings").is_some(), "New Collection");
         confirm(&mut h, Dialog::RenameAlbum { id: garden, name: "Garden".into() }, "Flowers");
-        assert_eq!(album(&h, "Flowers"), Some(garden), "Rename Album");
-        confirm(&mut h, Dialog::NewSmartAlbum { name: "Smart Album".into(), parent: None }, "Everything");
-        assert!(album(&h, "Everything").is_some(), "New Smart Album");
+        assert_eq!(album(&h, "Flowers"), Some(garden), "Rename Collection");
+        confirm(&mut h, Dialog::NewSmartAlbum { name: "Smart Collection".into(), parent: None }, "Everything");
+        assert!(album(&h, "Everything").is_some(), "New Smart Collection");
         confirm(&mut h, Dialog::MergeKeywords { from: vec!["holiday".into()], into: String::new() }, "travel");
         let keywords = h.app.session.catalog.photo(lightcraft_catalog::PhotoId(first)).unwrap().meta.keywords.clone();
         assert!(keywords.contains(&"travel".to_string()) && !keywords.contains(&"holiday".to_string()), "Merge Keywords: {keywords:?}");
         let prompt = Dialog::TextPrompt {
-            title: "Rename Album".into(),
+            title: "Rename Collection".into(),
             hint: "Name".into(),
             value: "Flowers".into(),
             command: "album.rename".into(),
@@ -4049,7 +4049,7 @@ mod tests {
         }
         let mut h = demo([1300.0, 900.0]);
         let t = Duration::from_secs(10);
-        let album = h.app.session.catalog.albums().find(|a| !a.folder && !a.is_smart()).map(|a| a.id.0).expect("a demo album");
+        let album = h.app.session.catalog.albums().find(|a| !a.folder && !a.is_smart()).map(|a| a.id.0).expect("a demo collection");
         let r = h.request("engine.execute", json!({"command": "library.source", "params": {"kind": "album", "id": album}}), t);
         assert_eq!(r["ok"], true, "{r}");
         h.settle(SETTLE);

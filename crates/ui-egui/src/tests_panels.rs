@@ -201,7 +201,7 @@ fn sidebar_sections_collapse_and_remember_it() {
     // Albums folds too, and the plus button inside its header still works on its own
     click(&mut h, "sidebarSection:albums");
     assert!(h.app.ui.sidebar_section_collapsed("albums"));
-    assert!(has(&h, "icon:albumNew"), "the Create Album button stays in the header");
+    assert!(has(&h, "icon:albumNew"), "the Create Collection button stays in the header");
     click(&mut h, "sidebarSection:albums");
     assert!(!h.app.ui.sidebar_section_collapsed("albums"));
     // Keywords and Local fold their rows too
@@ -220,7 +220,7 @@ fn sidebar_sections_collapse_and_remember_it() {
     }
     // a click on the plus is the button's, not the header's
     click(&mut h, "icon:albumNew");
-    assert!(!h.app.ui.sidebar_section_collapsed("albums"), "the plus does not fold Albums");
+    assert!(!h.app.ui.sidebar_section_collapsed("albums"), "the plus does not fold Collections");
 }
 
 /// Given a settings file from before sections could be arranged (it lists the folded ones as
@@ -410,7 +410,7 @@ fn a_new_album_brings_a_hidden_albums_section_back() {
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     h.step();
-    let id = h.app.session.catalog.albums().find(|a| a.name == "Fresh").expect("the album was made").id.0;
+    let id = h.app.session.catalog.albums().find(|a| a.name == "Fresh").expect("the collection was made").id.0;
     assert!(has(&h, "sidebarSection:albums") && has(&h, &format!("source:album:{id}")));
 }
 
@@ -489,7 +489,7 @@ fn dragging_a_header_moves_its_section() {
     let line = widget(&h, "sidebarSectionDrop");
     assert!(
         line.center().y < header(&h, "albums").top() && line.center().y > header(&h, "albums").top() - 10.0,
-        "the line is in the gap above Albums: {line:?}"
+        "the line is in the gap above Collections: {line:?}"
     );
     h.app.synthetic.push(egui::Event::PointerButton {
         pos: to,
@@ -557,10 +557,10 @@ fn dragging_a_section_is_not_dragging_an_album() {
     });
     h.step();
     h.step();
-    assert_eq!(h.app.session.catalog.revision, before, "no album moved");
+    assert_eq!(h.app.session.catalog.revision, before, "no collection moved");
     assert!(!h.app.ui.sidebar.is_default(), "the section did");
     // …and an album dragged onto another section's header moves no section
-    let album = h.app.session.catalog.albums().find(|a| !a.folder).expect("the demo library has albums").id.0;
+    let album = h.app.session.catalog.albums().find(|a| !a.folder).expect("the demo library has collections").id.0;
     let arranged = h.app.ui.sidebar.clone();
     let (from, to) = (widget(&h, &format!("source:album:{album}")).center(), header(&h, "keywords").center());
     drag_between(&mut h, from, to, Vec::new());
@@ -691,7 +691,7 @@ fn a_year_opens_into_its_months() {
 fn the_header_of_a_long_section_stays_in_sight() {
     let mut h = demo([1400.0, 700.0], json!({"view": "photoGrid", "leftPanel": true}));
     for i in 0..40 {
-        h.app.session.execute("album.create", &json!({"name": format!("Album {i:02}")})).unwrap();
+        h.app.session.execute("album.create", &json!({"name": format!("Collection {i:02}")})).unwrap();
     }
     h.step();
     h.step();
@@ -781,7 +781,7 @@ fn a_drop_on_the_pinned_header_is_not_a_drop_on_the_row_beneath_it() {
 fn a_section_dragged_to_the_top_edge_scrolls_past_the_pinned_header() {
     let mut h = demo([1400.0, 700.0], json!({"view": "photoGrid", "leftPanel": true}));
     for i in 0..40 {
-        h.app.session.execute("album.create", &json!({"name": format!("Album {i:02}")})).unwrap();
+        h.app.session.execute("album.create", &json!({"name": format!("Collection {i:02}")})).unwrap();
     }
     h.step();
     let press = |h: &mut Headless, at: egui::Pos2| {
@@ -854,7 +854,7 @@ fn the_next_section_takes_over_the_pinned_header() {
     exec(&mut h, "view.sidebarSection", json!({"section": "byDate", "show": false}));
     exec(&mut h, "view.sidebarSection", json!({"section": "folders", "show": false}));
     for i in 0..12 {
-        h.app.session.execute("album.create", &json!({"name": format!("Album {i:02}")})).unwrap();
+        h.app.session.execute("album.create", &json!({"name": format!("Collection {i:02}")})).unwrap();
     }
     h.step();
     let pinned = |h: &Headless| -> Vec<String> {
@@ -1024,7 +1024,7 @@ fn album_folders_have_a_disclosure_triangle() {
     // folders start open and show their albums; only folders get a triangle
     assert!(has(&h, &format!("source:album:{best}")), "open by default");
     assert!(has(&h, &format!("albumToggle:{trips}")) && has(&h, &format!("albumToggle:{europe}")));
-    assert!(!has(&h, &format!("albumToggle:{best}")) && !has(&h, &format!("albumToggle:{loose}")), "albums have no triangle");
+    assert!(!has(&h, &format!("albumToggle:{best}")) && !has(&h, &format!("albumToggle:{loose}")), "collections have no triangle");
     // folding the outer folder hides everything inside it, the inner triangle included
     toggle(&mut h, trips);
     assert!(!has(&h, &format!("source:folder:{europe}")) && !has(&h, &format!("source:album:{best}")));
@@ -1093,7 +1093,7 @@ fn albums_are_created_inside_the_chosen_folder() {
         h.step();
         h.step();
         let new: Vec<u64> = h.app.session.catalog.albums().map(|a| a.id.0).filter(|i| !before.contains(i)).collect();
-        assert_eq!(new.len(), 1, "{command} made exactly one album: {new:?}");
+        assert_eq!(new.len(), 1, "{command} made exactly one collection: {new:?}");
         new[0]
     };
     let parent_of = |h: &Headless, id: u64| h.app.session.catalog.album(lightcraft_catalog::AlbumId(id)).unwrap().parent.map(|p| p.0);
@@ -1107,7 +1107,7 @@ fn albums_are_created_inside_the_chosen_folder() {
     assert!(!has(&h, &format!("source:folder:{europe}")), "Trips is folded");
     let album = create(&mut h, "dialog.newAlbum", "Day 1", Some(europe));
     assert_eq!(parent_of(&h, album), Some(europe));
-    assert!(has(&h, &format!("source:album:{album}")), "the new album is shown, its folders opened to it");
+    assert!(has(&h, &format!("source:album:{album}")), "the new collection is shown, its folders opened to it");
     let folder = create(&mut h, "dialog.newFolder", "Italy", Some(europe));
     assert_eq!(parent_of(&h, folder), Some(europe));
     assert!(h.app.session.catalog.album(lightcraft_catalog::AlbumId(folder)).unwrap().folder);
@@ -1163,7 +1163,7 @@ impl AlbumTree {
     fn row(&self, id: u64) -> egui::Rect {
         let h = &self.h;
         let name = ["source:folder:", "source:album:"].iter().map(|p| format!("{p}{id}")).find(|n| h.app.widgets.iter().any(|(w, _)| w == n));
-        widget(h, &name.unwrap_or_else(|| panic!("no row for album {id}")))
+        widget(h, &name.unwrap_or_else(|| panic!("no row for collection {id}")))
     }
     /// The middle of the "Albums" header, where an album is dropped to take it to the top level.
     fn albums_header(&self) -> egui::Pos2 {
@@ -1211,7 +1211,7 @@ impl AlbumTree {
         self.drag(from, &[(egui::pos2(r.left() + 100.0, r.top() + frac * r.height()), 3)]);
     }
     fn id_of(&self, name: &str) -> u64 {
-        self.h.app.session.catalog.albums().find(|a| a.name == name).unwrap_or_else(|| panic!("no album {name}")).id.0
+        self.h.app.session.catalog.albums().find(|a| a.name == name).unwrap_or_else(|| panic!("no collection {name}")).id.0
     }
     /// The names inside `parent`, folders or albums only.
     fn kids(&self, parent: Option<u64>, folders: bool) -> Vec<String> {
@@ -1231,7 +1231,7 @@ impl AlbumTree {
 fn dragging_an_album_onto_a_folder_moves_it() {
     let mut t = album_tree();
     t.drag_row(t.loose, t.archive);
-    assert_eq!(t.parent(t.loose), Some(t.archive), "an album into a folder");
+    assert_eq!(t.parent(t.loose), Some(t.archive), "a collection into a folder");
     assert!(t.h.app.ui.dragging_album.is_none(), "the drag ended");
     // it is shown inside its new folder, which opened for it
     assert!(t.h.app.widgets.iter().any(|(w, _)| *w == format!("source:album:{}", t.loose)));
@@ -1239,7 +1239,7 @@ fn dragging_an_album_onto_a_folder_moves_it() {
     assert_eq!(t.parent(t.sub), Some(t.archive), "a folder into a folder");
     // refused: onto itself, into its own subfolder; onto a plain album it only goes beside it
     t.drag_row(t.best, t.loose);
-    assert_eq!(t.parent(t.best), Some(t.archive), "a plain album is no destination: Best lands beside Loose, not inside");
+    assert_eq!(t.parent(t.best), Some(t.archive), "a plain collection is no destination: Best lands beside Loose, not inside");
     assert_eq!(t.parent(t.loose), Some(t.archive));
     let (from, aside) = (t.row(t.archive).center(), t.row(t.archive).center() + egui::vec2(40.0, 0.0));
     t.drag(from, &[(aside, 3)]);
@@ -1392,11 +1392,11 @@ fn a_dragged_album_scrolls_the_sidebar_at_its_edges() {
     let panel = widget(&t.h, "panel:left_panel");
     let (cx, top, bottom) = (panel.center().x, panel.top(), panel.bottom());
     let start = t.row(last).top();
-    assert!(start > bottom, "the last album starts below the visible sidebar: {start} vs {bottom}");
+    assert!(start > bottom, "the last collection starts below the visible sidebar: {start} vs {bottom}");
     // a row in the middle of the visible sidebar: where a drag starts
     let pick = |t: &AlbumTree| {
         let rows = t.h.app.widgets.iter().filter(|(w, r)| w.starts_with("source:album:") && r.top() > top + 120.0 && r.bottom() < bottom - 120.0);
-        rows.map(|(_, r)| r.center()).next().expect("a visible album row")
+        rows.map(|(_, r)| r.center()).next().expect("a visible collection row")
     };
     let esc = |pressed| egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed, repeat: false, modifiers: Default::default() };
     let hold = |t: &mut AlbumTree, to: egui::Pos2| {
@@ -1457,7 +1457,7 @@ fn auto_scroll_speed_ramps_up_at_the_edges() {
 fn dragging_an_album_to_the_albums_header_takes_it_to_the_top_level() {
     let mut t = album_tree();
     let has = |t: &AlbumTree, id: &str| t.h.app.widgets.iter().any(|(w, _)| w == id);
-    assert!(!has(&t, "albumDrop:top"), "no target unless an album is being dragged");
+    assert!(!has(&t, "albumDrop:top"), "no target unless a collection is being dragged");
     let (from, header) = (t.row(t.best).center(), t.albums_header());
     t.drag(from, &[(header, 3)]);
     assert_eq!(t.parent(t.best), None, "moved out of Trips");
@@ -1579,7 +1579,7 @@ fn choosing_a_library_folder_replaces_whatever_was_shown() {
         assert_eq!(h.app.session.visible().len(), 1);
     }
     click(&mut h, "source:libfolder:/pics/trip");
-    assert_eq!(h.app.session.source, LibrarySource::LibraryFolder, "choosing it again keeps it, as an album does");
+    assert_eq!(h.app.session.source, LibrarySource::LibraryFolder, "choosing it again keeps it, as a collection does");
     click(&mut h, "source:libfolder:/pics/home");
     assert_eq!(h.app.session.library_folder.as_deref(), Some("/pics/home"));
 }
@@ -1821,7 +1821,7 @@ fn a_deep_chain_keeps_its_nesting_and_the_sidebar_scrolls_sideways() {
         assert!(widget(&h, id).right() <= panel.right(), "{id} stays inside the panel");
     }
     // what a row needs is known before it is drawn off screen, so the plus stays reachable
-    assert!(widget(&h, "icon:albumNew").right() <= panel.right(), "Create Album stays inside the visible panel");
+    assert!(widget(&h, "icon:albumNew").right() <= panel.right(), "Create Collection stays inside the visible panel");
     // a click in the middle of a deep row chooses it; only the little triangle folds it
     click(&mut h, "source:libfolder:/a/b/c/d/e/f/g/h/i/j/k/l");
     assert_eq!(h.app.session.library_folder.as_deref(), Some("/a/b/c/d/e/f/g/h/i/j/k/l"), "the row's middle is the row, not its triangle");
@@ -2120,10 +2120,10 @@ fn local_photos_cannot_be_added_to_albums_until_they_join_my_photos() {
         photo
             .iter()
             .find_map(|n| match n {
-                crate::menubar::MenuNode::Submenu { label, children } if label == "Add to Album" => Some(children.clone()),
+                crate::menubar::MenuNode::Submenu { label, children } if label == "Add to Collection" => Some(children.clone()),
                 _ => None,
             })
-            .expect("Add to Album submenu")
+            .expect("Add to Collection submenu")
     };
     let enabled_of = |nodes: &[crate::menubar::MenuNode], id: &str| -> Option<bool> {
         nodes.iter().find_map(|n| match n {
@@ -2179,7 +2179,7 @@ fn right_click_add_to_album_offers_a_new_album_when_there_is_none() {
     for id in plain {
         h.app.session.execute("album.delete", &json!({"id": id})).unwrap();
     }
-    assert!(h.app.session.catalog.albums().all(|a| a.folder || a.is_smart()), "no plain album is left");
+    assert!(h.app.session.catalog.albums().all(|a| a.folder || a.is_smart()), "no plain collection is left");
     let photo = lightcraft_catalog::PhotoId(h.app.session.visible_cloned()[1].0);
     h.step();
     let thumb = widget(&h, &format!("thumb:{}", photo.0));
@@ -2198,14 +2198,14 @@ fn right_click_add_to_album_offers_a_new_album_when_there_is_none() {
     h.step();
     match &mut h.app.ui.dialog {
         Some(crate::state::Dialog::NewAlbum { name, folder: false, parent: None, .. }) => *name = "Trip".into(),
-        other => panic!("New Album dialog expected, got {other:?}"),
+        other => panic!("New Collection dialog expected, got {other:?}"),
     }
     h.step();
     let r = h.request("ui.clickWidget", json!({"id": "button:dialogOk"}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     h.step();
-    let trip = h.app.session.catalog.albums().find(|a| a.name == "Trip").expect("the album was created");
+    let trip = h.app.session.catalog.albums().find(|a| a.name == "Trip").expect("the collection was created");
     assert!(trip.photos.contains(&photo), "the right-clicked photo is in it: {:?}", trip.photos);
     assert!(h.app.ui.dialog.is_none(), "{:?}", h.app.ui.dialog);
 }
@@ -2344,7 +2344,8 @@ fn new_album_can_leave_the_selected_photos_out() {
         h.step();
         assert!(h.app.ui.dialog.is_none(), "{:?}", h.app.ui.dialog);
     };
-    let photos = |h: &Headless, name: &str| h.app.session.catalog.albums().find(|a| a.name == name).expect("the album was created").photos.clone();
+    let photos =
+        |h: &Headless, name: &str| h.app.session.catalog.albums().find(|a| a.name == name).expect("the collection was created").photos.clone();
 
     // ticked by default: the selection goes in, as before
     create(&mut h, "dialog.newAlbum", "With");

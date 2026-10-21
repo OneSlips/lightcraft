@@ -223,8 +223,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     let title: String = match &dlg {
         Dialog::TextPrompt { title, .. } => title.as_str(),
         Dialog::NewAlbum { folder: true, .. } => "Create Folder",
-        Dialog::NewAlbum { .. } => "Create Album",
-        Dialog::RenameAlbum { .. } => "Rename Album",
+        Dialog::NewAlbum { .. } => "Create Collection",
+        Dialog::RenameAlbum { .. } => "Rename Collection",
         Dialog::Rename { .. } => "Rename Photos",
         Dialog::Import { .. } => "Import Photos",
         Dialog::LightroomResult { .. } => "Lightroom Catalog Import",
@@ -238,7 +238,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::MoveKeyword { .. } => "Merge Keywords",
         Dialog::KeywordSet { .. } => "Edit Keyword Set",
         Dialog::MergeKeywords { .. } => "Merge Keywords",
-        Dialog::NewSmartAlbum { .. } => "Create Smart Album",
+        Dialog::NewSmartAlbum { .. } => "Create Smart Collection",
         Dialog::AllMetadata { .. } => "All Metadata",
         Dialog::SystemInfo { .. } => "System Info",
         Dialog::DenoiseModel { .. } => "AI Denoise Model",
@@ -246,8 +246,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::FaceModel { .. } => "Add Face Model",
         Dialog::WhatsNew => "What's New",
         Dialog::Cull { .. } => "Assisted Culling",
-        Dialog::SmartRules { id: None, .. } => "New Smart Album",
-        Dialog::SmartRules { .. } => "Edit Smart Album",
+        Dialog::SmartRules { id: None, .. } => "New Smart Collection",
+        Dialog::SmartRules { .. } => "Edit Smart Collection",
         Dialog::AutoStack { .. } => "Auto-Stack by Capture Time",
         Dialog::CreatePreset { .. } => "Create Preset",
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
@@ -371,7 +371,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                             .color(t.text_dim),
                         );
                     }
-                    ui.label(egui::RichText::new(crate::i18n::tr("Scores stay on the photos: filter or make smart albums with Focus and Best of Similar Shots.")).color(t.text_dim));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Scores stay on the photos: filter or make smart collections with Focus and Best of Similar Shots.")).color(t.text_dim));
                 }
                 Dialog::WhatsNew => {
                     egui::ScrollArea::vertical().max_height(list_height(ui, 460.0)).auto_shrink([false, true]).show(ui, |ui| {
@@ -486,7 +486,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                                 .color(t.text_dim),
                         );
                     } else {
-                        ui.label(egui::RichText::new(crate::i18n::tr("Fix the marked rules to save this album.")).color(t.caution));
+                        ui.label(egui::RichText::new(crate::i18n::tr("Fix the marked rules to save this collection.")).color(t.caution));
                     }
                 }
                 Dialog::NewSmartAlbum { name, .. } => {
@@ -1073,7 +1073,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         let r = ui.checkbox(&mut opts.add_to_photos, crate::i18n::tr("Add to Apple Photos"));
                         crate::widgets::register(ui.ctx(), "exportAddToPhotos", r.rect);
                         if opts.add_to_photos {
-                            field(ui, "Album", |ui| {
+                            field(ui, "Collection", |ui| {
                                 crate::widgets::named(ui.add(egui::TextEdit::singleline(&mut opts.photos_album).hint_text(crate::i18n::tr("none")).desired_width(f32::INFINITY)), crate::i18n::tr("Album"))
                             });
                             ui.label(
@@ -1880,8 +1880,8 @@ fn created_in(app: &mut LightcraftApp, command: &str, params: serde_json::Value)
 pub(crate) fn album_entries(cat: &lightcraft_catalog::Catalog, editing: Option<u64>) -> Vec<crate::album_picker::AlbumEntry> {
     let editing = editing.map(lightcraft_catalog::AlbumId);
     crate::album_picker::entries_from(cat, |a| match editing {
-        Some(e) if a.id == e => Some(crate::i18n::tr("This is the album you're editing").to_string()),
-        Some(e) if cat.album_reaches(a.id, e) => Some(crate::i18n::tr("It tests this album, so testing it back would loop").to_string()),
+        Some(e) if a.id == e => Some(crate::i18n::tr("This is the collection you're editing").to_string()),
+        Some(e) if cat.album_reaches(a.id, e) => Some(crate::i18n::tr("It tests this collection, so testing it back would loop").to_string()),
         _ => None,
     })
 }
@@ -2076,7 +2076,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             if let Some(problem) = rules.check_for(&app.session.catalog, id.map(lightcraft_catalog::AlbumId)).first() {
                 return Err(problem.to_string());
             }
-            let name = if name.trim().is_empty() { "Smart Album".to_string() } else { name.trim().to_string() };
+            let name = if name.trim().is_empty() { "Smart Collection".to_string() } else { name.trim().to_string() };
             match id {
                 // the name and the rules together: one undo step, both or neither
                 Some(id) => app.run("album.setRules", json!({"id": id, "name": name, "replace": true, "rules": {"ruleSet": rules}})),
@@ -2084,7 +2084,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             }
         }
         Dialog::NewSmartAlbum { name, parent } => {
-            created_in(app, "album.createSmart", json!({"name": if name.trim().is_empty() { "Smart Album" } else { name }, "parent": parent}))
+            created_in(app, "album.createSmart", json!({"name": if name.trim().is_empty() { "Smart Collection" } else { name }, "parent": parent}))
         }
         Dialog::CreatePreset { name, group, groups } => app.run(
             "preset.create",

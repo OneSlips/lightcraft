@@ -20,7 +20,7 @@ If you change your mind, one **Edit** > **Undo** reverses the changes to the cat
 
 - Ratings, picks and rejects, and colour labels
 - Keywords, including hierarchical ones, and XMP metadata
-- Collections and collection sets, which become albums
+- Collections and collection sets, which stay collections and collection folders
 - Virtual copies
 - Develop settings that LightCraft can map
 
@@ -29,7 +29,7 @@ Original files stay where they are, and LightCraft refers to them in place. Phot
 ## What does not match
 
 - Develop settings are an approximation. Camera profiles, Adobe's AI models and some masking and retouch fields are not reproduced, and settings LightCraft cannot map are reported.
-- Smart collections become regular albums that hold the photos they contain at the time of import.
+- Smart collections become regular collections that hold the photos they contain at the time of import.
 - Lightroom's process version is not carried over. Imported photos use LightCraft's newest rendering.
 
 ## Good to know

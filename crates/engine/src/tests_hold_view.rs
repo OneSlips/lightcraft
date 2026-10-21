@@ -141,7 +141,7 @@ fn picks_and_the_filter_bar_hold_too_and_an_album_lets_go_of_what_is_taken_out_o
     assert_eq!(s.visible_cloned().len(), 5, "rated under the filter: held");
     s.execute("album.removePhotos", &json!({"id": album, "ids": [shown[0].0, shown[1].0]})).unwrap();
     let left = s.visible_cloned();
-    assert!(!left.contains(&shown[0]) && !left.contains(&shown[1]), "out of the album is out of the view: {left:?}");
+    assert!(!left.contains(&shown[0]) && !left.contains(&shown[1]), "out of the collection is out of the view: {left:?}");
     assert_eq!(left.len(), 3);
     assert_eq!(s.source, LibrarySource::Album(lightcraft_catalog::AlbumId(album)));
 }
@@ -162,7 +162,7 @@ fn changing_the_rules_of_the_smart_album_shown_is_another_view() {
     let mut s = unkeyworded();
     hold(&mut s);
     let before = s.visible_cloned();
-    let LibrarySource::Album(album) = s.source else { panic!("a smart album is shown") };
+    let LibrarySource::Album(album) = s.source else { panic!("a smart collection is shown") };
     // the album now asks for photos with a keyword: none has one, and none is kept from what it asked before
     let rules = json!({"ruleSet": {"match": "all", "rules": [{"field": "keywordCount", "op": "gt", "value": 0}]}});
     s.execute("album.setRules", &json!({"id": album.0, "rules": rules})).unwrap();

@@ -147,7 +147,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 .unwrap_or_default();
             Ok(json!({"exif": exif, "xmp": xmp}))
         }),
-        cmd!(query "albums.list", "List Albums", [], None, "{}", always, |s, _| {
+        cmd!(query "albums.list", "List Collections", [], None, "{}", always, |s, _| {
             let all: Vec<Album> = s.catalog.albums().cloned().collect();
             Ok(Value::Array(all.iter().filter(|a| a.parent.is_none()).map(|a| album_json(a, &all, &s.catalog, 0)).collect()))
         }),

@@ -32,7 +32,7 @@ fn imported(tag: &str) -> (Session, String, u64, Vec<PhotoId>) {
     let folder = dir.to_string_lossy().to_string();
     let mut s = Session::new().with_fs();
     let r = s.execute("library.import", &json!({"paths": [folder], "mode": "add", "albumName": "Trip"})).unwrap();
-    let album = r["album"].as_u64().expect("the import made the album");
+    let album = r["album"].as_u64().expect("the import made the collection");
     let mut ids: Vec<PhotoId> = r["imported"].as_array().unwrap().iter().filter_map(|v| v.as_u64()).map(PhotoId).collect();
     ids.sort();
     assert_eq!(ids.len(), 3);
@@ -63,7 +63,7 @@ fn removing_from_an_album_keeps_the_photo_in_its_folder() {
     assert_eq!(r["removed"], 1, "{r}");
     assert_eq!(r["album"], "Trip", "{r}");
     assert!(!s.catalog.photo(ids[1]).unwrap().deleted, "still in the library");
-    assert_eq!(counts(&mut s, &folder, album), (3, 3, 2), "(library folder, folder on disk, album)");
+    assert_eq!(counts(&mut s, &folder, album), (3, 3, 2), "(library folder, folder on disk, collection)");
 
     // removing what isn't in the album changes nothing (and makes no undo step)
     let undo = s.undo.len();
@@ -83,7 +83,7 @@ fn deleting_a_photo_still_removes_it_everywhere() {
     s.selection = Selection::single(ids[0]);
     s.execute("photo.delete", &json!({})).unwrap();
     assert!(s.catalog.photo(ids[0]).unwrap().deleted);
-    assert_eq!(counts(&mut s, &folder, album), (2, 2, 2), "(library folder, folder on disk, album)");
+    assert_eq!(counts(&mut s, &folder, album), (2, 2, 2), "(library folder, folder on disk, collection)");
     let n = s.execute("library.source", &json!({"kind": "recentlyDeleted"})).unwrap()["count"].as_u64().unwrap();
     assert_eq!(n, 1);
     let _ = std::fs::remove_dir_all(&folder);
@@ -96,10 +96,10 @@ fn remove_from_album_refuses_what_it_cannot_do() {
     let (mut s, folder, _album, ids) = imported("refuse");
     s.execute("library.source", &json!({"kind": "all"})).unwrap();
     s.selection = Selection::single(ids[0]);
-    assert!(s.execute("album.removePhotos", &json!({})).is_err(), "no album on screen");
+    assert!(s.execute("album.removePhotos", &json!({})).is_err(), "no collection on screen");
     let smart = s.execute("album.createSmart", &json!({"name": "All", "rules": {}})).unwrap()["id"].as_u64().unwrap();
-    assert!(s.execute("album.removePhotos", &json!({"id": smart})).is_err(), "smart album");
-    assert!(s.execute("album.removePhotos", &json!({"id": 9999})).is_err(), "no such album");
+    assert!(s.execute("album.removePhotos", &json!({"id": smart})).is_err(), "smart collection");
+    assert!(s.execute("album.removePhotos", &json!({"id": 9999})).is_err(), "no such collection");
     assert!(s.execute("album.removePhotos", &json!({"id": "x"})).is_err(), "bad id");
     let _ = std::fs::remove_dir_all(&folder);
 }

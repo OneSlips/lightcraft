@@ -87,7 +87,7 @@ fn a_place_can_be_set_cleared_and_undone() {
     assert_eq!(c.album(a).unwrap().order, Some(5));
     c.apply(inv).unwrap();
     assert_eq!(c.album(a).unwrap().order, None);
-    assert!(c.apply(Op::SetAlbumOrder { id: AlbumId(999), order: Some(1) }).is_err(), "no such album");
+    assert!(c.apply(Op::SetAlbumOrder { id: AlbumId(999), order: Some(1) }).is_err(), "no such collection");
 }
 
 /// Moving to another folder drops the album's place there (it belonged to the old neighbours),

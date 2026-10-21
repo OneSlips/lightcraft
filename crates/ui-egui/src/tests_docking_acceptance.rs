@@ -227,7 +227,7 @@ fn floating_presets_block_keyword_photo_drop_then_uncovered_target_changes_exact
 fn covered_folder_rejects_album_move_and_uncovered_folder_nests_exact_album() {
     let mut h = app();
     let folder = h.app.run("album.create", json!({"name":"A Dock Folder","folder":true})).unwrap()["id"].as_u64().unwrap();
-    let child = h.app.run("album.create", json!({"name":"B Dock Album","addSelected":false})).unwrap()["id"].as_u64().unwrap();
+    let child = h.app.run("album.create", json!({"name":"B Dock Collection","addSelected":false})).unwrap()["id"].as_u64().unwrap();
     h.step();
     h.step();
     let row = rect(&h, &format!("source:folder:{folder}"));

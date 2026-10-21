@@ -609,10 +609,10 @@ fn smart_album_problems_flag_stale_rules() {
     c.apply(Op::AddAlbum { album: smart(3, serde_json::json!([{"field": "album", "op": "gte", "value": 1}])) }).unwrap();
     assert!(c.smart_album_problems(AlbumId(2)).is_empty());
     assert!(c.smart_album_problems(AlbumId(3)).is_empty(), "an old operator is upgraded, not a problem");
-    assert!(c.smart_album_problems(AlbumId(1)).is_empty(), "a plain album has no rules");
+    assert!(c.smart_album_problems(AlbumId(1)).is_empty(), "a plain collection has no rules");
     c.apply(Op::RemoveAlbum { id: AlbumId(1) }).unwrap();
     let p = c.smart_album_problems(AlbumId(2));
-    assert_eq!(p.iter().map(ToString::to_string).collect::<Vec<_>>(), vec!["rule 1: no album 1".to_string()]);
+    assert_eq!(p.iter().map(ToString::to_string).collect::<Vec<_>>(), vec!["rule 1: no collection 1".to_string()]);
 }
 
 /// A smart album can test another smart album: "Keywords contain travel" and "Album isn't Excluded
@@ -649,7 +649,7 @@ fn a_smart_album_can_exclude_another() {
     let rules: RuleSet = serde_json::from_value(serde_json::json!({"rules": [
         {"field": "keywords", "op": "contains", "value": "travel"}, {"field": "album", "op": "isNot", "value": 1}]}))
     .unwrap();
-    assert!(rules.check(&c).is_empty(), "a smart album can be tested: {:?}", rules.check(&c));
+    assert!(rules.check(&c).is_empty(), "a smart collection can be tested: {:?}", rules.check(&c));
     let matched = |c: &Catalog| c.photos().filter(|p| rules.matches(p, c)).map(|p| p.id).collect::<Vec<_>>();
     assert_eq!(matched(&c), vec![keep]);
     // "is" works the other way round
@@ -675,8 +675,8 @@ fn smart_album_loops_are_refused_and_survived() {
     c.apply(Op::AddAlbum { album: smart(1, refers(2)) }).unwrap();
     let rules = |to: u64| refers(to).rule_set.unwrap();
     assert!(rules(1).check_for(&c, Some(AlbumId(3))).iter().any(|p| p.issue == crate::rules::Issue::AlbumLoop), "C → A closes A → B → C → A");
-    assert!(rules(3).check_for(&c, Some(AlbumId(3))).iter().any(|p| p.issue == crate::rules::Issue::AlbumLoop), "an album testing itself");
-    assert!(rules(1).check_for(&c, None).is_empty(), "a new album can't be in a loop yet");
+    assert!(rules(3).check_for(&c, Some(AlbumId(3))).iter().any(|p| p.issue == crate::rules::Issue::AlbumLoop), "a collection testing itself");
+    assert!(rules(1).check_for(&c, None).is_empty(), "a new collection can't be in a loop yet");
     assert!(rules(3).check_for(&c, Some(AlbumId(1))).is_empty(), "A testing C again is no loop");
     assert!(!c.album_reaches(AlbumId(3), AlbumId(1)) && c.album_reaches(AlbumId(1), AlbumId(3)));
     // a loop saved anyway: C → A
@@ -685,7 +685,7 @@ fn smart_album_loops_are_refused_and_survived() {
     let p = c.photo(id).unwrap().clone();
     for a in [1, 2, 3] {
         let _ = c.album_contains(AlbumId(a), &p); // returns, no stack overflow
-        assert!(c.smart_album_problems(AlbumId(a)).iter().any(|p| p.issue == crate::rules::Issue::AlbumLoop), "album {a} is reported");
+        assert!(c.smart_album_problems(AlbumId(a)).iter().any(|p| p.issue == crate::rules::Issue::AlbumLoop), "collection {a} is reported");
     }
 }
 
@@ -699,9 +699,9 @@ fn summaries_name_albums() {
         {"field": "keywords", "op": "contains", "value": "travel"},
         {"group": {"match": "any", "rules": [{"field": "album", "op": "isNot", "value": 4}, {"field": "album", "op": "is", "value": 9}]}}]}))
     .unwrap();
-    assert_eq!(rules.describe_with(&c), "keywords contains travel and (album isn't “Excluded Photos” or album is #9)");
+    assert_eq!(rules.describe_with(&c), "keywords contains travel and (collection isn't “Excluded Photos” or collection is #9)");
     let f = Filter { rule_set: Some(rules), ..Default::default() };
-    assert!(f.describe_with(&c).contains("album isn't “Excluded Photos”"));
+    assert!(f.describe_with(&c).contains("collection isn't “Excluded Photos”"));
 }
 
 /// A chain of smart albums each testing the one before twice ("all of: album is X(k-1), album is

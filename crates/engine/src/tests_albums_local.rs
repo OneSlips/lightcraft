@@ -48,7 +48,7 @@ fn a_local_only_selection_is_refused_and_leaves_add_to_album_off() {
     let (mut s, local, library) = browsed("refused");
     let album = AlbumId(s.execute("album.create", &json!({"name": "Trip", "addSelected": false})).unwrap()["id"].as_u64().unwrap());
     s.selection = Selection::single(local);
-    assert!(!enabled(&s, "album.addPhotos"), "Photo ▸ Add to Album is off for a Local photo");
+    assert!(!enabled(&s, "album.addPhotos"), "Photo ▸ Add to Collection is off for a Local photo");
     for (command, params) in [
         ("album.addPhotos", json!({"id": album.0})),
         ("album.addPhotos", json!({"id": album.0, "ids": [local.0]})),
@@ -81,7 +81,7 @@ fn a_mixed_selection_skips_the_local_photos_and_says_how_many() {
     let album = AlbumId(r["id"].as_u64().unwrap());
     assert_eq!(r["skipped"], 1, "{r}");
     assert_eq!(s.catalog.album(album).unwrap().photos, vec![library]);
-    assert_eq!(s.catalog.album(album).unwrap().cover, Some(library), "the cover is a photo the album shows");
+    assert_eq!(s.catalog.album(album).unwrap().cover, Some(library), "the cover is a photo the collection shows");
 
     let other = AlbumId(s.execute("album.create", &json!({"name": "Other", "addSelected": false})).unwrap()["id"].as_u64().unwrap());
     let r = s.execute("album.addPhotos", &json!({"id": other.0})).unwrap();

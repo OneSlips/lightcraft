@@ -93,7 +93,7 @@ fn what_one_keyword_costs_in_a_library_of_67_000_photos() {
     time("keyword tree", &|| drop(s.catalog.keyword_tree()));
     time("date groups", &|| drop(s.catalog.date_groups()));
     time("people", &|| drop(s.catalog.people()));
-    time("count of a smart album", &|| {
+    time("count of a smart collection", &|| {
         let _ = s.catalog.count(&f);
     });
     time("count of all photos", &|| {

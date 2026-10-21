@@ -261,7 +261,7 @@ fn smart_album_rule_sets() {
     assert_eq!(flag["choices"], serde_json::json!(["copyrighted", "publicDomain", "unknown"]));
     assert_eq!(flag["choiceLabels"]["publicDomain"], "Public Domain");
     let album = fields.as_array().unwrap().iter().find(|f| f["field"] == "album").unwrap();
-    assert_eq!((album["kind"].as_str(), album["ops"].as_array().map(Vec::len)), (Some("album"), Some(2)), "an album id, is / isn't");
+    assert_eq!((album["kind"].as_str(), album["ops"].as_array().map(Vec::len)), (Some("album"), Some(2)), "a collection id, is / isn't");
     let bad = s.execute(
         "album.createSmart",
         &serde_json::json!({"name": "Bad", "rules": {"ruleSet": {"rules": [{"field": "rating", "op": "contains", "value": 1}]}}}),
@@ -425,7 +425,7 @@ fn scale_100k_library_queries() {
         let _ = s.catalog.keyword_suggestions(&["kw1".to_string()], "kw", 12);
     });
     let alb = s.execute("album.createSmart", &serde_json::json!({"name": "S", "rules": {"rating": 5}})).unwrap()["id"].as_u64().unwrap();
-    m("smart album count", &mut || {
+    m("smart collection count", &mut || {
         let _ = s.catalog.album_count(lightcraft_catalog::AlbumId(alb));
     });
     m("albums.list", &mut || {
@@ -443,16 +443,16 @@ fn scale_100k_library_queries() {
     // a 20k-photo album shown in its own order (capture-date sort, no filter)
     let big = s.execute("album.create", &serde_json::json!({"name": "Big"})).unwrap()["id"].as_u64().unwrap();
     let ids: Vec<u64> = (0..n).rev().step_by(5).map(|i| i + 1).collect();
-    m("add 20k to an album", &mut || {
+    m("add 20k to a collection", &mut || {
         s.execute("album.addPhotos", &serde_json::json!({"id": big, "ids": ids})).unwrap();
     });
-    m("album of 20k (album order)", &mut || {
+    m("collection of 20k (collection order)", &mut || {
         s.execute("library.source", &serde_json::json!({"kind": "album", "id": big})).unwrap();
         let _ = s.visible_cloned();
     });
     s.execute("library.source", &serde_json::json!({"kind": "all"})).unwrap();
     let half: Vec<u64> = ids.iter().copied().step_by(2).collect();
-    m("remove 10k from the album", &mut || {
+    m("remove 10k from the collection", &mut || {
         s.execute("album.removePhotos", &serde_json::json!({"id": big, "ids": half})).unwrap();
     });
     worst.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -589,7 +589,7 @@ fn album_list_reports_problems() {
     };
     assert_eq!(find(&mut s)["problems"], serde_json::json!([]));
     s.execute("album.delete", &serde_json::json!({"id": trip})).unwrap();
-    assert_eq!(find(&mut s)["problems"], serde_json::json!([format!("rule 1: no album {trip}")]));
+    assert_eq!(find(&mut s)["problems"], serde_json::json!([format!("rule 1: no collection {trip}")]));
 }
 
 /// "Travel" = keywords contain travel, but not in "Excluded Photos" (red or rejected): the counts
@@ -635,11 +635,11 @@ fn smart_album_excluding_a_smart_album() {
         "album.setRules",
         &serde_json::json!({"id": excluded, "rules": {"ruleSet": {"rules": [{"field": "album", "op": "is", "value": travel}]}}, "replace": true}),
     );
-    assert!(looped.is_err_and(|e| e.to_string().contains("would make this album include itself")), "a loop is refused");
+    assert!(looped.is_err_and(|e| e.to_string().contains("would make this collection include itself")), "a loop is refused");
     // agents read the album by name in the summary
     let list = s.execute("albums.list", &serde_json::json!({})).unwrap();
     let travel_json = list.as_array().unwrap().iter().find(|a| a["id"] == travel).cloned().unwrap();
-    assert!(travel_json["rulesText"].as_str().unwrap_or("").contains("album isn't “Excluded Photos”"), "{travel_json}");
+    assert!(travel_json["rulesText"].as_str().unwrap_or("").contains("collection isn't “Excluded Photos”"), "{travel_json}");
 }
 
 /// "Update Rules from Current Filter" refuses a loop too: showing A ("Album isn't B") and
@@ -653,7 +653,7 @@ fn rules_from_the_view_cant_loop() {
     s.execute("library.source", &serde_json::json!({"kind": "album", "id": a})).unwrap();
     let before = s.catalog.album(lightcraft_catalog::AlbumId(b)).unwrap().smart.clone();
     let r = s.execute("album.setRules", &serde_json::json!({"id": b, "fromView": true}));
-    assert!(r.is_err_and(|e| e.to_string().contains("would make this album include itself")), "refused");
+    assert!(r.is_err_and(|e| e.to_string().contains("would make this collection include itself")), "refused");
     assert_eq!(s.catalog.album(lightcraft_catalog::AlbumId(b)).unwrap().smart, before, "B unchanged");
     assert!(s.catalog.smart_album_problems(lightcraft_catalog::AlbumId(b)).is_empty());
 }

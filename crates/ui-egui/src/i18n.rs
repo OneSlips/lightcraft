@@ -924,7 +924,7 @@ mod tests {
         // a problem with the album filter itself has no rule position to show
         let filter_loop =
             lightcraft_catalog::rules::Problem { path: Vec::new(), field: Some("album".into()), issue: Issue::AlbumLoop, message: String::new() };
-        assert!(problem_line_in(Locale::En, &filter_loop).starts_with("Album: "), "{}", problem_line_in(Locale::En, &filter_loop));
+        assert!(problem_line_in(Locale::En, &filter_loop).starts_with("Collection: "), "{}", problem_line_in(Locale::En, &filter_loop));
         let g = problems(serde_json::json!([{"group": {"rules": []}}]));
         assert_eq!(problem_text_in(Locale::En, &g[0]), "This group is empty: add a rule or remove it.");
         // the issues, the operators their hints name and the album picker's words, in every language
@@ -934,13 +934,13 @@ mod tests {
                 assert!(language.catalog().contains_key(label), "{} lacks the rule label {label:?}", language.code());
             }
             for word in [
-                "Choose an album…",
-                "No albums yet",
-                "Search albums",
-                "No albums match",
-                "This is the album you're editing",
-                "It tests this album, so testing it back would loop",
-                "Fix the marked rules to save this album.",
+                "Choose a collection…",
+                "No collections yet",
+                "Search collections",
+                "No collections match",
+                "This is the collection you're editing",
+                "It tests this collection, so testing it back would loop",
+                "Fix the marked rules to save this collection.",
             ] {
                 assert!(language.catalog().contains_key(word), "{} lacks {word:?}", language.code());
             }

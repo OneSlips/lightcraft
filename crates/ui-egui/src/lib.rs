@@ -2521,7 +2521,7 @@ mod cache_tests {
         }
         assert_eq!(c.smart_problem_scans, 1);
         cat.apply(Op::RemoveAlbum { id: AlbumId(20) }).unwrap();
-        assert!(c.smart_album_problems(&cat).get(&AlbumId(21)).is_some_and(|p| !p.is_empty()), "its album is gone");
+        assert!(c.smart_album_problems(&cat).get(&AlbumId(21)).is_some_and(|p| !p.is_empty()), "its collection is gone");
         assert_eq!(c.smart_problem_scans, 2);
     }
 

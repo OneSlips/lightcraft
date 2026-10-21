@@ -725,13 +725,13 @@ fn smart_album_editor_picks_an_album_from_a_list() {
     let Some(crate::state::Dialog::SmartRules { rules, .. }) = &mut h.app.ui.dialog else { panic!("no rule editor") };
     rules.rules[0] = serde_json::from_value(json!({"field": "album", "op": "is", "value": 0})).unwrap();
     h.settle(SETTLE);
-    assert!(h.app.widgets.iter().any(|(w, _)| w == "ruleProblem:rules-0"), "no album chosen yet");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "ruleProblem:rules-0"), "no collection chosen yet");
     let r = h.request("ui.clickWidget", json!({"id": "albumPicker:rules-0"}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.settle(SETTLE);
     let has = |h: &Headless, id: String| h.app.widgets.iter().any(|(w, _)| *w == id);
-    assert!(has(&h, format!("albumPickerItem:{trip}:rules-0")), "plain albums are offered");
-    assert!(has(&h, format!("albumPickerItem:{smart}:rules-0")), "smart albums too");
+    assert!(has(&h, format!("albumPickerItem:{trip}:rules-0")), "plain collections are offered");
+    assert!(has(&h, format!("albumPickerItem:{smart}:rules-0")), "smart collections too");
     let r = h.request("ui.clickWidget", json!({"id": format!("albumPickerItem:{trip}:rules-0")}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.settle(SETTLE);
@@ -806,12 +806,12 @@ fn sidebar_marks_smart_albums_with_problems() {
     let r = h.request("ui.set", json!({"view": "photoGrid", "leftPanel": true}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.settle(SETTLE);
-    assert!(h.app.widgets.iter().any(|(w, _)| *w == format!("source:album:{id}")), "the album's row is on screen");
+    assert!(h.app.widgets.iter().any(|(w, _)| *w == format!("source:album:{id}")), "the collection's row is on screen");
     let marked = |h: &Headless| h.app.widgets.iter().any(|(w, _)| *w == format!("albumProblem:{id}"));
     assert!(!marked(&h));
     exec(&mut h, "album.delete", json!({"id": trip}));
     h.settle(SETTLE);
-    assert!(marked(&h), "its album is gone");
+    assert!(marked(&h), "its collection is gone");
 }
 
 /// Editing "Excluded Photos" while "Travel" tests it: the list shows the album itself and Travel

@@ -144,7 +144,7 @@ pub fn more_filters(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // save / clear / presets
     let filtering = app.session.filter != Default::default();
     ui.horizontal(|ui| {
-        let save = ui.add_enabled(filtering, egui::Button::new(egui::RichText::new(crate::i18n::tr("Save as Smart Album…")).font(t.font(12.5))));
+        let save = ui.add_enabled(filtering, egui::Button::new(egui::RichText::new(crate::i18n::tr("Save as Smart Collection…")).font(t.font(12.5))));
         register(ui.ctx(), "button:filterSave", save.rect);
         if save.clicked() {
             let _ = app.run("dialog.newSmartAlbum", json!({}));

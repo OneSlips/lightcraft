@@ -1,5 +1,31 @@
 # What's new in LightCraft
 
+## 2026-10-22
+
+### Library
+- **Albums are now Collections**, as in Lightroom: the Library sidebar's **Collections**, **New Collection…**,
+  **New Smart Collection…**, the target collection (**B** adds to it) and every menu and message that named albums.
+  Nothing about them changed but the name; agents keep using the `album.*` commands.
+
+### Presets
+- The presets marked to come first when importing are now the **At Import** group (was "For Import").
+
+### Remove
+- The Remove panel has Lightroom's tools: **Remove**, **Heal**, **Clone** and **Generative**. Content-Aware is part
+  of Remove: a painted Remove stroke is rebuilt from what surrounds it, as Content-Aware did. Spots made with
+  Content-Aware before show as Remove.
+
+### Retouch
+- **Retouch fetches its face models by itself**: the first time a Retouch slider needs them, the MediaPipe face
+  models (Apache-2.0) download in the background (a row in the activity stack) and the photo is retouched once
+  they are there. No dialog.
+- An older install's face model gets its small-face detector in the background once a session, and the AI masks
+  use it as soon as it arrives.
+
+### AI Denoise
+- **LightCraft's own AI Denoise model** (MIT OR Apache-2.0, trained on public-domain raws) is offered in
+  Settings ▸ AI Denoise, downloaded from radfilms.com.au. `LIGHTCRAFT_DENOISE_MODEL_URL` points it elsewhere.
+
 ## 2026-10-17
 
 ### Develop
@@ -24,6 +50,7 @@
 - **Constrain Crop is on for new photos**: the crop stays inside the photo after a rotation or a
   lens correction. **Settings ▸ Import ▸ Constrain crop by default** turns that off. Photos
   already in the library, and Lightroom edits, keep theirs.
+
 ### A note over the photo for every change
 - Whatever you change, with a key, the mouse, a menu, a slider or the console, a short note over the photo says
   what changed: **Exposure +0.33** (the running value while you drag), **Picked**, **3 stars on 12 photos**,
@@ -42,6 +69,7 @@
 - **Loupedeck+**: drawn in zones as on the console (colour knobs with their mode, tone knobs, the Control Dial with
   its buttons, the rest of the buttons). With the new plugin it works without assigning anything in the Logi or
   Loupedeck software.
+
 ### Face Skin masks
 - **The eyes, brows and lips are left out again** on real faces, smiling and squinting ones too: the
   whole eye (lids and lashes) is cut out, however far it is open.
@@ -52,6 +80,7 @@
   the person wearing it, and their hair, are left out; People ▸ Clothes too.
 - **Crisp edges, no halo**: the outline follows the dress's own edge instead of a soft glow around
   it (the model's coarse mask is now refined on the photo).
+
 ### Import keeps each body's camera profile
 - Photos imported from the Import tab now always get **their camera body's profile**, also when the
   body's profile was set after the folder was opened (in the Import panel, say), and with a preset
@@ -84,7 +113,7 @@
   Preset** applies one to all the selected photos) and the default presets in Settings now opens
   the same picker:
   - a **search** field;
-  - **Favorites** and **For Import** first: mark the presets you use on import with the import
+  - **Favorites** and **At Import** first: mark the presets you use on import with the import
     arrow at the right of a row (or in the Presets Manager's new column, or the Presets panel's
     right-click menu). When importing, the picker shows just those until you choose **All Presets**;
   - then **groups that fold**, in the Presets Manager's order: your own groups ("001-…", "002-…")
@@ -93,7 +122,8 @@
   - rest the pointer on a preset to **see it on a photo** of the folder, beside the list.
 - Hidden presets and built-in presets you deleted no longer show in the Import panel, nor do looks
   you hid or deleted in the Profile Manager.
-- The Presets panel has the same search and the Favorites and For Import groups at the top.
+- The Presets panel has the same search and the Favorites and At Import groups at the top.
+
 ### Retouch panel
 - **Edit ▸ Retouch** (where Smooth Skin was, below Detail) gathers the portrait retouch in one place,
   a part of the person at a time. Each part folds open, has plain sliders, works on everyone or on
@@ -106,6 +136,7 @@
 - **Teeth**: **Whiten** takes the yellow out, **Brighten** lifts them a little; only the teeth showing
   change. The teeth are found by themselves, in the background, the first time you move a slider.
 - **Window ▸ Edit Sections ▸ Retouch** opens it.
+
 ### AI Denoise
 - Settings ▸ AI Denoise no longer says a model is being trained or promises a download: it says
   plainly that this version has no AI Denoise model and none can be downloaded from here yet, and
@@ -281,6 +312,7 @@
   eye is never called "Blurry". Faces in 3/4 view are found and judged more often.
 - **Sunglasses**: a dark lens over the eyes reads "Eyes not visible" in grey instead of a green
   frame.
+
 ### Presets and profiles in every library
 - **Your profiles and presets are shared by all your libraries**, as in Lightroom Classic: camera
   profiles (`.dcp`), LUT profiles, develop presets, local adjustment presets, import settings and
@@ -563,6 +595,7 @@
   #1236). The D7000, D5100, D800, D800E, Df, D4, D3, D3S, D700, D300, D300S, D600, D610, D810, D4S, D5600,
   Coolpix A, D3000, D40X, D60, D80, D2Xs, D200, D3200, D3100, D5000, D40, D50, D70, D70s and Nikon 1 V1 now show
   the area the camera itself frames, a few pixels smaller than before.
+
 ### An empty library leads to Import
 - A library with no photos now opens on the Photo Grid with the sidebar (Square Grid stays as it is), instead of a
   Detail view that pointed at an empty grid. The grid and Detail view offer Import Photos… and, in the desktop app,
@@ -582,6 +615,7 @@
 - In dialogs, the confirm button is on the right with Cancel to its left, and filled with the accent when it makes or
   brings in something (Import N Photos, Merge, Save, Create, Download…). Delete and Remove stay plain, so a destructive
   choice is never the eye-catching default.
+
 ### Straight brush strokes with ⇧-click
 - With the brush, click once, then ⇧-click somewhere else: the brush paints a straight line between the two, and
   further ⇧-clicks carry on from the last point, as in Lightroom. Change the brush size, feather or flow before the
@@ -591,6 +625,7 @@
 ### Hard-edged Heal and Clone spots
 - A spot with Feather at 0 no longer draws black pixels exactly on its radius. This also fixes spots at 0% Opacity
   changing pixels along their edge. The hard edge now leaves pixels on the radius unchanged.
+
 ### Smooth Skin and Find Blemishes
 - **Smooth Skin** (Edit panel, beyond Lightroom): evens out skin tone and texture while keeping the pores. Amount,
   Texture, Even Tone and Redness; the face's skin, the body's, or both; everyone or one person. It starts subtle,
@@ -599,6 +634,7 @@
   the eyes, brows, nostrils and lips by the face's landmarks, and can include the shoulders, arms and back.
 - **Detect Faces** and the face scan use the open MediaPipe face model too. YuNet is no longer offered: its training
   data doesn't allow commercial use. If you installed it, Settings ▸ Faces lists it so you can remove it.
+
 ### Smart AI-mask presets
 - Presets remember their **AI masks as recipes**: applying one finds the sky, the subject, the
   background or the people again on each photo, in the background, with one undo step per preset.
@@ -615,6 +651,7 @@
   can forget it.
 
 ### AI masks with openly licensed models
+
 ### Better Content-Aware fill, and Generative fill with your own account
 - **Content-Aware** now continues straight edges and thin lines through the area you paint — a
   horizon, a door frame, a power line — instead of breaking them, never copies from other spots or
@@ -643,6 +680,7 @@
 - **Landscape**: sky, water, vegetation, mountains, architecture, natural or artificial ground.
 - **Update** recomputes a mask made before its model was installed.
 - Everything runs on your computer, in LightCraft's own code; nothing is uploaded.
+
 ### Hot pixels and sensor dust, remembered per camera
 - Hot, dead and stuck pixels are fixed on raw photos automatically, before the photo is developed: the clear single
   outliers each photo shows, and every pixel a camera has shown in photos of different scenes. LightCraft remembers
@@ -655,6 +693,7 @@
   better. It also remembers each camera's dust — where it sits on the sensor, how big it looks at each aperture, and
   when it moved — and adds that dust to later photos where it shows on smooth areas. Settings ▸ Import can run it after
   every import. See [sensor-defects.md](sensor-defects.md).
+
 ### Control surfaces: easier to set up
 - Settings, Controls now shows your MX Creative Keypad and Dialpad as drawings, every key and dial with its icon and
   name. Click one and pick what it does from a list of actions in categories, with icons and a search box. Switch
@@ -843,11 +882,13 @@
   contains it: `Canon EOS R6` stays `Canon EOS R6`, rather than `Canon Canon EOS R6` (the camera
   identity subissue in #840). The separate Make and Model tags keep their original values.
   This does not change colour matrices, camera calibration or RAW noise rendering.
+
 ### Building from source
 - The English and Simplified Chinese build guides now describe command-local job and release
   profile overrides for memory-constrained builders (issue #1196), including why packaging
   recipes can override inherited settings. Default release profiles and application behavior
   are unchanged; the guidance does not guarantee a build will fit every 16 GB machine.
+
 ### Lightroom catalog import
 - A Lightroom Classic catalog whose changes are all still in its `.lrcat-wal` file (a new catalog Lightroom has
   open and hasn't written back yet) imports instead of failing with "unsupported SQLite schema format".
@@ -855,6 +896,7 @@
 - An export enlarged far past the photo's size (20000 typed for 2000 with Don't Enlarge off) no longer ends
   LightCraft: an enlargement stops at 512 megapixels, as in Lightroom, and one that needs more memory than the
   computer has is refused with the size it would take, before it starts.
+
 ### Camera profiles: per body, and looks on top
 - LightCraft's profiles (Color, Neutral, Vivid, the creative ones…) are now looks that sit on the photo's camera
   profile instead of replacing it: pick Neutral on your own chart-made profile and you get Neutral on your camera's
@@ -896,6 +938,7 @@
 - Add a second chart photo under another light, such as tungsten, for a dual-illuminant profile: each light gets its
   own calibration, and photos in between are rendered by their white balance between the two.
 - The profiling engine is RADcamProfiles, contributed by its author.
+
 ### Confirm matching faces together
 - On a person's page, the ↑ control on a suggested face confirms it and all shown suggestions with equal or higher
   similarity as one undo step. Hover or focus that face and press A for the same action; hidden suggestions stay hidden.
@@ -923,21 +966,25 @@
   previews for up to a second.
 - A thumbnail of the photo open in Detail is made from its already decoded preview instead of decoding the file
   again.
+
 ### Dehaze while zoomed in
 - With Dehaze on, panning a photo zoomed to 1:1 or moving a slider while zoomed no longer samples the whole
   original again to find the haze colour. On a 64 MP raw (Sony A7R VI) that took ~0.2 s of CPU per pan and per
   slider step; a slider step now takes ~5 ms on the GPU.
+
 ### Thumbnails of raw files appear sooner
 - Grid thumbnails and the first picture in the loupe of an unedited raw now come from the smallest JPEG the camera
   stored that is big enough, not always from the largest one. On a Sony A7R VI file a 512 px thumbnail decodes
   0.3 MB of JPEG instead of 5.6 MB and is ready several times sooner; Nikon and Panasonic raws with a mid-sized
   JPEG get faster too.
+
 ## 2026-10-12
 
 ### Canon CR2 highlights
 - Blown highlights in CR2 files from the Canon EOS 50D, 60D, 450D (Rebel XSi), 500D (Rebel T1i), 550D (Rebel T2i),
   1200D (Rebel T5) and 100D (Rebel SL1) now count as clipped (issue #1272). They used to stop at 81–98% of white, so
   highlight recovery missed them and, darkened, they took a colour cast instead of going neutral grey.
+
 ## 2026-10-12
 
 ### Pentax raws without black borders
@@ -945,6 +992,7 @@
   show a black (or, on the 645Z, white) band along one or more edges (issue #1271). The sensor's masked border is
   left out, so these photos come out a little smaller, closer to the camera's own JPEG. Crops and masks on photos
   edited earlier may shift by a few pixels.
+
 ## 2026-10-12
 
 ### Camera-look deep shadows
@@ -952,10 +1000,12 @@
 - The starting look fitted from a raw's camera JPEG now uses its darkest tones too (issue #1307).
   Photos with deep shadows no longer have to extend the first measured tone in a straight line to black.
   Existing smart previews are refreshed when their originals are online, and cached renders are redrawn.
+
 ### Slider drags follow the pointer more closely
 - With a GPU, a slider drag's preview is drawn in the same frame as the slider moves instead of one frame later,
   when the preview renders in a few milliseconds (it waits at most 40 % of a frame for it; slower renders, such as
   on the CPU, are not waited for).
+
 ## 2026-10-12
 
 ### Kelvin white balance for more Sony cameras
@@ -963,25 +1013,30 @@
   read from the white-balance presets the camera stores in every ARW: a photo shot at 3400 K on the camera reads
   3396 K, one on the Shade preset 7493 K. As for #730, only the numbers change: edits made on the old relative
   scale keep their look, and As Shot shows the real temperature once the file is opened.
+
 ## 2026-10-12
 
 ### Bold text in other scripts
 - Arabic names and other Arabic text in headings, chosen tabs and other bold places are now drawn bold, as Latin text
   beside them is; they used to stay at regular weight.
+
 ## 2026-10-12
 
 ### Older raw cameras
 - Canon PowerShot G9 raws open with the camera's white balance (White Balance ▸ As Shot); it used to start from a
   neutral default.
+
 ## 2026-10-12
 
 ### Older raw cameras
 - Olympus E-10 raws open with the camera's white balance (White Balance ▸ As Shot) and without the grey haze in
   the shadows: the black level recorded in the file is now subtracted.
+
 ### Told when there is no GPU
 - When GPU rendering is on but no graphics processor can be found, LightCraft now says so once at start-up instead
   of quietly rendering everything on the CPU, much more slowly. Help ▸ System Info says why. On NixOS this happens
   when a `cargo` build runs outside `nix develop` (no Vulkan loader); start it from there.
+
 ## 2026-10-12
 
 ### Leaf and Hasselblad raws
@@ -989,6 +1044,7 @@
   instead of opening as their embedded preview. Photos imported earlier switch over with Photo ▸ Reload from Disk.
 - An uncompressed Leaf Aptus 22 MOS no longer opens as a dark, colourless picture of its sensor mosaic: it imports
   as a raw and shows its embedded preview (preview only, with the reason), as the compressed MOS files do.
+
 ## 2026-10-12
 
 ### Zoomed 64 MP raws stay decoded
@@ -1029,6 +1085,7 @@
 - Photo Merge of Canon CR2 (and other raws whose colour LightCraft fits from the camera's own JPEG, such as NEF and
   ARW) gives the merged DNG the colour each photo has when opened alone (issue #965). An HDR merge of CR2s used to come
   out green and dark.
+
 ### "Rendering…" on the photo
 - The loupe says "Rendering…" at the bottom of the photo when what it shows isn't the finished photo yet: the
   camera's embedded JPEG while a raw decodes, the previous render while an edit renders, or the magnified frame
@@ -1037,6 +1094,7 @@
   its embedded JPEG or a thumbnail to show, the loupe now says so at the bottom of the photo ("Original offline · no
   smart preview" or "This photo can't be opened", the reason on hover) instead of showing that preview as if it were
   the photo.
+
 ### `--import <folder>` takes HEIC
 - `lightcraft-cli run --import <folder>` (and the MCP tools that take folders) now picks up HEIC, HEIF and Nikon NRW
   files, the same files as `library.import` (issue #1080). They used to be skipped without a word.

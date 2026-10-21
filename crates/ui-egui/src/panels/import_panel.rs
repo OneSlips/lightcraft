@@ -365,13 +365,13 @@ fn transfer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::import::I
 }
 
 fn album(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::import::ImportDialog, w: f32) {
-    caption(ui, "Album");
+    caption(ui, "Collection");
     let mut albums: Vec<(u64, String)> =
         app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.id.0, a.name.clone())).collect();
     albums.sort_by_key(|(_, n)| n.to_lowercase());
     let cur = match d.album {
         Some(a) => albums.iter().find(|x| x.0 == a).map(|x| x.1.clone()).unwrap_or_default(),
-        None if !d.new_album.is_empty() => crate::i18n::tr("New album").into(),
+        None if !d.new_album.is_empty() => crate::i18n::tr("New collection").into(),
         None => crate::i18n::tr("None").into(),
     };
     let r = combo("import-album", w).selected_text(cur).show_ui(ui, |ui| {
@@ -379,7 +379,7 @@ fn album(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::import::Impo
             d.album = None;
             d.new_album.clear();
         }
-        if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New album…")).clicked() {
+        if ui.selectable_label(d.album.is_none() && !d.new_album.is_empty(), crate::i18n::tr("New collection…")).clicked() {
             d.album = None;
             if d.new_album.is_empty() {
                 d.new_album = crate::i18n::tr("Imported Photos").into();
@@ -603,7 +603,7 @@ fn preset_stack(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut crate::impor
         _ => {}
     }
     let label = if d.presets.is_empty() { crate::i18n::tr("Add a preset…") } else { crate::i18n::tr("Add another preset…") };
-    // (the shared picker: Favorites and For Import first, search, groups, a preview on the photo)
+    // (the shared picker: Favorites and At Import first, search, groups, a preview on the photo)
     if let Some(crate::preset_picker::Picked::Preset(pid)) =
         crate::preset_picker::Picker::new("importPresetAdd").for_import(true).button(app, ui, label, w)
     {

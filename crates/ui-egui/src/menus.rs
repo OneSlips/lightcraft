@@ -184,9 +184,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
-    ("dialog.newAlbum", "New Album…", Some("Cmd+N"), "File"),
+    ("dialog.newAlbum", "New Collection…", Some("Cmd+N"), "File"),
     ("dialog.newFolder", "New Folder…", Some("Cmd+Shift+N"), "File"),
-    ("dialog.smartAlbum", "New Smart Album…", None, "File"),
+    ("dialog.smartAlbum", "New Smart Collection…", None, "File"),
     ("view.photoCounts", "Show Photo Counts", None, "View"),
     ("view.sidebarSection", "Show Sidebar Section", None, ""),
     ("view.sidebarMoveSection", "Move Sidebar Section", None, ""),
@@ -210,7 +210,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.theme", "Theme", None, ""),
     ("dialog.allMetadata", "All Metadata…", None, "Photo"),
     ("dialog.faceModel", "Add Face Model…", None, ""),
-    ("dialog.newSmartAlbum", "New Smart Album from Filter…", Some("Cmd+Alt+N"), "File"),
+    ("dialog.newSmartAlbum", "New Smart Collection from Filter…", Some("Cmd+Alt+N"), "File"),
     ("dialog.createPreset", "Create Preset…", Some("Cmd+Shift+P"), "Photo"),
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
@@ -1678,7 +1678,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     },
                 ),
                 ("Photos".to_string(), info["photos"].to_string()),
-                ("Albums".to_string(), info["albums"].to_string()),
+                ("Collections".to_string(), info["albums"].to_string()),
             ];
             if let Some(dir) = info["dir"].as_str().or(info["path"].as_str()) {
                 rows.push(("Library".into(), dir.to_string()));
@@ -2454,7 +2454,7 @@ pub fn delete_in_album(app: &mut LightcraftApp, ctx: &egui::Context) -> bool {
     let lightcraft_engine::LibrarySource::Album(aid) = app.session.source else { return false };
     let Some(album) = app.session.catalog.album(aid) else { return false };
     if album.is_smart() {
-        app.toast(ctx, crate::i18n::tr("Smart albums update automatically: change their rules, or use Photo ▸ Delete Photo"));
+        app.toast(ctx, crate::i18n::tr("Smart collections update automatically: change their rules, or use Photo ▸ Delete Photo"));
         return true;
     }
     if app.session.selected().is_empty() {

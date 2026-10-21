@@ -1150,7 +1150,7 @@ pub fn local_only(app: &LightcraftApp, ids: &[PhotoId]) -> bool {
 
 /// Why an album action is off for Local photos.
 pub fn albums_hint() -> String {
-    crate::i18n::tr("Albums hold library photos: import these photos first").to_string()
+    crate::i18n::tr("Collections hold library photos: import these photos first").to_string()
 }
 
 /// Tell the user when an album command skipped Local photos of the selection (`skipped` in its
@@ -1160,7 +1160,7 @@ pub fn toast_skipped(app: &mut LightcraftApp, ctx: &egui::Context, r: &serde_jso
         app.toast(
             ctx,
             crate::i18n::tr_format!(
-                "{n} browsed photo{} skipped: albums hold library photos (import them first)",
+                "{n} browsed photo{} skipped: collections hold library photos (import them first)",
                 if n == 1 { "" } else { "s" },
                 n = n
             ),
@@ -1312,10 +1312,10 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     crate::widgets::menu_button(ui, crate::i18n::tr("Set Color Label"), |ui| label_menu(app, ui));
     if local_only(app, &app.session.selected()) {
         // albums hold library photos (issue #684): nothing here to add until they are imported
-        let add = ui.add_enabled(false, egui::Button::new(crate::i18n::tr("Add to Album"))).on_disabled_hover_text(albums_hint());
+        let add = ui.add_enabled(false, egui::Button::new(crate::i18n::tr("Add to Collection"))).on_disabled_hover_text(albums_hint());
         register(ui.ctx(), "button:contextAddToAlbum", add.rect);
     } else {
-        let add = crate::widgets::menu_button(ui, crate::i18n::tr("Add to Album"), |ui| {
+        let add = crate::widgets::menu_button(ui, crate::i18n::tr("Add to Collection"), |ui| {
             let albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.id.0, a.name.clone())).collect();
             let any = !albums.is_empty();
             for (aid, name) in albums {
@@ -1333,7 +1333,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             // as in the Photo menu: a new album holding the selection, also when there is none yet
             // to pick (issue #676: the submenu came up empty)
-            let new = ui.button(crate::i18n::tr("New Album…"));
+            let new = ui.button(crate::i18n::tr("New Collection…"));
             register(ui.ctx(), "button:contextNewAlbum", new.rect);
             if new.clicked() {
                 let _ = app.run("dialog.newAlbum", json!({}));
@@ -1345,10 +1345,10 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if let lightcraft_engine::LibrarySource::Album(aid) = app.session.source
         && app.session.catalog.album(aid).is_some_and(|a| !a.folder && !a.is_smart())
     {
-        if ui.button(crate::i18n::tr("Remove from Album")).clicked() {
+        if ui.button(crate::i18n::tr("Remove from Collection")).clicked() {
             let _ = app.run("album.removePhotos", json!({"id": aid.0}));
         }
-        if ui.button(crate::i18n::tr("Set as Album Cover")).clicked() {
+        if ui.button(crate::i18n::tr("Set as Collection Cover")).clicked() {
             let _ = app.run("album.setCover", json!({"id": aid.0, "photo": id.0}));
         }
     }

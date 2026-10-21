@@ -307,7 +307,7 @@ fn import_review_preview_and_options() {
         let lightcraft_catalog::Source::File { path } = &p.source else { panic!() };
         assert!(std::path::Path::new(path).starts_with(lib.join("Originals")), "{path}");
     }
-    assert_eq!(s.undo.len(), undo0 + 1, "import + album = one undo step");
+    assert_eq!(s.undo.len(), undo0 + 1, "import + collection = one undo step");
     s.execute("edit.undo", &json!({})).unwrap();
     assert_eq!(s.catalog.len(), n0);
     assert!(s.catalog.album(album).is_none());
@@ -528,7 +528,7 @@ fn random_sort_applies_to_albums_too() {
     let in_album = s.visible_cloned();
     assert_eq!(in_album.len(), 12);
     let expect: Vec<_> = all.iter().filter(|i| in_album.contains(i)).copied().collect();
-    assert_eq!(in_album, expect, "the album shows its photos in the shuffle's order, not manual order");
+    assert_eq!(in_album, expect, "the collection shows its photos in the shuffle's order, not manual order");
 }
 
 /// Choosing Random from another sort is a fresh shuffle (not the fixed seed-0 order); picking it

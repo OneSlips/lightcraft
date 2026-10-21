@@ -48,7 +48,7 @@ pub use store::{FsStore, MemStore, Store};
 pub enum CatalogError {
     #[error("no such photo {0:?}")]
     NoPhoto(PhotoId),
-    #[error("no such album {0:?}")]
+    #[error("no such collection {0:?}")]
     NoAlbum(AlbumId),
     #[error("no such stack {0:?}")]
     NoStack(StackId),
@@ -491,7 +491,7 @@ impl Catalog {
             path: Vec::new(),
             field: Some("album".into()),
             issue: rules::Issue::AlbumLoop,
-            message: format!("its album filter (album {}) would make this album include itself", a.0),
+            message: format!("its collection filter (collection {}) would make this collection include itself", a.0),
         })
     }
 
@@ -523,12 +523,12 @@ impl Catalog {
     /// Smart-album rules must not reference another smart album (no recursion) or deleted photos.
     fn validate_rules(&self, rules: &Filter) -> Result<()> {
         if rules.deleted {
-            return Err(CatalogError::Invalid("smart album rules can't select deleted photos".into()));
+            return Err(CatalogError::Invalid("smart collection rules can't select deleted photos".into()));
         }
         if let Some(a) = rules.album
             && self.albums.get(&a).is_some_and(Album::is_smart)
         {
-            return Err(CatalogError::Invalid("smart album rules can't reference another smart album".into()));
+            return Err(CatalogError::Invalid("smart collection rules can't reference another smart collection".into()));
         }
         Ok(())
     }
@@ -750,7 +750,7 @@ impl Catalog {
             }
             Op::AddAlbum { album } => {
                 if self.albums.contains_key(&album.id) {
-                    return Err(CatalogError::Invalid(format!("album {:?} exists", album.id)));
+                    return Err(CatalogError::Invalid(format!("collection {:?} exists", album.id)));
                 }
                 if let Some(parent) = album.parent
                     && !self.albums.get(&parent).is_some_and(|a| a.folder)
@@ -759,7 +759,7 @@ impl Catalog {
                 }
                 if let Some(rules) = &album.smart {
                     if album.folder || !album.photos.is_empty() {
-                        return Err(CatalogError::Invalid("a smart album holds rules, not photos".into()));
+                        return Err(CatalogError::Invalid("a smart collection holds rules, not photos".into()));
                     }
                     self.validate_rules(rules)?;
                 }
@@ -818,7 +818,7 @@ impl Catalog {
                 let a = self.albums.get_mut(&id).ok_or(CatalogError::NoAlbum(id))?;
                 if (a.folder || a.smart.is_some()) && !photos.is_empty() {
                     return Err(CatalogError::Invalid(
-                        if a.folder { "folders can't hold photos" } else { "smart albums update automatically" }.into(),
+                        if a.folder { "folders can't hold photos" } else { "smart collections update automatically" }.into(),
                     ));
                 }
                 let old = std::mem::replace(&mut a.photos, photos);
@@ -833,7 +833,7 @@ impl Catalog {
                 self.validate_rules(&rules)?;
                 let a = self.album_mut(id)?;
                 let Some(old) = a.smart.as_mut() else {
-                    return Err(CatalogError::Invalid("not a smart album".into()));
+                    return Err(CatalogError::Invalid("not a smart collection".into()));
                 };
                 Op::SetAlbumRules { id, rules: std::mem::replace(old, rules) }
             }
@@ -1034,7 +1034,7 @@ impl Catalog {
         }
         for (id, a) in self.albums.iter_mut() {
             if a.id != *id {
-                changed.push(format!("album {} was filed as {}", a.id.0, id.0));
+                changed.push(format!("collection {} was filed as {}", a.id.0, id.0));
                 a.id = *id;
             }
         }
@@ -1083,7 +1083,7 @@ impl Catalog {
                 steps += 1;
             };
             if !ok && let Some(a) = self.albums.get_mut(&id) {
-                changed.push(format!("album {}: its folder {} is missing, not a folder or inside it: moved to the top level", id.0, p.0));
+                changed.push(format!("collection {}: its folder {} is missing, not a folder or inside it: moved to the top level", id.0, p.0));
                 a.parent = None;
             }
         }

@@ -92,7 +92,7 @@ fn smart_album_view_keeps_the_filter_bar_over_a_stale_rule() {
     s.execute("library.filter", &json!({"rating": 3})).unwrap();
     let r = s.view_rules();
     assert_eq!(r.rating, 3, "the filter bar's rating survives");
-    assert!(r.rule_set.is_some(), "and so do the album's own rules");
+    assert!(r.rule_set.is_some(), "and so do the collection's own rules");
 }
 
 #[test]
@@ -323,7 +323,7 @@ fn deleting_an_album_folder_preserves_photos_and_restores_its_subtree() {
     assert_eq!(s.undo.len(), undo_before + 1);
     let deleted = s.catalog.to_snapshot();
     s.execute("edit.undo", &json!({})).unwrap();
-    assert_eq!(s.catalog.to_snapshot(), before, "all album fields and memberships restored");
+    assert_eq!(s.catalog.to_snapshot(), before, "all collection fields and memberships restored");
     s.execute("edit.redo", &json!({})).unwrap();
     assert_eq!(s.catalog.to_snapshot(), deleted);
     let undo_after = s.undo.len();

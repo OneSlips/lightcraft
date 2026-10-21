@@ -46,7 +46,7 @@ fn photo_menu(h: &Headless) -> Vec<(String, Option<String>)> {
 }
 
 fn garden(h: &Headless) -> u64 {
-    h.app.session.catalog.albums().find(|a| a.name == "Garden").map(|a| a.id.0).expect("the demo's Garden album")
+    h.app.session.catalog.albums().find(|a| a.name == "Garden").map(|a| a.id.0).expect("the demo's Garden collection")
 }
 
 fn in_album(h: &Headless, album: u64, photo: PhotoId) -> bool {
@@ -68,8 +68,8 @@ fn the_delete_key_in_an_album_removes_from_the_album_only() {
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     h.step();
-    assert_eq!(h.app.ui.dialog, None, "removing from an album asks nothing (it is undoable and keeps the photo)");
-    assert!(!in_album(&h, album, photo), "the photo left the album");
+    assert_eq!(h.app.ui.dialog, None, "removing from a collection asks nothing (it is undoable and keeps the photo)");
+    assert!(!in_album(&h, album, photo), "the photo left the collection");
     assert!(!h.app.session.catalog.photo(photo).unwrap().deleted, "the photo is not deleted from the library");
     exec(&mut h, "library.source", json!({"kind": "all"}));
     assert!(h.app.session.visible_cloned().contains(&photo), "All Photos still shows it");
@@ -87,7 +87,7 @@ fn the_photo_menu_in_an_album_has_remove_from_album_on_the_delete_key() {
     let photo = h.app.session.visible_cloned()[0];
     exec(&mut h, "library.select", json!({"ids": [photo.0]}));
     let items = photo_menu(&h);
-    assert!(!items.iter().any(|(id, _)| id == "album.removePhotos"), "not outside albums: {items:?}");
+    assert!(!items.iter().any(|(id, _)| id == "album.removePhotos"), "not outside collections: {items:?}");
     assert!(items.iter().any(|(id, sc)| id == "photo.delete" && sc.as_deref() == Some("Delete")), "{items:?}");
 
     let album = garden(&h);
@@ -120,9 +120,9 @@ fn the_photo_menu_in_an_album_has_remove_from_album_on_the_delete_key() {
 fn the_delete_key_in_a_smart_album_deletes_nothing() {
     let mut h = demo();
     let r = exec(&mut h, "album.createSmart", json!({"name": "Rated", "rules": {"rating": 0, "ratingOp": "atLeast"}}));
-    let smart = r["id"].as_u64().expect("smart album id");
+    let smart = r["id"].as_u64().expect("smart collection id");
     exec(&mut h, "library.source", json!({"kind": "album", "id": smart}));
-    let photo = *h.app.session.visible_cloned().first().expect("the smart album shows photos");
+    let photo = *h.app.session.visible_cloned().first().expect("the smart collection shows photos");
     exec(&mut h, "library.select", json!({"ids": [photo.0]}));
     let r = h.request("ui.key", json!({"key": "delete"}), T);
     assert_eq!(r["ok"], true, "{r}");

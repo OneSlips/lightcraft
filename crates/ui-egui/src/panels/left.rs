@@ -477,7 +477,7 @@ enum HeaderAction {
 fn header_button(section: SidebarSection) -> Option<HeaderButton> {
     match section {
         SidebarSection::Albums => {
-            Some(HeaderButton { id: "albumNew", icon: Icon::Plus, tooltip: "Create Album", action: HeaderAction::Menu(new_album_menu) })
+            Some(HeaderButton { id: "albumNew", icon: Icon::Plus, tooltip: "Create Collection", action: HeaderAction::Menu(new_album_menu) })
         }
         SidebarSection::Keywords => {
             Some(HeaderButton { id: "keywordNew", icon: Icon::Plus, tooltip: "Create Keyword Tag", action: HeaderAction::Run(new_keyword) })
@@ -564,10 +564,10 @@ fn sections_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, on: Option<SidebarS
 
 /// The menu of Albums' +: Create Album, Smart Album, Folder…
 fn new_album_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
-    if ui.button(crate::i18n::tr("Create Album…")).clicked() {
+    if ui.button(crate::i18n::tr("Create Collection…")).clicked() {
         app.ui.dialog = Some(crate::state::Dialog::NewAlbum { name: String::new(), folder: false, parent: None, include_selected: true });
     }
-    if ui.button(crate::i18n::tr("Create Smart Album…")).clicked() {
+    if ui.button(crate::i18n::tr("Create Smart Collection…")).clicked() {
         app.ui.dialog = Some(crate::state::Dialog::SmartRules {
             id: None,
             name: String::new(),
@@ -575,7 +575,7 @@ fn new_album_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             parent: None,
         });
     }
-    if ui.button(crate::i18n::tr("Create Smart Album from Filter…")).clicked() {
+    if ui.button(crate::i18n::tr("Create Smart Collection from Filter…")).clicked() {
         app.ui.dialog = Some(crate::state::Dialog::NewSmartAlbum { name: String::new(), parent: None });
     }
     if ui.button(crate::i18n::tr("Create Folder…")).clicked() {
@@ -584,7 +584,7 @@ fn new_album_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // only once the albums were put in an order by hand
     if app.session.catalog.album_children_are_ordered(None) {
         ui.separator();
-        if ui.button(crate::i18n::tr("Sort Albums A–Z")).on_hover_text(crate::i18n::tr("Go back to listing them by name")).clicked() {
+        if ui.button(crate::i18n::tr("Sort Collections A–Z")).on_hover_text(crate::i18n::tr("Go back to listing them by name")).clicked() {
             let _ = app.run("album.sort", json!({}));
         }
     }
@@ -1226,10 +1226,10 @@ fn albums_tree(app: &mut LightcraftApp, ui: &mut egui::Ui, all: &AlbumKids, pare
             }
             if let Some(rules) = &a.smart {
                 // one tooltip: the rules, then what needs fixing in them
-                let mut tip = crate::i18n::tr_format!("Smart album: {}", crate::i18n::filter_label(rules, &app.session.catalog));
+                let mut tip = crate::i18n::tr_format!("Smart collection: {}", crate::i18n::filter_label(rules, &app.session.catalog));
                 if !problems.is_empty() {
                     tip.push_str("\n\n");
-                    tip.push_str(crate::i18n::tr("Some rules need fixing (Edit Smart Album…):"));
+                    tip.push_str(crate::i18n::tr("Some rules need fixing (Edit Smart Collection…):"));
                     for p in &problems {
                         tip.push('\n');
                         tip.push_str(&crate::i18n::problem_line(p));
@@ -1536,7 +1536,7 @@ fn drop_target(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response
                 if skipped > 0 {
                     msg.push_str(" · ");
                     msg.push_str(&crate::i18n::tr_format!(
-                        "{n} browsed photo{} skipped: albums hold library photos (import them first)",
+                        "{n} browsed photo{} skipped: collections hold library photos (import them first)",
                         if skipped == 1 { "" } else { "s" },
                         n = skipped
                     ));
@@ -1555,9 +1555,9 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
             // the same commands as File ▸ New…, aimed at this folder
             crate::widgets::menu_button(ui, crate::i18n::tr("New"), |ui| {
                 for (label, command) in [
-                    ("Create Album…", "dialog.newAlbum"),
-                    ("Create Smart Album…", "dialog.smartAlbum"),
-                    ("Create Smart Album from Filter…", "dialog.newSmartAlbum"),
+                    ("Create Collection…", "dialog.newAlbum"),
+                    ("Create Smart Collection…", "dialog.smartAlbum"),
+                    ("Create Smart Collection from Filter…", "dialog.newSmartAlbum"),
                     ("Create Folder…", "dialog.newFolder"),
                 ] {
                     if ui.button(crate::i18n::tr(label)).clicked() {
@@ -1620,17 +1620,17 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
         }
         if !a.folder && !a.is_smart() {
             let is_target = app.session.target_album == Some(a.id) || (app.session.target_album.is_none() && a.quick);
-            if !is_target && ui.button(crate::i18n::tr("Set as Target Album (B adds to it)")).clicked() {
+            if !is_target && ui.button(crate::i18n::tr("Set as Target Collection (B adds to it)")).clicked() {
                 let _ = app.run("album.setTarget", json!({"id": if a.quick { serde_json::Value::Null } else { json!(a.id.0) }}));
             }
-            if is_target && !a.quick && ui.button(crate::i18n::tr("Stop Using as Target Album")).clicked() {
+            if is_target && !a.quick && ui.button(crate::i18n::tr("Stop Using as Target Collection")).clicked() {
                 let _ = app.run("album.setTarget", json!({"id": null}));
             }
         }
         if a.quick && ui.button(crate::i18n::tr("Clear Quick Collection")).clicked() {
             let _ = app.run("album.clearQuick", json!({}));
         }
-        if a.is_smart() && ui.button(crate::i18n::tr("Edit Smart Album…")).clicked() {
+        if a.is_smart() && ui.button(crate::i18n::tr("Edit Smart Collection…")).clicked() {
             // the same editor as `dialog.smartAlbum` (older smart albums keep their filter fields;
             // it works on the rule set, upgraded)
             let _ = app.run("dialog.smartAlbum", json!({"id": a.id.0}));
@@ -1648,12 +1648,12 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
                 let _ = app.run("library.selectAll", json!({}));
             };
             let has_photos = app.session.catalog.album_count(a.id) > 0;
-            if ui.add_enabled(has_photos, egui::Button::new(crate::i18n::tr("Export Album…"))).clicked() {
+            if ui.add_enabled(has_photos, egui::Button::new(crate::i18n::tr("Export Collection…"))).clicked() {
                 show_all(app);
                 let _ = app.run("dialog.export", json!({}));
             }
             ui.add_enabled_ui(has_photos, |ui| {
-                crate::widgets::menu_button(ui, crate::i18n::tr("Export Album with Preset"), |ui| {
+                crate::widgets::menu_button(ui, crate::i18n::tr("Export Collection with Preset"), |ui| {
                     for (p, _) in app.session.all_export_presets() {
                         if ui.button(&p.name).clicked() {
                             show_all(app);
@@ -1686,7 +1686,7 @@ fn folder_menu(app: &mut LightcraftApp, resp: &egui::Response, a: &Album) {
         let delete = ui.button(crate::i18n::tr("Delete"));
         register(ui.ctx(), format!("albumDelete:{}", a.id.0), delete.rect);
         let delete =
-            delete.on_hover_text(crate::i18n::tr("Photos stay in All Photos. Deleting a folder also deletes its albums. You can undo this."));
+            delete.on_hover_text(crate::i18n::tr("Photos stay in All Photos. Deleting a folder also deletes its collections. You can undo this."));
         if delete.clicked() {
             if let Err(e) = app.run("album.delete", json!({"id": a.id.0})) {
                 app.toast(ui.ctx(), e);

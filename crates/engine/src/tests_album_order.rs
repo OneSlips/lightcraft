@@ -50,8 +50,8 @@ fn folders_and_albums_keep_to_their_own_group() {
     reorder(&mut s, f2, json!({"before": f1})).unwrap();
     reorder(&mut s, a2, json!({"before": a1})).unwrap();
     assert_eq!(names(&s, None), ["F2", "F1", "A2", "A1"]);
-    reorder(&mut s, f1, json!({"before": a1})).expect_err("a folder is not placed among albums");
-    reorder(&mut s, a1, json!({"before": f1})).expect_err("an album is not placed among folders");
+    reorder(&mut s, f1, json!({"before": a1})).expect_err("a folder is not placed among collections");
+    reorder(&mut s, a1, json!({"before": f1})).expect_err("a collection is not placed among folders");
     reorder(&mut s, f2, json!({"before": null})).unwrap();
     assert_eq!(names(&s, None), ["F1", "F2", "A2", "A1"], "last of the folders");
 }
@@ -111,9 +111,9 @@ fn bad_placements_are_refused_and_change_nothing() {
     let (a, b) = (make(&mut s, "A", None, false), make(&mut s, "B", Some(f), false));
     let before = s.catalog.to_snapshot();
     reorder(&mut s, a, json!({"before": b})).expect_err("B is in F, not at the top level");
-    reorder(&mut s, a, json!({"parent": b})).expect_err("a plain album is no folder");
+    reorder(&mut s, a, json!({"parent": b})).expect_err("a plain collection is no folder");
     reorder(&mut s, f, json!({"parent": inner})).expect_err("a folder into itself");
-    reorder(&mut s, 987_654, json!({})).expect_err("no such album");
+    reorder(&mut s, 987_654, json!({})).expect_err("no such collection");
     reorder(&mut s, a, json!({"before": 987_654})).expect_err("no such sibling");
     assert_eq!(s.catalog.to_snapshot(), before, "nothing changed");
 }

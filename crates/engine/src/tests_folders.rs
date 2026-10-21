@@ -363,7 +363,7 @@ fn a_smart_album_made_from_a_folder_view_keeps_the_folder() {
     source_folder(&mut s, "/pics/trip");
     assert_eq!(s.visible().len(), 2);
     let r = s.execute("album.createSmart", &json!({"name": "Trip"})).unwrap();
-    assert_eq!(r["count"], 2, "the album matches the folder's photos, not the whole library: {r}");
+    assert_eq!(r["count"], 2, "the collection matches the folder's photos, not the whole library: {r}");
 }
 
 #[test]
