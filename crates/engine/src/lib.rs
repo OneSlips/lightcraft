@@ -356,25 +356,25 @@ pub struct Session {
     pub recycle: recycle::RecycleFn,
     /// Show Alternatives is on: the original photo, and the view to go back to.
     pub alternatives: Option<cmd::alternatives::Alternatives>,
-    /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
+    /// Parameters of the last export (`app.export` params, minus targets), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub last_export: Option<serde_json::Value>,
     /// The options of the last Photo Merge started, per command (`merge.hdr`, `merge.panorama`,
     /// `merge.hdrPanorama`): the merge dialog opens with them and "… with Last Settings" uses
-    /// them. Persisted in prefs.json.
+    /// them. Kept in the app store ([`app_store::Habits`]).
     pub last_merge: std::collections::BTreeMap<String, serde_json::Value>,
-    /// The user's export presets (built-ins: [`export::builtin_presets`]), persisted in prefs.json.
+    /// The user's export presets (built-ins: [`export::builtin_presets`]), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub export_presets: Vec<export::ExportPreset>,
     /// The Print module's current layout, image settings, page, guides and job (`print.*`). Lives
     /// with the session, so the app, CLI, control channel and MCP all see the same print.
     pub print: print::template::PrintSettings,
-    /// Saved print templates (`print.template.*`), persisted in prefs.json.
+    /// Saved print templates (`print.template.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub print_templates: Vec<print::template::PrintTemplate>,
-    /// Metadata presets (`metadata.*`), persisted in prefs.json.
+    /// Metadata presets (`metadata.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub metadata_presets: Vec<cmd::metadata::MetadataPreset>,
-    /// Saved filter-bar settings (`filter.*`), persisted in prefs.json.
+    /// Saved filter-bar settings (`filter.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub filter_presets: Vec<cmd::filters::FilterPreset>,
     /// The user's point-curve presets (`curve.*`; built-ins: [`cmd::curves::builtin_presets`]),
-    /// persisted in prefs.json.
+    /// kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Mask effect presets (the Masking panel's Effect menu).
     pub mask_effects: Vec<cmd::mask_effects::MaskEffect>,

@@ -5,7 +5,8 @@
 //! LightCraft Library/
 //!   catalog.snap   catalog.log      (lightcraft-catalog journal)
 //!   presets.json   view.json        (user presets + favourites; last source/sort/selection)
-//!   prefs.json     (library preferences: XMP sidecars, import defaults, cache size, last export)
+//!   prefs.json     (library preferences: XMP sidecars, cache size, auto import; and, read by older
+//!                   builds or kept by a library that keeps its own, the app store's settings)
 //!   thumbs/        (rendered thumbnail cache, safe to delete)
 //!   Originals/     (photos imported with "copy into library")
 //! ```
@@ -228,36 +229,22 @@ impl Library {
 #[serde(default, rename_all = "camelCase")]
 struct PrefsFile {
     xmp: crate::sidecar::XmpPrefs,
-    /// Parameters of the last export (for Export with Previous).
-    #[serde(alias = "last_export")]
-    last_export: Option<serde_json::Value>,
-    /// Options of the last Photo Merge, per command.
-    last_merge: std::collections::BTreeMap<String, serde_json::Value>,
-    /// The user's export presets.
-    export_presets: Vec<crate::export::ExportPreset>,
-    /// Print templates.
-    print_templates: Vec<crate::print::template::PrintTemplate>,
-    /// Metadata presets.
-    metadata_presets: Vec<crate::cmd::metadata::MetadataPreset>,
+    /// Export presets, the last export, print / metadata / filter / curve / label / keyword-set
+    /// presets, slideshow settings, Hold View: the app store's while the library uses it (note 52;
+    /// kept here as read), the library's own otherwise.
+    #[serde(flatten)]
+    habits: crate::app_store::Habits,
     /// Import presets (the Import tab's settings, by name).
     import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
-    /// Filter presets.
-    filter_presets: Vec<crate::cmd::filters::FilterPreset>,
-    /// Point-curve presets.
-    curve_presets: Vec<crate::cmd::curves::CurvePreset>,
     /// Mask effect presets.
     mask_effects: Vec<crate::cmd::mask_effects::MaskEffect>,
     /// The effect new masks of each kind start with.
     mask_tool_effects: std::collections::BTreeMap<String, String>,
-    /// Colour-label name sets.
-    label_sets: Vec<crate::cmd::manage::LabelSet>,
     /// Imported LUT profiles.
     lut_profiles: Vec<crate::cmd::lut_profiles::LutProfile>,
     /// Imported camera profiles (`.dcp`).
     dcp_profiles: Vec<crate::cmd::dcp_profiles::DcpEntry>,
-    /// Keyword sets, the one in use, recent keywords.
-    keyword_sets: Vec<crate::cmd::keywords::KeywordSet>,
-    keyword_set: Option<String>,
+    /// Recent keywords (the keywords of this library's photos).
     recent_keywords: Vec<String>,
     /// Develop defaults for imported photos.
     import: crate::import::ImportDefaults,
@@ -268,16 +255,8 @@ struct PrefsFile {
     /// Days after which untouched Local records of unbrowsed folders are forgotten (missing =
     /// the default, 0 = never).
     forget_local_days: Option<u32>,
-    /// Slideshow playback settings.
-    slideshow: crate::slideshow::PlaybackSettings,
-    /// Slideshow slide layout (margins, options, backdrop).
-    slide_layout: crate::slide::SlideSettings,
-    /// Slideshow overlays.
-    slide_overlays: crate::slide_overlay::OverlaySettings,
-    /// Slideshow intro and ending screens.
-    slide_titles: crate::slide_title::TitleSettings,
-    /// A view holds the photos it shows until it is refreshed (`library.holdView`).
-    hold_view: bool,
+    // A library-level override of an app-wide setting (note 48: background preparation for this
+    // library) is a field here, read on open and winning over the app's while the library is open.
     /// The Profile Manager's choices (while the library keeps its own; else in the app store).
     #[serde(skip_serializing_if = "crate::app_store::ProfileState::is_default")]
     profiles: crate::app_store::ProfileState,
@@ -331,7 +310,7 @@ fn read_frozen(store: &mut dyn Store) -> serde_json::Map<String, serde_json::Val
     if let Ok(Some(raw)) = store.read("prefs.json")
         && let Ok(serde_json::Value::Object(map)) = serde_json::from_slice::<serde_json::Value>(&raw)
     {
-        for k in crate::app_store::SHARED_PREFS_KEYS.iter().chain(["import"].iter()) {
+        for k in crate::app_store::SHARED_PREFS_KEYS.iter().chain(crate::app_store::HABITS_PREFS_KEYS.iter()).chain(["import"].iter()) {
             if let Some(v) = map.get(*k) {
                 frozen.insert((*k).to_string(), v.clone());
             }
@@ -543,24 +522,9 @@ impl Session {
         // preferences
         let prefs = settings.read::<PrefsFile>(files.as_mut(), "prefs.json").unwrap_or_default();
         self.xmp = prefs.xmp;
-        self.last_export = prefs.last_export;
-        self.last_merge = prefs.last_merge;
-        self.export_presets = prefs.export_presets;
-        self.print_templates = prefs.print_templates;
-        self.metadata_presets = prefs.metadata_presets;
-        self.filter_presets = prefs.filter_presets;
-        self.curve_presets = prefs.curve_presets;
-        self.label_sets = prefs.label_sets;
-        self.keyword_sets = prefs.keyword_sets;
-        self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
         self.cache_mb = prefs.cache_mb;
-        self.slideshow = prefs.slideshow.sanitized();
-        self.slide_layout = prefs.slide_layout.sanitized();
-        self.slide_overlays = prefs.slide_overlays.sanitized();
-        self.slide_titles = prefs.slide_titles.sanitized();
         self.forget_local_days = prefs.forget_local_days.unwrap_or(lightcraft_catalog::DEFAULT_FORGET_DAYS);
-        self.hold_view = prefs.hold_view;
         self.refresh_view();
         self.smart_previews_dir = prefs.smart_previews_dir.filter(|_| on_disk).map(PathBuf::from);
         if let Some(d) = &self.smart_previews_dir {
@@ -572,6 +536,8 @@ impl Session {
         let mut frozen = serde_json::Map::new();
         let mut merged_now = None;
         if own_store {
+            // (the sort comes from view.json below)
+            self.set_habits(crate::app_store::Habits { sort: None, ..prefs.habits });
             self.mask_effects = prefs.mask_effects;
             self.mask_tool_effects = prefs.mask_tool_effects;
             self.lut_profiles = prefs.lut_profiles;
@@ -609,10 +575,19 @@ impl Session {
                     store_with_library: false,
                     import_presets: prefs.import_presets,
                     preset_state: prefs.preset_state,
+                    habits: prefs.habits,
                 };
                 merged_now = Some(self.merge_library_content(&dir, crate::app_store::LibraryContent { shared, presets }));
+            } else if on_disk {
+                // merged by a build that left export presets and templates with the library: once more for them
+                let n = self.merge_library_habits(&dir, prefs.habits);
+                if n > 0 {
+                    log::info!("store: {n} export presets and templates of the library joined the shared store");
+                }
             }
         }
+        // the sort is the app's once the store keeps one (else the library's, below)
+        let store_sort = (!own_store && self.app_store.as_ref().is_some_and(|st| st.sort_known)).then_some(self.sort);
         // view state
         if let Some(v) = settings.read::<ViewFile>(files.as_mut(), "view.json") {
             self.source = v.source;
@@ -627,7 +602,7 @@ impl Session {
                     self.library_folder = None;
                 }
             }
-            self.sort = v.sort;
+            self.sort = store_sort.unwrap_or(v.sort);
             self.selection = v.selection;
             self.selection.ids.retain(|id| self.catalog.photo(*id).is_some());
             self.selection.active = self.selection.active.filter(|id| self.catalog.photo(*id).is_some());
@@ -889,6 +864,10 @@ impl Session {
         if self.library.is_none() {
             return;
         }
+        // the sort is the app store's (note 52)
+        if let Err(e) = self.save_app_store() {
+            log::error!("store: {e}");
+        }
         let v = self.view_json();
         let Some(lib) = self.library.as_mut() else { return };
         if v != lib.view_written && !lib.blocked.contains(&"view.json") {
@@ -903,31 +882,17 @@ impl Session {
     pub fn save_prefs(&mut self) -> Result<()> {
         let v = serde_json::to_value(PrefsFile {
             xmp: self.xmp,
-            last_export: self.last_export.clone(),
-            last_merge: self.last_merge.clone(),
-            export_presets: self.export_presets.clone(),
-            print_templates: self.print_templates.clone(),
-            metadata_presets: self.metadata_presets.clone(),
+            habits: crate::app_store::Habits { sort: None, ..self.habits() },
             import_presets: self.import_presets.clone(),
-            filter_presets: self.filter_presets.clone(),
-            curve_presets: self.curve_presets.clone(),
             mask_effects: self.mask_effects.clone(),
             mask_tool_effects: self.mask_tool_effects.clone(),
-            label_sets: self.label_sets.clone(),
             lut_profiles: self.lut_profiles.clone(),
             dcp_profiles: self.dcp_profiles.clone(),
-            keyword_sets: self.keyword_sets.clone(),
-            keyword_set: self.keyword_set.clone(),
             recent_keywords: self.recent_keywords.clone(),
             import: self.import_defaults.clone(),
             cache_mb: self.cache_mb,
             smart_previews_dir: self.smart_previews_dir.as_ref().map(|d| d.to_string_lossy().to_string()),
             forget_local_days: Some(self.forget_local_days),
-            slideshow: self.slideshow.clone(),
-            slide_layout: self.slide_layout.clone(),
-            slide_overlays: self.slide_overlays.clone(),
-            slide_titles: self.slide_titles.clone(),
-            hold_view: self.hold_view,
             profiles: self.profile_state.clone(),
             preset_state: self.preset_state.clone(),
             store_with_library: self.library.as_ref().is_some_and(|l| l.store_with_library),
@@ -936,10 +901,10 @@ impl Session {
         let store = self.save_app_store();
         let v = match (v, self.library.as_ref()) {
             (Ok(serde_json::Value::Object(mut map)), Some(lib)) if !lib.own_store => {
-                for k in crate::app_store::SHARED_PREFS_KEYS {
-                    match lib.frozen.get(k) {
+                for k in crate::app_store::SHARED_PREFS_KEYS.iter().chain(crate::app_store::HABITS_PREFS_KEYS.iter()) {
+                    match lib.frozen.get(*k) {
                         Some(old) => map.insert(k.to_string(), old.clone()),
-                        None => map.remove(k),
+                        None => map.remove(*k),
                     };
                 }
                 let mut import = lib.frozen.get("import").cloned().unwrap_or_else(|| json_or_null(&crate::import::ImportDefaults::default()));

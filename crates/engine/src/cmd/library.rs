@@ -577,6 +577,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     seed = next_seed(seed, &(s.clock)());
                 }
                 s.sort = Sort { key, ascending: bool_or(p, "ascending", s.sort.ascending), group, seed };
+                // the same sort in every library (kept in the app store: note 52)
+                if let Err(e) = s.save_app_store() {
+                    log::warn!("store: {e}");
+                }
                 ok()
             }
         ),

@@ -4,7 +4,10 @@
 //!
 //! ```text
 //! <settings folder>/Library Store/
-//!   shared.json    (profiles list, body defaults, mask effects, import defaults, Profile Manager)
+//!   shared.json    (profiles list, body defaults, mask effects, import defaults, Profile Manager,
+//!                   and the user's way of working: export presets, print templates, metadata,
+//!                   filter, curve, colour-label and keyword-set presets, slideshow settings,
+//!                   the last export, the grid's sort: [`Habits`])
 //!   presets.json   (develop presets + favourites, profile favourites and recents: as a library's)
 //!   Profiles/      (the profile files: .dcp, .cube)
 //! ```
@@ -20,6 +23,9 @@
 //! (the same one twice is kept once), and nothing in the library is changed by the merge. A profile id
 //! the store already uses for a different file gets a new id; photos of that library are moved to it
 //! when the library is opened ([`Merged::remap`]).
+//!
+//! [`Habits`] joined the store later (note 52: opening another library lost the export presets):
+//! a library merged before that is merged once more for them alone ([`Merged::habits`]).
 //!
 //! While a library uses the store, its own copies are left as they were read: `prefs.json` keeps
 //! its profile and effect lists, and `presets.json` is not written.
@@ -176,6 +182,131 @@ pub struct Merged {
     /// The remap was applied to the library's photos.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub remapped: bool,
+    /// Its [`Habits`] (export presets, templates…) were merged too: libraries merged by an older
+    /// build are merged again for them, once.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub habits: bool,
+}
+
+/// The user's way of working beyond develop presets and profiles: the same in every library
+/// (note 52). In a library's `prefs.json` under the same keys (camelCase), where older builds and
+/// libraries that keep their own ("Store with this library") have them.
+///
+/// What stays with a library is what belongs to its photos and its disk: XMP sidecar writing, the
+/// thumbnail cache size, the smart-preview folder, forgetting Local records, recent keywords,
+/// auto-import, the background queue (`import-finishing.json`), people and concepts. A library's
+/// own override of an app-wide setting (e.g. background preparation) goes in its `prefs.json` too
+/// and wins over the app's while that library is open.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Habits {
+    pub export_presets: Vec<crate::export::ExportPreset>,
+    /// Parameters of the last export (Export with Previous).
+    #[serde(alias = "last_export")]
+    pub last_export: Option<serde_json::Value>,
+    /// Options of the last Photo Merge, per command.
+    pub last_merge: BTreeMap<String, serde_json::Value>,
+    pub print_templates: Vec<crate::print::template::PrintTemplate>,
+    pub metadata_presets: Vec<crate::cmd::metadata::MetadataPreset>,
+    pub filter_presets: Vec<crate::cmd::filters::FilterPreset>,
+    pub curve_presets: Vec<crate::cmd::curves::CurvePreset>,
+    pub label_sets: Vec<crate::cmd::manage::LabelSet>,
+    pub keyword_sets: Vec<crate::cmd::keywords::KeywordSet>,
+    pub keyword_set: Option<String>,
+    pub slideshow: crate::slideshow::PlaybackSettings,
+    pub slide_layout: crate::slide::SlideSettings,
+    pub slide_overlays: crate::slide_overlay::OverlaySettings,
+    pub slide_titles: crate::slide_title::TitleSettings,
+    /// A view holds its photos until it is refreshed (`library.holdView`).
+    pub hold_view: bool,
+    /// The grid's sort (a library's `view.json` keeps one too, for older builds). Not in
+    /// `prefs.json`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<lightcraft_catalog::Sort>,
+}
+
+/// The `prefs.json` keys of [`Habits`] (kept in the library as read while the store holds them).
+pub(crate) const HABITS_PREFS_KEYS: [&str; 15] = [
+    "exportPresets",
+    "lastExport",
+    "lastMerge",
+    "printTemplates",
+    "metadataPresets",
+    "filterPresets",
+    "curvePresets",
+    "labelSets",
+    "keywordSets",
+    "keywordSet",
+    "slideshow",
+    "slideLayout",
+    "slideOverlays",
+    "slideTitles",
+    "holdView",
+];
+
+/// Add `theirs` to `mine` by name: the same item twice is kept once; the same name with other
+/// content is kept as "name 2" (nothing lost). → how many were added.
+fn merge_named<T: PartialEq>(mine: &mut Vec<T>, theirs: Vec<T>, name: impl Fn(&T) -> String, rename: impl Fn(&mut T, String)) -> usize {
+    let mut added = 0;
+    for mut t in theirs {
+        if mine.contains(&t) {
+            continue;
+        }
+        let base = name(&t);
+        if mine.iter().any(|m| name(m).eq_ignore_ascii_case(&base)) {
+            let mut n = 2;
+            let mut candidate = format!("{base} {n}");
+            while mine.iter().any(|m| name(m).eq_ignore_ascii_case(&candidate)) && n < 10_000 {
+                n += 1;
+                candidate = format!("{base} {n}");
+            }
+            rename(&mut t, candidate);
+        }
+        mine.push(t);
+        added += 1;
+    }
+    added
+}
+
+impl Habits {
+    /// Add what a library's `other` has: named presets by name ([`merge_named`]); a single setting
+    /// (the last export, the slideshow's…) only where this has none of its own. → presets added.
+    pub(crate) fn merge(&mut self, other: Habits) -> usize {
+        let mut n = merge_named(&mut self.export_presets, other.export_presets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.print_templates, other.print_templates, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.metadata_presets, other.metadata_presets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.filter_presets, other.filter_presets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.curve_presets, other.curve_presets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.label_sets, other.label_sets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.keyword_sets, other.keyword_sets, |p| p.name.clone(), |p, v| p.name = v);
+        if self.last_export.is_none() {
+            self.last_export = other.last_export;
+        }
+        for (k, v) in other.last_merge {
+            self.last_merge.entry(k).or_insert(v);
+        }
+        if self.keyword_set.is_none() {
+            self.keyword_set = other.keyword_set.filter(|k| self.keyword_sets.iter().any(|s| &s.name == k));
+        }
+        let d = Habits::default();
+        if self.slideshow == d.slideshow {
+            self.slideshow = other.slideshow;
+        }
+        if self.slide_layout == d.slide_layout {
+            self.slide_layout = other.slide_layout;
+        }
+        if self.slide_overlays == d.slide_overlays {
+            self.slide_overlays = other.slide_overlays;
+        }
+        if self.slide_titles == d.slide_titles {
+            self.slide_titles = other.slide_titles;
+        }
+        self.hold_view |= other.hold_view;
+        if self.sort.is_none() {
+            self.sort = other.sort;
+        }
+        n
+    }
 }
 
 /// `shared.json`.
@@ -194,9 +325,13 @@ struct SharedFile {
     import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
     /// The Presets Manager's choices.
     preset_state: PresetState,
+    /// Export presets, templates and the rest of the user's way of working (version 2).
+    #[serde(flatten)]
+    habits: Habits,
 }
 
-const SHARED_VERSION: u32 = 1;
+/// 2: [`Habits`] added (version 1 builds ignore their keys).
+const SHARED_VERSION: u32 = 2;
 
 /// A library's (or the store's) `presets.json`.
 #[derive(Default, Serialize, Deserialize)]
@@ -222,6 +357,8 @@ pub(crate) struct LibraryShared {
     pub store_with_library: bool,
     pub import_presets: Vec<crate::cmd::import_tab::ImportPreset>,
     pub preset_state: PresetState,
+    #[serde(flatten)]
+    pub habits: Habits,
 }
 
 /// The keys of a library's `prefs.json` that the store holds while the library uses it: written back
@@ -245,6 +382,8 @@ pub struct AppStore {
     /// Problems to show once (damaged files, profiles that couldn't be copied).
     pub warnings: Vec<String>,
     warnings_reported: usize,
+    /// `shared.json` kept a sort (written by a build that keeps it there).
+    pub(crate) sort_known: bool,
 }
 
 impl AppStore {
@@ -260,6 +399,7 @@ impl AppStore {
             blocked: Vec::new(),
             warnings: Vec::new(),
             warnings_reported: 0,
+            sort_known: false,
         })
     }
 
@@ -493,6 +633,11 @@ impl Session {
         self.profile_state = shared.profiles;
         self.import_presets = shared.import_presets;
         self.preset_state = shared.preset_state;
+        // (a store written before it kept the sort: the library's view.json decides)
+        if let Some(st) = self.app_store.as_mut() {
+            st.sort_known = shared.habits.sort.is_some();
+        }
+        self.set_habits(shared.habits);
         self.set_presets_from(presets.unwrap_or_default());
         self.shared_presets_saved = crate::library::PresetsSaved::state_of(self);
         // what was just read is on disk already
@@ -540,6 +685,7 @@ impl Session {
             merged,
             import_presets: self.import_presets.clone(),
             preset_state: self.preset_state.clone(),
+            habits: self.habits(),
         };
         serde_json::to_vec_pretty(&f).unwrap_or_default()
     }
@@ -557,6 +703,8 @@ impl Session {
         }
         st.write(SHARED, &bytes)?;
         st.shared_written = bytes;
+        // it keeps the sort from now on
+        st.sort_known = true;
         Ok(())
     }
 
@@ -719,6 +867,8 @@ impl Session {
         if let Some(f) = presets {
             report.presets = self.merge_presets(f, &remap);
         }
+        // export presets, templates…: by name
+        report.presets += self.merge_habits(shared.habits);
         if let Some(st) = self.app_store.as_mut() {
             st.merged.retain(|m| !same_path(Path::new(&m.library), dir));
             st.merged.push(Merged {
@@ -729,12 +879,86 @@ impl Session {
                 effects: report.effects,
                 remap,
                 remapped: false,
+                habits: true,
             });
             for p in &report.problems {
                 log::warn!("store: merging {}: {p}", dir.display());
             }
         }
         report
+    }
+
+    /// The session's [`Habits`].
+    pub(crate) fn habits(&self) -> Habits {
+        Habits {
+            export_presets: self.export_presets.clone(),
+            last_export: self.last_export.clone(),
+            last_merge: self.last_merge.clone(),
+            print_templates: self.print_templates.clone(),
+            metadata_presets: self.metadata_presets.clone(),
+            filter_presets: self.filter_presets.clone(),
+            curve_presets: self.curve_presets.clone(),
+            label_sets: self.label_sets.clone(),
+            keyword_sets: self.keyword_sets.clone(),
+            keyword_set: self.keyword_set.clone(),
+            slideshow: self.slideshow.clone(),
+            slide_layout: self.slide_layout.clone(),
+            slide_overlays: self.slide_overlays.clone(),
+            slide_titles: self.slide_titles.clone(),
+            hold_view: self.hold_view,
+            sort: Some(self.sort),
+        }
+    }
+
+    /// Put `h` in the session (checked: a hand-edited file can't break the slideshow), and its
+    /// sort when it has one.
+    pub(crate) fn set_habits(&mut self, h: Habits) {
+        self.export_presets = h.export_presets;
+        self.last_export = h.last_export;
+        self.last_merge = h.last_merge;
+        self.print_templates = h.print_templates;
+        self.metadata_presets = h.metadata_presets;
+        self.filter_presets = h.filter_presets;
+        self.curve_presets = h.curve_presets;
+        self.label_sets = h.label_sets;
+        self.keyword_sets = h.keyword_sets;
+        self.keyword_set = h.keyword_set;
+        self.slideshow = h.slideshow.sanitized();
+        self.slide_layout = h.slide_layout.sanitized();
+        self.slide_overlays = h.slide_overlays.sanitized();
+        self.slide_titles = h.slide_titles.sanitized();
+        self.hold_view = h.hold_view;
+        if let Some(sort) = h.sort {
+            self.sort = sort;
+        }
+        self.refresh_view();
+    }
+
+    /// Add a library's [`Habits`] to the session's → presets added.
+    fn merge_habits(&mut self, theirs: Habits) -> usize {
+        let mut mine = self.habits();
+        if !self.app_store.as_ref().is_some_and(|s| s.sort_known) {
+            // the store never kept a sort: the library's own (its view.json) stays
+            mine.sort = None;
+        }
+        let n = mine.merge(theirs);
+        self.set_habits(mine);
+        n
+    }
+
+    /// The open library `dir` was merged by a build before [`Habits`] joined the store: merge them
+    /// now (once; the library is only read) → presets added.
+    pub(crate) fn merge_library_habits(&mut self, dir: &Path, theirs: Habits) -> usize {
+        let pending = self.app_store.as_ref().is_some_and(|s| s.merged.iter().any(|m| same_path(Path::new(&m.library), dir) && !m.habits));
+        if !pending {
+            return 0;
+        }
+        let n = self.merge_habits(theirs);
+        if let Some(rec) = self.app_store.as_mut().and_then(|s| s.merged.iter_mut().find(|m| same_path(Path::new(&m.library), dir))) {
+            rec.habits = true;
+            rec.presets = rec.presets.saturating_add(n);
+        }
+        n
     }
 
     /// Add a library's presets → how many were new.

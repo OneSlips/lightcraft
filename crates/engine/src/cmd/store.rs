@@ -109,6 +109,7 @@ fn use_library(s: &mut Session, p: &Value) -> Result<Value> {
                 store_with_library: false,
                 import_presets: s.import_presets.clone(),
                 preset_state: s.preset_state.clone(),
+                habits: crate::app_store::Habits { sort: None, ..s.habits() },
             },
             presets: Some(PresetsFile {
                 user: s.presets.iter().filter(|p| !p.builtin).cloned().collect(),

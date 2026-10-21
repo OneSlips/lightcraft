@@ -148,8 +148,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let searching = !query.trim().is_empty();
             for grp in groups.iter() {
                 let g = grp.name.clone();
-                let open_id = egui::Id::new(("preset-group", &g));
-                let open: bool = searching || ui.data(|d| d.get_temp(open_id)).unwrap_or(true);
+                // folded groups are kept with the app's settings (ui.json), not the library
+                let folded = app.ui.folded_preset_groups.contains(&g);
+                let open: bool = searching || !folded;
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
                 crate::widgets::announce(&resp, g.to_string());
                 register(ui.ctx(), format!("presetGroup:{g}"), r);
@@ -170,8 +171,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     x += 20.0;
                 }
                 ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, &grp.shown, t.semibold(13.0), t.text_label);
-                if resp.clicked() {
-                    ui.data_mut(|d| d.insert_temp(open_id, !open));
+                if resp.clicked() && !searching {
+                    if folded {
+                        app.ui.folded_preset_groups.retain(|x| x != &g);
+                    } else {
+                        app.ui.folded_preset_groups.push(g.clone());
+                    }
                 }
                 if !grp.pseudo {
                     resp.context_menu(|ui| {

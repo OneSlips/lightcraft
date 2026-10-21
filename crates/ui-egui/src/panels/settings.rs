@@ -6,10 +6,12 @@
 //!   preview size, filmstrip/grid badges, last library, monitor profile) and Auto Advance live in
 //!   the UI state,
 //!   saved by the host in its config folder (`ui.json`);
-//! - **library settings** (import defaults, XMP sidecars, thumbnail cache size, slideshow
-//!   playback) go through the `library.preferences` / `library.xmpPreferences` /
-//!   `slideshow.playback` commands into the library's `prefs.json`,
-//!   so they travel with the library.
+//! - **library settings** (XMP sidecars, thumbnail cache size, auto import) go through the
+//!   `library.preferences` / `library.xmpPreferences` commands into the library's `prefs.json`,
+//!   so they travel with the library;
+//! - **the user's way of working** (import defaults, slideshow playback, export presets…: see
+//!   `lightcraft_engine::app_store`) goes to the app store in the settings folder, the same in
+//!   every library.
 
 use egui::RichText;
 use serde_json::{Value, json};
@@ -1076,7 +1078,7 @@ fn playback_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     hint(
         ui,
         t,
-        crate::i18n::tr("Slideshow in the View menu plays the photos in view from the selected one. These settings are saved with the library."),
+        crate::i18n::tr("Slideshow in the View menu plays the photos in view from the selected one. These settings are the same in every library."),
     );
 }
 
