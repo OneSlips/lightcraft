@@ -2333,5 +2333,15 @@
   "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Ricostruisce l'area dipinta con piccoli pezzi dei dintorni, continuando linee e bordi. Per oggetti più grandi. Nessuna sorgente da scegliere.",
   "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Sostituisce l'area dipinta con un servizio di immagini online, con il tuo account. Non viene inviato nulla finché non fai clic su Genera.",
   "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Copia la texture da una sorgente e la adatta al colore e alla luminosità attorno all'area, così si fonde. Trascina lo spillo della sorgente per scegliere il punto.",
-  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Copia la sorgente esattamente com'è, colore compreso, con un bordo morbido. Trascina lo spillo della sorgente per scegliere il punto."
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Copia la sorgente esattamente com'è, colore compreso, con un bordo morbido. Trascina lo spillo della sorgente per scegliere il punto.",
+  "Blemishes": "Imperfezioni",
+  "Face or Body": "Viso o corpo",
+  "Reduce Shine": "Riduci lucidità",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "Corregge piccole macchie scure o rosse sulla pelle dei volti (e, se vuoi, del corpo).",
+  "Find Again": "Cerca di nuovo",
+  "Whiten": "Sbiancare",
+  "Brighten": "Schiarire",
+  "Whiter, brighter teeth: the yellow is taken out gently.": "Denti più bianchi e luminosi: il giallo viene tolto con delicatezza.",
+  "No teeth were found in this photo.": "In questa foto non sono stati trovati denti.",
+  "The faces haven't been looked at yet.": "I volti non sono ancora stati analizzati."
 }

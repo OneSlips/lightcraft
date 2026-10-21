@@ -1,12 +1,12 @@
 # Smooth Skin
 
-*Beyond Lightroom.* A portrait retouch in the Edit panel: it evens out skin tone and texture while keeping
-the pores, on the skin the open MediaPipe models find (never the eyes, brows, lips, teeth, facial hair, hair
+*Beyond Lightroom.* A portrait retouch in the Edit panel's **Retouch** section (its **Skin** part; see
+[retouch.md](retouch.md) for the whole section): it evens out skin tone and texture while keeping the pores, on the skin the open MediaPipe models find (never the eyes, brows, lips, teeth, facial hair, hair
 or background).
 
 ## Using it
 
-**Edit ▸ Smooth Skin ▸ Smooth Skin** switches it on with subtle settings (Amount 35, Texture 0, Even Tone 25,
+**Edit ▸ Retouch ▸ Skin ▸ Smooth Skin** switches it on with subtle settings (Amount 35, Texture 0, Even Tone 25,
 Redness 20). The first time, LightCraft offers the two models it needs (MediaPipe people, 16 MB, and face,
 3.8 MB, Apache-2.0; the same ones the People masks use). The skin is found in the background in a second or
 two; the panel says when it is looking, and when there is no skin (or no such person) in the photo.
@@ -17,10 +17,12 @@ two; the panel says when it is looking, and when there is no skin (or no such pe
 | **Texture** (−100–100) | The fine band: pores and fine texture. 0 keeps them exactly; below softens them (it can look plastic), above brings them out. |
 | **Even Tone** (0–100) | Evens out blotches of tone and colour. The light and shape of the face (its shading, a warm and a cool side) are kept. |
 | **Redness** (0–100) | Takes patches that are redder than the skin around them (a pimple's halo, a flushed patch) back towards it. |
+| **Reduce Shine** (0–100) | Tones down shine: spots brighter than the skin around them (a shiny forehead, nose or cheekbone) are brought down towards it, and their washed-out colour back towards the skin's. The face's own light and shading stay. 0 by default. |
 | **Skin**: Face / Body / Both | Which skin: the face's, the body's (shoulders, arms, back, hands), or both. |
 | **Person**: All / 1–4 | Everyone, or one person, counted from the left by their face (as the People mask counts). |
 
-The section's eye switches it off for a before/after; **Turn Off** sets it back to zero.
+The Skin part's eye switches it off for a before/after (the Retouch section's own eye switches off all of
+Retouch); **Turn Off** sets it back to zero.
 
 ## How it works
 
@@ -48,15 +50,15 @@ renderer runs the same code after its noise reduction, so both match.
 The skin and faces found are kept in the photo's settings (`skin_analysis`, with the area, person and
 orientation they were found for), so rendering and exporting never need the models. They are the photo's own
 data, not an edit: no undo step of their own, never copied by Copy / Paste / Sync / presets (the sliders are,
-in the **Smooth Skin** group, which is not copied by default), and found again when you change the skin or
+in the **Retouch** group, which is not copied by default), and found again when you change the skin or
 person, rotate the photo, or paste Smooth Skin onto another photo. They are written to the XMP sidecar in
 LightCraft's namespace (`lc:settings`) with everything else; Lightroom ignores them.
 
 ## Commands
 
-`skin.smooth {off?}`, `skin.set {amount?, texture?, evenTone?, redness?, area?: face|body|both, person?: 0–4}`,
+`skin.smooth {off?}`, `skin.set {amount?, texture?, evenTone?, redness?, shine?, area?: face|body|both, person?: 0–4}`,
 `skin.find` (look for the skin again), `skin.status`; the sliders are also develop controls (`skin.amount`,
-`skin.texture`, `skin.evenTone`, `skin.redness`) for `develop.set`, presets and the CLI's `render --set`. In the
+`skin.texture`, `skin.evenTone`, `skin.redness`, `skin.shine`) for `develop.set`, presets and the CLI's `render --set`. In the
 CLI and MCP the skin is found before the command returns.
 
 ## Limits

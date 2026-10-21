@@ -159,6 +159,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(curves::specs());
         v.extend(masks::specs());
         v.extend(retouch::specs());
+        v.extend(retouch::retouch_specs());
         v.extend(genfill::specs());
         v.extend(mask_local::specs());
         v.extend(people::specs());

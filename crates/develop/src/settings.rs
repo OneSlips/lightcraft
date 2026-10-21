@@ -161,6 +161,13 @@ pub struct DevelopSettings {
     /// settings group, so copy, paste, sync and presets never carry it).
     #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
     pub skin_analysis: Option<SkinAnalysis>,
+    /// The Retouch sections beyond Smooth Skin (teeth, eyes, lips, hair…). Not written while off.
+    #[serde(skip_serializing_if = "crate::Retouch::is_default", deserialize_with = "lenient")]
+    pub retouch: crate::Retouch,
+    /// The parts of people the models found for them on this photo (its own data, like
+    /// `skin_analysis`: in no settings group).
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "lenient")]
+    pub retouch_analysis: Option<crate::RetouchAnalysis>,
     /// Section on/off toggles (the "eye" buttons on panel headers): section id → enabled.
     pub disabled_sections: Vec<String>,
 }
@@ -199,6 +206,8 @@ impl Default for DevelopSettings {
             sensor: Sensor::default(),
             skin: SkinSmoothing::default(),
             skin_analysis: None,
+            retouch: crate::Retouch::default(),
+            retouch_analysis: None,
             disabled_sections: Vec::new(),
         }
     }
@@ -1429,6 +1438,8 @@ pub struct SkinSmoothing {
     pub even_tone: f64,
     /// 0..100: reduces patches redder than the skin around them.
     pub redness: f64,
+    /// 0..100: tones down shine (hot spots brighter than the skin around them) towards that skin.
+    pub shine: f64,
     pub area: SkinArea,
     /// 0: everyone; n: the n-th person from the left (by their face), as People masks count.
     pub person: u32,
@@ -1436,7 +1447,7 @@ pub struct SkinSmoothing {
 
 impl Default for SkinSmoothing {
     fn default() -> Self {
-        Self { amount: 0.0, texture: 0.0, even_tone: 0.0, redness: 0.0, area: SkinArea::Face, person: 0 }
+        Self { amount: 0.0, texture: 0.0, even_tone: 0.0, redness: 0.0, shine: 0.0, area: SkinArea::Face, person: 0 }
     }
 }
 
@@ -1444,7 +1455,8 @@ impl SkinSmoothing {
     /// Most people Smooth Skin tells apart (Person 1 to 4, as the People mask offers).
     pub const MAX_PERSON: u32 = 4;
     /// The subtle starting point Smooth Skin is switched on with.
-    pub const SUBTLE: SkinSmoothing = SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, area: SkinArea::Face, person: 0 };
+    pub const SUBTLE: SkinSmoothing =
+        SkinSmoothing { amount: 35.0, texture: 0.0, even_tone: 25.0, redness: 20.0, shine: 0.0, area: SkinArea::Face, person: 0 };
 
     pub fn is_default(&self) -> bool {
         *self == SkinSmoothing::default()
@@ -1453,7 +1465,7 @@ impl SkinSmoothing {
     /// Whether it changes anything (some slider away from zero).
     pub fn active(&self) -> bool {
         let on = |v: f64| v.is_finite() && v != 0.0;
-        on(self.amount) || on(self.texture) || on(self.even_tone) || on(self.redness)
+        on(self.amount) || on(self.texture) || on(self.even_tone) || on(self.redness) || on(self.shine)
     }
 }
 
@@ -1497,7 +1509,7 @@ fn lenient<'de, D: serde::Deserializer<'de>, T: Default + serde::de::Deserialize
 }
 
 /// Keep at most [`MAX_SKIN_FACES`] faces (the rest are skipped unread).
-fn de_skin_faces<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<SkinFace>, D::Error> {
+pub(crate) fn de_skin_faces<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<SkinFace>, D::Error> {
     struct Capped;
     impl<'de> serde::de::Visitor<'de> for Capped {
         type Value = Vec<SkinFace>;

@@ -204,3 +204,91 @@ fn on_a_real_portrait_with_the_real_models() {
     let r = s.execute("faces.detect", &json!({"apply": false})).unwrap();
     assert!(!r["photos"][0]["faces"].as_array().unwrap().is_empty(), "{r}");
 }
+
+/// Teeth over the middle of the photo, of everyone, one face at its centre.
+fn teeth_found() -> lightcraft_develop::RetouchAnalysis {
+    let side = 64;
+    let logits: Vec<f32> = (0..side * side)
+        .map(|i| {
+            let (x, y) = ((i % side) as f64 / side as f64, (i / side) as f64 / side as f64);
+            if (x - 0.5).hypot(y - 0.5) < 0.2 { 12.0 } else { -12.0 }
+        })
+        .collect();
+    lightcraft_develop::RetouchAnalysis {
+        orientation: Orientation::Normal,
+        masks: vec![lightcraft_develop::RetouchMask {
+            part: lightcraft_develop::RetouchPart::Teeth,
+            person: 0,
+            seg: Some(SegMask::from_logits(side, &logits)),
+        }],
+        faces: vec![SkinFace { x: 0.5, y: 0.5, eyes: 0.1 }],
+    }
+}
+
+#[test]
+fn retouch_set_changes_one_section_and_says_which_model_it_needs() {
+    let (mut s, dir) = demo();
+    let id = s.active().unwrap();
+    let undo = s.undo.len();
+    let r = s.execute("retouch.set", &json!({"section": "teeth", "whiten": 40, "brighten": 500, "person": 2})).unwrap();
+    let t = s.develop_of(id).unwrap().retouch.teeth;
+    assert_eq!((t.whiten, t.brighten, t.person), (40.0, 100.0, 2));
+    assert_eq!(s.undo.len(), undo + 1, "one step");
+    assert_eq!(r["sections"]["teeth"]["active"], true, "{r}");
+    assert_eq!(r["sections"]["teeth"]["parts"][0]["found"], serde_json::Value::Null, "not looked for yet: {r}");
+    if crate::segment::Segmenter::AVAILABLE {
+        let e = r["error"].as_str().unwrap();
+        assert!(crate::segment::missing_model_in(e).is_some(), "names the model to download: {e}");
+    }
+    for p in [json!({"section": "elbows", "whiten": 1}), json!({"whiten": 1}), json!({"section": "teeth", "person": 7})] {
+        assert!(s.execute("retouch.set", &p).is_err(), "{p}");
+    }
+    // the sliders are develop controls too
+    s.execute("develop.set", &json!({"control": "retouch.teethBrighten", "value": 20})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().retouch.teeth.brighten, 20.0);
+    // off keeps the person
+    s.execute("retouch.off", &json!({"section": "teeth"})).unwrap();
+    let t = s.develop_of(id).unwrap().retouch.teeth;
+    assert!(!t.active() && t.person == 2);
+    assert!(s.execute("retouch.status", &json!({})).unwrap()["sections"]["teeth"]["active"] == false);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_parts_found_render_ride_in_the_sidecar_and_are_never_copied() {
+    let (mut s, dir) = demo();
+    let ids: Vec<PhotoId> = s.visible().to_vec();
+    let (a, b) = (ids[0], ids[1]);
+    s.execute("library.select", &json!({"ids": [a.0], "active": a.0})).unwrap();
+    let render = |s: &mut Session| s.render_job(a, 320, 320, false, true).unwrap().run().rendered.unwrap().image;
+    let plain = render(&mut s);
+    s.execute("retouch.set", &json!({"section": "teeth", "whiten": 100, "brighten": 100})).unwrap();
+    assert_eq!(render(&mut s).data, plain.data, "nothing found yet: nothing changes");
+    let undo = s.undo.len();
+    s.store_retouch_analysis(a, &teeth_found());
+    assert_eq!(s.undo.len(), undo, "finding the parts is not an edit");
+    let done = render(&mut s);
+    assert_ne!(done.data, plain.data, "the teeth change");
+    // only inside the part: the corners are as they were
+    let corner = |i: &lightcraft_raster::Rgba8| i.data[0..4 * 8].to_vec();
+    assert_eq!(corner(&done), corner(&plain));
+    let st = s.execute("retouch.status", &json!({})).unwrap();
+    assert_eq!(st["sections"]["teeth"]["parts"][0]["found"], true, "{st}");
+    // undone and redone, it keeps the parts
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.3})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.develop_of(a).unwrap().retouch_analysis.as_ref(), Some(&teeth_found()));
+    // the sidecar carries them
+    let xmp = crate::sidecar::sidecar_packet(s.catalog.photo(a).unwrap(), &s.catalog);
+    let back = crate::sidecar::parse_sidecar(&xmp, crate::crs::Target::Rendered).unwrap();
+    let Some(crate::sidecar::DevelopPatch::Full(d)) = back.develop else { panic!("lc:settings") };
+    assert_eq!(d.retouch_analysis, Some(teeth_found()));
+    // copied with the Retouch group: the sliders, never photo a's teeth
+    s.execute("develop.copy", &json!({"groups": [SettingsGroup::SmoothSkin]})).unwrap();
+    s.execute("library.select", &json!({"ids": [b.0], "active": b.0})).unwrap();
+    s.execute("develop.paste", &json!({})).unwrap();
+    let db = s.develop_of(b).unwrap();
+    assert_eq!(db.retouch.teeth.whiten, 100.0);
+    assert!(db.retouch_analysis.is_none(), "photo b gets its own");
+    let _ = std::fs::remove_dir_all(&dir);
+}

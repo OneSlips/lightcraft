@@ -266,7 +266,7 @@ impl Session {
     /// Whether photo `id`'s Smooth Skin wants an analysis it doesn't have (`Some(key)`).
     pub(crate) fn skin_wanted(&self, id: PhotoId) -> Option<SkinKey> {
         let d = self.develop_of(id)?;
-        if !d.skin.active() || !d.section_enabled("skin") {
+        if !d.skin.active() || !d.retouch_section_on("skin") {
             return None;
         }
         if d.skin_analysis.as_ref().is_some_and(|a| a.is_for(&d.skin, d.orientation)) {

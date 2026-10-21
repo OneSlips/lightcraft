@@ -71,6 +71,14 @@ pub enum Kind {
         people: PathBuf,
         face: PathBuf,
     },
+    /// The parts of people the Retouch sections work on (teeth, eyes, lips, hair…), each of
+    /// everyone or of one person, and every face, by MediaPipe's Selfie Multiclass (`people`) and
+    /// Face Landmarker (`face`).
+    Retouch {
+        parts: Vec<lightcraft_develop::PartRequest>,
+        people: PathBuf,
+        face: PathBuf,
+    },
     /// Panics (tests of the worker's recovery).
     #[cfg(test)]
     Panic,
@@ -149,6 +157,8 @@ pub enum Payload {
     None,
     Faces(Vec<FoundFace>),
     Example(Box<lightcraft_segment::concept::Example>),
+    /// The parts a [`Kind::Retouch`] request asked for, each found or not.
+    Retouch(Vec<lightcraft_develop::RetouchMask>),
 }
 
 /// Counters the session reads without locking.
@@ -745,6 +755,38 @@ fn skin(
     Ok(seg)
 }
 
+/// A [`Kind::Retouch`] request: each part asked for (`None` where it isn't there: no teeth
+/// showing, no such person), and every face found, normalized, kept in `state.found`.
+fn retouch(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    parts: &[lightcraft_develop::PartRequest],
+    people: &std::path::Path,
+    face: &std::path::Path,
+) -> Result<Vec<lightcraft_develop::RetouchMask>, String> {
+    let _row = row(job, "Finding the parts of people to retouch");
+    ensure(&mut state.people, &mut state.people_cache, shared, people, "MediaPipe people", PeopleModel::load)?;
+    cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| m.segment(&i.rgb, i.w, i.h))?;
+    ensure(&mut state.face, &mut state.faces_cache, shared, face, "MediaPipe faces", FaceModel::load)?;
+    let seen = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
+    let faces: Vec<Face> = cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+        m.faces_confirmed(&i.rgb, i.w, i.h, seen)
+    })?
+    .clone();
+    let map = state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m);
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+    let mut out = Vec::with_capacity(parts.len());
+    for r in parts {
+        let req = PeopleRequest::parse(r.person, &[r.part.people_name().to_string()]).ok_or("unknown People part")?;
+        let seg = people_mask(&req, &input.rgb, input.w, input.h, map, &faces).map(super::retouch::seg_of);
+        out.push(lightcraft_develop::RetouchMask { part: r.part, person: r.person, seg });
+    }
+    let (w, h) = (input.w.max(1) as f32, input.h.max(1) as f32);
+    state.found = Some(faces.iter().map(|f| super::FoundFace::from_pixels(f, w, h)).collect());
+    Ok(out)
+}
+
 /// Everyone's silhouette (SAM 2.1, for each face: clicks on it and down its body, the other faces
 /// left out), so where people overlap a pixel goes to whoever's silhouette claims it most; `None`
 /// (with a log line) when SAM 2.1 can't give them.
@@ -1103,7 +1145,9 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
                 }
             }
         }
-        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => return Err("automatic selections run locally".into()),
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Retouch { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
+            return Err("automatic selections run locally".into());
+        }
         #[cfg(test)]
         Kind::Panic => return Err("test panic request".into()),
     };
@@ -1136,6 +1180,11 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job, payload: &mut Payl
         }
         return Ok(None);
     }
+    if let Kind::Retouch { parts, people, face } = &job.kind {
+        let (parts, people, face) = (parts.clone(), people.clone(), face.clone());
+        *payload = Payload::Retouch(retouch(state, shared, job, &parts, &people, &face)?);
+        return Ok(None);
+    }
     if let Kind::Skin { area, person, people, face } = &job.kind {
         let (area, person, people, face) = (*area, *person, people.clone(), face.clone());
         return skin(state, shared, job, area, person, &people, &face);
@@ -1165,7 +1214,7 @@ fn run_job(state: &mut State, shared: &Shared, job: &mut Job, payload: &mut Payl
             let (m, enc) = encoded(state, shared, job)?;
             Ok(text_logits(m, enc, &text)?.map(|l| SegMask::from_logits(side, &l)))
         }
-        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Retouch { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
             Err("an automatic selection reached the SAM 3 path".into())
         }
         #[cfg(test)]
@@ -1254,7 +1303,7 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
             log::info!("Describe detail pass ({}×{}) in {:?}", input.w, input.h, t.elapsed());
             Ok(p.map(|p| SegMask::from_logits_in(side, &p.logits, region)))
         }
-        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
+        Kind::Auto { .. } | Kind::Skin { .. } | Kind::Retouch { .. } | Kind::Faces { .. } | Kind::Learn { .. } => {
             Err("an automatic selection reached the SAM 2.1 path".into())
         }
         #[cfg(test)]

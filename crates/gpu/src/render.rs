@@ -968,9 +968,9 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     if !lightcraft_pipeline::skin_needs_cpu(s) {
         return img;
     }
-    // Smooth Skin: the CPU's (the same code renders both, so they match)
+    // Smooth Skin and the retouch of people's parts: the CPU's (the same code renders both, so they match)
     let mut host_img = cx.read_rgb(&img, w, h);
-    lightcraft_pipeline::skin::apply(&mut host_img, s, &plan.frame, plan.px_per_long);
+    lightcraft_pipeline::retouch_people(&mut host_img, s, &plan.frame, plan.px_per_long);
     let buf = cx.gpu.upload(rgb_words(&host_img));
     host.lin = Some(Arc::new(host_img));
     buf

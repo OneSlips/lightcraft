@@ -3156,5 +3156,15 @@
   "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Reconstruit la zone peinte avec de petits morceaux de son entourage, en prolongeant les lignes et les bords. Pour les objets plus grands. Aucune source à choisir.",
   "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Remplace la zone peinte à l'aide d'un service d'images en ligne, avec votre propre compte. Rien n'est envoyé avant que vous cliquiez sur Générer.",
   "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Copie la texture d'une source et l'adapte à la couleur et à la luminosité autour de la zone, pour qu'elle se fonde. Faites glisser l'épingle de la source pour choisir l'endroit.",
-  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Copie la source telle quelle, couleur comprise, avec un bord adouci. Faites glisser l'épingle de la source pour choisir l'endroit."
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Copie la source telle quelle, couleur comprise, avec un bord adouci. Faites glisser l'épingle de la source pour choisir l'endroit.",
+  "Blemishes": "Imperfections",
+  "Face or Body": "Visage ou corps",
+  "Reduce Shine": "Réduire la brillance",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "Corrige les petites taches sombres ou rouges sur la peau des visages (et, si vous le souhaitez, du corps).",
+  "Find Again": "Rechercher à nouveau",
+  "Whiten": "Blanchir",
+  "Brighten": "Éclaircir",
+  "Whiter, brighter teeth: the yellow is taken out gently.": "Des dents plus blanches et plus claires : le jaune est retiré en douceur.",
+  "No teeth were found in this photo.": "Aucune dent n’a été trouvée sur cette photo.",
+  "The faces haven't been looked at yet.": "Les visages n’ont pas encore été analysés."
 }

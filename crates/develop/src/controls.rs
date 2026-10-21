@@ -32,6 +32,8 @@ pub enum Section {
     Sensor,
     /// Smooth Skin (beyond Lightroom).
     Skin,
+    /// The Retouch sections beyond Smooth Skin: teeth, eyes, lips, hair… (beyond Lightroom).
+    Retouch,
 }
 
 impl Section {
@@ -55,6 +57,7 @@ impl Section {
             Section::RedEye => "Red Eye",
             Section::Sensor => "Sensor",
             Section::Skin => "Smooth Skin",
+            Section::Retouch => "Retouch",
         }
     }
 }
@@ -250,6 +253,10 @@ controls! {
     "skin.texture" => skin.texture, "Texture", Skin, -100, 100, 0, 1, 0, Centered;
     "skin.evenTone" => skin.even_tone, "Even Tone", Skin, 0, 100, 0, 1, 0, Plain;
     "skin.redness" => skin.redness, "Redness", Skin, 0, 100, 0, 1, 0, Plain;
+    "skin.shine" => skin.shine, "Reduce Shine", Skin, 0, 100, 0, 1, 0, Plain;
+    "retouch.teethWhiten" => retouch.teeth.whiten, "Whiten", Retouch, 0, 100, 0, 1, 0, Plain;
+    "retouch.teethBrighten" => retouch.teeth.brighten, "Brighten", Retouch, 0, 100, 0, 1, 0, Plain;
+    "retouch.teethPerson" => retouch.teeth.person, "Person", Retouch, 0, 4, 0, 1, 0, Plain;
     "effects.texture" => effects.texture, "Texture", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.clarity" => effects.clarity, "Clarity", Effects, -100, 100, 0, 1, 0, Centered;
     "effects.dehaze" => effects.dehaze, "Dehaze", Effects, -100, 100, 0, 1, 0, Centered;

@@ -2500,5 +2500,15 @@
   "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Odtwarza zamalowany obszar z małych fragmentów otoczenia, przedłużając przez niego linie i krawędzie. Do większych obiektów. Bez wybierania źródła.",
   "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Zastępuje zamalowany obszar za pomocą internetowej usługi graficznej, na Twoim koncie. Nic nie jest wysyłane, dopóki nie klikniesz Generuj.",
   "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Kopiuje teksturę ze źródła i dopasowuje ją do koloru i jasności wokół obszaru, by się wtopiła. Przeciągnij pinezkę źródła, aby wybrać miejsce.",
-  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Kopiuje źródło dokładnie takim, jakie jest, razem z kolorem, z miękką krawędzią. Przeciągnij pinezkę źródła, aby wybrać miejsce."
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Kopiuje źródło dokładnie takim, jakie jest, razem z kolorem, z miękką krawędzią. Przeciągnij pinezkę źródła, aby wybrać miejsce.",
+  "Blemishes": "Niedoskonałości",
+  "Face or Body": "Twarz lub ciało",
+  "Reduce Shine": "Redukcja połysku",
+  "Heals small dark or red spots on the skin of the faces (and, if you like, of the body).": "Usuwa małe ciemne lub czerwone plamki na skórze twarzy (a jeśli chcesz, także ciała).",
+  "Find Again": "Szukaj ponownie",
+  "Whiten": "Wybielanie",
+  "Brighten": "Rozjaśnienie",
+  "Whiter, brighter teeth: the yellow is taken out gently.": "Bielsze, jaśniejsze zęby: żółty odcień jest delikatnie usuwany.",
+  "No teeth were found in this photo.": "Na tym zdjęciu nie znaleziono zębów.",
+  "The faces haven't been looked at yet.": "Twarze nie zostały jeszcze przeanalizowane."
 }

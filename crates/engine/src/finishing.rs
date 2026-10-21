@@ -228,6 +228,9 @@ impl Session {
                 Ok(false) => {}
                 Err(e) => log::info!("finishing import: Smooth Skin on {}: {e}", id.0),
             }
+            if let Err(e) = self.retouch_ensure(*id, false) {
+                log::info!("finishing import: Retouch on {}: {e}", id.0);
+            }
         }
         f.analysing = self.still_analysing(&f.ids);
         self.finishing = Some(f);
@@ -239,7 +242,7 @@ impl Session {
     fn still_analysing(&self, ids: &HashSet<PhotoId>) -> usize {
         ids.iter()
             .filter(|id| {
-                self.segmenter.skin_pending(**id) || {
+                self.segmenter.skin_pending(**id) || self.segmenter.retouch_pending(**id) || {
                     let one: HashSet<PhotoId> = std::iter::once(**id).collect();
                     self.segmenter.smart.busy_with(&one)
                 }

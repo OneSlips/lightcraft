@@ -24,10 +24,12 @@
 #[cfg(feature = "sam")]
 mod download;
 pub mod models;
+mod retouch;
 mod skin;
 #[cfg(feature = "sam")]
 pub(crate) mod worker;
 
+pub(crate) use retouch::RetouchKey;
 pub use skin::{FoundFace, SkinFound, missing_model_in};
 pub(crate) use skin::{SkinKey, SkinPurpose};
 
@@ -238,6 +240,8 @@ pub(crate) enum Tag {
     Auto { photo: PhotoId, mask: u32, comp: usize, kind: AutoKind },
     /// The skin and faces of a photo, for Smooth Skin or Find Blemishes.
     Skin { key: SkinKey, purpose: SkinPurpose },
+    /// The parts of people the Retouch sections work on.
+    Retouch { key: RetouchKey },
     /// A part of a mask recipe (a preset's, a paste's…) for component `comp` of mask `mask`,
     /// completing the history step of `batch` ([`crate::smart_masks`]).
     Recipe { photo: PhotoId, mask: u32, comp: usize, part: crate::smart_masks::Part, batch: u64 },
@@ -316,6 +320,9 @@ pub struct Segmenter {
     /// Smooth Skin analyses queued, and those that failed (asked again only on request).
     pub(crate) skin_pending: Vec<SkinKey>,
     pub(crate) skin_failed: Vec<SkinKey>,
+    /// Retouch requests queued, and those that failed (asked again only on request).
+    pub(crate) retouch_pending: Vec<RetouchKey>,
+    pub(crate) retouch_failed: Vec<RetouchKey>,
     #[cfg(feature = "sam")]
     worker: worker::Worker,
     #[cfg(feature = "sam")]
@@ -345,6 +352,8 @@ impl Default for Segmenter {
             messages: Vec::new(),
             skin_pending: Vec::new(),
             skin_failed: Vec::new(),
+            retouch_pending: Vec::new(),
+            retouch_failed: Vec::new(),
             #[cfg(feature = "sam")]
             worker: worker::Worker::default(),
             #[cfg(feature = "sam")]
@@ -422,6 +431,11 @@ impl Segmenter {
     /// Whether Smooth Skin is looking for the skin of photo `id` right now.
     pub fn skin_pending(&self, id: PhotoId) -> bool {
         self.skin_pending.iter().any(|k| k.photo == id)
+    }
+
+    /// Whether the Retouch sections are waiting for the parts of photo `id` right now.
+    pub fn retouch_pending(&self, id: PhotoId) -> bool {
+        self.retouch_pending.iter().any(|k| k.photo == id)
     }
 
     /// Clicks waiting for their segmentation.
@@ -723,6 +737,9 @@ impl Session {
         // (nor Smooth Skin: the models see the skin as it is, and its sliders don't ask again)
         d.skin = Default::default();
         d.skin_analysis = None;
+        // (nor the other retouch: the models see the people as they are)
+        d.retouch = Default::default();
+        d.retouch_analysis = None;
         let content = crate::media::content_key(p);
         let mut h = mix(0xcbf2_9ce4_8422_2325, d.hash64());
         h = mix(h, id.0);
@@ -759,14 +776,22 @@ impl Session {
                     (sam2, true)
                 }
             },
-            worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Faces { .. } => (PathBuf::new(), false),
+            worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Retouch { .. } | worker::Kind::Faces { .. } => {
+                (PathBuf::new(), false)
+            }
             worker::Kind::Learn { .. } => (self.segmenter.require_model("sam2")?, false),
             _ => self.segmenter.object_model()?,
         };
         // SAM 3 sees 1008 px, the openly licensed models 1024
         let edge = if sam2
-            || matches!(kind, worker::Kind::Auto { .. } | worker::Kind::Skin { .. } | worker::Kind::Faces { .. } | worker::Kind::Learn { .. })
-        {
+            || matches!(
+                kind,
+                worker::Kind::Auto { .. }
+                    | worker::Kind::Skin { .. }
+                    | worker::Kind::Retouch { .. }
+                    | worker::Kind::Faces { .. }
+                    | worker::Kind::Learn { .. }
+            ) {
             AUTO_EDGE
         } else {
             INPUT_EDGE
@@ -1195,6 +1220,7 @@ impl Session {
                 }
             }
             Tag::Skin { key, purpose } => self.apply_skin_outcome(key, purpose, o.result, o.faces, polled),
+            Tag::Retouch { key } => self.apply_retouch_outcome(key, o.result, o.payload, o.faces, polled),
             Tag::Detail { photo, mask, comp, shape } => {
                 let patch = match o.result {
                     Ok(Some(p)) => p,

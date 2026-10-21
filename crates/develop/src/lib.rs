@@ -9,11 +9,13 @@
 pub mod controls;
 pub mod presets;
 pub mod recipe;
+pub mod retouch;
 pub mod segmask;
 pub mod settings;
 
 pub use controls::{CONTROLS, ControlSpec, Section, Track};
 pub use presets::{Preset, SettingsGroup, apply_partial, extract_groups};
+pub use retouch::{MAX_RETOUCH_MASKS, PartRequest, Retouch, RetouchAnalysis, RetouchMask, RetouchPart, RetouchTeeth};
 pub use segmask::SegMask;
 pub use settings::*;
 
@@ -161,6 +163,11 @@ impl DevelopSettings {
     pub fn denoise_amount(&self) -> f32 {
         let a = self.enhance.denoise;
         if a.is_finite() && self.enhance.denoise_enabled() && self.section_enabled("detail") { (a / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 }
+    }
+
+    /// Whether retouch section `section` is on: its own eye and the Retouch panel's (`retouch`).
+    pub fn retouch_section_on(&self, section: &str) -> bool {
+        self.section_enabled("retouch") && self.section_enabled(section)
     }
 
     pub fn set_section_enabled(&mut self, section: &str, on: bool) {
