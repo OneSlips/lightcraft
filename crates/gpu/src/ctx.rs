@@ -236,7 +236,7 @@ pub struct Gpu {
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
 fn constants() -> String {
-    use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N};
+    use lightcraft_pipeline::finish::{GRAIN_HASH, MASK_SUMS, MASK_TERMS, SRGB_LUT_N, VALUE_GRAIN_HASH};
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = lightcraft_color::perceptual::oklab_matrices();
@@ -261,6 +261,9 @@ fn constants() -> String {
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
+    }
+    for (i, h) in VALUE_GRAIN_HASH.iter().enumerate() {
+        s += &format!("const GRAIN_VH{i}: u32 = {h}u;\n");
     }
     {
         use lightcraft_pipeline::grain::{CHANNEL_SALT, MAX_PER_CELL, MAX_REACH, MAX_SUB, P_MAX, P_MIN, TONE_FLOOR};
