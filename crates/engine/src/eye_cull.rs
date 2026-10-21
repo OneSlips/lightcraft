@@ -76,13 +76,14 @@ fn judge(
                 return false;
             }
         };
+        let people = crate::eyes::people_beside(model_dir);
         for j in jobs {
             if cancel.load(Ordering::Relaxed) {
                 return true;
             }
             let r = crate::guard::catch("finding eyes", || {
                 let img = crate::memory::in_background(|| crate::eyes::load(&j.source)).ok_or_else(|| "the picture could not be read".to_string())?;
-                let r = crate::eyes::analyze(&model, &img, j.photo).map(Arc::new);
+                let r = crate::eyes::analyze(&model, people.as_ref(), &img, j.photo).map(Arc::new);
                 drop(img);
                 crate::memory::release();
                 r

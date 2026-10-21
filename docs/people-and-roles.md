@@ -125,6 +125,11 @@ How it works:
   with features of what isn't the thing.
 - On another photo, the cells that look most like the thing become clicks.
 - SAM 2.1 draws the mask from those clicks, and it is kept only where the likeness map agrees.
+- SAM's mask is coarse (256 cells over the photo, a soft halo when stretched over it), so it is
+  refined on the photo at 1024 cells: small specks in lace are filled; when the thing is worn (mostly
+  on a person), the wearer's skin and hair (MediaPipe's class map, when that model is installed) are
+  taken out — a neckline, bare arms, hands holding a bouquet; and the outline is pulled onto the
+  photo's own edge by a colour guided filter and made crisp.
 
 SAM's features describe **appearance** (white satin with folds, a dark tailored jacket) better than
 **identity** (this exact dress). Teach more examples when something similar is picked up by mistake.

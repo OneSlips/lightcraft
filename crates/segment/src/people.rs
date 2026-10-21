@@ -396,6 +396,118 @@ fn refine(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], fill: bool) {
 
 /// Selfie Multiclass's skin classes (body skin, face skin).
 const SKIN: [usize; 2] = [2, 3];
+/// What a garment never includes: hair, body skin, face skin.
+const NOT_GARMENT: [usize; 3] = [1, 2, 3];
+
+/// The photo's colours at the grid's cell centres (0..1, interleaved RGB), the guide of
+/// [`matte::guided_filter_rgb`]; `None` when `rgb` isn't the grid's photo.
+fn colour_guide(grid: &Grid, rgb: &[u8]) -> Option<Vec<f32>> {
+    if grid.w == 0 || grid.h == 0 || rgb.len() < grid.w.saturating_mul(grid.h).saturating_mul(3) {
+        return None;
+    }
+    let side = grid.side;
+    Some(
+        (0..side * side)
+            .flat_map(|c| {
+                let [x, y] = grid.centre(c % side, c / side);
+                let (x, y) = ((x.max(0.0) as usize).min(grid.w - 1), (y.max(0.0) as usize).min(grid.h - 1));
+                let p = rgb.get((y * grid.w + x) * 3..(y * grid.w + x) * 3 + 3).unwrap_or(&[0, 0, 0]);
+                [f32::from(p[0]) / 255.0, f32::from(p[1]) / 255.0, f32::from(p[2]) / 255.0]
+            })
+            .collect(),
+    )
+}
+
+fn smoothstep(lo: f32, hi: f32, v: f32) -> f32 {
+    let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// A garment's coverage (`cov`, the grid's cells) cleaned up on the photo: the skin and hair of
+/// the person wearing it taken out (the class map's, its edges pulled onto the photo's by a
+/// colour guided filter — a neckline, bare arms and hands holding a bouquet aren't the dress),
+/// then the garment's own edge pulled onto the photo's and steepened, so the outline is crisp
+/// instead of a halo from a coarse model output stretched over the photo. `on_person`: the
+/// garment is worn (skin and hair are cut only then).
+fn clean_garment(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], map: Option<&PeopleMap>, on_person: bool) {
+    let side = grid.side;
+    let Some(guide) = colour_guide(grid, rgb) else { return };
+    // radius about 1/170 of the grid (6 cells at 1024), as for the class mattes
+    let r = (side / 170).max(2);
+    if let Some(map) = map.filter(|_| on_person) {
+        let rect = grid.rect;
+        let excl: Vec<f32> = (0..side * side)
+            .map(|c| {
+                let u = (rect[0] + ((c % side) as f64 + 0.5) / side as f64 * (rect[2] - rect[0])) as f32;
+                let v = (rect[1] + ((c / side) as f64 + 0.5) / side as f64 * (rect[3] - rect[1])) as f32;
+                map.at(&NOT_GARMENT, u, v)
+            })
+            .collect();
+        let excl = matte::guided_filter_rgb(&excl, &guide, side, side, r, 1e-3);
+        for (c, e) in cov.iter_mut().zip(&excl) {
+            *c *= 1.0 - smoothstep(0.3, 0.6, *e);
+        }
+    }
+    // (a wider window for the garment's own edge, a 64th of the grid — 16 cells, four of SAM's
+    // 256 — so it reaches past a halo of that width to the photo's edge)
+    let refined = matte::guided_filter_rgb(cov, &guide, side, side, (side / 64).max(r), 1e-3);
+    // steeper: the refined edge's soft tail (the halo) goes, the inside stays whole
+    *cov = refined.into_iter().map(|v| smoothstep(0.25, 0.75, v)).collect();
+}
+
+/// Whether a selection (`cov` over `grid`) is mostly on a person: at least half of what it selects
+/// is a person in the class map (a garment worn, a bouquet held), not a dress on a hanger.
+fn worn(grid: &Grid, cov: &[f32], map: &PeopleMap) -> bool {
+    let side = grid.side;
+    let rect = grid.rect;
+    let (mut on, mut all) = (0usize, 0usize);
+    // every 4th cell is plenty
+    for c in (0..side * side).step_by(4) {
+        if cov.get(c).is_some_and(|v| *v > 0.5) {
+            let u = (rect[0] + ((c % side) as f64 + 0.5) / side as f64 * (rect[2] - rect[0])) as f32;
+            let v = (rect[1] + ((c / side) as f64 + 0.5) / side as f64 * (rect[3] - rect[1])) as f32;
+            all += 1;
+            if map.at(&[0], u, v) < 0.5 {
+                on += 1;
+            }
+        }
+    }
+    all > 0 && on * 2 >= all
+}
+
+/// Side of the grid a garment found by a coarse model (SAM 2.1's 256-cell masks) is refined at.
+pub const GARMENT_SIDE: usize = 1024;
+
+/// A remembered garment (or any remembered object) found by SAM 2.1 — `logits`, `lside²` over the
+/// stretched photo — refined on the photo (`rgb`, `w × h`, the image SAM saw) at
+/// [`GARMENT_SIDE`] cells: specks in lace filled, the wearer's skin and hair cut out when it is
+/// worn (`map`: the photo's class map, when the people model is installed), and the edge pulled
+/// onto the photo's and made crisp. `None` for inputs of the wrong size or when nothing is left.
+pub fn garment_mask(logits: &[f32], lside: usize, rgb: &[u8], w: usize, h: usize, map: Option<&PeopleMap>) -> Option<MaskGrid> {
+    if lside == 0 || logits.len() != lside * lside || w == 0 || h == 0 {
+        return None;
+    }
+    let side = GARMENT_SIDE;
+    let grid = Grid { side, rect: [0.0, 0.0, 1.0, 1.0], w, h };
+    let at = |x: usize, y: usize| logits.get(y.min(lside - 1) * lside + x.min(lside - 1)).copied().unwrap_or(-16.0);
+    let mut cov: Vec<f32> = (0..side * side)
+        .map(|c| {
+            let fx = (((c % side) as f32 + 0.5) / side as f32 * lside as f32 - 0.5).clamp(0.0, (lside - 1) as f32);
+            let fy = (((c / side) as f32 + 0.5) / side as f32 * lside as f32 - 0.5).clamp(0.0, (lside - 1) as f32);
+            let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+            let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+            let l = (at(x0, y0) * (1.0 - tx) + at(x0 + 1, y0) * tx) * (1.0 - ty) + (at(x0, y0 + 1) * (1.0 - tx) + at(x0 + 1, y0 + 1) * tx) * ty;
+            1.0 / (1.0 + (-l.clamp(-80.0, 80.0)).exp())
+        })
+        .collect();
+    matte::fill_small_holes(&mut cov, side, (side * side / 2000).max(4));
+    let on_person = map.is_some_and(|m| worn(&grid, &cov, m));
+    clean_garment(&grid, &mut cov, rgb, map, on_person);
+    if cov.iter().all(|c| *c < 0.5) {
+        return None;
+    }
+    Some(MaskGrid { side, logits: mediapipe::coverage_to_logits(&cov), rect: None, faces_without_features: 0 })
+}
 
 /// Everyone's silhouettes (one per face, in the faces' order): `side²` logits each over the image
 /// stretched to a square (SAM's output), and who owns each cell once cleaned up.
@@ -536,6 +648,10 @@ pub fn people_mask_with(
         holes = mediapipe::soften(&holes, side);
     }
     let (skin_classes, other_classes): (Vec<usize>, Vec<usize>) = req.classes.iter().partition(|c| SKIN.contains(c));
+    // skin and the other classes apart: the skin is refined on its own, then the features are cut
+    // out of it (refining after the cut filled the eye and brow holes back in)
+    let mut skin_cov = vec![0f32; if skin { side * side } else { 0 }];
+    let mut mine = vec![true; if skin { side * side } else { 0 }];
     if let Some(map) = map.filter(|_| req.needs_people()) {
         let r = grid.rect;
         for j in 0..side {
@@ -543,15 +659,18 @@ pub fn people_mask_with(
                 let u = (r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) as f32;
                 let v = (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) as f32;
                 if req.person > 0 && instances.and_then(|i| i.owner(u, v)).or_else(|| owner(u, v)).is_none_or(|o| !chosen.contains(&o)) {
+                    if let Some(m) = mine.get_mut(j * side + i) {
+                        *m = false;
+                    }
                     continue;
                 }
                 let value = if whole {
                     1.0 - map.at(&[0], u, v)
                 } else {
-                    let hole = holes.get(j * side + i).copied().unwrap_or(0.0);
-                    let skin = if skin_classes.is_empty() { 0.0 } else { map.at(&skin_classes, u, v) * (1.0 - hole) };
-                    let other = if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) };
-                    skin + other
+                    if let Some(s) = skin_cov.get_mut(j * side + i) {
+                        *s = map.at(&skin_classes, u, v);
+                    }
+                    if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) }
                 };
                 if let Some(c) = cov.get_mut(j * side + i) {
                     *c = value.clamp(0.0, 1.0);
@@ -560,7 +679,32 @@ pub fn people_mask_with(
         }
     }
     if map.is_some() && req.needs_people() {
-        refine(&grid, &mut cov, rgb, whole || req.classes.contains(&4));
+        if whole || !other_classes.is_empty() {
+            refine(&grid, &mut cov, rgb, whole || req.classes.contains(&4));
+        }
+        if !whole && req.classes == [4] {
+            // Clothes alone: the class map's blur leaks onto a neckline, arms and hands
+            clean_garment(&grid, &mut cov, rgb, map, true);
+        }
+        if skin {
+            // the face skin up to the hairline (the class map fades out on the upper forehead)
+            for (k, f) in faces.iter().enumerate() {
+                if req.person > 0 && !chosen.contains(&k) {
+                    continue;
+                }
+                if let (Some(lm), Some(map)) = (&f.landmarks, map) {
+                    mediapipe::forehead(&grid, &mut skin_cov, lm, rgb, |u, v| map.at(&[1], u, v));
+                }
+            }
+            refine(&grid, &mut skin_cov, rgb, false);
+            for (k, c) in cov.iter_mut().enumerate() {
+                let own = mine.get(k).copied().unwrap_or(true);
+                let s = skin_cov.get(k).copied().unwrap_or(0.0) * (1.0 - holes.get(k).copied().unwrap_or(0.0));
+                if own {
+                    *c = (*c + s).clamp(0.0, 1.0);
+                }
+            }
+        }
     }
     for i in &chosen {
         let Some(lm) = faces.get(*i).and_then(|f| f.landmarks.as_ref()) else { continue };
@@ -778,6 +922,155 @@ mod tests {
         // asking for skin and lips: lips come back on top of the skin's hole
         let m5 = people_mask(&PeopleRequest::parse(0, &["Face Skin".into(), "Lips".into()]).unwrap(), &rgb, 1000, 1000, Some(&map), &faces).unwrap();
         assert!(m5.logits[(650 * 1024 / 1000) * 1024 + 500 * 1024 / 1000] > 2.0);
+    }
+
+    /// Regression (the user's bug, a man and a woman at a dinner table): on real faces the eyes,
+    /// brows and lips were tinted — the edge refinement ran after the features were cut and
+    /// filled the small holes back in, and a smiling eye's opening is too thin a sliver to cut
+    /// anyway — and the man's upper forehead was left out where the class map fades before the
+    /// hairline. A small face (eyes 20 pixels wide, squinting): the eyes, brows and lips are 0,
+    /// the forehead up to the hair is skin, the hair isn't.
+    #[test]
+    fn small_smiling_faces_lose_eyes_and_lips_and_keep_the_forehead() {
+        let mut lm = synthetic_face();
+        // the oval starting at the top (landmark 10), the chin (152) at the bottom
+        for (k, i) in mediapipe::FACE_OVAL.iter().enumerate() {
+            let a = k as f32 / mediapipe::FACE_OVAL.len() as f32 * std::f32::consts::TAU - std::f32::consts::FRAC_PI_2;
+            lm[*i] = [500.0 + 300.0 * a.cos(), 500.0 + 400.0 * a.sin()];
+        }
+        // squinting: the lids nearly meet
+        for (e, cx) in [(0, 380.0f32), (1, 620.0)] {
+            for (k, i) in mediapipe::EYES[e].iter().enumerate() {
+                let a = k as f32 / 16.0 * std::f32::consts::TAU;
+                lm[*i] = [cx + 50.0 * a.cos(), 400.0 + 4.0 * a.sin()];
+            }
+        }
+        // the face 0.2× in a 400-pixel photo, centred at (200, 200): 120 wide, the oval's top at 120
+        let lm: Vec<[f32; 2]> = lm.iter().map(|p| [200.0 + (p[0] - 500.0) * 0.2, 200.0 + (p[1] - 500.0) * 0.2]).collect();
+        let (w, h) = (400usize, 400usize);
+        let in_head = |x: f32, y: f32| ((x - 200.0) / 66.0).powi(2) + ((y - 205.0) / 92.0).powi(2) <= 1.0;
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let c = if y < 118 && in_head(x as f32, y as f32) {
+                    [45, 32, 25] // hair
+                } else if in_head(x as f32, y as f32) {
+                    // skin, with a little texture so the refinement has something to follow
+                    let n = ((x * 7 + y * 13) % 5) as u8;
+                    [205 - n, 150, 125]
+                } else {
+                    [70, 90, 120]
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&c);
+            }
+        }
+        // the class map: hair on top, face skin only from the brows down (it fades on the forehead)
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i as f32 + 0.5) * w as f32 / side as f32, (j as f32 + 0.5) * h as f32 / side as f32);
+                let c = if !in_head(x, y) {
+                    0
+                } else if y < 118.0 {
+                    1
+                } else if y < 160.0 {
+                    0
+                } else {
+                    3
+                };
+                probs[(j * side + i) * 6 + c] = 1.0;
+            }
+        }
+        let map = PeopleMap { side, probs };
+        let det = Detection { x0: 140.0, y0: 120.0, x1: 260.0, y1: 280.0, score: 0.9, keypoints: [[0.0; 2]; 6] };
+        let faces = [Face { detection: det, landmarks: Some(lm) }];
+        let m = people_mask(&PeopleRequest::parse(0, &["Face Skin".into()]).unwrap(), &rgb, w, h, Some(&map), &faces).unwrap();
+        let at = |x: f32, y: f32| m.logits[((y / h as f32 * m.side as f32) as usize) * m.side + (x / w as f32 * m.side as f32) as usize];
+        for (what, x, y) in
+            [("eye", 176.0, 180.0), ("eye", 224.0, 180.0), ("lid above the eye", 176.0, 177.0), ("brow", 176.0, 168.5), ("lips", 200.0, 230.0)]
+        {
+            assert!(at(x, y) < -1.0, "{what} is not skin: {}", at(x, y));
+        }
+        for (what, x, y) in [("cheek", 160.0, 212.0), ("forehead", 200.0, 145.0), ("upper forehead", 200.0, 128.0)] {
+            assert!(at(x, y) > 1.0, "{what} is skin: {}", at(x, y));
+        }
+        assert!(at(200.0, 105.0) < -1.0, "the hair is not skin: {}", at(200.0, 105.0));
+        assert!(at(30.0, 30.0) < -1.0, "the background is not skin");
+    }
+
+    /// Regression (the user's dress mask): a remembered dress came back as SAM 2.1's 256-cell mask
+    /// stretched over the photo — a soft halo around the dress — with the plunging neckline's skin
+    /// and the hands in it. Refined: the skin is out, the edge sits on the dress's own edge, and
+    /// nothing a few pixels outside it is selected; a dress on its own (not worn) keeps its insides.
+    #[test]
+    fn a_found_dress_loses_the_wearers_skin_and_its_halo() {
+        let (w, h) = (1024usize, 1024usize);
+        // the dress: a white trapezoid from y 200 down; inside it, a skin-coloured neckline wedge
+        let dress = |x: f32, y: f32| y >= 200.0 && (x - 256.0).abs() <= 80.0 + (y - 200.0) * 0.3;
+        let neckline = |x: f32, y: f32| (200.0..280.0).contains(&y) && (x - 256.0).abs() <= (280.0 - y) * 0.4;
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
+                let c = if neckline(fx, fy) {
+                    [222, 170, 140]
+                } else if dress(fx, fy) {
+                    [240, 236, 228]
+                } else {
+                    [60, 62, 70]
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&c);
+            }
+        }
+        // SAM's coarse logits (256 cells, 4 pixels each): the dress and the neckline, with a soft
+        // edge 8 pixels wide around it (the halo: still half selected 4 pixels out)
+        let ls = 256;
+        let edge = |x: f32, y: f32| -> f32 {
+            // the distance outside the dress, along x (its sides are near vertical)
+            if y < 200.0 {
+                return 200.0 - y;
+            }
+            ((x - 256.0).abs() - (80.0 + (y - 200.0) * 0.3)).max(0.0)
+        };
+        let logits: Vec<f32> = (0..ls * ls)
+            .map(|k| {
+                let (x, y) = (((k % ls) as f32 + 0.5) * 4.0, ((k / ls) as f32 + 0.5) * 4.0);
+                if dress(x, y) { 6.0 } else { 6.0 - 1.5 * edge(x, y) }
+            })
+            .collect();
+        // the class map: the neckline is body skin, the dress clothes, the rest background
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i as f32 + 0.5) * 16.0, (j as f32 + 0.5) * 16.0);
+                let c = if neckline(x, y) {
+                    2
+                } else if dress(x, y) {
+                    4
+                } else {
+                    0
+                };
+                probs[(j * side + i) * 6 + c] = 1.0;
+            }
+        }
+        let map = PeopleMap { side, probs };
+        let m = garment_mask(&logits, ls, &rgb, w, h, Some(&map)).unwrap();
+        let at = |x: f32, y: f32| m.logits[((y / h as f32 * m.side as f32) as usize) * m.side + (x / w as f32 * m.side as f32) as usize];
+        assert!(at(256.0, 225.0) < -1.0, "the neckline's skin is out: {}", at(256.0, 225.0));
+        assert!(at(256.0, 400.0) > 1.0 && at(200.0, 300.0) > 1.0, "the dress is in");
+        // its edge at y = 350 is x = 256 − 125 = 131: 3 pixels outside, nothing (the coarse mask
+        // had a logit of 1.5 there, a visible tint), 3 inside, all
+        assert!(at(128.0, 350.0) < -2.0, "no halo: {}", at(128.0, 350.0));
+        assert!(at(134.0, 350.0) > 2.0, "the edge itself stays: {}", at(134.0, 350.0));
+        // not worn (no person in the class map): nothing taken out of it
+        let empty = PeopleMap { side, probs: (0..side * side * 6).map(|i| if i % 6 == 0 { 1.0 } else { 0.0 }).collect() };
+        let m2 = garment_mask(&logits, ls, &rgb, w, h, Some(&empty)).unwrap();
+        assert!(m2.logits[((225 * m2.side) / h) * m2.side + 256 * m2.side / w] > 0.0, "a dress on a hanger keeps what SAM drew");
+        // hostile sizes
+        assert!(garment_mask(&logits[..10], ls, &rgb, w, h, None).is_none());
+        assert!(garment_mask(&logits, ls, &rgb, 0, 0, None).is_none());
     }
 
     /// Facial hair: dark, textured pixels in the lower face are cut out of skin; dark but smooth

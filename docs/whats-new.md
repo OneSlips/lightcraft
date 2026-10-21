@@ -42,6 +42,16 @@
 - **Loupedeck+**: drawn in zones as on the console (colour knobs with their mode, tone knobs, the Control Dial with
   its buttons, the rest of the buttons). With the new plugin it works without assigning anything in the Logi or
   Loupedeck software.
+### Face Skin masks
+- **The eyes, brows and lips are left out again** on real faces, smiling and squinting ones too: the
+  whole eye (lids and lashes) is cut out, however far it is open.
+- **Face Skin reaches the hairline**: a high forehead is no longer faded out towards the top.
+
+### Dress and clothing masks
+- **A remembered dress (or suit) no longer takes the skin with it**: the neckline, arms and hands of
+  the person wearing it, and their hair, are left out; People ▸ Clothes too.
+- **Crisp edges, no halo**: the outline follows the dress's own edge instead of a soft glow around
+  it (the model's coarse mask is now refined on the photo).
 
 ## 2026-10-16
 

@@ -23,7 +23,7 @@ use lightcraft_catalog::PhotoId;
 use lightcraft_raster::Rgba8;
 
 /// What changes the results (bump when the measure or the crops change, so caches drop them).
-pub const EYES_VERSION: u64 = 2;
+pub const EYES_VERSION: u64 = 3;
 /// At most this many people get an eye thumbnail (the largest faces).
 pub const MAX_PEOPLE: usize = 120;
 /// The eye crop's size in photo pixels (shown at 100 %).
@@ -91,9 +91,15 @@ pub enum Lids {
 
 /// [`openness`] below this is [`Lids::Closed`]; below [`HALF_BELOW`], [`Lids::Half`]. Set on
 /// 400 eyes of a wedding's frames: blinks and lowered lids read 0.07–0.29 (FaceMesh draws closed
-/// lids slightly apart), laughing squints and heavy lids 0.33–0.42, open eyes from 0.36.
+/// lids slightly apart). Half closed was first set at 0.36 and missed every half-open eye the
+/// photographer flagged: on a second wedding's tables, groups and dance floor, half-closed and
+/// heavy lids read 0.33–0.47, open eyes (squints with the iris well in view included) 0.45 and up,
+/// most above 0.5: at 0.48, 10 of 11 half-closed eyes are flagged and 3 of about 40 open ones.
 pub const CLOSED_BELOW: f32 = 0.30;
-pub const HALF_BELOW: f32 = 0.36;
+pub const HALF_BELOW: f32 = 0.48;
+/// A half-closed gap below this with no iris showing is a closed eye (FaceMesh draws closed lids
+/// 0.3–0.36 apart).
+pub const CLOSED_GAP: f32 = 0.36;
 
 impl Lids {
     pub fn of(openness: Option<f32>) -> Lids {
@@ -207,13 +213,12 @@ pub fn iris_contrast(img: &Rgba8, lm: &[[f32; 2]], k: usize) -> Option<f32> {
 }
 
 /// The lids' verdict from their gap ([`openness`]) and how much iris shows ([`iris_showing`]):
-/// FaceMesh tends to draw a closed eye a little open (gaps of 0.3–0.4 on closed lids are common),
-/// so a middling gap counts as closed when the iris doesn't show either, and as open when it does
-/// (a laughing squint).
+/// FaceMesh tends to draw a closed eye a little open (gaps of 0.3–0.36 on closed lids are common),
+/// so a narrow gap counts as closed when the iris doesn't show. A half-closed eye shows some iris
+/// under the lowered lid, so the iris showing doesn't make a narrow gap open.
 pub fn lids_from(openness: Option<f32>, iris: Option<f32>) -> Lids {
     match (Lids::of(openness), iris.filter(|v| v.is_finite())) {
-        (Lids::Half, Some(i)) if i >= IRIS_HIDDEN => Lids::Closed,
-        (Lids::Half, Some(i)) if i < IRIS_SHOWS => Lids::Open,
+        (Lids::Half, Some(i)) if i >= IRIS_HIDDEN && openness.is_some_and(|o| o < CLOSED_GAP) => Lids::Closed,
         (Lids::Open, Some(i)) if i >= IRIS_HIDDEN && openness.is_some_and(|o| o < WIDE_OPEN) => Lids::Half,
         (l, _) => l,
     }
@@ -221,8 +226,6 @@ pub fn lids_from(openness: Option<f32>, iris: Option<f32>) -> Lids {
 
 /// [`iris_showing`] at or above this: no iris to be seen (lid skin where the iris would be).
 pub const IRIS_HIDDEN: f32 = 0.85;
-/// Below this: the iris clearly shows.
-pub const IRIS_SHOWS: f32 = 0.40;
 /// An eye this open ([`openness`]) is open whatever the iris check says (a pale iris in shade).
 pub const WIDE_OPEN: f32 = 0.45;
 
@@ -737,9 +740,20 @@ enum Judged {
     NotAFace,
 }
 
-/// A face without landmarks counts only when the detector is at least this sure of it.
+/// A face without landmarks counts only when the detector is at least this sure of it (a card on a
+/// table scored 0.76 on a wedding's reception frames; real faces in profile 0.81 and up).
 #[cfg_attr(not(feature = "sam"), allow(dead_code))]
-const NO_MESH_SCORE: f32 = 0.75;
+const NO_MESH_SCORE: f32 = 0.80;
+/// Detections below this are not faces. Set on 173 faces of a wedding's frames (groups, tables,
+/// the dance floor with phone lights): 10 of the 16 false ones (dot highlights, bokeh, a hand,
+/// a phone's camera) scored 0.50–0.58, 2 of 153 real faces under 0.60.
+pub const MIN_FACE_SCORE: f32 = 0.60;
+/// Detections below this score are checked with the people model ([`head_share`]), when it is
+/// installed.
+pub const HEAD_CHECKED_BELOW: f32 = 0.75;
+/// [`head_share`] below this: no head there (a vase read 0.05, a light 0.06; most real faces,
+/// blurred ones in the background too, from 0.1).
+pub const HEAD_MIN: f32 = 0.08;
 
 /// One eye of a face, measured.
 #[cfg(feature = "sam")]
@@ -776,7 +790,7 @@ pub fn lids_of_eye(openness: Option<f32>, iris: Option<f32>, contrast: Option<f3
     }
     let l = lids_from(openness, iris);
     // (a lid gap FaceMesh calls half closed needs less to be closed)
-    let hidden = |i: f32| i >= TURNED_IRIS_HIDDEN || (Lids::of(openness) == Lids::Half && i >= TURNED_IRIS_HALF);
+    let hidden = |i: f32| i >= TURNED_IRIS_HIDDEN || (openness.is_some_and(|o| (CLOSED_BELOW..CLOSED_GAP).contains(&o)) && i >= TURNED_IRIS_HALF);
     if turned && l != Lids::Closed && iris.is_some_and(hidden) {
         return Lids::Closed;
     }
@@ -797,7 +811,12 @@ pub const LENS_UNDER: f32 = 0.3;
 
 /// Look at `img` (the photo at full size) with `model`: each person's sharper eye.
 #[cfg(feature = "sam")]
-pub fn analyze(model: &lightcraft_segment::people::FaceModel, img: &Rgba8, photo: PhotoId) -> Result<EyeReport, String> {
+pub fn analyze(
+    model: &lightcraft_segment::people::FaceModel,
+    people: Option<&lightcraft_segment::people::PeopleModel>,
+    img: &Rgba8,
+    photo: PhotoId,
+) -> Result<EyeReport, String> {
     use lightcraft_segment::mediapipe::{Detection, EYES, IRISES};
     let t0 = web_time::Instant::now();
     let (w, h) = (img.width, img.height);
@@ -813,6 +832,11 @@ pub fn analyze(model: &lightcraft_segment::people::FaceModel, img: &Rgba8, photo
         .par_iter()
         .filter_map(|&i| found.get(i))
         .map(|full| {
+            // a low-scoring detection is a pattern far more often than a face: dot highlights,
+            // bokeh, a hand (not worth FaceMesh's time)
+            if full.score < MIN_FACE_SCORE {
+                return Judged::NotAFace;
+            }
             // FaceMesh on a full-resolution crop around the face (the eye contours are a few pixels
             // wide in the small copy)
             let landmarks = face_crop(img, full).and_then(|(rgb, cw, ch, ox, oy)| {
@@ -884,6 +908,13 @@ pub fn analyze(model: &lightcraft_segment::people::FaceModel, img: &Rgba8, photo
             if landmarks.is_none() && full.score < NO_MESH_SCORE {
                 return Judged::NotAFace;
             }
+            // a middling detection the people model doesn't see a head in: a light, a vase, a
+            // phone's camera (FaceMesh fits a face to anything it is given)
+            if full.score < HEAD_CHECKED_BELOW
+                && people.is_some_and(|p| head_share(p, img, [full.x0, full.y0, full.x1, full.y1]).is_some_and(|h| h < HEAD_MIN))
+            {
+                return Judged::NotAFace;
+            }
             let Some((score, (e, _))) = pick_eye(a, b, |e| e.1.0.lids) else {
                 return Judged::NoEyes;
             };
@@ -920,6 +951,48 @@ pub fn analyze(model: &lightcraft_segment::people::FaceModel, img: &Rgba8, photo
     log::debug!("eyes: {} faces, detect {t_detect:.0} ms, judge {:.0} ms", found.len(), t0.elapsed().as_secs_f64() * 1000.0 - t_detect);
     let boxes = boxes.iter().map(|b| [b[0] / w as f32, b[1] / h as f32, b[2] / w as f32, b[3] / h as f32]).collect();
     Ok(EyeReport { photo, eyes, faces: found.len().saturating_sub(not_faces), no_eyes, boxes, size: (w, h), ms: t0.elapsed().as_secs_f64() * 1000.0 })
+}
+
+/// The people model beside the face model's folder `face_dir` (the models folder's
+/// `mediapipe-selfie-multiclass`), when it is installed: it tells a face from a pattern in
+/// [`analyze`].
+#[cfg(feature = "sam")]
+pub fn people_beside(face_dir: &std::path::Path) -> Option<lightcraft_segment::people::PeopleModel> {
+    let dir = face_dir.parent()?.join(lightcraft_segment::models::PEOPLE.dir_name);
+    lightcraft_segment::models::PEOPLE.installed_in(&dir).then(|| lightcraft_segment::people::PeopleModel::load(&dir).ok()).flatten()
+}
+
+/// How much of a face box (`[x0, y0, x1, y1]`, pixels of `img`) the people model sees as a
+/// person's head — face skin, hair or skin, averaged over the box's middle — on a crop twice the
+/// box's size around it (0..1; `None` when there is no crop to take): a light, a vase or a phone's
+/// camera reads near 0, a face, even a blurred one in the background, well above.
+#[cfg(feature = "sam")]
+pub fn head_share(people: &lightcraft_segment::people::PeopleModel, img: &Rgba8, b: [f32; 4]) -> Option<f32> {
+    let (cx, cy) = ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0);
+    let side = (b[2] - b[0]).max(b[3] - b[1]) * 2.0;
+    if !(side.is_finite() && side >= 4.0) {
+        return None;
+    }
+    let r = Region::around(cx, cy, side, side, img.width, img.height)?;
+    let mut rgb = Vec::with_capacity(r.w * r.h * 3);
+    for y in r.y..r.y + r.h {
+        for p in img.data.get(y * img.width + r.x..y * img.width + r.x + r.w)? {
+            rgb.extend_from_slice(&p[..3]);
+        }
+    }
+    let map = people.segment(&rgb, r.w, r.h).ok()?;
+    // the middle half of the face box, in the crop's normalized coordinates
+    let (mut sum, mut n) = (0.0f32, 0.0f32);
+    for j in 0..5 {
+        for i in 0..5 {
+            let x = b[0] + (b[2] - b[0]) * (0.25 + 0.5 * (i as f32 + 0.5) / 5.0);
+            let y = b[1] + (b[3] - b[1]) * (0.25 + 0.5 * (j as f32 + 0.5) / 5.0);
+            let (u, v) = ((x - r.x as f32) / r.w.max(1) as f32, (y - r.y as f32) / r.h.max(1) as f32);
+            sum += map.at(&[1, 2, 3], u, v);
+            n += 1.0;
+        }
+    }
+    Some(sum / n)
 }
 
 /// A face FaceMesh doesn't take (a profile, a face half hidden): its eyes from BlazeFace's eye
@@ -1183,6 +1256,8 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
     let mut model: Option<lightcraft_segment::people::FaceModel> = None;
     #[cfg(feature = "sam")]
     let mut far_checked = false;
+    #[cfg(feature = "sam")]
+    let mut people: Option<lightcraft_segment::people::PeopleModel> = None;
     loop {
         let job = {
             let mut q = s.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -1208,10 +1283,11 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
                 }
                 if model.is_none() || far_arrived {
                     model = Some(lightcraft_segment::people::FaceModel::load(&s.model_dir).map_err(|e| e.to_string())?);
+                    people = people_beside(&s.model_dir);
                 }
                 let m = model.as_ref().ok_or("no face model")?;
                 let img = crate::memory::in_background(|| load(&job.source)).ok_or("the picture could not be read")?;
-                let r = analyze(m, &img, job.photo).map(Arc::new);
+                let r = analyze(m, people.as_ref(), &img, job.photo).map(Arc::new);
                 drop(img);
                 crate::memory::release();
                 r
@@ -1361,8 +1437,11 @@ mod tests {
         assert_eq!(openness(&lids(18.0, true), 5), None);
         assert_eq!(Lids::of(None), Lids::Unknown);
         assert_eq!(Lids::of(Some(f32::NAN)), Lids::Unknown);
-        // the iris settles a middling gap: shown, a squint (open); hidden, a lowered lid (closed)
-        assert_eq!(lids_from(Some(0.33), Some(0.2)), Lids::Open);
+        // a narrow gap with the iris hidden is a lowered lid (closed); with some iris under a
+        // lowered lid, half closed (the photographer's half-open eyes: 0.33–0.47)
+        assert_eq!(lids_from(Some(0.33), Some(0.2)), Lids::Half);
+        assert_eq!(lids_from(Some(0.46), Some(0.12)), Lids::Half);
+        assert_eq!(lids_from(Some(0.53), Some(0.11)), Lids::Open);
         assert_eq!(lids_from(Some(0.33), Some(0.95)), Lids::Closed);
         assert_eq!(lids_from(Some(0.33), None), Lids::Half);
         assert_eq!(lids_from(Some(0.40), Some(0.95)), Lids::Half);
