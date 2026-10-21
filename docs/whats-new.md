@@ -9,11 +9,24 @@
   preview, a zoomed view and the export look the same.
 
 ### Library
+- **Capture Time sort goes through the day across all your cameras.** A collection sorted by capture time used to
+  show the photos in the order they were added (one card after the other), and Recently Added kept each import in
+  file-name order whatever the sort; both now follow the sort you chose. The sort compares the full capture time,
+  sub-seconds included; a camera that records its time zone and one that doesn't are compared by the clock time
+  they show. The option is now called **Capture Time**; a collection's own order is **Custom Order**.
+- **Your export presets and the rest of your way of working are the same in every library**: export presets
+  and the last export, print templates, metadata, filter, curve, colour-label and keyword-set presets, slideshow
+  settings, Hold View, the sort and the folded preset groups now live in LightCraft's settings folder, not in the
+  library. The first time a library is opened, its own are copied in (nothing lost, nothing twice; a preset with
+  the same name and other settings is kept as "name 2"). The library's copy stays for older builds.
 - **Albums are now Collections**, as in Lightroom: the Library sidebar's **Collections**, **New Collection…**,
   **New Smart Collection…**, the target collection (**B** adds to it) and every menu and message that named albums.
   Nothing about them changed but the name; agents keep using the `album.*` commands.
 
 ### Presets
+- **A preset clicked in the Presets panel follows Auto Sync, like a slider**: with Auto Sync off it goes on the
+  active photo only; with it on, on every selected photo (one undo). Right-click ▸ **Apply to N Selected Photos**
+  and Quick Develop's Saved Preset still put it on the whole selection.
 - The presets marked to come first when importing are now the **At Import** group (was "For Import").
 
 ### Remove

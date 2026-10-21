@@ -559,7 +559,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Sort",
             ["View", "Sort"],
             None,
-            "{key?: captureDate|importDate|editDate|fileName|rating|fileSize|random, ascending?: bool, group?: auto|none|day|month|year, seed?: u64 (the shuffle `random` gives)}",
+            "{key?: captureDate (capture time, sub-seconds included)|importDate|editDate|fileName|rating|fileSize|random|custom (a collection's own order; other views: capture time), ascending?: bool, group?: auto|none|day|month|year, seed?: u64 (the shuffle `random` gives)}",
             always,
             |s, p| {
                 let key: SortKey = match p.get("key") {
@@ -577,6 +577,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     seed = next_seed(seed, &(s.clock)());
                 }
                 s.sort = Sort { key, ascending: bool_or(p, "ascending", s.sort.ascending), group, seed };
+                // the same sort in every library (kept in the app store: note 52)
+                if let Err(e) = s.save_app_store() {
+                    log::warn!("store: {e}");
+                }
                 ok()
             }
         ),

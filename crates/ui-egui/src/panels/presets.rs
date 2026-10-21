@@ -109,7 +109,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 && app.run("edit.undo", json!({})).is_ok()
             {
                 // Only replace the most recent preset; never undo intervening edits.
-                if app.run("preset.apply", json!({"id": &last.id, "amount": v})).is_ok() {
+                if app.run("preset.apply", json!({"id": &last.id, "amount": v, "followAutoSync": true})).is_ok() {
                     ui.data_mut(|d| d.insert_temp(amt_id, AppliedPreset::new(&app.session, last.id, v)));
                 } else {
                     let _ = app.run("edit.redo", json!({}));
@@ -148,8 +148,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let searching = !query.trim().is_empty();
             for grp in groups.iter() {
                 let g = grp.name.clone();
-                let open_id = egui::Id::new(("preset-group", &g));
-                let open: bool = searching || ui.data(|d| d.get_temp(open_id)).unwrap_or(true);
+                // folded groups are kept with the app's settings (ui.json), not the library
+                let folded = app.ui.folded_preset_groups.contains(&g);
+                let open: bool = searching || !folded;
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 32.0), Sense::click());
                 crate::widgets::announce(&resp, g.to_string());
                 register(ui.ctx(), format!("presetGroup:{g}"), r);
@@ -170,8 +171,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     x += 20.0;
                 }
                 ui.painter().text(pos2(x, r.center().y), Align2::LEFT_CENTER, &grp.shown, t.semibold(13.0), t.text_label);
-                if resp.clicked() {
-                    ui.data_mut(|d| d.insert_temp(open_id, !open));
+                if resp.clicked() && !searching {
+                    if folded {
+                        app.ui.folded_preset_groups.retain(|x| x != &g);
+                    } else {
+                        app.ui.folded_preset_groups.push(g.clone());
+                    }
                 }
                 if !grp.pseudo {
                     resp.context_menu(|ui| {
@@ -256,14 +261,26 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                             ui.data_mut(|d| d.insert_temp(egui::Id::new("last-preset-hover"), (id, pr.clone(), label)));
                         }
                     }
-                    if resp.clicked() && app.run("preset.apply", json!({"id": pid, "amount": 100})).is_ok() {
+                    if resp.clicked() && app.run("preset.apply", json!({"id": pid, "amount": 100, "followAutoSync": true})).is_ok() {
                         ui.data_mut(|d| d.insert_temp(amt_id, AppliedPreset::new(&app.session, pid.clone(), 100.0)));
                         ui.data_mut(|d| d.remove::<(lightcraft_catalog::PhotoId, Preset, String)>(egui::Id::new("last-preset-hover")));
                         app.toast(ui.ctx(), crate::i18n::tr_format!("Preset: {name}", name = name));
                     }
                     let (builtin, group) = (pr.builtin, pr.group.clone());
                     let for_import = app.session.preset_for_import(&pr);
+                    // a click follows Auto Sync, as a slider does (note 51); the whole selection on purpose:
+                    let selected = app.session.selection.ids.len();
                     resp.context_menu(|ui| {
+                        if selected > 1 && !app.session.auto_sync {
+                            let label = crate::i18n::tr_format!("Apply to {n} Selected Photos", n = selected);
+                            if ui.button(label).clicked() {
+                                match app.run("preset.apply", json!({"id": pid, "amount": 100})) {
+                                    Ok(_) => app.toast(ui.ctx(), crate::i18n::tr_format!("Preset {name} on {n} photos", name = name, n = selected)),
+                                    Err(e) => app.toast(ui.ctx(), e),
+                                }
+                            }
+                            ui.separator();
+                        }
                         if ui.button(crate::i18n::tr(if fav { "Remove from Favorites" } else { "Add to Favorites" })).clicked() {
                             let _ = app.run("preset.favorite", json!({"id": pid}));
                         }

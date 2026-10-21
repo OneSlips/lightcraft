@@ -256,3 +256,90 @@ fn import_presets_and_preset_choices_are_shared() {
     s.close_library().unwrap();
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Note 52: the user's way of working is the app's, not a library's. Export presets, a metadata
+/// preset, the slideshow's settings, Hold View and the sort made with library A are there in a
+/// new library B, and after a restart.
+#[test]
+fn settings_made_in_library_a_are_there_in_library_b() {
+    let root = temp_dir("habits");
+    let (a, b, store) = (root.join("A"), root.join("B"), root.join("store"));
+    let mut s = with_store(&store);
+    s.open_library(&a, true).unwrap();
+    s.execute("export.savePreset", &json!({"name": "Client Web 2048", "params": {"format": "jpeg", "longEdge": 2048, "quality": 85}})).unwrap();
+    s.execute("metadata.savePreset", &json!({"name": "Studio", "fields": {"creator": "Studio Photographer"}})).unwrap();
+    s.execute("slideshow.playback", &json!({"slideDuration": 7.0, "repeat": true})).unwrap();
+    s.execute("library.holdView", &json!({"on": true})).unwrap();
+    s.execute("library.sort", &json!({"key": "fileName", "ascending": true})).unwrap();
+    let slideshow = s.slideshow.clone();
+    s.close_library().unwrap();
+
+    let check = |s: &mut Session, when: &str| {
+        let names: Vec<String> = s
+            .execute("export.presets", &json!({}))
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p["name"].as_str().map(str::to_string))
+            .collect();
+        assert!(names.iter().any(|n| n == "Client Web 2048"), "{when}: {names:?}");
+        assert!(s.metadata_presets.iter().any(|m| m.name == "Studio"), "{when}");
+        assert_eq!(s.slideshow, slideshow, "{when}");
+        assert!(s.hold_view, "{when}");
+        assert_eq!((s.sort.key, s.sort.ascending), (lightcraft_catalog::SortKey::FileName, true), "{when}");
+    };
+    s.open_library(&b, true).unwrap();
+    check(&mut s, "library B");
+    s.close_library().unwrap();
+    drop(s);
+    // a restart, straight into library B
+    let mut s = with_store(&store);
+    s.open_library(&b, false).unwrap();
+    check(&mut s, "after a restart");
+    // a change made in B is A's too
+    s.execute("export.deletePreset", &json!({"name": "Client Web 2048"})).unwrap();
+    s.close_library().unwrap();
+    s.open_library(&a, false).unwrap();
+    assert!(!s.export_presets.iter().any(|p| p.name == "Client Web 2048"), "deleted everywhere");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The migration: a library whose export presets an older build kept with it, merged into the store
+/// by that build (before the store held them), gets them merged once on open: nothing lost, nothing
+/// twice, a same-named different preset kept as "name 2", the library's files left as they were.
+#[test]
+fn export_presets_kept_with_an_older_library_join_the_store_once() {
+    let root = temp_dir("habits-migrate");
+    let (a, b, store) = (root.join("A"), root.join("B"), root.join("store"));
+    for (dir, quality) in [(&a, 80), (&b, 60)] {
+        let mut s = Session::new();
+        s.open_library(dir, true).unwrap();
+        s.execute("export.savePreset", &json!({"name": "Proof", "params": {"format": "jpeg", "quality": quality}})).unwrap();
+        s.execute("export.savePreset", &json!({"name": "Album", "params": {"format": "tiff"}})).unwrap();
+        s.save_prefs().unwrap();
+        s.close_library().unwrap();
+    }
+    let a_prefs = std::fs::read(a.join("prefs.json")).unwrap();
+    // the store as an older build left it: both libraries merged, without their export presets
+    std::fs::create_dir_all(&store).unwrap();
+    let merged = |d: &Path| json!({"library": d.display().to_string(), "at": "2026-10-01T10:00:00"});
+    std::fs::write(store.join("shared.json"), serde_json::to_vec(&json!({"version": 1, "merged": [merged(&a), merged(&b)]})).unwrap()).unwrap();
+
+    let mut s = with_store(&store);
+    s.open_library(&a, false).unwrap();
+    let names = |s: &Session| -> Vec<String> { s.export_presets.iter().map(|p| p.name.clone()).collect() };
+    assert_eq!(names(&s), ["Proof", "Album"]);
+    s.open_library(&b, false).unwrap();
+    assert_eq!(names(&s), ["Proof", "Album", "Proof 2"], "B's Proof differs: kept as Proof 2; the same Album once");
+    assert_eq!(s.export_presets.iter().find(|p| p.name == "Proof 2").unwrap().params["quality"], 60);
+    s.open_library(&a, false).unwrap();
+    s.open_library(&b, false).unwrap();
+    assert_eq!(names(&s).len(), 3, "merged once");
+    s.close_library().unwrap();
+    assert_eq!(std::fs::read(a.join("prefs.json")).unwrap(), a_prefs, "the library's copy stays as it was, for older builds");
+    let shared: serde_json::Value = serde_json::from_slice(&std::fs::read(store.join("shared.json")).unwrap()).unwrap();
+    assert_eq!(shared["exportPresets"].as_array().unwrap().len(), 3);
+    assert!(shared["merged"].as_array().unwrap().iter().all(|m| m["habits"] == true));
+    let _ = std::fs::remove_dir_all(&root);
+}

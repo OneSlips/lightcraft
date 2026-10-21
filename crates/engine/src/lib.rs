@@ -362,25 +362,25 @@ pub struct Session {
     pub recycle: recycle::RecycleFn,
     /// Show Alternatives is on: the original photo, and the view to go back to.
     pub alternatives: Option<cmd::alternatives::Alternatives>,
-    /// Parameters of the last export (`app.export` params, minus targets), persisted in prefs.json.
+    /// Parameters of the last export (`app.export` params, minus targets), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub last_export: Option<serde_json::Value>,
     /// The options of the last Photo Merge started, per command (`merge.hdr`, `merge.panorama`,
     /// `merge.hdrPanorama`): the merge dialog opens with them and "… with Last Settings" uses
-    /// them. Persisted in prefs.json.
+    /// them. Kept in the app store ([`app_store::Habits`]).
     pub last_merge: std::collections::BTreeMap<String, serde_json::Value>,
-    /// The user's export presets (built-ins: [`export::builtin_presets`]), persisted in prefs.json.
+    /// The user's export presets (built-ins: [`export::builtin_presets`]), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub export_presets: Vec<export::ExportPreset>,
     /// The Print module's current layout, image settings, page, guides and job (`print.*`). Lives
     /// with the session, so the app, CLI, control channel and MCP all see the same print.
     pub print: print::template::PrintSettings,
-    /// Saved print templates (`print.template.*`), persisted in prefs.json.
+    /// Saved print templates (`print.template.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub print_templates: Vec<print::template::PrintTemplate>,
-    /// Metadata presets (`metadata.*`), persisted in prefs.json.
+    /// Metadata presets (`metadata.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub metadata_presets: Vec<cmd::metadata::MetadataPreset>,
-    /// Saved filter-bar settings (`filter.*`), persisted in prefs.json.
+    /// Saved filter-bar settings (`filter.*`), kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub filter_presets: Vec<cmd::filters::FilterPreset>,
     /// The user's point-curve presets (`curve.*`; built-ins: [`cmd::curves::builtin_presets`]),
-    /// persisted in prefs.json.
+    /// kept in the app store ([`app_store::Habits`]; a library keeping its own: its prefs.json).
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Mask effect presets (the Masking panel's Effect menu).
     pub mask_effects: Vec<cmd::mask_effects::MaskEffect>,
@@ -1185,6 +1185,16 @@ impl Session {
         d
     }
 
+    /// The photos a Develop slider changes: the active photo, and with Auto Sync on every selected
+    /// photo (the active one first). Develop's Presets panel follows the same rule (note 51).
+    pub fn slider_targets(&self) -> Vec<PhotoId> {
+        let Some(active) = self.active() else { return Vec::new() };
+        if !self.auto_sync || self.selection.ids.len() < 2 || !self.selection.contains(active) {
+            return vec![active];
+        }
+        std::iter::once(active).chain(self.selection.ids.iter().copied().filter(|x| *x != active)).collect()
+    }
+
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`, as asked,
     /// before its crop is fitted) over to the other selected photos: only the settings that changed;
     /// never spot removal or red eye (they belong to one photo's pixels), nor the rendering process
@@ -1359,7 +1369,7 @@ impl Session {
             });
             // Views whose order or photos are not the query's alone are worked out whole each time: an album in
             // its own order, Recently Added (how far back it reaches moves with every import), Missing Photos.
-            let own_order = matches!(self.source, LibrarySource::Album(a) if self.sort.key == lightcraft_catalog::SortKey::CaptureDate
+            let own_order = matches!(self.source, LibrarySource::Album(a) if self.sort.key == lightcraft_catalog::SortKey::Custom
                 && self.filter == Filter::default()
                 && self.catalog.album(a).is_some_and(|al| !al.is_smart()));
             let whole = own_order || matches!(self.source, LibrarySource::RecentlyAdded | LibrarySource::Missing);
@@ -1399,7 +1409,7 @@ impl Session {
                 return self.visible();
             }
             if matches!(self.source, LibrarySource::Album(_))
-                && self.sort.key == lightcraft_catalog::SortKey::CaptureDate
+                && self.sort.key == lightcraft_catalog::SortKey::Custom
                 && let LibrarySource::Album(a) = self.source
                 && let Some(al) = self.catalog.album(a)
                 && !al.is_smart()
@@ -1417,16 +1427,12 @@ impl Session {
             }
             if self.source == LibrarySource::RecentlyAdded {
                 // newest import first, whatever the sort direction (the grid groups by import day);
-                // a batch stays in file order (name, then id)
-                let cat = &self.catalog;
-                visible.sort_by(|a, b| {
-                    let key = |id: &PhotoId| cat.photo(*id).map(|p| p.imported.clone()).unwrap_or_default();
-                    let name = |id: &PhotoId| cat.photo(*id).map(|p| p.file_name.as_str());
-                    let by_name = match (name(a), name(b)) {
-                        (Some(x), Some(y)) => lightcraft_catalog::query::cmp_name(x, y),
-                        _ => std::cmp::Ordering::Equal,
-                    };
-                    key(b).cmp(&key(a)).then(by_name).then(a.cmp(b))
+                // inside one import, the sort chosen (a two-camera import by capture time interleaves
+                // the bodies through the day, not one card after the other: note 50)
+                let (cat, sort) = (&self.catalog, self.sort);
+                visible.sort_by(|a, b| match (cat.photo(*a), cat.photo(*b)) {
+                    (Some(x), Some(y)) => y.imported.cmp(&x.imported).then_with(|| sort.order(x, y)),
+                    _ => a.cmp(b),
                 });
             }
             if self.source == LibrarySource::Missing {
@@ -1629,6 +1635,8 @@ mod tests_autosync;
 mod tests_body_profiles;
 #[cfg(test)]
 mod tests_camera_layers;
+#[cfg(test)]
+mod tests_capture_sort;
 #[cfg(test)]
 mod tests_chart_profile;
 #[cfg(test)]

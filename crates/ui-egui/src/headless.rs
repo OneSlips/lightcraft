@@ -1797,6 +1797,49 @@ mod tests {
 
     /// Presets column: resting on a preset previews it in the loupe without a history entry;
     /// thumbnails are variant renders; Create Preset includes only the checked groups.
+    /// Note 51: a click in the Presets panel with several photos selected follows Auto Sync, as a
+    /// slider does: off, the active photo only (one undo restores it); on, every selected photo.
+    /// Note 52: a group folded shut stays folded in the app's settings (ui.json), not the library.
+    #[test]
+    fn presets_panel_follows_auto_sync_and_keeps_folded_groups() {
+        let mut h = demo([1400.0, 900.0]);
+        let t = Duration::from_secs(10);
+        let vis: Vec<u64> = h.app.session.visible_cloned().iter().take(3).map(|p| p.0).collect();
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": vis, "active": vis[0]}}), t);
+        h.request("ui.set", json!({"view": "detail"}), t);
+        h.request("engine.execute", json!({"command": "panel.presets"}), t);
+        h.request("engine.execute", json!({"command": "develop.autoSync", "params": {"on": false}}), t);
+        h.settle(SETTLE);
+        let ids: Vec<lightcraft_catalog::PhotoId> = vis.iter().copied().map(lightcraft_catalog::PhotoId).collect();
+        let dev = |h: &Headless| -> Vec<_> { ids.iter().map(|id| h.app.session.develop_of(*id).unwrap()).collect() };
+        let before = dev(&h);
+        let changed = |h: &Headless| -> Vec<bool> { dev(h).iter().zip(&before).map(|(a, b)| a != b).collect() };
+        let r = h.request("ui.clickWidget", json!({"id": "preset:lc.bw-high-contrast"}), t);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        assert_eq!(changed(&h), [true, false, false], "Auto Sync off: the active photo only");
+        h.request("engine.execute", json!({"command": "edit.undo"}), t);
+        assert_eq!(changed(&h), [false, false, false]);
+        h.request("engine.execute", json!({"command": "develop.autoSync", "params": {"on": true}}), t);
+        h.settle(SETTLE);
+        h.request("ui.clickWidget", json!({"id": "preset:lc.bw-high-contrast"}), t);
+        h.settle(SETTLE);
+        assert_eq!(changed(&h), [true, true, true], "Auto Sync on: every selected photo");
+        h.request("engine.execute", json!({"command": "edit.undo"}), t);
+        assert_eq!(changed(&h), [false, false, false], "one undo restores them all");
+        // fold a group: kept in the UI state that ui.json saves
+        h.request("ui.clickWidget", json!({"id": "presetGroup:B&W"}), t);
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.folded_preset_groups, ["B&W"]);
+        assert!(!h.app.widgets.iter().any(|(w, _)| w == "preset:lc.bw-high-contrast"), "its presets are hidden");
+        let saved = serde_json::to_string(&h.app.ui).unwrap();
+        let back = serde_json::from_str::<crate::UiState>(&saved).unwrap().sanitized();
+        assert_eq!(back.folded_preset_groups, ["B&W"]);
+        h.request("ui.clickWidget", json!({"id": "presetGroup:B&W"}), t);
+        h.settle(SETTLE);
+        assert!(h.app.ui.folded_preset_groups.is_empty());
+    }
+
     #[test]
     fn preset_hover_previews_and_create_preset_groups() {
         let mut h = demo([1400.0, 900.0]);

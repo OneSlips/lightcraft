@@ -439,5 +439,6 @@
   "AI masks: {masks} on {photos} photos.": "ШІ-маски: {masks} на {photos} фото.",
   "Smooth Skin: {n} photos.": "Згладжування шкіри: {n} фото.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Створити резервну копію «{library}» перед виходом з LightCraft? Копія містить каталог, його налаштування, ваші пресети й профілі; фото — ні.",
-  "Preset {name} on {n} photos": "Пресет {name} на {n} фото"
+  "Preset {name} on {n} photos": "Пресет {name} на {n} фото",
+  "Apply to {n} Selected Photos": "Застосувати до вибраних фото ({n})"
 }

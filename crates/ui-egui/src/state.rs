@@ -774,6 +774,9 @@ pub struct UiState {
     pub face_boxes: bool,
     /// The left sidebar's sections: their order, which are hidden and which are folded shut.
     pub sidebar: crate::sidebar::SidebarLayout,
+    /// Presets panel groups folded shut (by group name), the same in every library (note 52).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub folded_preset_groups: Vec<String>,
     /// What settings files said before [`UiState::sidebar`]: the ids of the folded sections. Read
     /// so they stay folded ([`UiState::sanitized`] moves them over), never written.
     #[serde(skip_serializing)]
@@ -1522,6 +1525,7 @@ impl Default for UiState {
             face_boxes: true,
             sidebar: Default::default(),
             collapsed_sidebar: Vec::new(),
+            folded_preset_groups: Vec::new(),
             name_edit: None,
             person_page: None,
             person_from: None,
