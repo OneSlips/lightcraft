@@ -417,22 +417,14 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
-/// The Remove panel's tools: label, tool id and what each is for, in plain words (its tooltip).
-pub(crate) const REMOVE_TOOLS: [(&str, &str, &str); 5] = [
+/// The Remove panel's tools: label, tool id and what each is for, in plain words (its tooltip). Lightroom's
+/// names, which its users know: Remove (which also rebuilds painted areas, the old Content-Aware), Heal, Clone and
+/// Generative (the user's decision, 2026-10-17). Content-Aware spots made before show as Remove.
+pub(crate) const REMOVE_TOOLS: [(&str, &str, &str); 4] = [
     (
         "Remove",
         "remove",
         "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.",
-    ),
-    (
-        "Content-Aware",
-        "fill",
-        "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.",
-    ),
-    (
-        "Generative",
-        "generate",
-        "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.",
     ),
     (
         "Heal",
@@ -440,6 +432,11 @@ pub(crate) const REMOVE_TOOLS: [(&str, &str, &str); 5] = [
         "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.",
     ),
     ("Clone", "clone", "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place."),
+    (
+        "Generative",
+        "generate",
+        "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.",
+    ),
 ];
 
 fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
@@ -522,7 +519,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             lightcraft_develop::SpotMode::Heal => "Heal",
             lightcraft_develop::SpotMode::Clone => "Clone",
             lightcraft_develop::SpotMode::Remove => "Remove",
-            lightcraft_develop::SpotMode::Fill => "Content-Aware",
+            lightcraft_develop::SpotMode::Fill => "Remove",
             lightcraft_develop::SpotMode::Flat => "Even Out",
             lightcraft_develop::SpotMode::Generate => "Generative",
         };
