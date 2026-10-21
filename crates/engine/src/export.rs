@@ -1798,6 +1798,8 @@ impl PreparedExport {
                 // decoding and redoing them (half of such an export's work).
                 let stages = hdr_job.as_ref().map(|_| std::sync::Arc::new(lightcraft_pipeline::StageCache::default()));
                 if let Some(st) = &stages {
+                    // (a GPU render leaves host copies of what the CPU's HDR render starts from)
+                    st.keep_host_stages(true);
                     job.stages = Some(st.clone());
                 }
                 let mut result = job.run();
@@ -2149,7 +2151,8 @@ fn run_batch_with(
 fn run_gated(item: PreparedExport) -> Result<Exported, String> {
     let _held = crate::memory::export_gate().acquire(item.weight);
     let what = format!("exporting {}", item.file_name);
-    crate::guard::catch(&what, || item.run()).and_then(|r| r)
+    // (its GPU renders take turns with the other photos' and stay behind the window's: `lightcraft_gpu::as_batch`)
+    crate::guard::catch(&what, || lightcraft_gpu::as_batch(|| item.run())).and_then(|r| r)
 }
 
 /// The photos of a batch shared by its lanes: each lane takes the next one, at most

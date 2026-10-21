@@ -4,7 +4,7 @@
 //! photos side by side). Prints photos per minute.
 //!
 //! `cargo run --release -p lightcraft-engine --example export_bench -- [--cpu] [--sdr] [--plain]
-//! [--lanes N] [--runs N] FILES…`
+//! [--lanes N] [--runs N] [--gpu-jobs N] [--gpu-mb MB] FILES…`
 //!
 //! - `--cpu`: no GPU (as after a device failure); `--sdr`: plain JPEGs, no gain map; `--plain`:
 //!   no Smooth Skin or masks; `--lanes N`: photos side by side (default: the app's choice).
@@ -89,6 +89,8 @@ fn wedding_settings(plain: bool, hdr: bool) -> DevelopSettings {
 }
 
 fn main() {
+    // as the apps do: the export gate follows the computer's memory
+    lightcraft_engine::memory::set_ram_probe(lightcraft_sysmem::total_physical_memory);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     let value = |f: &str| args.iter().position(|a| a == f).and_then(|i| args.get(i + 1)).and_then(|v| v.parse::<usize>().ok());
@@ -97,7 +99,7 @@ fn main() {
         args.iter()
             .filter(|a| {
                 let keep = !skip && !a.starts_with("--");
-                skip = matches!(a.as_str(), "--lanes" | "--runs");
+                skip = matches!(a.as_str(), "--lanes" | "--runs" | "--gpu-jobs" | "--gpu-mb");
                 keep
             })
             .cloned()
@@ -109,6 +111,9 @@ fn main() {
     }
     if let Some(n) = value("--lanes") {
         lightcraft_engine::export::set_export_lanes(Some(n));
+    }
+    if value("--gpu-jobs").is_some() || value("--gpu-mb").is_some() {
+        lightcraft_engine::gpu::set_batch_limits(value("--gpu-mb").map(|m| (m as u64) << 20), value("--gpu-jobs"));
     }
     let gpu = !flag("--cpu");
     lightcraft_engine::gpu::set_enabled(gpu);
@@ -151,6 +156,20 @@ fn main() {
             secs / files.len().max(1) as f64,
             if fell_back > 0 { format!(", {fell_back} fell back to the CPU") } else { String::new() }
         );
+        if gpu {
+            let b = lightcraft_engine::gpu::batch_usage();
+            let m = lightcraft_engine::gpu::memory();
+            println!(
+                "  gpu: card {} MB, batch limit {} MB / {} jobs, {} waits ({} ms), peak {} MB, {} restarts",
+                lightcraft_engine::gpu::adapter_memory().unwrap_or(0) >> 20,
+                b.limit_bytes >> 20,
+                b.limit_jobs,
+                b.waits,
+                b.waited_ms,
+                m.peak >> 20,
+                lightcraft_engine::gpu::recoveries()
+            );
+        }
         for &id in &ids {
             session.media.forget(id);
         }
