@@ -226,6 +226,15 @@ pub fn lids_from(openness: Option<f32>, iris: Option<f32>) -> Lids {
 
 /// [`iris_showing`] at or above this: no iris to be seen (lid skin where the iris would be).
 pub const IRIS_HIDDEN: f32 = 0.85;
+/// Two eyes whose mean [`openness`] is under this are a half-closed person (FACES-DETECT: one eye
+/// alone may read just open while the pair is clearly heavy-lidded).
+pub const PAIR_HALF_BELOW: f32 = 0.50;
+
+/// Whether two measured eyes, together, are half closed ([`PAIR_HALF_BELOW`]).
+pub fn both_half_closed(a: f32, b: f32) -> bool {
+    a.is_finite() && b.is_finite() && (a + b) / 2.0 < PAIR_HALF_BELOW
+}
+
 /// An eye this open ([`openness`]) is open whatever the iris check says (a pale iris in shade).
 pub const WIDE_OPEN: f32 = 0.45;
 
@@ -900,6 +909,18 @@ pub fn analyze(
             if (hidden(&a) && !clear(&b)) || (hidden(&b) && !clear(&a)) {
                 for e in [&mut a, &mut b].into_iter().flatten() {
                     e.1.0.lids = Lids::Hidden;
+                }
+            }
+            // both eyes measured and, together, under half open: a half-closed person, even when
+            // the more open eye alone passes (the eye shown is the more open one)
+            if let (Some(x), Some(y)) = (&mut a, &mut b)
+                && let (Some(ox), Some(oy)) = (x.1.0.openness, y.1.0.openness)
+                && both_half_closed(ox, oy)
+            {
+                for e in [x, y] {
+                    if e.1.0.lids == Lids::Open {
+                        e.1.0.lids = Lids::Half;
+                    }
                 }
             }
             // the open eye if there is one, then the sharper
@@ -1613,5 +1634,12 @@ mod tests {
         assert!(eye_look(&img, [f32::NAN, 0.0], 40.0, 0.0).is_none());
         assert!(eye_look(&img, [100.0, 50.0], 2.0, 0.0).is_none());
         let _ = eye_look(&img, [199.0, 139.0], 400.0, f32::NAN);
+    }
+
+    #[test]
+    fn a_pair_of_heavy_lids_is_half_closed_though_one_eye_passes() {
+        assert!(both_half_closed(0.42, 0.55), "mean 0.485");
+        assert!(!both_half_closed(0.52, 0.60), "mean 0.56: open");
+        assert!(!both_half_closed(f32::NAN, 0.1), "an unmeasured eye decides nothing");
     }
 }
