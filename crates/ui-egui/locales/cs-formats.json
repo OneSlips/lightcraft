@@ -438,5 +438,6 @@
   "AI masks: {masks} on {photos} photos.": "AI masky: {masks} na {photos} fotkách.",
   "Smooth Skin: {n} photos.": "Vyhlazení pleti: {n} fotek.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Zálohovat „{library}“ před ukončením LightCraftu? Záloha uchová katalog, jeho nastavení, vaše předvolby a profily; ne fotky.",
-  "Preset {name} on {n} photos": "Předvolba {name} na {n} fotkách"
+  "Preset {name} on {n} photos": "Předvolba {name} na {n} fotkách",
+  "Apply to {n} Selected Photos": "Použít na {n} vybraných fotek"
 }

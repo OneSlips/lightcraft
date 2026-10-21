@@ -438,5 +438,6 @@
   "AI masks: {masks} on {photos} photos.": "Masques IA : {masks} sur {photos} photos.",
   "Smooth Skin: {n} photos.": "Lisser la peau : {n} photos.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Sauvegarder « {library} » avant de quitter LightCraft ? La sauvegarde garde le catalogue, ses réglages, vos préréglages et profils ; pas les photos.",
-  "Preset {name} on {n} photos": "Préréglage {name} sur {n} photos"
+  "Preset {name} on {n} photos": "Préréglage {name} sur {n} photos",
+  "Apply to {n} Selected Photos": "Appliquer aux {n} photos sélectionnées"
 }

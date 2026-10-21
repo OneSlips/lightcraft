@@ -43,3 +43,41 @@ fn auto_sync_moves_each_photo_from_its_own_value() {
     s.execute("edit.undo", &json!({})).unwrap();
     assert!((temp(&s, b) - b_temp).abs() < 1.0);
 }
+
+/// Note 51: Develop's Presets panel (`followAutoSync`) follows the slider rule. Auto Sync off: the
+/// active photo only; on: every selected photo, one undo step restoring all of them. Without the
+/// flag (Quick Develop, "Apply to Selected Photos", agents) the preset goes on the selection.
+#[test]
+fn a_develop_preset_follows_auto_sync_like_a_slider() {
+    let mut s = demo();
+    let ids: Vec<u64> = s.visible_cloned().iter().take(3).map(|p| p.0).collect();
+    let all: Vec<lightcraft_catalog::PhotoId> = ids.iter().copied().map(lightcraft_catalog::PhotoId).collect();
+    let before: Vec<_> = all.iter().map(|id| s.develop_of(*id).unwrap()).collect();
+    let changed = |s: &Session| -> Vec<bool> { all.iter().zip(&before).map(|(id, b)| s.develop_of(*id).unwrap() != *b).collect() };
+    s.execute("library.select", &json!({"ids": ids, "active": ids[1]})).unwrap();
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    let pid = "lc.golden-hour";
+
+    let r = s.execute("preset.apply", &json!({"id": pid, "followAutoSync": true})).unwrap();
+    assert_eq!(r["changed"], 1);
+    assert_eq!(changed(&s), [false, true, false], "Auto Sync off: the active photo only");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(changed(&s), [false, false, false]);
+
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let r = s.execute("preset.apply", &json!({"id": pid, "followAutoSync": true})).unwrap();
+    assert_eq!(r["changed"], 3);
+    assert_eq!(changed(&s), [true, true, true], "Auto Sync on: every selected photo");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(changed(&s), [false, false, false], "one undo restores every photo it touched");
+
+    // on purpose, on the whole selection (Quick Develop, the right-click item), Auto Sync or not
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    let r = s.execute("preset.apply", &json!({"id": pid})).unwrap();
+    assert_eq!(r["changed"], 3);
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(changed(&s), [false, false, false]);
+    // explicit ids still win
+    s.execute("preset.apply", &json!({"id": pid, "ids": [ids[2]], "followAutoSync": true})).unwrap();
+    assert_eq!(changed(&s), [false, false, true]);
+}

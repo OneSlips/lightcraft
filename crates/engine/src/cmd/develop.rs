@@ -1073,14 +1073,19 @@ pub fn specs() -> Vec<CommandSpec> {
             "Apply Preset",
             [],
             None,
-            "{id: presetId, amount?: 0..200 (percent), ids?} — as Lightroom Classic: sets the settings the preset has and adds its masks (never removes the photo's own); its AI masks (Subject, Sky, People by name or role, remembered objects, anchored gradients) are then computed on each photo, in the app in the background (one undo step with the apply). The same preset again right away replaces its own masks instead of doubling them → {changed, masks: {queued, updated, approximate, notes}}",
+            "{id: presetId, amount?: 0..200 (percent), ids?, followAutoSync?: bool (true, as Develop's Presets panel: the photos a slider changes, the active photo, or every selected photo with Auto Sync on; default: the selection)} — as Lightroom Classic: sets the settings the preset has and adds its masks (never removes the photo's own); its AI masks (Subject, Sky, People by name or role, remembered objects, anchored gradients) are then computed on each photo, in the app in the background (one undo step with the apply). The same preset again right away replaces its own masks instead of doubling them → {changed, masks: {queued, updated, approximate, notes}}",
             has_selection,
             |s, p| {
                 let pid = str_param(p, "id").ok_or_else(|| bad("preset.apply", "missing id"))?;
                 let preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
                 let amount = f64_or(p, "amount", 100.0).clamp(0.0, 200.0) / 100.0;
-                // `id` names the preset here: the photos are `ids`, else the selection
-                let ids = s.targets(&json!({"ids": p.get("ids")}))?;
+                // `id` names the preset here: the photos are `ids`, else the selection, or (Develop's
+                // Presets panel) the photos a slider would change (note 51)
+                let ids = if p.get("ids").is_none_or(Value::is_null) && bool_or(p, "followAutoSync", false) {
+                    s.slider_targets()
+                } else {
+                    s.targets(&json!({"ids": p.get("ids")}))?
+                };
                 let label = format!("Preset: {}", preset.name);
                 let ops = ids
                     .iter()
