@@ -241,7 +241,8 @@ thread. A render's *own* reason comes from `lightcraft_gpu::try_render` (`Err(Fa
 passes on as `RenderResult::gpu_fallback`; an export carries it as `Exported::gpu_fallback`, and
 each file of an `app.export` batch result has `gpuFallback` when its render fell back (issue #675).
 **Reproducing a smaller GPU:** `LIGHTCRAFT_GPU_LIMITS=webgpu` (or `downlevel`) creates the device
-with 128 MiB storage bindings / 256 MiB buffers, `LIGHTCRAFT_GPU_LIMITS=<n>` with n MiB / 2n MiB.
+with 128 MiB storage bindings / 256 MiB buffers, `LIGHTCRAFT_GPU_LIMITS=<n>` with n MiB / 2n MiB;
+the window's device, when adopted, is capped the same way.
 Tests inject failures with `lightcraft_gpu::inject_fault` (`crates/gpu/tests/fallback.rs`,
 `export_falls_back_to_the_cpu_when_gpu_work_is_lost`). The fault is thread-local, and so are its
 consequences: a simulated fatal failure stops GPU use on the injecting thread only (`available()`
@@ -345,6 +346,9 @@ view preview, overlays, screenshots), thumbnails, exports, overlays (Visualize S
 overlays), windows that spots grew (cut on the CPU), a monitor profile (corrected on the CPU), and
 anything the GPU path declines. A device that doesn't suit (software adapter, too few storage
 buffers, kernels that don't build there) makes the renderer create a device of its own, as before.
+A headless `ui.screenshot` (the control channel keeps CPU copies of what is drawn) taken while a
+view shows a GPU-resident draft reads that texture back for the picture (`ScreenTextures::read`,
+`lightcraft_gpu::read_texture`); drawing never does.
 
 - `LIGHTCRAFT_GPU_WINDOW=0`: never adopt the window's device (a device of its own, renders read
   back) - to compare, or for a driver that misbehaves with compute and drawing on one device.

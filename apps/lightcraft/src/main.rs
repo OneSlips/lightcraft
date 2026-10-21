@@ -63,6 +63,7 @@ struct App(LightcraftApp, PrefsWriter, Option<WindowTextures>, #[cfg(target_os =
 /// renderer (the GPU renderer runs on the window's device, see [`adopt_window_device`]).
 struct WindowTextures {
     device: eframe::wgpu::Device,
+    queue: eframe::wgpu::Queue,
     renderer: std::sync::Arc<egui::mutex::RwLock<eframe::egui_wgpu::Renderer>>,
 }
 
@@ -83,6 +84,16 @@ impl lightcraft_ui_egui::render::ScreenTextures for WindowTextures {
     fn free(&mut self, id: egui::TextureId) {
         self.renderer.write().free_texture(&id);
     }
+
+    fn read(&self, frame: &lightcraft_engine::media::ScreenFrame) -> Option<egui::ColorImage> {
+        match lightcraft_engine::gpu::read_texture(&self.device, &self.queue, &frame.texture, frame.width, frame.height) {
+            Ok(img) => Some(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], img.data.as_flattened())),
+            Err(e) => {
+                log::warn!("gpu: a view can't be read back for the screenshot: {e}");
+                None
+            }
+        }
+    }
 }
 
 /// Render on the window's device (off the UI thread: building the kernels takes a moment), so the
@@ -102,7 +113,7 @@ fn adopt_window_device(rs: &eframe::egui_wgpu::RenderState, ctx: &egui::Context)
     if let Err(e) = spawned {
         log::warn!("gpu: {e}");
     }
-    WindowTextures { device: rs.device.clone(), renderer: rs.renderer.clone() }
+    WindowTextures { device: rs.device.clone(), queue: rs.queue.clone(), renderer: rs.renderer.clone() }
 }
 
 impl eframe::App for App {

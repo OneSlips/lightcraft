@@ -9,7 +9,6 @@ use lightcraft_develop::{DevelopSettings, Spot};
 use lightcraft_geom::Point;
 use lightcraft_gpu::{Output, wgpu};
 use lightcraft_pipeline::{Overlay, PixelWindow, Quality, RenderRequest, SourceInfo, StageCache};
-use lightcraft_raster::Rgba8;
 
 /// A device made the way eframe makes the window's (adapter limits, the window's backends).
 fn window_device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)> {
@@ -28,43 +27,14 @@ fn window_device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)> {
     Some((device, queue, info))
 }
 
-/// The texture's pixels (test only: the app never reads them back).
-fn read_texture(device: &wgpu::Device, queue: &wgpu::Queue, t: &wgpu::Texture, w: usize, h: usize) -> Rgba8 {
-    let stride = (w * 4).next_multiple_of(256);
-    let buf = device.create_buffer(&wgpu::BufferDescriptor {
-        label: None,
-        size: (stride * h) as u64,
-        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-        mapped_at_creation: false,
-    });
-    let mut enc = device.create_command_encoder(&Default::default());
-    enc.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo { texture: t, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &buf,
-            layout: wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(stride as u32), rows_per_image: Some(h as u32) },
-        },
-        wgpu::Extent3d { width: w as u32, height: h as u32, depth_or_array_layers: 1 },
-    );
-    queue.submit([enc.finish()]);
-    buf.slice(..).map_async(wgpu::MapMode::Read, |_| {});
-    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
-    let bytes = buf.slice(..).get_mapped_range().unwrap().to_vec();
-    let data = (0..h).flat_map(|y| (0..w).map(move |x| (y, x))).map(|(y, x)| {
-        let o = y * stride + x * 4;
-        [bytes[o], bytes[o + 1], bytes[o + 2], bytes[o + 3]]
-    });
-    Rgba8 { width: w, height: h, data: data.collect() }
-}
-
 #[test]
 fn display_renders_match_readback_renders() {
     let Some((device, queue, info)) = window_device() else {
-        eprintln!("skipped: no GPU adapter");
+        lightcraft_testkit::skip!(Gpu, "no GPU adapter");
         return;
     };
     if info.device_type == wgpu::DeviceType::Cpu {
-        eprintln!("skipped: software adapter");
+        lightcraft_testkit::skip!(Gpu, "software adapter");
         return;
     }
     lightcraft_gpu::adopt_window_device(device.clone(), queue.clone(), info).expect("adopted");
@@ -85,7 +55,7 @@ fn display_renders_match_readback_renders() {
         match lightcraft_gpu::render_display(&src, &raw, &s, &req, Some(&stages)).expect("display render") {
             Output::Display { frame, histogram } => {
                 assert_eq!((frame.width, frame.height), (pixels.image.width, pixels.image.height));
-                let shown = read_texture(&device, &queue, &frame.texture, frame.width, frame.height);
+                let shown = lightcraft_gpu::read_texture(&device, &queue, &frame.texture, frame.width, frame.height).expect("readback");
                 assert!(shown.data == pixels.image.data, "{w}×{h}: the texture holds the readback's pixels");
                 assert_eq!(histogram, pixels.histogram);
             }

@@ -3650,6 +3650,7 @@ dependencies = [
  "lightcraft-surface",
  "lightcraft-testkit",
  "log",
+ "pollster 1.0.1",
  "resvg",
  "serde",
  "serde_json",
