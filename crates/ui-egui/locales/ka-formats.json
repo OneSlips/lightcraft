@@ -425,5 +425,12 @@
   "{} label": "{} label",
   "{} spot(s) from Remove Dust (outlined in amber)": "{} spot(s) from Remove Dust (outlined in amber)",
   "{} with eyes closed": "{} with eyes closed",
-  "“{name}” added to Camera Profiles": "“{name}” added to Camera Profiles"
+  "“{name}” added to Camera Profiles": "“{name}” added to Camera Profiles",
+  "Label: {name}": "Label: {name}",
+  "Profile {name}": "Profile {name}",
+  "Profile {name} applied to {n} photos": "Profile {name} applied to {n} photos",
+  "Redo: {what}": "Redo: {what}",
+  "Undo: {what}": "Undo: {what}",
+  "on {n} photos": "on {n} photos",
+  "{n} stars": "{n} stars"
 }

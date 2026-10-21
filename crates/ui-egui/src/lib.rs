@@ -165,6 +165,8 @@ mod tests_offline;
 #[cfg(test)]
 mod tests_open_lightroom;
 #[cfg(test)]
+mod tests_osd;
+#[cfg(test)]
 mod tests_panel_restore;
 #[cfg(test)]
 mod tests_panels;

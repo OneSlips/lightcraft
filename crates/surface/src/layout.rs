@@ -201,7 +201,7 @@ mod tests {
         let r = Runtime::new(SurfaceSettings::default());
         let l = build(&r, &MX_CREATIVE_CONSOLE, &H);
         assert_eq!(l.keys.len(), 9);
-        assert_eq!(l.buttons.len(), 4);
+        assert_eq!(l.buttons.len(), 12, "four Dialpad buttons, eight Actions Ring slots");
         assert_eq!(l.dials.len(), 2);
         assert_eq!(l.key_pages.len(), DEVICE_KEY_PAGES);
         assert_eq!(l.key_pages.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Page 1", "Page 2", "Page 3"]);

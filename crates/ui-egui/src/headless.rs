@@ -4475,16 +4475,24 @@ mod tests {
         h.request("ui.clickWidget", json!({"id": "button:settingsTab-interface"}), t);
         // Appearance cards (one row per theme, with its favorite star) sit above these controls;
         // scroll the compact settings viewport past them.
+        // (the On-Screen Overlay section sits above them too: scroll until they show)
         h.request("ui.hoverWidget", json!({"id": "radio:theme-charcoal"}), t);
-        h.request("ui.scroll", json!({"dy": -700.0}), t);
-        for _ in 0..4 {
-            h.step();
+        let mut scrolled = 0.0;
+        for _ in 0..12 {
+            if h.app.widgets.iter().any(|(w, _)| w == "check:settings.filmNames") {
+                break;
+            }
+            h.request("ui.scroll", json!({"dy": -350.0}), t);
+            scrolled += 350.0;
+            for _ in 0..3 {
+                h.step();
+            }
         }
         h.request("ui.clickWidget", json!({"id": "check:settings.filmNames"}), t);
         assert!(!h.app.ui.settings.film_names);
         h.request("ui.clickWidget", json!({"id": "button:settingsGridBadges-1"}), t);
         assert_eq!(h.app.ui.settings.grid_badges, crate::state::GridBadges::Always);
-        h.request("ui.scroll", json!({"dy": 700.0}), t);
+        h.request("ui.scroll", json!({"dy": scrolled}), t);
         for _ in 0..4 {
             h.step();
         }

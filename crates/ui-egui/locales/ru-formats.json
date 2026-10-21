@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "Убрать «{name}» с этого компьютера?",
   "default for {bodies}": "по умолчанию для {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} встроенных элементов будут убраны с этого компьютера (их можно восстановить).",
-  "{n} of your own: delete them, or move them to another group.": "{n} ваших: удалить их или перенести в другую группу."
+  "{n} of your own: delete them, or move them to another group.": "{n} ваших: удалить их или перенести в другую группу.",
+  "on {n} photos": "на {n} фото",
+  "Undo: {what}": "Отменено: {what}",
+  "Redo: {what}": "Повторено: {what}",
+  "Profile {name} applied to {n} photos": "Профиль {name} применён к {n} фото",
+  "Profile {name}": "Профиль {name}",
+  "{n} stars": "Звёзды: {n}",
+  "Label: {name}": "Метка: {name}"
 }

@@ -22,6 +22,7 @@ pub mod availability;
 pub mod backup;
 pub(crate) mod camera_preview;
 pub mod camera_profiles;
+pub mod change_report;
 pub mod chart_profiling;
 pub mod cmd;
 pub mod concepts_store;
@@ -264,6 +265,12 @@ pub struct Session {
     /// Exact filesystem repairs from discarded history; catalog inverses stay discarded.
     pub(crate) pending_sidecar_repairs: Vec<rename::SidecarMove>,
     pub interaction: Option<Interaction>,
+    /// What the last command changed, for the on-screen overlay ([`change_report`]).
+    pub last_change: Option<change_report::ChangeReport>,
+    change_seq: u64,
+    /// Live changes applied without an undo step (a drag in progress): counted, so the command
+    /// that made one reports it.
+    silent_changes: u64,
     /// Set by a command whose change must not rewrite the photo's XMP sidecar even with auto-write on
     /// (a catalog-only edit of data the sidecar writer does not emit); consumed when the command ends.
     pub(crate) skip_auto_write: bool,
@@ -514,6 +521,9 @@ impl Session {
             redo: Vec::new(),
             pending_sidecar_repairs: Vec::new(),
             interaction: None,
+            last_change: None,
+            change_seq: 0,
+            silent_changes: 0,
             skip_auto_write: false,
             unsaved_sidecars: Default::default(),
             denoise: Default::default(),
@@ -646,10 +656,17 @@ impl Session {
     fn run_command(&mut self, id: &str, journal: Option<&Value>, f: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
         let log_start = self.pending_log.len();
         let was_active = self.active();
+        let (commits_before, silent_before) = (self.commits, self.silent_changes);
         self.depth += 1;
         // last-resort guard: a panic in a command is that command's error, not a crash
         let r = guard::catch(&format!("`{id}`"), || f(self)).unwrap_or_else(|e| Err(EngineError::Other(e)));
         self.depth -= 1;
+        // what it changed, for the overlay (before auto versions and follow-ups add their own)
+        if self.depth == 0
+            && let (Ok(v), Some(params)) = (&r, journal)
+        {
+            self.report_change(id, params, v, log_start, commits_before, silent_before);
+        }
         // photos whose Smooth Skin now wants the skin found get it (stored with this command)
         if self.depth == 0 && r.is_ok() && (self.pending_log.len() > log_start || self.interaction.is_some()) {
             self.skin_follow_up(log_start);
@@ -720,6 +737,49 @@ impl Session {
         {
             log::warn!("presets: the background save is taking long; not waiting for it");
         }
+    }
+
+    /// Fill [`Session::last_change`] when command `id` changed something the user sees: the ops
+    /// it logged since `log_start`, or live (undo-less) changes inside an interaction.
+    fn report_change(&mut self, id: &str, params: &Value, result: &Value, log_start: usize, commits_before: u64, silent_before: u64) {
+        if change_report::is_background(id) {
+            return;
+        }
+        let logged = self.pending_log.get(log_start..).unwrap_or_default();
+        let (photos, kind, live) = match change_report::summarize(logged) {
+            Some((n, k)) => (n, k, false),
+            None if self.silent_changes != silent_before => {
+                // a drag or a turning dial: the active photo, and the ones moving along
+                let n = self.interaction.as_ref().map_or(1, |i| 1 + i.others.len());
+                (n, change_report::ChangeKind::Develop, self.interaction.is_some())
+            }
+            None => return,
+        };
+        let label = if self.commits != commits_before {
+            self.undo.last().map(|e| e.label.clone())
+        } else if live {
+            self.interaction.as_ref().map(|i| i.label.clone())
+        } else {
+            None
+        };
+        let label = label.or_else(|| find_command(id).map(|c| c.label.to_string())).unwrap_or_else(|| id.to_string());
+        let detail = ["undone", "redone"].iter().find_map(|k| result.get(*k).and_then(Value::as_str)).map(str::to_string);
+        // the end of a drag commits the value it was moving: still that value
+        let control = change_report::control_of(id, params).or_else(|| {
+            (id == "develop.endInteraction").then(|| self.last_change.as_ref().filter(|c| c.live).and_then(|c| c.control.clone())).flatten()
+        });
+        self.change_seq = self.change_seq.wrapping_add(1);
+        self.last_change = Some(change_report::ChangeReport {
+            seq: self.change_seq,
+            command: id.to_string(),
+            params: params.clone(),
+            label,
+            photos,
+            kind,
+            control,
+            detail,
+            live,
+        });
     }
 
     pub fn commands(&self) -> Vec<CommandInfo> {
@@ -889,6 +949,7 @@ impl Session {
     /// Apply without recording undo (interactive previews).
     fn apply_silent(&mut self, op: Op) -> Result<()> {
         self.catalog.apply(op)?;
+        self.silent_changes = self.silent_changes.wrapping_add(1);
         Ok(())
     }
 

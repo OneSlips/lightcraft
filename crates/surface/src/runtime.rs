@@ -431,7 +431,9 @@ impl Runtime {
         if !self.settings.enabled {
             return Vec::new();
         }
-        if self.learn == Learn::Armed {
+        // learning, or learnt and not yet taken: input is captured, never applied (the host takes
+        // the control at its next frame; the last one touched wins)
+        if self.learn != Learn::Off {
             let control = match &input {
                 Input::Turn { control, .. } | Input::Press { control, .. } => Some(control.clone()),
                 Input::Release { .. } => None,
@@ -1021,6 +1023,20 @@ mod tests {
         assert_eq!(r.take_learned().as_deref(), Some("key.1"));
         assert_eq!(r.take_learned(), None);
         assert_eq!(r.input(press("key.1"), 0.0).len(), 1, "acts again");
+    }
+
+    #[test]
+    fn learnt_and_not_yet_taken_still_captures_input() {
+        // Touch to find: a dial still turning after it was learnt, before the editor's next frame,
+        // must not move the photo; the last control touched is the one reported
+        let mut r = Runtime::new(settings());
+        r.arm_learn();
+        r.input(Input::Turn { control: "dial".into(), ticks: 1 }, 0.0);
+        let more = r.input(Input::Turn { control: "dial".into(), ticks: 5 }, 10.0);
+        assert!(!more.iter().any(|e| matches!(e, Effect::Command { .. } | Effect::Begin { .. } | Effect::Adjust { .. })), "{more:?}");
+        r.input(press("key.4"), 20.0);
+        assert_eq!(r.take_learned().as_deref(), Some("key.4"));
+        assert!(r.turning().is_none(), "nothing was applied");
     }
 
     #[test]

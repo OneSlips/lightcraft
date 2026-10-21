@@ -56,13 +56,17 @@ const fn key(id: &'static str, label: &'static str) -> ControlDef {
 const fn pad(id: &'static str, label: &'static str) -> ControlDef {
     ControlDef { id, kind: ControlKind::Button, label, group: PageGroup::Dials }
 }
+/// A slot of the Actions Ring (the on-screen ring of Logi Options+): pressed like a key.
+const fn ring(id: &'static str, label: &'static str) -> ControlDef {
+    ControlDef { id, kind: ControlKind::Button, label, group: PageGroup::Keys }
+}
 const fn enc(id: &'static str, label: &'static str) -> ControlDef {
     ControlDef { id, kind: ControlKind::Encoder, label, group: PageGroup::Dials }
 }
 
 /// Logitech MX Creative Console: the Keypad (3 × 3 LCD keys; Logi device type `Loupedeck70`) and
-/// the Dialpad (a dial, a roller and four buttons; `Loupedeck71`). Logi's third device type of
-/// that family, `Loupedeck72`, is the on-screen Actions Ring.
+/// the Dialpad (a dial, a roller and four buttons; `Loupedeck71`), and the on-screen Actions Ring
+/// (eight slots, `ring.1`–`ring.8`; `Loupedeck72`), set on All pages (the ring has no pages).
 pub static MX_CREATIVE_CONSOLE: DeviceDef = DeviceDef {
     id: "mx-creative-console",
     name: "Logitech MX Creative Console",
@@ -82,6 +86,14 @@ pub static MX_CREATIVE_CONSOLE: DeviceDef = DeviceDef {
         pad("pad.2", "Dialpad button 2"),
         pad("pad.3", "Dialpad button 3"),
         pad("pad.4", "Dialpad button 4"),
+        ring("ring.1", "Ring slot 1"),
+        ring("ring.2", "Ring slot 2"),
+        ring("ring.3", "Ring slot 3"),
+        ring("ring.4", "Ring slot 4"),
+        ring("ring.5", "Ring slot 5"),
+        ring("ring.6", "Ring slot 6"),
+        ring("ring.7", "Ring slot 7"),
+        ring("ring.8", "Ring slot 8"),
     ],
 };
 
@@ -130,7 +142,8 @@ mod tests {
         let d = find_device("mx-creative-console").unwrap();
         assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Key).count(), 9);
         assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Encoder).count(), 2);
-        assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Button).count(), 4);
+        assert_eq!(d.controls.iter().filter(|c| c.kind == ControlKind::Button).count(), 12, "four Dialpad buttons, eight ring slots");
+        assert_eq!(d.controls.iter().filter(|c| c.id.starts_with("ring.")).count(), 8);
         let mut ids: Vec<_> = d.controls.iter().map(|c| c.id).collect();
         ids.sort_unstable();
         ids.dedup();

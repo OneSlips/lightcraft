@@ -148,11 +148,30 @@ pub enum OsdPosition {
     TopEdge,
 }
 
-/// The on-screen readout in the LightCraft window (TactileBridge's OSD).
+/// What the on-screen overlay reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OsdMode {
+    /// Nothing.
+    Off,
+    /// Only what a control surface does (TactileBridge's OSD).
+    Surface,
+    /// Every change, from the keyboard, mouse, menus, sliders and control surfaces alike (as
+    /// Lightroom's overlay).
+    #[default]
+    Always,
+}
+
+/// The on-screen readout in the LightCraft window (TactileBridge's OSD), and the overlay that
+/// reports every change: one look for both.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OsdSettings {
+    /// Off switches the overlay off whatever `mode` says (older files have only this).
     pub enabled: bool,
+    pub mode: OsdMode,
+    /// Its size: 0.5–2 times the standard size.
+    pub size: f64,
     /// 0.1–1.
     pub opacity: f64,
     /// `#RRGGBB`.
@@ -168,12 +187,27 @@ impl Default for OsdSettings {
     fn default() -> Self {
         OsdSettings {
             enabled: true,
+            mode: OsdMode::Always,
+            size: 1.0,
             opacity: 0.9,
             background: "#202020".into(),
             display_ms: 1800,
             position: OsdPosition::Bottom,
             show_commands: true,
         }
+    }
+}
+
+impl OsdSettings {
+    /// The mode in effect (`enabled` off is Off).
+    pub fn effective_mode(&self) -> OsdMode {
+        if self.enabled { self.mode } else { OsdMode::Off }
+    }
+
+    /// Choose a mode (Off also clears `enabled`, so older LightCraft reads it as off).
+    pub fn set_mode(&mut self, mode: OsdMode) {
+        self.mode = mode;
+        self.enabled = mode != OsdMode::Off;
     }
 }
 
@@ -338,11 +372,21 @@ impl SurfaceSettings {
         let osd = &mut self.osd;
         osd.opacity = clamp(osd.opacity, 0.1, 1.0, 0.9);
         osd.display_ms = osd.display_ms.clamp(500, 10_000);
+        osd.size = clamp(osd.size, 0.5, 2.0, 1.0);
         osd.background = hex_color(&osd.background, "#202020");
         self.look.background = hex_color(&self.look.background, "#000000");
         self.look.foreground = hex_color(&self.look.foreground, "#FFFFFF");
         if self.profiles.is_empty() {
             self.profiles = crate::defaults::profiles();
+        }
+        // the Actions Ring came later: profiles saved before it get its default slots (once: a
+        // ring set up anywhere is the user's own)
+        if !self.profiles.iter().any(|p| p.base.keys().any(|c| c.starts_with("ring."))) {
+            for p in &mut self.profiles {
+                for (c, b) in crate::defaults::ring() {
+                    p.base.entry(c).or_insert(b);
+                }
+            }
         }
         let mut seen = std::collections::BTreeSet::new();
         for (i, p) in self.profiles.iter_mut().enumerate() {
@@ -429,7 +473,7 @@ mod tests {
         let text = r##"{"motion": {"speed": 1e300, "acceleration": -4, "fine": 0, "coarse": 1000},
             "tuning": {"light.exposure": {"speed": "NaN", "fastMs": 1, "slowMs": 0, "accelerationMin": 50, "accelerationMax": 0}},
             "transport": {"flushMs": 0, "gestureEndMs": 4294967295},
-            "osd": {"opacity": 7, "background": "zzz", "displayMs": 1},
+            "osd": {"opacity": 7, "background": "zzz", "displayMs": 1, "size": 40},
             "look": {"foreground": "#12345g"},
             "profile": "missing",
             "profiles": [{"name": ""}, {"name": ""}],
@@ -442,7 +486,7 @@ mod tests {
         let t = &s.tuning["light.exposure"];
         assert_eq!((t.speed, t.fast_ms, t.slow_ms, t.acceleration_min, t.acceleration_max), (5.0, 5, 15, 10.0, 10.0));
         assert_eq!((s.transport.flush_ms, s.transport.gesture_end_ms), (8, 10_000));
-        assert_eq!((s.osd.opacity, s.osd.background.as_str(), s.osd.display_ms), (1.0, "#202020", 500));
+        assert_eq!((s.osd.opacity, s.osd.background.as_str(), s.osd.display_ms, s.osd.size), (1.0, "#202020", 500, 2.0));
         assert_eq!(s.look.foreground, "#FFFFFF");
         assert_eq!(s.profiles.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["Profile 1", "Profile 2"]);
         assert_eq!(s.profile, "Profile 1");

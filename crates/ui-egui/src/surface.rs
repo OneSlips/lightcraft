@@ -76,7 +76,16 @@ pub struct EditorState {
     pub device: String,
     /// The part of the page shown (`layout`, `pages`, `feel`, `readout`, `setup`; empty: layout).
     pub section: String,
+    /// Touch to find switched off (it is on by default: while Settings ▸ Controls is open, a
+    /// control touched on the device is selected in the editor and does nothing to the photo).
+    pub touch_find_off: bool,
+    /// Touch to find is listening, and when Settings ▸ Controls was last drawn (egui time, s):
+    /// it stops by itself once the page is gone.
+    pub touch_find: Option<f64>,
 }
+
+/// How long after Settings ▸ Controls was last drawn Touch to find stops listening (s).
+const TOUCH_FIND_GRACE: f64 = 0.4;
 
 pub struct SurfaceHost {
     pub runtime: ls::Runtime,
@@ -108,6 +117,17 @@ pub struct SurfaceHost {
     listen_retry_at: f64,
     /// The surface plugin's install state (Settings ▸ Controls).
     pub plugin: crate::surface_plugin::PluginState,
+    /// The change the overlay reports (`panels::surface_osd`), and the last report taken.
+    pub action: Option<crate::panels::surface_osd::ActionShown>,
+    pub osd_seq: u64,
+}
+
+/// Load the control-surface settings (they hold the overlay's too) if nothing has yet.
+pub fn ensure_loaded(app: &mut LightcraftApp) {
+    if !app.surface.loaded {
+        app.surface.loaded = true;
+        load(app);
+    }
 }
 
 impl Default for SurfaceHost {
@@ -131,6 +151,8 @@ impl Default for SurfaceHost {
             listen_error: None,
             listen_retry_at: 0.0,
             plugin: Default::default(),
+            action: None,
+            osd_seq: 0,
         }
     }
 }
@@ -495,6 +517,12 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
     if !app.surface.loaded {
         app.surface.loaded = true;
         load(app);
+    }
+    // Touch to find ends with the page that started it: the console acts on photos again
+    let controls_open = matches!(&app.ui.dialog, Some(crate::state::Dialog::Settings { tab }) if tab == "controls");
+    if app.surface.editor.touch_find.is_some_and(|at| !controls_open || now - at > TOUCH_FIND_GRACE) {
+        app.surface.editor.touch_find = None;
+        app.surface.runtime.cancel_learn();
     }
     let now_ms = now * 1000.0;
     // the photo changed under a gesture: end it (its ticks belonged to the other photo)

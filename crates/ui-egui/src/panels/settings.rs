@@ -949,6 +949,8 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         use crate::state::InfoOverlay as I;
         choices(ui, "settingsInfo", &[(I::Off, "Off"), (I::Basic, "File & date"), (I::Exposure, "Exposure")], &mut app.ui.info_overlay);
     });
+    // the overlay that reports every change (and the control surfaces' readout)
+    super::surface_osd::settings_section(app, ui, t);
 }
 
 // ----------------------------------------------------------------------------------- Slideshow

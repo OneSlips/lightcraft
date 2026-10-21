@@ -321,6 +321,10 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("surface.plugin", "Surface Plugin Status", None, ""),
     ("surface.installPlugin", "Install the Surface Plugin", None, ""),
     ("surface.uninstallPlugin", "Remove the Surface Plugin", None, ""),
+    // the on-screen overlay (`panels::surface_osd`): its settings, for keys and agents
+    ("osd.settings", "Overlay Settings", None, ""),
+    ("osd.mode", "Overlay: What It Shows", None, ""),
+    ("osd.state", "Overlay State", None, ""),
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
@@ -523,6 +527,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         && let Some(r) = crate::surface::command(app, id, p)
     {
         return Some(r);
+    }
+    if id.starts_with("osd.") {
+        return Some(crate::panels::surface_osd::command(app, id, p));
     }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
