@@ -133,7 +133,7 @@ fn a_groups_delete_asks_at_the_group_and_actions_line_up() {
 
 /// LR-PRESET-PICKER: a preset picker (Settings ▸ Import's raw default) opens with search, groups in
 /// the manager's order and no hidden presets; a search finds one across 400 presets and picking it
-/// sets it; For Import marks from the manager.
+/// sets it; At Import marks from the manager.
 #[test]
 fn the_shared_preset_picker_searches_and_picks() {
     let mut h = app(400);
@@ -152,7 +152,7 @@ fn the_shared_preset_picker_searches_and_picks() {
     assert!(rows.contains("user.m50\"") && !rows.contains("user.m5\""), "{rows}");
     click(&mut h, "presetPickerRow:settingsRawPreset:user.m50");
     assert_eq!(h.app.session.import_defaults.raw_preset.as_deref(), Some("user.m50"));
-    // For Import from the manager's column
+    // At Import from the manager's column
     h.app.ui.dialog = Some(Dialog::Settings { tab: "presets".into() });
     h.step();
     h.step();

@@ -2718,5 +2718,9 @@
   "≥  at least": "≥  არანაკლებ",
   "⌘-drag to straighten, ⇧G Guided Upright, a grid while transforming.": "⌘-გადათრევა გასასწორებლად, ⇧G მართვადი Upright, ბადე გარდაქმნისას.",
   "日本語": "日本語",
-  "繁體中文（台灣）": "繁體中文（台灣）"
+  "繁體中文（台灣）": "繁體中文（台灣）",
+  "At Import": "იმპორტისას",
+  "Favorites and At Import": "რჩეულები და იმპორტისას",
+  "Take out of At Import": "„იმპორტისას“-დან ამოღება",
+  "Add to At Import (shown first when importing)": "„იმპორტისას“-ში დამატება (იმპორტისას პირველად ჩანს)"
 }

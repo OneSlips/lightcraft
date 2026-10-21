@@ -3,15 +3,15 @@
 //! selected photo), and the default presets in Settings. The Presets panel lists the same rows.
 //!
 //! - **Search** over every preset's name and group.
-//! - **Favorites** and **For Import** (presets marked for the Import panel) come first, then the
+//! - **Favorites** and **At Import** (presets marked for the Import panel) come first, then the
 //!   groups in the Presets Manager's order (the user's own before LightCraft's), each folding.
-//!   Choosing for an import shows Favorites and For Import alone until "All Presets" is chosen
+//!   Choosing for an import shows Favorites and At Import alone until "All Presets" is chosen
 //!   (when both are empty, everything shows).
 //! - Hidden presets and built-in presets removed from this computer never show.
 //! - Resting on a preset shows it on a photo (the one in view, else the first of the folder) in the
 //!   picker, and in the loupe when one is open, as the profile menu does.
 //! - Long names left-aligned, cut short with … (the full name on hover); the star and the
-//!   For Import mark toggle in place.
+//!   At Import mark toggle in place.
 //!
 //! Only the rows in view are built: 11 000 presets open and scroll in a frame. The rows are kept
 //! until the list, the manager's choices, the search or a group's fold change.
@@ -31,7 +31,7 @@ use crate::widgets::register;
 
 /// The Favorites group's key (not a group name a preset can have).
 pub const FAVORITES: &str = "\u{1}favorites";
-/// The For Import group's key.
+/// The At Import group's key.
 pub const FOR_IMPORT: &str = "\u{1}forImport";
 
 /// Height of a row.
@@ -47,7 +47,7 @@ pub enum View {
     /// Every preset.
     #[default]
     All,
-    /// Favorites and For Import only (the Import panel's start).
+    /// Favorites and At Import only (the Import panel's start).
     ForImport,
 }
 
@@ -61,7 +61,7 @@ pub enum Row {
     Preset(usize),
 }
 
-/// Whether group `key` is open by default: Favorites and For Import are; groups fold until opened.
+/// Whether group `key` is open by default: Favorites and At Import are; groups fold until opened.
 fn default_open(key: &str) -> bool {
     key == FAVORITES || key == FOR_IMPORT
 }
@@ -80,7 +80,7 @@ pub struct Group {
 }
 
 impl Group {
-    /// Favorites or For Import (not a group a preset belongs to).
+    /// Favorites or At Import (not a group a preset belongs to).
     pub fn pseudo(&self) -> bool {
         self.key == FAVORITES || self.key == FOR_IMPORT
     }
@@ -88,7 +88,7 @@ impl Group {
 
 /// The groups of shown presets (hidden ones and built-in ones taken off this computer left out):
 /// with a `query`, every group with a preset whose name or group has it, in the manager's order;
-/// else Favorites and For Import, then (in [`View::All`], or when both are empty) every group in
+/// else Favorites and At Import, then (in [`View::All`], or when both are empty) every group in
 /// the manager's order (the user's own before LightCraft's).
 pub fn groups(session: &lightcraft_engine::Session, query: &str, view: View) -> Vec<Group> {
     let q = query.trim().to_lowercase();
@@ -123,7 +123,7 @@ pub fn groups(session: &lightcraft_engine::Session, query: &str, view: View) -> 
     let favorites: Vec<usize> = shown.iter().filter(|(_, p)| p.favorite).map(|(i, _)| *i).collect();
     let for_import: Vec<usize> = shown.iter().filter(|(_, p)| session.preset_for_import(p)).map(|(i, _)| *i).collect();
     let all = view == View::All || (favorites.is_empty() && for_import.is_empty());
-    for (key, name, items) in [(FAVORITES, "Favorites", favorites), (FOR_IMPORT, "For Import", for_import)] {
+    for (key, name, items) in [(FAVORITES, "Favorites", favorites), (FOR_IMPORT, "At Import", for_import)] {
         if !items.is_empty() {
             out.push(Group { key: key.to_string(), shown: tr(name).to_string(), builtin: false, items });
         }
@@ -135,7 +135,7 @@ pub fn groups(session: &lightcraft_engine::Session, query: &str, view: View) -> 
 }
 
 /// The rows of a picker: [`groups`], each header followed by its presets when open (Favorites and
-/// For Import are open until folded, groups fold until opened; a search opens all it finds).
+/// At Import are open until folded, groups fold until opened; a search opens all it finds).
 /// `folds`: groups the user opened or closed.
 pub fn rows(session: &lightcraft_engine::Session, query: &str, view: View, folds: &BTreeMap<String, bool>) -> Vec<Row> {
     let searching = !query.trim().is_empty();
@@ -187,7 +187,7 @@ pub struct Picker<'a> {
     pub id: &'a str,
     /// The preset chosen now (highlighted).
     pub selected: Option<&'a str>,
-    /// Choosing for an import: starts on Favorites and For Import.
+    /// Choosing for an import: starts on Favorites and At Import.
     pub for_import: bool,
     pub extras: Vec<Extra<'a>>,
 }
@@ -270,7 +270,7 @@ impl<'a> Picker<'a> {
                 }
                 if self.for_import && st.query.trim().is_empty() {
                     let cur = Some(if view == View::ForImport { 0 } else { 1 });
-                    let items = [("Favorites and For Import", "import"), ("All Presets", "all")];
+                    let items = [("Favorites and At Import", "import"), ("All Presets", "all")];
                     if let Some(i) = crate::widgets::segmented(ui, &format!("presetPickerView:{}", self.id), &items, cur, 2) {
                         st.view = Some(if i == 0 { View::ForImport } else { View::All });
                     }
@@ -384,7 +384,7 @@ impl<'a> Picker<'a> {
     }
 }
 
-/// One preset's row: its name (left-aligned, cut short), an AI badge, and the star and For Import
+/// One preset's row: its name (left-aligned, cut short), an AI badge, and the star and At Import
 /// marks at the right. Returns the pick when the row was clicked.
 fn preset_row(
     app: &mut LightcraftApp,
@@ -403,7 +403,7 @@ fn preset_row(
     } else if resp.hovered() {
         ui.painter().rect_filled(r, 2.0, t.hover);
     }
-    // the marks at the right: star, For Import
+    // the marks at the right: star, At Import
     let for_import = app.session.preset_for_import(p);
     let star = Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(20.0, 20.0));
     let imp = Rect::from_center_size(pos2(r.right() - 36.0, r.center().y), vec2(20.0, 20.0));
@@ -429,7 +429,7 @@ fn preset_row(
     );
     paint(ui.painter(), imp.shrink(3.0), Icon::ImportArrow, if for_import { t.accent } else { dim(false, imp_r.hovered()) });
     let star_r = star_r.on_hover_text(tr(if p.favorite { "Remove from Favorites" } else { "Add to Favorites" }));
-    let imp_r = imp_r.on_hover_text(tr(if for_import { "Take out of For Import" } else { "Add to For Import (shown first when importing)" }));
+    let imp_r = imp_r.on_hover_text(tr(if for_import { "Take out of At Import" } else { "Add to At Import (shown first when importing)" }));
     let mut right = imp.left() - 4.0;
     if p.has_ai_masks() {
         let g = ui.painter().layout_no_wrap(tr("AI").to_string(), t.font(10.5), t.text_dim);
@@ -570,7 +570,7 @@ mod tests {
         assert!(matches!(&list[0], Row::Header { key, open: true, .. } if key == "001-Studio"));
     }
 
-    /// Favorites and For Import come first; for an import they are all there is until All Presets.
+    /// Favorites and At Import come first; for an import they are all there is until All Presets.
     #[test]
     fn favorites_and_for_import_first() {
         let mut s = session();

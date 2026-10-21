@@ -267,7 +267,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         if ui.button(crate::i18n::tr(if fav { "Remove from Favorites" } else { "Add to Favorites" })).clicked() {
                             let _ = app.run("preset.favorite", json!({"id": pid}));
                         }
-                        let label = if for_import { "Take out of For Import" } else { "Add to For Import (shown first when importing)" };
+                        let label = if for_import { "Take out of At Import" } else { "Add to At Import (shown first when importing)" };
                         if ui.button(crate::i18n::tr(label)).clicked() {
                             let _ = app.run("preset.forImport", json!({"id": pid, "on": !for_import}));
                         }
@@ -343,19 +343,19 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 
 /// A preset group as the panel lists it: indices into the session's presets.
 struct Group {
-    /// The group's name, or Favorites' / For Import's key.
+    /// The group's name, or Favorites' / At Import's key.
     name: String,
     /// As shown (a stock group in the UI language).
     shown: String,
     /// Holds a user preset (a Move to Group target).
     user: bool,
-    /// Favorites or For Import.
+    /// Favorites or At Import.
     pseudo: bool,
     items: Vec<usize>,
 }
 
 /// The presets by group as every preset picker lists them ([`crate::preset_picker::groups`]:
-/// Favorites and For Import first, then the groups in the Presets Manager's order; hidden and
+/// Favorites and At Import first, then the groups in the Presets Manager's order; hidden and
 /// removed ones left out; `query` searches), rebuilt only when the list, the manager's choices or
 /// the search changed.
 fn grouped(ctx: &egui::Context, session: &lightcraft_engine::Session, query: &str) -> Arc<Vec<Group>> {

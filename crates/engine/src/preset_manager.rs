@@ -41,7 +41,7 @@ impl Session {
         !self.preset_state.hidden.contains(&p.id) && !(p.builtin && self.preset_state.removed.contains(&p.id))
     }
 
-    /// A preset marked For Import (the Import panel's picker shows them first).
+    /// A preset marked At Import (the Import panel's picker shows them first).
     pub fn preset_for_import(&self, p: &Preset) -> bool {
         self.preset_state.for_import.contains(&p.id)
     }
@@ -200,7 +200,7 @@ fn remove_one(s: &mut Session, id: &str, builtin: bool) {
     s.preset_state.for_import.retain(|h| h != id);
 }
 
-/// `preset.forImport {id | ids, on?}`: mark presets For Import (or not; `on` left out toggles each).
+/// `preset.forImport {id | ids, on?}`: mark presets At Import (or not; `on` left out toggles each).
 fn for_import(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "preset.forImport";
     let mut ids: Vec<String> = p.get("ids").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
@@ -408,7 +408,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Use Preset for Import",
             [],
             None,
-            "{id | ids: [presetId], on?: bool (left out: toggles each)} — For Import: the Import panel's preset picker shows these first, with the favourites → {presets: [{id, forImport}], forImport: how many are marked}",
+            "{id | ids: [presetId], on?: bool (left out: toggles each)} — At Import: the Import panel's preset picker shows these first, with the favourites → {presets: [{id, forImport}], forImport: how many are marked}",
             always,
             for_import
         ),
@@ -576,7 +576,7 @@ mod tests {
         assert_eq!(s.preset_groups().first(), groups.get(first_builtin), "the user's own order wins");
     }
 
-    /// LR-PRESET-PICKER: For Import marks presets for the Import panel's picker; deleting one drops
+    /// LR-PRESET-PICKER: At Import marks presets for the Import panel's picker; deleting one drops
     /// the mark.
     #[test]
     fn presets_marked_for_import() {

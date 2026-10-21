@@ -357,7 +357,7 @@ fn develop_row(
     }
     table::info_in(ui, t, rr.info, &info.join(" · "));
     let fi = app.session.preset_for_import(p);
-    let tip = if fi { "Take out of For Import" } else { "Add to For Import (shown first when importing)" };
+    let tip = if fi { "Take out of At Import" } else { "Add to At Import (shown first when importing)" };
     if rr.in_col(ui, Col::ForImport, |ui| icon_button(ui, &format!("presetForImport:{id}"), Icon::ImportArrow, sz, fi, true, tip)).clicked() {
         out = Some(("preset.forImport", json!({"id": id, "on": !fi})));
     }

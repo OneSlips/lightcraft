@@ -126,7 +126,7 @@ pub struct PresetState {
     pub groups: BTreeMap<String, String>,
     /// Groups in the order the user put them, empty groups made in the manager included.
     pub group_order: Vec<String>,
-    /// Presets marked For Import: the Import panel's picker shows them first (with Favorites).
+    /// Presets marked At Import: the Import panel's picker shows them first (with Favorites).
     pub for_import: Vec<String>,
 }
 
