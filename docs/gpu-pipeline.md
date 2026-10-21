@@ -164,7 +164,8 @@ walks the drive.
   `finish` (the whole per-pixel stage) — each mirrors a named CPU function.
 - Defringe (`fringe_lab`, a separable lightness `minmax` filter, `fringe_apply`; parameters from
   `optics::defringe_params`) and spot removal (`spot` module, spot by spot in place: `spot_prep`,
-  the Heal tone correction as two device Gaussians, `spot_apply`; Remove's 48 candidate sources are
+  the Heal tone correction as a membrane solved level by level (`mem_restrict`, `mem_prolong`,
+  red-black `mem_sor`, the CPU's `spots::membrane` step for step), `spot_apply`; Remove's 48 candidate sources are
   scored by `spot_score` and only the scores are read back; layout and candidates from
   `spots::{layout, candidates, ring_dirs, score_radii, rank}`) run on the device in `lin_cpu`'s
   order. The histogram is counted on the device (`hist`, atomics, the same sampling grid as

@@ -2998,5 +2998,11 @@
   "Saved Preset": "Predefinição salva",
   "Apply a preset…": "Aplicar uma predefinição…",
   "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Marque as predefinições que você usa ao importar com a estrela ou a seta de importação à direita da linha: elas aparecem primeiro aqui.",
-  "Rest the pointer on a preset to see it on the photo": "Deixe o ponteiro sobre uma predefinição para vê-la na foto"
+  "Rest the pointer on a preset to see it on the photo": "Deixe o ponteiro sobre uma predefinição para vê-la na foto",
+  "The model can't take an area this large. Please select a smaller area.": "O modelo não aceita uma área tão grande. Selecione uma área menor.",
+  "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.": "Pinte sobre uma distração e o LightCraft decide o que vai ali: um clique copia a área próxima que melhor combina e a mescla; um traço pintado é reconstruído a partir do que o cerca.",
+  "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Reconstrói a área pintada com pequenos pedaços do entorno, continuando linhas e bordas através dela. Para objetos maiores. Sem origem para escolher.",
+  "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Substitui a área pintada usando um serviço de imagens on-line, com a sua própria conta. Nada é enviado até você clicar em Gerar.",
+  "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Copia a textura de uma origem e a ajusta à cor e ao brilho ao redor da área, para que se misture. Arraste o marcador da origem para escolher o lugar.",
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Copia a origem exatamente como é, com a cor, com uma borda suave. Arraste o marcador da origem para escolher o lugar."
 }

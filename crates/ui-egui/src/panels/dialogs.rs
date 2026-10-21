@@ -1904,6 +1904,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         }
         Dialog::GenfillConsent { provider, index, prompt, variations } => {
             app.run("genfill.consent", json!({"provider": provider, "accept": true}))?;
+            app.ui.genfill.providers = None;
             crate::panels::genfill::send(app, provider, *index, prompt, *variations)
         }
         Dialog::AiModel { model, then, .. } => {

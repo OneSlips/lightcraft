@@ -927,6 +927,9 @@ pub struct UiState {
     pub grading_hidden: Option<(lightcraft_catalog::PhotoId, [bool; 3])>,
     /// Active on-canvas tool: "", "brush", "linear", "radial", "wbPicker", "straighten", "remove".
     pub tool: String,
+    /// The Remove panel's tool last used ("remove", "fill", "generate", "heal", "clone"): the panel
+    /// opens on it again (this session).
+    pub remove_tool: String,
     pub brush_size: f32,
     pub brush_feather: f32,
     pub brush_flow: f32,
@@ -945,11 +948,9 @@ pub struct UiState {
     #[serde(skip)]
     pub genfill: crate::panels::genfill::GenfillUi,
     /// Generative fill: the service last used (its id; empty: the first one set up), how many
-    /// variations (each is a paid result; 1 unless changed), and whether a large area is sent as
-    /// sharper tiles (more requests) or one softer crop. Remembered.
+    /// variations (each is a paid result; 1 unless changed). Remembered.
     pub genfill_provider: String,
     pub genfill_variations: u32,
-    pub genfill_sharp: bool,
     /// Selected Point Color sample.
     pub point_color: usize,
     /// Point Color "Visualize range": the selected sample's range in colour, the rest grey.
@@ -1572,6 +1573,7 @@ impl Default for UiState {
             grading_mode: "3way".into(),
             grading_hidden: None,
             tool: String::new(),
+            remove_tool: "remove".into(),
             brush_size: 0.04,
             brush_feather: 50.0,
             brush_flow: 60.0,
@@ -1585,7 +1587,6 @@ impl Default for UiState {
             genfill: Default::default(),
             genfill_provider: String::new(),
             genfill_variations: 1,
-            genfill_sharp: true,
             point_color: 0,
             point_color_visualize: false,
             mask_curve_channel: "master".into(),

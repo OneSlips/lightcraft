@@ -1024,15 +1024,64 @@ fn spots(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>) -> Buf {
         p.push(l.heal as u32);
         let groups = groups2(l.bw, l.bh, [16, 16]);
         cx.run("spot_prep", &p, &[Some(&img), Some(&pts), Some(&al), Some(&sp), Some(&df), Some(&wt)], groups);
-        // Heal: the tone correction is the masked difference's normalized blur
-        let blurred = l.heal.then(|| {
-            let sigma = (l.r * 0.6).max(1.0);
-            (gaussian(cx, &df, l.bw, l.bh, 3, sigma), gaussian(cx, &wt, l.bw, l.bh, 1, sigma))
-        });
-        let (bd, bm) = blurred.as_ref().map_or((&df, &wt), |(d, m)| (d, m));
-        cx.run("spot_apply", &p, &[Some(&img), Some(&pts), Some(&al), Some(&sp), Some(bd), Some(bm)], groups);
+        // Heal: the tone correction is the membrane of the difference outside the stroke
+        if l.heal {
+            membrane(cx, &df, &wt, l.bw, l.bh);
+        }
+        cx.run("spot_apply", &p, &[Some(&img), Some(&pts), Some(&al), Some(&sp), Some(&df), Some(&wt)], groups);
     }
     img
+}
+
+/// `spots::membrane` on the device, in place on `v` (3 values a pixel; `k`: known flags): the same
+/// levels, restriction, prolongation and red-black SOR sweeps as the CPU.
+fn membrane(cx: &mut Cx<'_>, v: &Buf, k: &Buf, w: usize, h: usize) {
+    use lightcraft_pipeline::spots;
+    let levels = spots::membrane_levels(w, h);
+    // (a buffer of its own for the read-only binding: the shared placeholder is also bound writable)
+    let ro = cx.gpu.buffer(1);
+    let mut coarse: Vec<(Buf, Buf)> = Vec::with_capacity(levels.len());
+    for pair in levels.windows(2) {
+        let [(fw, fh), (cw, ch)] = [pair[0], pair[1]];
+        let (cv, ck) = (cx.gpu.buffer(3 * cw * ch), cx.gpu.buffer(cw * ch));
+        let (fv, fk) = coarse.last().map_or((v, k), |(a, b)| (a, b));
+        cx.run(
+            "mem_restrict",
+            &[fw as u32, fh as u32, cw as u32, ch as u32],
+            &[None, Some(&ro), Some(&ck), Some(&cv), Some(fv), Some(fk)],
+            groups2(cw, ch, [16, 16]),
+        );
+        coarse.push((cv, ck));
+    }
+    let sor = |cx: &mut Cx<'_>, ro: &Buf, b: &Buf, kb: &Buf, (lw, lh): (usize, usize), sweeps: usize| {
+        for _ in 0..sweeps {
+            for parity in 0..2u32 {
+                cx.run(
+                    "mem_sor",
+                    &[lw as u32, lh as u32, parity, spots::MEMBRANE_OMEGA.to_bits()],
+                    &[None, Some(ro), None, None, Some(b), Some(kb)],
+                    groups2(lw, lh, [16, 16]),
+                );
+            }
+        }
+    };
+    let last = levels.len() - 1;
+    let level = |l: usize| if l == 0 { Some((v, k)) } else { coarse.get(l - 1).map(|(a, b)| (a, b)) };
+    if let (Some((b, kb)), Some(&size)) = (level(last), levels.get(last)) {
+        sor(cx, &ro, b, kb, size, spots::MEMBRANE_COARSE_SWEEPS);
+    }
+    for l in (0..last).rev() {
+        let (Some((fv, fk)), Some((cv, _)), Some(&(fw, fh)), Some(&(cw, ch))) = (level(l), level(l + 1), levels.get(l), levels.get(l + 1)) else {
+            continue;
+        };
+        cx.run(
+            "mem_prolong",
+            &[fw as u32, fh as u32, cw as u32, ch as u32],
+            &[None, Some(&ro), None, Some(cv), Some(fv), Some(fk)],
+            groups2(fw, fh, [16, 16]),
+        );
+        sor(cx, &ro, fv, fk, (fw, fh), spots::membrane_sweeps(l));
+    }
 }
 
 /// `spots::auto_source` on the device: every candidate scored at once, the 48 scores read back.

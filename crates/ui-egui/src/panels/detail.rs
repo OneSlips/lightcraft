@@ -3400,6 +3400,10 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         if resp.drag_stopped() {
             app.gesture = None;
             let _ = app.run("develop.endInteraction", json!({}));
+            // a moved Remove spot picks its source again where it now is (once, not per pointer event)
+            if !source {
+                let _ = app.run("spot.update", json!({"index": spot, "repick": true}));
+            }
         }
         return;
     }
@@ -3434,10 +3438,13 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
             _ => "remove",
         };
         let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
-        let _ = app.run(
+        // a stroke that couldn't be added says why (it used to vanish without a word)
+        if let Err(e) = app.run(
             "spot.add",
             json!({"mode": mode, "points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity}),
-        );
+        ) {
+            app.toast_error(ui.ctx(), e.to_string());
+        }
     }
 }
 
@@ -3463,7 +3470,7 @@ pub(crate) fn union_outline(p: &egui::Painter, centres: &[Pos2], r: f32, stroke:
 
 /// The outline of the union of circles of radius `r` round `centres`: each circle's arcs that no
 /// other circle covers. Centres closer than a quarter radius to the last one kept are skipped (a
-/// stroke records many), and each circle is only tested against its neighbours.
+/// stroke records many), and each circle is only tested against its neighbours (found on a grid).
 pub(crate) fn union_arcs(centres: &[Pos2], r: f32) -> Vec<Vec<Pos2>> {
     let mut out = Vec::new();
     if !(r.is_finite() && r > 0.5) {
@@ -3477,8 +3484,23 @@ pub(crate) fn union_arcs(centres: &[Pos2], r: f32) -> Vec<Vec<Pos2>> {
     }
     const N: usize = 40;
     let ring: Vec<egui::Vec2> = (0..=N).map(|k| egui::Vec2::angled(k as f32 / N as f32 * std::f32::consts::TAU) * r).collect();
+    // neighbours through a grid of 2r cells (each circle meets only the ones in the 3 × 3 cells
+    // around it): the outline is drawn every frame while painting, so no all-pairs search
+    let cell = |p: Pos2| ((p.x / (2.0 * r)).floor() as i64, (p.y / (2.0 * r)).floor() as i64);
+    let mut grid: std::collections::HashMap<(i64, i64), Vec<usize>> = std::collections::HashMap::new();
     for (i, c) in kept.iter().enumerate() {
-        let near: Vec<Pos2> = kept.iter().enumerate().filter(|(j, o)| *j != i && o.distance(*c) < 2.0 * r).map(|(_, o)| *o).collect();
+        grid.entry(cell(*c)).or_default().push(i);
+    }
+    for (i, c) in kept.iter().enumerate() {
+        let (cx, cy) = cell(*c);
+        let near: Vec<Pos2> = (-1..=1)
+            .flat_map(|dy| (-1..=1).map(move |dx| (cx + dx, cy + dy)))
+            .filter_map(|k| grid.get(&k))
+            .flatten()
+            .filter(|&&j| j != i)
+            .filter_map(|&j| kept.get(j).copied())
+            .filter(|o| o.distance(*c) < 2.0 * r)
+            .collect();
         let open = |q: Pos2| near.iter().all(|o| o.distance(q) >= r - 0.5);
         let mut run: Vec<Pos2> = Vec::new();
         for v in &ring {
@@ -3516,6 +3538,9 @@ fn spot_keys(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, d: &De
             let _ = app.run("develop.beginInteraction", json!({"label": "Edit Spot"}));
             let _ = app.run("spot.update", json!({"index": spot, if source { "moveSource" } else { "move" }: [dx, dy]}));
             let _ = app.run("develop.endInteraction", json!({}));
+            if !source {
+                let _ = app.run("spot.update", json!({"index": spot, "repick": true}));
+            }
         }
     }
     // where a new spot goes: the photo's centre at first, then wherever the arrows took it

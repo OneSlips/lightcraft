@@ -2991,5 +2991,11 @@
   "Saved Preset": "已存储的预设",
   "Apply a preset…": "应用预设…",
   "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "用行右侧的星标或导入箭头标记导入时使用的预设，它们会在这里最先显示。",
-  "Rest the pointer on a preset to see it on the photo": "将指针停在预设上即可在照片上预览"
+  "Rest the pointer on a preset to see it on the photo": "将指针停在预设上即可在照片上预览",
+  "The model can't take an area this large. Please select a smaller area.": "模型无法处理这么大的区域。请选择较小的区域。",
+  "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.": "涂抹干扰物，由 LightCraft 决定用什么填补：单击会复制附近最匹配的区域并融合；涂抹的笔触会根据周围内容重建。",
+  "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "用周围的小块内容重建涂抹区域，并让线条和边缘延续过去。适合较大的物体。无需选择来源。",
+  "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "使用你自己账户的在线图像服务替换涂抹区域。点击“生成”之前不会发送任何内容。",
+  "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "从来源复制纹理，并匹配区域周围的颜色和亮度，使其融为一体。拖动来源图钉可选择位置。",
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "按原样复制来源，包括颜色，边缘柔和。拖动来源图钉可选择位置。"
 }

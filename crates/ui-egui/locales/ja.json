@@ -3152,5 +3152,11 @@
   "Saved Preset": "保存されたプリセット",
   "Apply a preset…": "プリセットを適用…",
   "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "読み込みで使うプリセットは、行の右にある星または読み込み矢印で印を付けると、ここで最初に表示されます。",
-  "Rest the pointer on a preset to see it on the photo": "プリセットにポインタを置くと写真で確認できます"
+  "Rest the pointer on a preset to see it on the photo": "プリセットにポインタを置くと写真で確認できます",
+  "The model can't take an area this large. Please select a smaller area.": "モデルはこれほど広い範囲を扱えません。もっと小さい範囲を選んでください。",
+  "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.": "邪魔なものの上を塗ると、LightCraft が埋め方を決めます。クリックすると近くで最も合う部分をコピーしてなじませ、塗ったストロークは周囲から作り直します。",
+  "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "塗った範囲を周囲の小さな断片から作り直し、線や輪郭をつなげます。大きめの物向け。コピー元の指定は不要です。",
+  "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "塗った範囲を、ご自身のアカウントのオンライン画像サービスで置き換えます。「生成」をクリックするまで何も送信されません。",
+  "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "コピー元の質感を写し、範囲の周りの色と明るさに合わせてなじませます。コピー元のピンをドラッグして場所を選べます。",
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "コピー元を色も含めてそのまま、柔らかい縁で写します。コピー元のピンをドラッグして場所を選べます。"
 }

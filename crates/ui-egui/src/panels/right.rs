@@ -417,14 +417,40 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
+/// The Remove panel's tools: label, tool id and what each is for, in plain words (its tooltip).
+pub(crate) const REMOVE_TOOLS: [(&str, &str, &str); 5] = [
+    (
+        "Remove",
+        "remove",
+        "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.",
+    ),
+    (
+        "Content-Aware",
+        "fill",
+        "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.",
+    ),
+    (
+        "Generative",
+        "generate",
+        "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.",
+    ),
+    (
+        "Heal",
+        "heal",
+        "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.",
+    ),
+    ("Clone", "clone", "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place."),
+];
+
 fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Remove");
     padded(ui, |ui| {
         ui.horizontal_wrapped(|ui| {
-            for (label, tool) in [("Remove", "remove"), ("Content-Aware", "fill"), ("Generative", "generate"), ("Heal", "heal"), ("Clone", "clone")] {
-                if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).clicked() {
+            for (label, tool, tip) in REMOVE_TOOLS {
+                if text_button(ui, &format!("removeMode-{tool}"), label, app.ui.tool == tool).on_hover_text(crate::i18n::tr(tip)).clicked() {
                     app.ui.tool = tool.into();
+                    app.ui.remove_tool = tool.into();
                 }
             }
         });
@@ -559,10 +585,14 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if sel.is_some() {
         padded(ui, |ui| {
             ui.horizontal(|ui| {
-                // (Fill and Generative spots have no source)
-                let sourced = sel
-                    .as_ref()
-                    .is_some_and(|(_, sp)| !matches!(sp.mode, lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Generate));
+                // (Fill, Generative and Even Out spots, and a brushed Remove, have no source)
+                let sourced = sel.as_ref().is_some_and(|(_, sp)| {
+                    sp.source_offset.is_some()
+                        && !matches!(
+                            sp.mode,
+                            lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Generate | lightcraft_develop::SpotMode::Flat
+                        )
+                });
                 if sourced && text_button(ui, "spotRefresh", crate::i18n::tr("Refresh Source (/)"), false).clicked() {
                     let _ = app.run("spot.refreshSource", json!({}));
                 }
@@ -597,10 +627,12 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     padded(ui, |ui| {
         tool_overlay_options(app, ui);
         ui.add_space(4.0);
-        if !d.spots.is_empty() && text_button(ui, "removeClear", crate::i18n::tr("Delete all spots"), false).clicked() {
-            for i in (0..d.spots.len()).rev() {
-                let _ = app.run("spot.delete", json!({"index": i}));
-            }
+        // one command: one undo step and one render, however many spots
+        if !d.spots.is_empty()
+            && text_button(ui, "removeClear", crate::i18n::tr("Delete all spots"), false).clicked()
+            && let Err(e) = app.run("spot.deleteAll", json!({}))
+        {
+            app.toast_error(ui.ctx(), e.to_string());
         }
     });
 }

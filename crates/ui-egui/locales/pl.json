@@ -2494,5 +2494,11 @@
   "Saved Preset": "Zapisane ustawienie",
   "Apply a preset…": "Zastosuj ustawienie…",
   "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Oznacz ustawienia używane przy imporcie gwiazdką lub strzałką importu po prawej stronie wiersza: pojawią się tu najpierw.",
-  "Rest the pointer on a preset to see it on the photo": "Przytrzymaj wskaźnik na ustawieniu, by zobaczyć je na zdjęciu"
+  "Rest the pointer on a preset to see it on the photo": "Przytrzymaj wskaźnik na ustawieniu, by zobaczyć je na zdjęciu",
+  "The model can't take an area this large. Please select a smaller area.": "Model nie obsłuży tak dużego obszaru. Zaznacz mniejszy obszar.",
+  "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.": "Zamaluj rozpraszający element, a LightCraft zdecyduje, co tam wstawić: kliknięcie kopiuje najlepiej pasujący obszar w pobliżu i wtapia go; namalowane pociągnięcie jest odtwarzane z otoczenia.",
+  "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Odtwarza zamalowany obszar z małych fragmentów otoczenia, przedłużając przez niego linie i krawędzie. Do większych obiektów. Bez wybierania źródła.",
+  "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Zastępuje zamalowany obszar za pomocą internetowej usługi graficznej, na Twoim koncie. Nic nie jest wysyłane, dopóki nie klikniesz Generuj.",
+  "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Kopiuje teksturę ze źródła i dopasowuje ją do koloru i jasności wokół obszaru, by się wtopiła. Przeciągnij pinezkę źródła, aby wybrać miejsce.",
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Kopiuje źródło dokładnie takim, jakie jest, razem z kolorem, z miękką krawędzią. Przeciągnij pinezkę źródła, aby wybrać miejsce."
 }

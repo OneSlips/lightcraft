@@ -563,11 +563,9 @@ fn run(
             return Err(Fallback::NotTried);
         }
         let s = &*lightcraft_pipeline::settings_for(s, req);
-        // content-aware Fill and Even Out spots (`spots::fill_box`, `spots::flat_gain`) have no GPU
-        // kernel: the CPU renders the photo
-        if s.spots.iter().any(|sp| {
-            matches!(sp.mode, lightcraft_develop::SpotMode::Fill | lightcraft_develop::SpotMode::Flat | lightcraft_develop::SpotMode::Generate)
-        }) {
+        // content-aware synthesis (Fill, Generate, a Remove without a source) and Even Out spots
+        // (`spots::fill_box`, `spots::flat_gain`) have no GPU kernel: the CPU renders the photo
+        if s.spots.iter().any(lightcraft_pipeline::spots::cpu_only) {
             return Err(Fallback::NotTried);
         }
         // in flight until this returns; not tried once the process is ending (issue #620)

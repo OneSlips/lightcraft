@@ -1,10 +1,14 @@
 //! Remove / Heal / Clone spots, rendered at output resolution in scene-linear light.
 //!
 //! - **Clone** copies the source patch with a feathered edge.
-//! - **Heal** copies the source's *detail* and keeps the target's *tone*: result = src + blur(target − src)
-//!   (frequency separation — a fast, stable approximation of gradient-domain healing).
-//! - **Remove** is Heal with an automatically chosen source: candidate offsets on rings around the
-//!   spot are scored by how well the source's surrounding annulus matches the target's.
+//! - **Heal** copies the source's *detail* and takes its colour and tone from the target's
+//!   surroundings: result = src + membrane(target − src), the harmonic interpolation of the
+//!   difference on the stroke's edge ([`membrane`]; Poisson seamless cloning), so it blends at any
+//!   size of area.
+//! - **Remove** picks its own way: a spot with a source (a click: LightCraft chooses the best match
+//!   nearby, scored by how well the source's surrounding annulus matches the target's, and chooses
+//!   again when the spot moves) heals from it; a spot without one (a brushed stroke, which no single
+//!   source fits) is rebuilt from its surroundings like Fill ([`synthesises`]).
 //! - **Fill** (content-aware) rebuilds the spot from patches of its surroundings instead of one
 //!   source: PatchMatch-based completion ([`lightcraft_inpaint::complete`]), coarse to fine, so the
 //!   structure is chosen at a scale set by the spot's size (the same at preview and export size).
@@ -330,7 +334,7 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         })
         .collect();
     pts.first()?;
-    let fill = matches!(spot.mode, SpotMode::Fill | SpotMode::Generate);
+    let fill = synthesises(spot);
     let flat = spot.mode == SpotMode::Flat;
     let reach = if fill { r * GROW + 1.0 } else { r };
     let offset = if fill || flat {
@@ -368,11 +372,31 @@ pub fn layout(spot: &Spot, frame: &Frame, w: usize, h: usize, ppl: f64) -> Optio
         bh: by1 - by0,
         inner: reach * (1.0 - feather * 0.8),
         opacity: (spot.opacity / 100.0).clamp(0.0, 1.0) as f32,
-        heal: matches!(spot.mode, SpotMode::Remove | SpotMode::Heal),
+        heal: matches!(spot.mode, SpotMode::Remove | SpotMode::Heal) && !fill,
         fill,
         reach,
         flat,
     })
+}
+
+/// Whether `spot` is rebuilt from its surroundings (content-aware synthesis) rather than copied from
+/// one source: Fill, Generate (until its patch is there) and a Remove spot without a source.
+pub fn synthesises(spot: &Spot) -> bool {
+    matches!(spot.mode, SpotMode::Fill | SpotMode::Generate) || (spot.mode == SpotMode::Remove && spot.source_offset.is_none())
+}
+
+/// Whether `spot` has no GPU kernel (the CPU renders a photo that has one): the synthesised ones and
+/// Even Out.
+pub fn cpu_only(spot: &Spot) -> bool {
+    synthesises(spot) || spot.mode == SpotMode::Flat
+}
+
+/// Whether a Remove spot's stroke is brushed (its points spread further than its radius): one
+/// source rarely fits such an area, so Remove rebuilds it from its surroundings instead.
+pub fn brushed(spot: &Spot) -> bool {
+    let Some(first) = spot.points.first() else { return false };
+    let r = if spot.size.is_finite() { spot.size.max(0.0) } else { 0.0 };
+    spot.points.iter().any(|p| (p.x - first.x).hypot(p.y - first.y) > r)
 }
 
 /// Even Out ([`SpotMode::Flat`]): per pixel and channel, the gain that lifts the box's smooth tone under the stroke
@@ -423,6 +447,157 @@ fn fill_box(src: &mut [[f32; 3]], tgt: &[[f32; 3]], alpha: &[f32], exclude: &[bo
     for (d, v) in src.iter_mut().zip(pixels) {
         *d = v.map(|c| c * c);
     }
+}
+
+/// Red-black SOR sweeps [`membrane`] runs on every level above the coarsest, on the coarsest, and
+/// their relaxation factor. The GPU renderer runs the same sweeps (`mem_*` in `spot.wgsl`).
+pub const MEMBRANE_SWEEPS: usize = 8;
+pub const MEMBRANE_COARSE_SWEEPS: usize = 48;
+pub const MEMBRANE_OMEGA: f32 = 1.6;
+/// Sweeps on level `l` (0: the finest): more on the coarser levels, where they are cheap and the
+/// error they leave is the hardest for the finer ones to remove.
+pub fn membrane_sweeps(l: usize) -> usize {
+    MEMBRANE_SWEEPS << l.min(3)
+}
+/// [`membrane`] stops halving once both sides are at most this.
+pub const MEMBRANE_COARSEST: usize = 4;
+
+/// The grid sizes [`membrane`] works on, finest first: `(w, h)` halved (rounding up) until both
+/// sides are at most [`MEMBRANE_COARSEST`].
+pub fn membrane_levels(w: usize, h: usize) -> Vec<(usize, usize)> {
+    let mut out = vec![(w.max(1), h.max(1))];
+    while let Some(&(lw, lh)) = out.last() {
+        if (lw <= MEMBRANE_COARSEST && lh <= MEMBRANE_COARSEST) || out.len() > 32 {
+            break;
+        }
+        out.push((lw.div_ceil(2), lh.div_ceil(2)));
+    }
+    out
+}
+
+/// One coarse level of [`membrane`]: a coarse pixel is known when any of its children is, with the
+/// mean of the known ones; unknown ones start at 0.
+fn membrane_restrict(fw: usize, fh: usize, v: &[[f32; 3]], k: &[f32], cw: usize, ch: usize) -> (Vec<[f32; 3]>, Vec<f32>) {
+    let mut cv = vec![[0.0f32; 3]; cw * ch];
+    let mut ck = vec![0.0f32; cw * ch];
+    for cy in 0..ch {
+        for cx in 0..cw {
+            let (mut s, mut n) = ([0.0f32; 3], 0.0f32);
+            for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                let (x, y) = (cx * 2 + dx, cy * 2 + dy);
+                if x < fw && y < fh && k.get(y * fw + x).is_some_and(|k| *k > 0.5) {
+                    let p = v.get(y * fw + x).copied().unwrap_or_default();
+                    s = [s[0] + p[0], s[1] + p[1], s[2] + p[2]];
+                    n += 1.0;
+                }
+            }
+            if n > 0.0 {
+                cv[cy * cw + cx] = s.map(|c| c / n);
+                ck[cy * cw + cx] = 1.0;
+            }
+        }
+    }
+    (cv, ck)
+}
+
+/// The unknown pixels of a fine level from the coarse solution (bilinear, pixel centres).
+fn membrane_prolong(fw: usize, fh: usize, v: &mut [[f32; 3]], k: &[f32], cv: &[[f32; 3]], cw: usize, ch: usize) {
+    let at = |x: usize, y: usize| cv.get(y * cw + x).copied().unwrap_or_default();
+    for y in 0..fh {
+        let fy = ((y as f32 + 0.5) / 2.0 - 0.5).clamp(0.0, (ch - 1) as f32);
+        let y0 = fy.floor() as usize;
+        let y1 = (y0 + 1).min(ch - 1);
+        let ty = fy - y0 as f32;
+        for x in 0..fw {
+            let i = y * fw + x;
+            if k.get(i).is_none_or(|k| *k > 0.5) {
+                continue;
+            }
+            let fx = ((x as f32 + 0.5) / 2.0 - 0.5).clamp(0.0, (cw - 1) as f32);
+            let x0 = fx.floor() as usize;
+            let x1 = (x0 + 1).min(cw - 1);
+            let tx = fx - x0 as f32;
+            let (a, b, c, d) = (at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1));
+            if let Some(o) = v.get_mut(i) {
+                *o = std::array::from_fn(|n| {
+                    let top = a[n] + (b[n] - a[n]) * tx;
+                    let bot = c[n] + (d[n] - c[n]) * tx;
+                    top + (bot - top) * ty
+                });
+            }
+        }
+    }
+}
+
+/// `sweeps` red-black SOR sweeps of `Δv = 0` over the unknown pixels (neighbours outside the grid
+/// don't count: a Neumann edge): the pixels with `x + y` even first, then the odd ones, each from
+/// the latest values of its neighbours (the other colour), so the GPU can run each half in place.
+fn membrane_sor(w: usize, h: usize, v: &mut [[f32; 3]], k: &[f32], sweeps: usize) {
+    use rayon::prelude::*;
+    // the unknown pixels and which neighbours they have (left, right, up, down)
+    let cells: Vec<(usize, u8)> = (0..(w * h).min(v.len()).min(k.len()))
+        .filter(|&i| k.get(i).is_some_and(|k| *k <= 0.5))
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            (i, u8::from(x > 0) | u8::from(x + 1 < w) << 1 | u8::from(y > 0) << 2 | u8::from(y + 1 < h) << 3)
+        })
+        .collect();
+    let (even, odd): (Vec<(usize, u8)>, Vec<(usize, u8)>) = cells.into_iter().partition(|(i, _)| (i % w + i / w).is_multiple_of(2));
+    let mut upd = vec![[0.0f32; 3]; even.len().max(odd.len())];
+    for half in (0..sweeps).flat_map(|_| [&even, &odd]) {
+        let cur: &[[f32; 3]] = v;
+        let upd = &mut upd[..half.len()];
+        upd.par_iter_mut().zip(half.par_iter()).with_min_len(4096).for_each(|(o, &(i, m))| {
+            let at = |j: usize| cur.get(j).copied().unwrap_or_default();
+            let old = at(i);
+            let (mut s, mut n) = ([0.0f32; 3], 0.0f32);
+            for (bit, j) in [(1u8, i.wrapping_sub(1)), (2, i + 1), (4, i.wrapping_sub(w)), (8, i + w)] {
+                if m & bit != 0 {
+                    let p = at(j);
+                    s = [s[0] + p[0], s[1] + p[1], s[2] + p[2]];
+                    n += 1.0;
+                }
+            }
+            *o = if n > 0.0 { std::array::from_fn(|c| old[c] + MEMBRANE_OMEGA * (s[c] / n - old[c])) } else { old };
+        });
+        for (&(i, _), u) in half.iter().zip(upd.iter()) {
+            if let Some(d) = v.get_mut(i) {
+                *d = *u;
+            }
+        }
+    }
+}
+
+/// Heal's tone correction: the harmonic membrane (`Δv = 0`) over the pixels of the `w × h` box that
+/// are not `known` (`> 0.5`), with the known values of `v` as its boundary — Pérez, Gangnet and
+/// Blake's seamless cloning (*Poisson Image Editing*, SIGGRAPH 2003). Added to a copied source it
+/// keeps the source's detail and takes the colour and tone of the destination's surroundings, however
+/// large the area. Cascadic multigrid ([`membrane_levels`]) with red-black SOR sweeps, so the GPU
+/// renderer can run exactly the same steps. `v` holds the known values on entry (anything at the
+/// unknown ones) and the membrane on exit.
+pub fn membrane(w: usize, h: usize, v: &mut Vec<[f32; 3]>, known: &[f32]) {
+    if w == 0 || h == 0 || v.len() != w * h || known.len() != w * h {
+        return;
+    }
+    let levels = membrane_levels(w, h);
+    let mut vs: Vec<Vec<[f32; 3]>> = vec![std::mem::take(v)];
+    let mut ks: Vec<Vec<f32>> = vec![known.to_vec()];
+    for l in 1..levels.len() {
+        let ((fw, fh), (cw, ch)) = (levels[l - 1], levels[l]);
+        let (cv, ck) = membrane_restrict(fw, fh, &vs[l - 1], &ks[l - 1], cw, ch);
+        vs.push(cv);
+        ks.push(ck);
+    }
+    let last = levels.len() - 1;
+    let (cw, ch) = levels[last];
+    membrane_sor(cw, ch, &mut vs[last], &ks[last], MEMBRANE_COARSE_SWEEPS);
+    for l in (0..last).rev() {
+        let ((fw, fh), (cw, ch)) = (levels[l], levels[l + 1]);
+        let coarse = std::mem::take(&mut vs[l + 1]);
+        membrane_prolong(fw, fh, &mut vs[l], &ks[l], &coarse, cw, ch);
+        membrane_sor(fw, fh, &mut vs[l], &ks[l], membrane_sweeps(l));
+    }
+    *v = std::mem::take(&mut vs[0]);
 }
 
 /// How far Fill and Generate grow the painted area by themselves (to take in an object's soft
@@ -647,30 +822,14 @@ pub fn apply_skipping(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64,
             };
         }
         let low = if heal {
-            // Tone correction from the spot's *surroundings* only: normalized convolution of
-            // (target − source) over pixels outside the stroke (a membrane-like interpolation).
+            // Tone correction from the spot's *surroundings* only: the membrane of (target − source)
+            // from the pixels outside the stroke (seamless cloning: the source's detail, the
+            // destination's colour and tone, at any size of area)
             let outside: Vec<f32> = alpha.iter().map(|a| if *a < 0.02 { 1.0 } else { 0.0 }).collect();
-            let diff = Rgb32f {
-                width: bw,
-                height: bh,
-                data: tgt.iter().zip(&src).zip(&outside).map(|((t, s), m)| [(t[0] - s[0]) * m, (t[1] - s[1]) * m, (t[2] - s[2]) * m]).collect(),
-            };
-            let wts = lightcraft_raster::Plane { width: bw, height: bh, data: outside };
-            let sigma = (r * 0.6).max(1.0);
-            let (bd, bm) = (lightcraft_raster::blur::gaussian(&diff, sigma), lightcraft_raster::blur::gaussian(&wts, sigma));
-            Some(Rgb32f {
-                width: bw,
-                height: bh,
-                data: bd
-                    .data
-                    .iter()
-                    .zip(&bm.data)
-                    .map(|(d, m)| {
-                        let m = m.max(1e-4);
-                        [d[0] / m, d[1] / m, d[2] / m]
-                    })
-                    .collect(),
-            })
+            let mut diff: Vec<[f32; 3]> =
+                tgt.iter().zip(&src).zip(&outside).map(|((t, s), m)| [(t[0] - s[0]) * m, (t[1] - s[1]) * m, (t[2] - s[2]) * m]).collect();
+            membrane(bw, bh, &mut diff, &outside);
+            Some(diff)
         } else {
             None
         };
@@ -683,8 +842,7 @@ pub fn apply_skipping(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64,
                     continue;
                 }
                 let mut v = src[i];
-                if let Some(l) = &low {
-                    let d = l.data[i];
+                if let Some(d) = low.as_ref().and_then(|l| l.get(i)) {
                     v = [v[0] + d[0], v[1] + d[1], v[2] + d[2]];
                 }
                 if let Some(g) = gain.as_ref().and_then(|g| g.get(i)) {
@@ -749,6 +907,121 @@ mod tests {
             assert_eq!(img.get(x + radius as usize, y), original.get(x + radius as usize, y), "radius stays unchanged at {w}px");
             assert!(img.data.iter().flatten().all(|v| v.is_finite()));
         }
+    }
+
+    /// The multigrid membrane agrees with a fully converged SOR solve (the inpaint crate's) on a disc
+    /// hole with a smoothly varying, then a rough boundary.
+    #[test]
+    fn membrane_matches_a_converged_solve() {
+        let (w, h) = (150, 110);
+        for rough in [false, true] {
+            let val = |x: usize, y: usize, c: usize| {
+                let base = 0.2 + 0.003 * x as f32 + 0.002 * y as f32 * (c as f32 + 1.0);
+                if rough { base + 0.05 * (((x * 7 + y * 13 + c * 5) % 11) as f32 / 10.0 - 0.5) } else { base }
+            };
+            let hole: Vec<bool> = (0..w * h).map(|i| ((i % w) as f32 - 70.0).hypot((i / w) as f32 - 50.0) < 38.0).collect();
+            let known: Vec<f32> = hole.iter().map(|u| if *u { 0.0 } else { 1.0 }).collect();
+            let mut v: Vec<[f32; 3]> = (0..w * h).map(|i| std::array::from_fn(|c| if hole[i] { 0.0 } else { val(i % w, i / w, c) })).collect();
+            let flat: Vec<f32> = v.iter().flatten().copied().collect();
+            let want = lightcraft_inpaint::membrane_fill(w, h, 3, &flat, &hole);
+            membrane(w, h, &mut v, &known);
+            let (mut err, mut n) = (0.0f32, 0);
+            for (i, u) in hole.iter().enumerate() {
+                if *u {
+                    for c in 0..3 {
+                        err = err.max((v[i][c] - want[3 * i + c]).abs());
+                    }
+                    n += 1;
+                }
+            }
+            assert!(n > 4000);
+            assert!(err < 0.008, "rough {rough}: max difference {err}");
+        }
+    }
+
+    /// Heal on a gradient: the patch copied from a darker, warmer place comes out in the
+    /// destination's colour and tone with the source's texture, also in the middle of a large
+    /// brushed area (far from its edge, where a blur of the edge's difference reached nothing); Clone
+    /// stays an exact copy.
+    #[test]
+    fn heal_matches_colour_and_tone_and_keeps_the_texture() {
+        let (w, h) = (400, 240);
+        // a cool gradient on the left, a warm darker one on the right; fine texture everywhere
+        let tex = |x: usize, y: usize| 0.03 * (((x * 7 + y * 13) % 9) as f32 / 8.0 - 0.5);
+        let make = || {
+            Rgb32f::from_fn(w, h, |x, y| {
+                let g = y as f32 / h as f32 * 0.2;
+                if x < 200 {
+                    [0.25 + g + tex(x, y), 0.35 + g + tex(x, y), 0.55 + g + tex(x, y)]
+                } else {
+                    [0.30 + g + tex(x, y), 0.18 + g + tex(x, y), 0.10 + g + tex(x, y)]
+                }
+            })
+        };
+        let frame = Frame::new(w, h, &DevelopSettings::default(), true);
+        let ppl = frame.px_per_long(w);
+        // a long brushed stroke on the left, healed from the right
+        let pts: Vec<Point> = (0..12).map(|i| Point::new((40.0 + i as f64 * 9.0) / w as f64, 120.0 / h as f64)).collect();
+        let heal = Spot {
+            mode: SpotMode::Heal,
+            points: pts.clone(),
+            size: 45.0 / w as f64,
+            feather: 20.0,
+            source_offset: Some(Point::new(0.5, 0.0)),
+            ..Default::default()
+        };
+        let mut img = make();
+        apply(&mut img, std::slice::from_ref(&heal), &frame, ppl);
+        let clean = make();
+        for (x, y) in [(90, 120), (60, 110), (130, 130), (150, 120)] {
+            let (got, want) = (img.get(x, y), clean.get(x, y));
+            for c in 0..3 {
+                assert!((got[c] - want[c]).abs() < 0.035, "({x}, {y}) channel {c}: {} vs {}", got[c], want[c]);
+            }
+        }
+        // the texture is the source's (shifted by 200 px, the same pattern there): differences kept
+        let d = |im: &Rgb32f, x: usize| im.get(x + 1, 120)[1] - im.get(x, 120)[1];
+        for x in 80..100 {
+            assert!((d(&img, x) - d(&clean, x + 200)).abs() < 0.01, "texture at {x}");
+        }
+        // Clone: an exact copy of the warm source
+        let clone = Spot { mode: SpotMode::Clone, feather: 0.0, ..heal };
+        let mut copied = make();
+        apply(&mut copied, &[clone], &frame, ppl);
+        assert_eq!(copied.get(90, 120), clean.get(290, 120));
+    }
+
+    /// The tools differ: a brushed Remove without a source is rebuilt from its surroundings (the
+    /// stripes run on through it, as with Content-Aware) and has no GPU kernel; a Remove with a source
+    /// heals from it (as Heal); Clone copies it as it is.
+    #[test]
+    fn remove_rebuilds_a_brushed_stroke_and_heals_a_click() {
+        let (w, h) = (200, 160);
+        let frame = Frame::new(w, h, &DevelopSettings::default(), true);
+        let stroke = Spot {
+            mode: SpotMode::Remove,
+            points: vec![Point::new(0.47, 0.5), Point::new(0.53, 0.5)],
+            size: 0.05,
+            feather: 0.0,
+            ..Default::default()
+        };
+        assert!(brushed(&stroke) && synthesises(&stroke) && cpu_only(&stroke));
+        let mut img = striped_with_blot(w, h, 8);
+        apply(&mut img, std::slice::from_ref(&stroke), &frame, frame.px_per_long(w));
+        let mut err = 0.0f32;
+        for x in 90..110 {
+            let want = if (x / 8) % 2 == 0 { 0.2 } else { 0.7 };
+            err += (img.get(x, 80)[0] - want).abs();
+        }
+        assert!(err / 20.0 < 0.15, "mean error {}", err / 20.0);
+        // with a source: the same pixels as Heal from it
+        let click = Spot { points: vec![Point::new(0.5, 0.5)], source_offset: Some(Point::new(0.0, 0.3)), ..stroke };
+        assert!(!brushed(&click) && !synthesises(&click) && !cpu_only(&click));
+        let (mut a, mut b) = (striped_with_blot(w, h, 8), striped_with_blot(w, h, 8));
+        apply(&mut a, std::slice::from_ref(&click), &frame, frame.px_per_long(w));
+        apply(&mut b, &[Spot { mode: SpotMode::Heal, ..click.clone() }], &frame, frame.px_per_long(w));
+        assert_eq!(a.data, b.data);
+        assert!(!cpu_only(&Spot { mode: SpotMode::Heal, source_offset: None, ..click }));
     }
 
     #[test]

@@ -3145,5 +3145,11 @@
   "Saved Preset": "Сохранённый пресет",
   "Apply a preset…": "Применить пресет…",
   "Mark the presets you use on import with the star or the import arrow at the right of a row: they show first here.": "Отметьте пресеты для импорта звёздочкой или стрелкой импорта справа в строке — они будут здесь первыми.",
-  "Rest the pointer on a preset to see it on the photo": "Наведите указатель на пресет, чтобы увидеть его на фото"
+  "Rest the pointer on a preset to see it on the photo": "Наведите указатель на пресет, чтобы увидеть его на фото",
+  "The model can't take an area this large. Please select a smaller area.": "Модель не может обработать такую большую область. Выберите область поменьше.",
+  "Paint over a distraction and LightCraft decides what goes there: a click copies the best-matching area nearby and blends it in; a painted stroke is rebuilt from what surrounds it.": "Закрасьте мешающий объект, и LightCraft решит, чем его заменить: щелчок копирует самый похожий участок рядом и вплавляет его; нарисованный мазок восстанавливается из окружения.",
+  "Rebuilds the painted area from small pieces of its surroundings, continuing lines and edges through it. For larger objects. No source to choose.": "Восстанавливает закрашенную область из небольших фрагментов окружения, продолжая через неё линии и края. Для крупных объектов. Источник выбирать не нужно.",
+  "Replaces the painted area using an online image service, with your own account. Nothing is sent until you click Generate.": "Заменяет закрашенную область с помощью онлайн-сервиса изображений через вашу учётную запись. Ничего не отправляется, пока вы не нажмёте «Создать».",
+  "Copies the texture from a source and matches it to the colour and brightness around the area, so it blends in. Drag the source pin to choose the place.": "Копирует текстуру из источника и подгоняет её под цвет и яркость вокруг области, чтобы она слилась. Перетащите метку источника, чтобы выбрать место.",
+  "Copies the source exactly as it is, colour and all, with a soft edge. Drag the source pin to choose the place.": "Копирует источник в точности как есть, вместе с цветом, с мягким краем. Перетащите метку источника, чтобы выбрать место."
 }
