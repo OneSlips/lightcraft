@@ -85,9 +85,22 @@ pub fn thumb_bucket(long_edge: usize) -> usize {
 
 /// Memory budgets.
 const THUMB_SOURCE_BYTES: usize = 384 << 20;
+/// The least memory kept for rendered previews (when the budget allows it).
 const RENDERED_MEM_BYTES: usize = 128 << 20;
-/// Disk budget for the thumbnail cache.
+/// The smallest disk budget for the thumbnail and preview cache.
 pub const DISK_CACHE_BYTES: u64 = 2 << 30;
+/// What one photo's previews take on disk, about: its standard preview (a 2048 px JPEG, ~1 MB)
+/// and its grid thumbnails. The default disk budget grows by this per photo of the library, so
+/// built previews of a whole wedding are not pruned while they are being made (PERF-PREVIEW-REUSE).
+pub const DISK_CACHE_PER_PHOTO: u64 = 3 << 19;
+/// The default disk budget for a library of `photos`: [`DISK_CACHE_BYTES`], or room for every
+/// photo's previews ([`DISK_CACHE_PER_PHOTO`]) when that is more.
+pub fn default_disk_cache_bytes(photos: usize) -> u64 {
+    DISK_CACHE_BYTES.max((photos as u64).saturating_mul(DISK_CACHE_PER_PHOTO))
+}
+/// A cached view render this much smaller than asked for still serves the loupe (rounding: a
+/// fit of the same frame into a box one pixel different).
+const VIEW_REUSE_SLACK: f64 = 0.01;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -470,9 +483,11 @@ impl Default for MediaCache {
     }
 }
 
-/// Memory for rendered previews out of the cache share.
-fn rendered_budget(share: usize) -> usize {
-    RENDERED_MEM_BYTES.min(share / 4)
+/// Memory for rendered previews out of the cache share: a quarter of it, so a big budget keeps
+/// a whole shoot's previews (a 20 GB budget holds about 230 standard previews, or 1 500 loupe
+/// renders at 1 200 px), and at least [`RENDERED_MEM_BYTES`] where the share allows.
+pub(crate) fn rendered_budget(share: usize) -> usize {
+    (share / 4).max(RENDERED_MEM_BYTES.min(share / 2))
 }
 
 impl MediaCache {
@@ -1073,8 +1088,70 @@ impl RenderJob {
         r
     }
 
+    /// The view render kept for this job's photo and settings ([`Self::view_cache`]), fitted to the
+    /// size asked for, when it is at least that big (else `None`: render). Only for what the cached
+    /// view is: a full-quality, 8-bit, whole-frame SDR render (the cache holds sRGB; a display
+    /// profile is applied to it like to any cached picture, [`crate::display::present`]).
+    pub fn cached_view(&self) -> Option<Rgba8> {
+        self.cached_view_with_histogram().map(|(img, _)| img)
+    }
+
+    /// [`Self::cached_view`] with the histogram of the cached render itself (the size a render
+    /// would have had, before a display fit), as a render's histogram is.
+    fn cached_view_with_histogram(&self) -> Option<(Rgba8, Histogram)> {
+        let (img, full) = self.cached_view_parts()?;
+        Some((img, Histogram::of_srgb8(&full)))
+    }
+
+    fn cached_view_parts(&self) -> Option<(Rgba8, Arc<Rgba8>)> {
+        let (cache, key) = self.view_cache.as_ref()?;
+        if self.request.quality != Quality::Full
+            || self.request.depth != lightcraft_pipeline::OutputDepth::U8
+            || self.request.window.is_some()
+            || self.settings.hdr.enabled
+            || self.slide.is_some()
+        {
+            return None;
+        }
+        let img = cache.get_at(self.cache_generation, *key)?;
+        // the loupe at rest asks for at least the preview level and shrinks the result to the drawn
+        // size ([`Self::display_fit`]): a cached view as big as the drawn size serves it (a 2048 px
+        // built preview for a ~1 000 px canvas), shrunk with the display fit's own filter
+        if let Some((fw, fh)) = self.display_fit {
+            let (w, h) = (img.width.max(1), img.height.max(1));
+            let s = (fw.max(1) as f64 / w as f64).min(fh.max(1) as f64 / h as f64);
+            if !s.is_finite() || s > 1.0 + VIEW_REUSE_SLACK {
+                return None;
+            }
+            if w <= fw.max(1) && h <= fh.max(1) {
+                return Some(((*img).clone(), img));
+            }
+            let fitted = fit_for_display(&img, fw, fh);
+            return Some((fitted, img));
+        }
+        let fitted = fit_cached(&img, self.request.max_w, self.request.max_h)?;
+        Some((fitted, img))
+    }
+
     /// The photo's render (without slide composition).
     fn run_photo(self) -> RenderResult {
+        // the loupe: a cached view render of these settings at least this big is the render (built
+        // previews and the photos prepared ahead are used, not rendered again; PERF-PREVIEW-REUSE)
+        if let Some((image, histogram)) = self.cached_view_with_histogram() {
+            return RenderResult {
+                request_id: self.request_id,
+                source_key: self.source_key,
+                photo: self.photo,
+                level: self.level,
+                key: self.key,
+                rendered: Ok(Rendered { image, histogram, deep: None }),
+                gpu_fallback: None,
+                loaded: None,
+                quick: Some(QuickSource::Cached),
+                display: None,
+                frame: None,
+            };
+        }
         if let Some((cache, key)) = &self.cache
             && let Some(img) = cache.get_at(self.cache_generation, *key)
         {
@@ -1212,6 +1289,61 @@ impl RenderJob {
             Err(e) => self.failed(e),
         }
     }
+}
+
+/// `img` fitted into `max_w × max_h` (its aspect kept), when it is big enough to need no
+/// enlarging (within [`VIEW_REUSE_SLACK`]): as it is, or shrunk by averaging.
+pub fn fit_cached(img: &Rgba8, max_w: usize, max_h: usize) -> Option<Rgba8> {
+    let (w, h) = (img.width, img.height);
+    if w == 0 || h == 0 || max_w == 0 || max_h == 0 {
+        return None;
+    }
+    let s = (max_w as f64 / w as f64).min(max_h as f64 / h as f64);
+    if !s.is_finite() || s > 1.0 + VIEW_REUSE_SLACK {
+        return None;
+    }
+    let (nw, nh) = (((w as f64 * s).round() as usize).clamp(1, w), ((h as f64 * s).round() as usize).clamp(1, h));
+    if nw == w && nh == h {
+        return Some(img.clone());
+    }
+    Some(shrink_rgba(img, nw, nh))
+}
+
+/// `img` shrunk to `nw × nh` (no larger than it), each pixel the average of the ones it covers.
+fn shrink_rgba(img: &Rgba8, nw: usize, nh: usize) -> Rgba8 {
+    let (w, h) = (img.width, img.height);
+    let (nw, nh) = (nw.clamp(1, w.max(1)), nh.clamp(1, h.max(1)));
+    // the source columns / rows each output column / row covers: [start, end)
+    let spans = |n: usize, of: usize| -> Vec<(usize, usize)> {
+        (0..n)
+            .map(|i| {
+                let a = i.saturating_mul(of) / n;
+                let b = (i.saturating_add(1).saturating_mul(of) / n).max(a.saturating_add(1)).min(of);
+                (a, b)
+            })
+            .collect()
+    };
+    let (xs, ys) = (spans(nw, w), spans(nh, h));
+    let mut data = Vec::with_capacity(nw.saturating_mul(nh));
+    let mut row = vec![[0u32; 4]; nw];
+    for &(y0, y1) in &ys {
+        row.iter_mut().for_each(|r| *r = [0; 4]);
+        for y in y0..y1 {
+            let Some(line) = img.data.get(y * w..(y + 1) * w) else { continue };
+            for (acc, &(x0, x1)) in row.iter_mut().zip(&xs) {
+                for px in line.get(x0..x1).unwrap_or(&[]) {
+                    for (a, v) in acc.iter_mut().zip(px) {
+                        *a += u32::from(*v);
+                    }
+                }
+            }
+        }
+        for (acc, &(x0, x1)) in row.iter().zip(&xs) {
+            let n = (x1.saturating_sub(x0).saturating_mul(y1.saturating_sub(y0))).max(1) as u32;
+            data.push(acc.map(|a| ((a + n / 2) / n).min(255) as u8));
+        }
+    }
+    Rgba8 { width: nw, height: nh, data }
 }
 
 /// Render `src`: on the GPU when `gpu` is set and a GPU is available (`lightcraft_gpu`), else on
@@ -1687,17 +1819,23 @@ impl crate::Session {
         Some(crate::face_tiles::PreviewCut { path, loader, want, min, rect, aspect, edge })
     }
 
-    /// Size-independent cache key of a photo's view render (loupe) for its current settings.
-    fn view_key(p: &Photo, apply_crop: bool) -> Hash128 {
-        Hasher128::new()
-            .str(&content_key(p))
+    /// Size-independent cache key of a photo's view render (loupe) for its current settings. The
+    /// denoised picture and camera profile in use are part of it (as of the render's own key): a
+    /// view rendered before the photo's AI Denoise result was there is not shown as the denoised one.
+    pub(crate) fn view_key(&self, p: &Photo, apply_crop: bool) -> Hash128 {
+        let salt = self.media.denoise_salt(p.id, &p.develop) ^ self.media.camera_profile_salt(&p.develop);
+        let mut k = Hasher128::new();
+        k.str(&content_key(p))
             .str("view")
             .u64(p.develop.hash64())
             .u64(apply_crop as u64)
             .u64(RENDER_CACHE_VERSION)
             .u64(crate::camera_profiles::cache_key())
-            .u64(crate::sensor_maps::generation())
-            .finish()
+            .u64(crate::sensor_maps::generation());
+        if salt != 0 {
+            k.u64(salt);
+        }
+        k.finish()
     }
 
     /// The loupe's render job: like [`Self::render_job`], and a full-quality result is kept as the
@@ -1705,7 +1843,7 @@ impl crate::Session {
     pub fn loupe_job(&mut self, id: PhotoId, max_w: usize, max_h: usize, apply_crop: bool) -> Option<RenderJob> {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         let p = self.catalog.photo(id)?;
-        job.view_cache = Some((self.media.rendered.clone(), Self::view_key(p, apply_crop)));
+        job.view_cache = Some((self.media.rendered.clone(), self.view_key(p, apply_crop)));
         Some(job)
     }
 
@@ -1814,7 +1952,7 @@ impl crate::Session {
         let p = self.catalog.photo(id)?.clone();
         let small = self.thumb_job(id, THUMB_SIZES[THUMB_SIZES.len() - 1])?;
         // (the thumbnail job itself starts with the cached thumbnail, after the sharper embedded preview)
-        let cached = vec![(self.media.rendered.clone(), Self::view_key(&p, apply_crop))];
+        let cached = vec![(self.media.rendered.clone(), self.view_key(&p, apply_crop))];
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
         let embedded = self.embedded_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));

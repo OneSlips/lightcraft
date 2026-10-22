@@ -343,3 +343,38 @@ fn export_presets_kept_with_an_older_library_join_the_store_once() {
     assert!(shared["merged"].as_array().unwrap().iter().all(|m| m["habits"] == true));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Notes 48 and 52 together: the app-wide background preparation settings live in the install
+/// store (library B sees what was set in A, also after a restart), while a library's own settings
+/// stay in that library's `prefs.json`, win only while it is open, and are not frozen like the
+/// store's copies there (a change to them is written).
+#[test]
+fn background_prep_is_app_wide_with_a_per_library_override() {
+    let root = temp_dir("prep");
+    let (a, b, store) = (root.join("A"), root.join("B"), root.join("store"));
+    let mut s = with_store(&store);
+    s.open_library(&a, true).unwrap();
+    s.execute("prefs.setBackgroundPrep", &json!({"settings": {"library": {"ahead": 10}}})).unwrap();
+    s.execute("prefs.setBackgroundPrep", &json!({"library": true, "settings": {"culling": {"ahead": 0}}})).unwrap();
+    assert_eq!(s.prep_settings().culling.ahead, 0, "A's own");
+    s.close_library().unwrap();
+    let prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(a.join("prefs.json")).unwrap()).unwrap();
+    assert_eq!(prefs["prep"]["culling"]["ahead"], 0, "A's override is in A's prefs.json: {prefs}");
+
+    s.open_library(&b, true).unwrap();
+    assert_eq!(s.prep_settings().library.ahead, 10, "the app-wide change reached B");
+    assert_eq!(s.prep_settings().culling.ahead, 5, "A's own settings stay A's");
+    s.close_library().unwrap();
+    drop(s);
+
+    let mut s = with_store(&store);
+    s.open_library(&a, false).unwrap();
+    assert_eq!(s.prep_settings().culling.ahead, 0, "A's own after a restart");
+    s.execute("prefs.setBackgroundPrep", &json!({"library": true, "settings": {"culling": {"ahead": 3}}})).unwrap();
+    s.close_library().unwrap();
+    let prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(a.join("prefs.json")).unwrap()).unwrap();
+    assert_eq!(prefs["prep"]["culling"]["ahead"], 3, "a change to the override is written, not frozen");
+    s.open_library(&b, false).unwrap();
+    assert_eq!(s.prep_settings().library.ahead, 10, "app-wide after a restart");
+    let _ = std::fs::remove_dir_all(root);
+}

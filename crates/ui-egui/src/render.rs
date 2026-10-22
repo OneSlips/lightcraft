@@ -333,6 +333,8 @@ pub struct LoupeRender {
     pub latency_ms: f64,
     /// Redone on the CPU after the GPU failed.
     pub gpu_fallback: bool,
+    /// The photo's built or prepared preview, fitted to the loupe (no render).
+    pub cached: bool,
 }
 
 /// How many [`Slot::QuickAhead`] stand-ins the loupe keeps ready.
@@ -722,6 +724,21 @@ impl Renderer {
             priority,
             Box::new(move || Finished { result: lightcraft_engine::memory::in_background(|| job.run()), color: None }),
         );
+    }
+
+    /// Prepared-ahead jobs ([`Slot::Prefetch`]) queued or running.
+    pub fn prefetches_pending(&self) -> usize {
+        self.pending.keys().filter(|s| matches!(s, Slot::Prefetch(_))).count()
+    }
+
+    /// Prepared-ahead slots asked for since the renderer last forgot everything.
+    pub fn prefetch_slots_asked(&self) -> usize {
+        self.prefetched.keys().filter(|s| matches!(s, Slot::Prefetch(_))).count()
+    }
+
+    /// Whether `slot` was last asked for the job of `key` (queued, running or done).
+    pub fn prefetch_asked(&self, slot: Slot, key: u64) -> bool {
+        self.prefetched.get(&slot) == Some(&key)
     }
 
     /// Drop the slideshow slides other than `keep`: their textures and their requests that have
@@ -1180,14 +1197,15 @@ impl Renderer {
                     );
                 }
             }
-            if slot == Slot::Main {
+            // (a preview taken from the cache says nothing about how long a render takes)
+            if slot == Slot::Main && r.quick.is_none() {
                 self.last_main_ms = ms;
             }
             if matches!(slot, Slot::Main | Slot::Region)
                 && let Some(q) = self.view_requests.remove(&r.request_id)
             {
                 let now = crate::now_ms();
-                if slot == Slot::Main && !q.draft {
+                if slot == Slot::Main && !q.draft && r.quick.is_none() {
                     self.last_full_main_ms = ms;
                 }
                 if self.loupe_log.len() >= LOUPE_LOG_LEN {
@@ -1202,6 +1220,7 @@ impl Renderer {
                     render_ms: ms,
                     latency_ms: (now - q.at_ms).max(0.0),
                     gpu_fallback: r.gpu_fallback.is_some(),
+                    cached: r.quick.is_some(),
                 });
             }
             changed = true;

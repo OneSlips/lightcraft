@@ -328,6 +328,8 @@ struct SharedFile {
     /// Export presets, templates and the rest of the user's way of working (version 2).
     #[serde(flatten)]
     habits: Habits,
+    /// Preparing photos in the background ([`crate::prep`]): the app-wide settings.
+    prep: crate::prep::PrepSettings,
 }
 
 /// 2: [`Habits`] added (version 1 builds ignore their keys).
@@ -638,6 +640,7 @@ impl Session {
             st.sort_known = shared.habits.sort.is_some();
         }
         self.set_habits(shared.habits);
+        self.prep.app = shared.prep.sanitized();
         self.set_presets_from(presets.unwrap_or_default());
         self.shared_presets_saved = crate::library::PresetsSaved::state_of(self);
         // what was just read is on disk already
@@ -686,6 +689,7 @@ impl Session {
             import_presets: self.import_presets.clone(),
             preset_state: self.preset_state.clone(),
             habits: self.habits(),
+            prep: self.prep.app,
         };
         serde_json::to_vec_pretty(&f).unwrap_or_default()
     }

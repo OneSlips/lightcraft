@@ -46,8 +46,9 @@ pub fn look_first(v: Verdict) -> u8 {
     }
 }
 
-/// Photos after the one on screen whose eyes are found ahead.
-pub const AHEAD: usize = 3;
+/// The most photos after the one on screen whose eyes are found ahead (how many is set in
+/// Settings ▸ Performance ▸ Prepare photos in the background: `prep::ModePrep::eye_ahead`).
+pub const AHEAD: usize = lightcraft_engine::prep::MAX_AHEAD as usize;
 
 /// What the strip keeps between frames.
 #[derive(Default)]
