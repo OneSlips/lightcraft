@@ -110,6 +110,9 @@ pub struct Job {
     pub key: u64,
     /// Renders the model input when the cache doesn't hold `key` (always for a detail pass).
     pub render: Option<RenderJob>,
+    /// Renders the photo sharper ([`super::FINE_EDGE`]) for a group's per-person crops; run only
+    /// when they are needed.
+    pub fine: Option<RenderJob>,
     /// The photo's file, when it is missing on disk (for a clearer error if rendering fails).
     pub missing: Option<String>,
     pub kind: Kind,
@@ -368,6 +371,9 @@ struct State {
     face: Option<(PathBuf, FaceModel)>,
     /// The faces (with landmarks) of a photo.
     faces_cache: Option<(u64, Vec<Face>)>,
+    /// The class map of a photo with a group's people segmented on their own crops (`None`: no
+    /// one small enough to need it).
+    crowd_cache: Option<(u64, Option<PeopleMap>)>,
     /// The last rendered input of the openly licensed models (several of them may run on one photo).
     input_cache: Option<(u64, Input)>,
     /// The faces the job that just ran found (a [`Kind::Skin`] request's), for its outcome.
@@ -397,6 +403,7 @@ impl State {
         self.scene_cache = None;
         self.people_cache = None;
         self.faces_cache = None;
+        self.crowd_cache = None;
         self.input_cache = None;
     }
 }
@@ -806,13 +813,29 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 }
             }
             // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
-            // others' left out), so what touches them — an arm round the bride — stays the other's
-            let instances = match (&sam2, req.person) {
-                (Some(dir), n) if n > 0 && faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
-                _ => None,
+            // others' left out), so what touches them — an arm round the bride — stays the other's;
+            // and everyone's figure (EoMT), so someone whose face wasn't found stays out too
+            let instances = if req.person > 0 && !faces.is_empty() {
+                let silhouettes = match &sam2 {
+                    Some(dir) if faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
+                    _ => None,
+                };
+                let figures = match &scene {
+                    Some(dir) => scene_people(state, shared, job, dir),
+                    None => Vec::new(),
+                };
+                let (w, h) = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map_or((0, 0), |(_, i)| (i.w, i.h));
+                lightcraft_segment::people::Instances::combine(SAM2_MASK_SIDE, silhouettes, &figures, &faces, w, h)
+            } else {
+                None
             };
+            // a group: the class map again on each small person's crop, pasted back
+            if people.is_some() {
+                crowd_map(state, shared, job, &faces);
+            }
+            let crowd = state.crowd_cache.as_ref().filter(|(k, _)| *k == job.key).and_then(|(_, m)| m.as_ref());
             let map = match &people {
-                Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
+                Some(_) => crowd.or_else(|| state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m)),
                 None => None,
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
@@ -935,16 +958,86 @@ fn retouch(
     Ok(out)
 }
 
+/// The class map of `job`'s photo with a group's small people segmented again on their own crops
+/// ([`lightcraft_segment::people::PeopleModel::segment_people`]), kept in `state.crowd_cache`
+/// (`None` there: nobody small enough to need it, or it failed — the whole-image map is used).
+/// The crops come from the sharper render (`job.fine`) when there is one.
+fn crowd_map(state: &mut State, shared: &Shared, job: &mut Job, faces: &[Face]) {
+    if state.crowd_cache.as_ref().is_some_and(|(k, _)| *k == job.key) {
+        return;
+    }
+    state.crowd_cache = None;
+    let Some((w, h)) = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h)) else { return };
+    let boxes = lightcraft_segment::people::person_boxes(faces, w, h);
+    if boxes.is_empty() {
+        state.crowd_cache = Some((job.key, None));
+        return;
+    }
+    let _busy = Flag::raise(&shared.encoding);
+    let _row = row(job, "Finding each person of a group");
+    let t = web_time::Instant::now();
+    // the sharper render, else the model input
+    let fine = match job.fine.take().map(|r| r.run().rendered) {
+        Some(Ok(r)) => {
+            let img = r.image;
+            Some(Input { rgb: img.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect(), w: img.width, h: img.height })
+        }
+        Some(Err(e)) => {
+            log::warn!("people: no sharper render for the group's crops ({e}); cropping the model input");
+            None
+        }
+        None => None,
+    };
+    let rendered = t.elapsed();
+    let (Some((_, model)), Some((_, whole)), Some((_, input))) = (&state.people, &state.people_cache, &state.input_cache) else { return };
+    let src = fine.as_ref().unwrap_or(input);
+    let out = model.segment_people(&src.rgb, src.w, src.h, whole, &boxes, CROWD_SIDE);
+    log::info!(
+        "people: {} small people cropped from {}×{} (render {:?}, crops {:?})",
+        boxes.len(),
+        src.w,
+        src.h,
+        rendered,
+        t.elapsed().saturating_sub(rendered)
+    );
+    match out {
+        Ok(m) => state.crowd_cache = Some((job.key, Some(m))),
+        Err(e) => {
+            log::warn!("people: the group's crops failed ({e}); using the whole photo's map");
+            state.crowd_cache = Some((job.key, None));
+        }
+    }
+}
+
+/// Side of the class map a group's crops are pasted into.
+const CROWD_SIDE: usize = 1024;
+
+/// Everyone EoMT sees as a person on `job`'s photo, as `SAM2_MASK_SIDE²` logits each (empty, with
+/// a log line, when EoMT can't run).
+fn scene_people(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path) -> Vec<Vec<f32>> {
+    let scene = ensure(&mut state.scene, &mut state.scene_cache, shared, dir, "EoMT", SceneModel::load)
+        .and_then(|()| cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h)));
+    match scene {
+        Ok(scene) => {
+            let person = lightcraft_segment::scene::class_ids(|n| n == "person");
+            scene
+                .instances
+                .iter()
+                .filter(|i| person.contains(&i.class))
+                .map(|i| lightcraft_segment::grid::to_square_logits(&i.mask, scene.width, scene.height, SAM2_MASK_SIDE))
+                .collect()
+        }
+        Err(e) => {
+            log::warn!("people: no figures from EoMT ({e})");
+            Vec::new()
+        }
+    }
+}
+
 /// Everyone's silhouette (SAM 2.1, for each face: clicks on it and down its body, the other faces
 /// left out), so where people overlap a pixel goes to whoever's silhouette claims it most; `None`
 /// (with a log line) when SAM 2.1 can't give them.
-fn person_instances(
-    state: &mut State,
-    shared: &Shared,
-    job: &mut Job,
-    dir: &std::path::Path,
-    faces: &[Face],
-) -> Option<lightcraft_segment::people::Instances> {
+fn person_instances(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path, faces: &[Face]) -> Option<Vec<Vec<f32>>> {
     let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h))?;
     let (w, h) = (input.0.max(1) as f32, input.1.max(1) as f32);
     let centre = |f: &Face| {
@@ -978,10 +1071,7 @@ fn person_instances(
     });
     job.dir = keep;
     match out {
-        Ok(people) => {
-            let seeds: Vec<[f32; 2]> = faces.iter().map(&centre).map(|(x, y, _)| [x, y]).collect();
-            Some(lightcraft_segment::people::Instances::new(SAM2_MASK_SIDE, people, &seeds))
-        }
+        Ok(people) => Some(people),
         Err(e) => {
             log::warn!("people: no silhouettes from SAM 2.1 ({e})");
             None
@@ -1482,6 +1572,7 @@ mod tests {
             detector: None,
             key: 1,
             render: None,
+            fine: None,
             missing: None,
             kind: Kind::Prepare,
             tag,
