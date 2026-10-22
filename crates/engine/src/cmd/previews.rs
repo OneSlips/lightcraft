@@ -227,7 +227,11 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
             if !force && already_built(&photo_jobs) {
                 state.skipped.fetch_add(1, Ordering::Relaxed);
             } else if let Some(_held) = Building::take(id, &photo_jobs) {
-                let ok = crate::guard::catch("building previews", || run_photo(photo_jobs)).unwrap_or(false);
+                // the background preparation's decodes wait at the memory gate behind the photo on
+                // screen's, as the other background work does
+                let build = || run_photo(photo_jobs);
+                let run = || if state.background { crate::memory::in_background(build) } else { build() };
+                let ok = crate::guard::catch("building previews", run).unwrap_or(false);
                 if !ok {
                     state.failed.fetch_add(1, Ordering::Relaxed);
                 }

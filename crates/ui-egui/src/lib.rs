@@ -50,6 +50,7 @@ pub mod sync;
 pub mod tasks;
 pub mod text_field;
 pub mod theme;
+pub mod thumb_first;
 pub mod updates_ui;
 pub mod widgets;
 pub mod window_place;
@@ -82,6 +83,8 @@ mod tests_copy_paste_dialogs;
 mod tests_crop_rotate;
 #[cfg(test)]
 mod tests_crop_tool;
+#[cfg(test)]
+mod tests_cull_tiers;
 #[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
@@ -520,6 +523,11 @@ pub struct LightcraftApp {
     /// The app-wide background preparation settings were handed from the saved app settings to
     /// the session ([`Self::background_prep`]).
     prep_synced: bool,
+    /// How long thumbnails on screen wait for their first pixels (`ui.inspect` → `thumbFirst`).
+    pub thumb_first: thumb_first::ThumbFirst,
+    /// The frame ([`render::Renderer::frame`]) in which a cell on screen or the loupe last lacked its first picture
+    /// ([`LightcraftApp::pictures_missing`]).
+    pub pictures_missing_pass: Option<u64>,
     /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
     /// catalog revision and the edge, so it is worked out again only when one of them changes.
     pub(crate) look_ahead: panels::detail::LookAhead,
@@ -608,6 +616,19 @@ pub struct LightcraftApp {
 }
 
 impl LightcraftApp {
+    /// A cell on screen or the loupe has no picture yet in frame `pass` ([`render::Renderer::frame`]), its first one on its way:
+    /// this window's own background requests (photos ahead, real thumbnails behind stand-ins) wait,
+    /// and so does the engine's background work ([`lightcraft_engine::prep::pictures_missing`]).
+    pub fn pictures_missing(&mut self, pass: u64) {
+        self.pictures_missing_pass = Some(pass);
+        lightcraft_engine::prep::pictures_missing();
+    }
+
+    /// Whether a picture was missing in frame `pass` or the one before.
+    pub fn pictures_busy(&self, pass: u64) -> bool {
+        self.pictures_missing_pass.is_some_and(|p| pass.saturating_sub(p) <= 1)
+    }
+
     /// Build the app with default UI, renderer, cache and control state, and move AI segmentation
     /// to a worker so frames apply results instead of waiting.
     pub fn new(mut session: Session, services: Services) -> Self {
@@ -678,6 +699,8 @@ impl LightcraftApp {
             loupe_shown: None,
             loupe_timing: Default::default(),
             prep_synced: false,
+            thumb_first: Default::default(),
+            pictures_missing_pass: None,
             look_ahead: Default::default(),
             region_view: None,
             region_before_view: None,

@@ -62,6 +62,10 @@ pub struct LoupeTiming {
 }
 
 /// Sources that show the photo at full size: the camera's JPEG, a cached or a fresh render.
+pub fn is_full_size(source: &str) -> bool {
+    full_size(source)
+}
+
 fn full_size(source: &str) -> bool {
     matches!(source, "embedded" | "cached" | "render" | "preview")
 }
