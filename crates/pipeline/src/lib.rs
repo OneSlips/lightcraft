@@ -289,15 +289,36 @@ pub struct StageCache {
     capacity: usize,
     /// Another renderer's per-view state (the GPU renderer keeps its device-resident stages here).
     ext: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
+    /// Another renderer leaves host copies of its sampled and linear images here as well
+    /// ([`Self::keep_host_stages`]).
+    keep_host: std::sync::atomic::AtomicBool,
 }
 
 impl Default for StageCache {
     fn default() -> Self {
-        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None) }
+        StageCache { entries: Mutex::new(Vec::new()), capacity: 2, ext: Mutex::new(None), keep_host: Default::default() }
     }
 }
 
 impl StageCache {
+    /// Ask another renderer (the GPU) to leave host copies of the framed and the white-balanced,
+    /// denoised, retouched image here ([`Self::seed_linear`]): a CPU render of the same photo at
+    /// the same size then starts from them (an export's HDR rendition after its SDR one).
+    pub fn keep_host_stages(&self, on: bool) {
+        self.keep_host.store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::keep_host_stages`] was asked for.
+    pub fn keeps_host_stages(&self) -> bool {
+        self.keep_host.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Another renderer's framed (`sampled`) and linear (`lin`, keyed `lin_key`) image of `src` at
+    /// the frame `geo` ([`Plan::geo`], [`Plan::lin_key`]): the next CPU render of the same plan
+    /// starts from them (its spatial planes are made afresh).
+    pub fn seed_linear(&self, src: &Arc<Rgb32f>, geo: u64, sampled: Arc<Rgb32f>, lin_key: u64, lin: Arc<Rgb32f>) {
+        self.put(CacheEntry { src: src.clone(), geo, sampled, lin: Some((lin_key, lin)), nr: None, planes: local::Planes::default() });
+    }
     /// Drop everything (e.g. when memory is needed).
     pub fn clear(&self) {
         self.lock().clear();
@@ -316,6 +337,12 @@ impl StageCache {
         let t = Arc::new(T::default());
         *g = Some(t.clone());
         t
+    }
+
+    /// Drop another renderer's state ([`Self::extension`]) and keep this cache's own stages: e.g.
+    /// the GPU's device buffers once only the CPU renders from this cache.
+    pub fn clear_extension(&self) {
+        *self.ext.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
     /// The per-view state of type `T` if there is one (unlike [`Self::extension`], never creates it).
@@ -552,8 +579,8 @@ fn grow_window(win: PixelWindow, reach: f64, full_w: usize, full_h: usize) -> Pi
     PixelWindow { x: x0, y: y0, w: x1.saturating_sub(x0).max(1), h: y1.saturating_sub(y0).max(1) }
 }
 
-/// Whether Smooth Skin or the retouch of people's parts changes this render (they run on the
-/// CPU, after noise reduction).
+/// Whether Smooth Skin or the retouch of people's parts changes this render (they run after noise
+/// reduction; the GPU renderer does Smooth Skin itself and the retouch on the CPU).
 pub fn skin_needs_cpu(s: &DevelopSettings) -> bool {
     skin::analysis(s).is_some() || retouch::active(s)
 }
@@ -897,7 +924,7 @@ pub fn profiling() -> bool {
 }
 
 /// Run `f`, printing its duration under `LIGHTCRAFT_PROFILE`.
-pub(crate) fn timed<R>(what: &str, f: impl FnOnce() -> R) -> R {
+pub fn timed<R>(what: &str, f: impl FnOnce() -> R) -> R {
     if !profiling() {
         return f();
     }

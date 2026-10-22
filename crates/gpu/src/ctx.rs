@@ -83,6 +83,18 @@ const MODULES: &[Module] = &[
         entries: &["unwritten", "pad_rows"],
     },
     Module {
+        src: include_str!("wgsl/skin.wgsl"),
+        bindings: &[
+            ("img", true, "f32"),
+            ("cov", false, "f32"),
+            ("lab", true, "f32"),
+            ("fine", false, "f32"),
+            ("mid", false, "f32"),
+            ("low", false, "f32"),
+        ],
+        entries: &["skin_lab", "skin_reduce", "skin_combine"],
+    },
+    Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
         entries: &["orient", "sample_affine", "sample_warp"],
@@ -107,6 +119,11 @@ pub struct Buf {
 }
 
 impl Buf {
+    /// The generation of the device the buffer was made on ([`Gpu::generation`]).
+    pub fn generation(&self) -> u64 {
+        self.buf.as_ref().map_or(0, |b| b.1)
+    }
+
     pub fn raw(&self) -> &wgpu::Buffer {
         // `buf` is `Some` from construction (`Gpu::buffer`/`upload`) until `Drop` takes it back
         // for the pool, so a live `Buf` always has it.
@@ -193,13 +210,17 @@ impl Drop for RenderScope<'_> {
     }
 }
 
-/// A device buffer, counted in [`ALLOCATED`] while it exists.
-pub(crate) struct Tracked(wgpu::Buffer);
+/// A device buffer, counted in [`ALLOCATED`] while it exists, and the generation of the device it
+/// was made on: a buffer of a device that was replaced ([`crate::device`] recovers from a lost one)
+/// is never pooled for, or bound on, the new one.
+pub(crate) struct Tracked(wgpu::Buffer, u64);
 
 impl Tracked {
-    fn new(b: wgpu::Buffer) -> Tracked {
-        ALLOCATED.fetch_add(b.size(), Ordering::Relaxed);
-        Tracked(b)
+    fn new(b: wgpu::Buffer, generation: u64) -> Tracked {
+        let size = b.size();
+        let now = ALLOCATED.fetch_add(size, Ordering::Relaxed).saturating_add(size);
+        PEAK.fetch_max(now, Ordering::Relaxed);
+        Tracked(b, generation)
     }
 }
 
@@ -215,6 +236,17 @@ thread_local! {
 
 /// Bytes of device buffers that exist (in use, retired or pooled).
 static ALLOCATED: AtomicU64 = AtomicU64::new(0);
+/// The most [`ALLOCATED`] has been since [`reset_peak`].
+static PEAK: AtomicU64 = AtomicU64::new(0);
+/// Errors that reached a device's uncaptured-error handler (diagnostics).
+pub(crate) static UNCAPTURED: AtomicU64 = AtomicU64::new(0);
+/// The generation the next device gets ([`Gpu::generation`]).
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Measure [`GpuMemory::peak`] again from what exists now.
+pub(crate) fn reset_peak() {
+    PEAK.store(ALLOCATED.load(Ordering::Relaxed), Ordering::Relaxed);
+}
 /// Bytes waiting in per-thread retired lists.
 static RETIRED_BYTES: AtomicU64 = AtomicU64::new(0);
 /// Bytes in the free pool.
@@ -234,10 +266,17 @@ pub struct GpuMemory {
     pub pooled: u64,
     /// Of which buffers dropped since their thread's last submit (pooled at its next submit).
     pub retired: u64,
+    /// The most that existed at once since [`crate::reset_memory_peak`].
+    pub peak: u64,
 }
 
 pub(crate) fn memory() -> GpuMemory {
-    GpuMemory { allocated: ALLOCATED.load(Ordering::Relaxed), pooled: POOLED.load(Ordering::Relaxed), retired: RETIRED_BYTES.load(Ordering::Relaxed) }
+    GpuMemory {
+        allocated: ALLOCATED.load(Ordering::Relaxed),
+        pooled: POOLED.load(Ordering::Relaxed),
+        retired: RETIRED_BYTES.load(Ordering::Relaxed),
+        peak: PEAK.load(Ordering::Relaxed),
+    }
 }
 
 pub struct Gpu {
@@ -252,6 +291,11 @@ pub struct Gpu {
     pub max_buffer: u64,
     /// The device is the window's (eframe's): renders can hand it textures to draw directly.
     pub window: bool,
+    /// Which device this is: each one created in the process gets the next number, so buffers and
+    /// cached stages of a device that was replaced are told apart.
+    pub generation: u64,
+    /// The adapter's own memory (bytes), when the system tells ([`crate::vram`]).
+    pub vram: Option<u64>,
 }
 
 /// WGSL constants shared by every module (generated from the CPU pipeline's values).
@@ -375,16 +419,28 @@ impl Gpu {
         if limits.max_storage_buffers_per_shader_stage < 10 {
             return Err(format!("{} has too few storage buffers per shader stage ({} < 10)", info.name, limits.max_storage_buffers_per_shader_stage));
         }
-        // Errors outside a render's error scopes (see `ErrorScopes`): log, and stop using the GPU.
-        device.on_uncaptured_error(std::sync::Arc::new(|e| {
+        let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+        // Errors outside a render's error scopes (see `ErrorScopes`; scopes are per thread, so a
+        // render's own errors never land here). On the window's device they are the window's (a
+        // surface reconfigured while the GPU was busy: "Failed to wait for GPU to come idle"):
+        // logged, and the renders, which check their own errors, go on. On a device of our own an
+        // internal error means the device is in trouble: it is replaced.
+        device.on_uncaptured_error(std::sync::Arc::new(move |e| {
             log::error!("gpu: {e}");
-            crate::mark_broken(&format!("device error: {e}"));
+            UNCAPTURED.fetch_add(1, Ordering::Relaxed);
+            if !window && matches!(e, wgpu::Error::Internal { .. }) {
+                crate::mark_broken(generation, &format!("device error: {e}"));
+            }
         }));
         // wgpu reports a lost device (driver reset, GPU hang, watchdog) only here — never as an
-        // error — so without this callback a lost device went unnoticed.
-        device.set_device_lost_callback(|reason, msg| {
+        // error — so without this callback a lost device went unnoticed. (A device we dropped
+        // after replacing it reports `Destroyed`: not a failure.)
+        device.set_device_lost_callback(move |reason, msg| {
+            if reason == wgpu::DeviceLostReason::Destroyed {
+                return;
+            }
             log::error!("gpu: device lost ({reason:?}): {msg}");
-            crate::mark_broken(&format!("device lost ({reason:?}): {msg}"));
+            crate::mark_broken(generation, &format!("device lost ({reason:?}): {msg}"));
         });
         // a kernel the driver's compiler refuses is a validation or an internal error: no GPU, not a half-built one
         let scopes = [device.push_error_scope(wgpu::ErrorFilter::Validation), device.push_error_scope(wgpu::ErrorFilter::Internal)];
@@ -433,7 +489,8 @@ impl Gpu {
             max_buffer >> 20,
             if window { ", the window's device" } else { "" }
         );
-        Ok(Gpu { device, queue, info, kernels, dummy, free: Default::default(), max_buffer, window })
+        let vram = crate::vram::adapter_memory(&info);
+        Ok(Gpu { device, queue, info, kernels, dummy, free: Default::default(), max_buffer, window, generation, vram })
     }
 
     /// A buffer of `len` 32-bit values with undefined contents (a recycled one when possible).
@@ -444,7 +501,7 @@ impl Gpu {
         let size = (len.max(1) * 4) as u64;
         if size > self.limit() {
             self.over_limit(size);
-            return Buf { buf: Some(Tracked::new(self.placeholder())), len };
+            return Buf { buf: Some(Tracked::new(self.placeholder(), self.generation)), len };
         }
         let recycled = {
             let mut f = self.free.lock().unwrap_or_else(|e| e.into_inner());
@@ -463,29 +520,35 @@ impl Gpu {
             b
         };
         let buf = recycled.unwrap_or_else(|| {
-            Tracked::new(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }))
+            Tracked::new(
+                self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                }),
+                self.generation,
+            )
         });
         Buf { buf: Some(buf), len }
     }
 
-    /// Submit command buffers, then make the buffers this thread dropped before reusable.
-    pub fn submit(&self, cmds: impl IntoIterator<Item = wgpu::CommandBuffer>) {
-        self.queue.submit(cmds);
+    /// Submit command buffers, then make the buffers this thread dropped before reusable. Returns
+    /// the submission, to wait for it alone ([`Gpu::finish_and_read`]).
+    pub fn submit(&self, cmds: impl IntoIterator<Item = wgpu::CommandBuffer>) -> wgpu::SubmissionIndex {
+        let index = self.queue.submit(cmds);
         let retired = take_retired();
         self.pool(retired);
+        index
     }
 
-    /// Put reusable buffers into the free pool (trimmed to its limit).
+    /// Put reusable buffers into the free pool (trimmed to its limit). Buffers of another device
+    /// (one this replaced) are freed instead.
     fn pool(&self, bufs: impl IntoIterator<Item = Tracked>) {
         let mut added = false;
         {
             let mut f = self.free.lock().unwrap_or_else(|e| e.into_inner());
-            for b in bufs {
+            for b in bufs.into_iter().filter(|b| b.1 == self.generation) {
                 POOLED.fetch_add(b.0.size(), Ordering::Relaxed);
                 f.push(b);
                 added = true;
@@ -524,14 +587,14 @@ impl Gpu {
         }
         if bytes.len() as u64 > self.limit() {
             self.over_limit(bytes.len() as u64);
-            return Buf { buf: Some(Tracked::new(self.placeholder())), len };
+            return Buf { buf: Some(Tracked::new(self.placeholder(), self.generation)), len };
         }
         let buf = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytes,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC | wgpu::BufferUsages::COPY_DST,
         });
-        Buf { buf: Some(Tracked::new(buf)), len }
+        Buf { buf: Some(Tracked::new(buf, self.generation)), len }
     }
 
     fn over_limit(&self, size: u64) {
@@ -613,7 +676,7 @@ impl Gpu {
             mapped_at_creation: false,
         });
         enc.copy_buffer_to_buffer(src.raw(), 0, &staging, 0, size);
-        self.submit([enc.finish()]);
+        let index = self.submit([enc.finish()]);
         let slice = staging.slice(..size);
         let (tx, rx) = std::sync::mpsc::channel();
         slice.map_async(wgpu::MapMode::Read, move |r| {
@@ -624,9 +687,17 @@ impl Gpu {
             zeros()
         };
         // A lost device makes the wait fail and the map callback never run: checking both keeps
-        // this from blocking forever (or handing back an unwritten buffer as the image).
-        if let Err(e) = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(READBACK_TIMEOUT) }) {
-            return failed(format!("{e}"));
+        // this from blocking forever (or handing back an unwritten buffer as the image). The wait
+        // is for this render's own submission: waiting for the whole queue (every other render's
+        // work too) timed out when several exports shared the GPU, and turned the GPU off.
+        match self.device.poll(wgpu::PollType::Wait { submission_index: Some(index), timeout: Some(READBACK_TIMEOUT) }) {
+            Ok(_) => {}
+            // the GPU is busy, not broken: this render goes to the CPU, the GPU stays in use
+            Err(wgpu::PollError::Timeout) => {
+                fail(FailKind::Busy, format!("the GPU did not finish within {} s (busy)", READBACK_TIMEOUT.as_secs()));
+                return zeros();
+            }
+            Err(e) => return failed(format!("{e}")),
         }
         // another thread's poll may be the one that runs the callback: allow it a moment
         match rx.recv_timeout(std::time::Duration::from_secs(10)) {
@@ -756,7 +827,10 @@ pub(crate) enum FailKind {
     OutOfMemory,
     /// The image came back entirely black: redone on the CPU in case the GPU dropped work.
     Blank,
-    /// Device error or loss, readback failure, incomplete image: the GPU is not used again.
+    /// The GPU took too long (busy with other work): this render only.
+    Busy,
+    /// Device error or loss, readback failure, incomplete image: the device is replaced
+    /// ([`crate::device`] recovers), the render redone on the CPU.
     Fatal,
 }
 

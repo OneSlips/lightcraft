@@ -154,8 +154,16 @@ fn curve_at(o: u32, x: f32) -> f32 {
     return aux[o + i] + (aux[o + i + 1u] - aux[o + i]) * t;
 }
 
-// `finish::local_curves`: each mask's curve, blended in by the mask's opacity (SDR).
-fn local_curves(e_in: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
+fn curve_at_hdr(o: u32, x: f32, hdr: bool) -> f32 {
+    if (hdr && x > 1.0) {
+        return curve_at(o, 1.0) + (x - 1.0);
+    }
+    return curve_at(o, x);
+}
+
+// `finish::local_curves`: each mask's curve, blended in by the mask's opacity (`hdr`: values above
+// 1 continue with slope 1, as for the global curves).
+fn local_curves(e_in: vec3<f32>, i: u32, n: u32, hdr: bool) -> vec3<f32> {
     var e = e_in;
     for (var m = 0u; m < pu(F_NMASK); m++) {
         let rec = pu(F_LOCAL_OFF) + m * LOCAL_WORDS;
@@ -168,7 +176,7 @@ fn local_curves(e_in: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
             continue;
         }
         let e0 = e;
-        var c = vec3<f32>(curve_at(o, e.x), curve_at(o + CURVE_N, e.y), curve_at(o + 2u * CURVE_N, e.z));
+        var c = vec3<f32>(curve_at_hdr(o, e.x, hdr), curve_at_hdr(o + CURVE_N, e.y, hdr), curve_at_hdr(o + 2u * CURVE_N, e.z, hdr));
         let rs = aux[rec + 1u];
         if (rs < 1.0) {
             c = refine_saturation(e0, c, rs);
@@ -572,17 +580,17 @@ fn mat_at(o: u32) -> array<vec3<f32>, 3> {
     );
 }
 
-// `finish::gamut_map_to` (SDR peak 1) with the luminance weights at parameter `yo`: the mapped
-// colour and the scale t it needed.
-fn gamut_map(r: vec3<f32>, yo: u32) -> vec4<f32> {
-    let yy = clamp(pf(yo) * r.x + pf(yo + 1u) * r.y + pf(yo + 2u) * r.z, 0.0, 1.0);
+// `finish::gamut_map_to` into 0..peak (1 for SDR) with the luminance weights at parameter `yo`:
+// the mapped colour and the scale t it needed.
+fn gamut_map(r: vec3<f32>, yo: u32, peak: f32) -> vec4<f32> {
+    let yy = clamp(pf(yo) * r.x + pf(yo + 1u) * r.y + pf(yo + 2u) * r.z, 0.0, peak);
     var t = 1.0;
     for (var k = 0u; k < 3u; k++) {
         let c = r[k];
         if (c < 0.0) {
             t = min(t, yy / max(yy - c, 1e-9));
-        } else if (c > 1.0) {
-            t = min(t, (1.0 - yy) / max(c - yy, 1e-9));
+        } else if (c > peak) {
+            t = min(t, (peak - yy) / max(c - yy, 1e-9));
         }
     }
     if (t < 1.0) {
@@ -842,8 +850,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         d = vec3<f32>(o) + (d - vec3<f32>(o)) * k;
     }
     let mx = max(d.x, max(d.y, d.z));
-    if (mx > 1.0) {
-        let t = clamp((mx - 1.0) / max(mx - o, 1e-6), 0.0, 1.0);
+    // (an HDR render keeps colour up to its peak)
+    let peak = pf(F_PEAK);
+    let hdr = peak > 1.0;
+    if (mx > peak) {
+        let t = clamp((mx - peak) / max(mx - o, 1e-6), 0.0, 1.0);
         d = d + (o - d) * t;
     }
 
@@ -888,6 +899,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 } else {
                     d = d * f;
                 }
+            } else if (hdr) {
+                // lighten towards SDR white; never pull HDR highlights down to it
+                d = d + max(vec3<f32>(1.0) - d, vec3<f32>(0.0)) * amount * t * 0.85;
             } else {
                 d = d + (1.0 - d) * amount * t * 0.85;
             }
@@ -900,7 +914,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var r: vec3<f32>;
     if (pu(F_PROOF) != 0u) {
         let q0 = mul3(mat_at(F_PROOF_M), d);
-        let gq = gamut_map(q0, F_PROOF_Y);
+        let gq = gamut_map(q0, F_PROOF_Y, peak);
         if (pu(F_PROOF_DEST_WARN) != 0u && out_of_gamut(q0, gq.w)) {
             warn = 1u;
         }
@@ -908,24 +922,35 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     } else {
         r = mul3(mat_at(F_OUT_M), d);
     }
-    let go = gamut_map(r, F_OUT_Y);
+    let go = gamut_map(r, F_OUT_Y, peak);
     if (pu(F_PROOF) != 0u && pu(F_PROOF_DISP_WARN) != 0u && warn == 0u && out_of_gamut(r, go.w)) {
         warn = 2u;
     }
     r = go.xyz;
 
     // --- encode, curves, grain
-    var e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
+    var e: vec3<f32>;
+    if (pu(F_HDR_OUT) != 0u) {
+        // a float render (`finish::finish_deep`): the exact sRGB curve, unbounded above SDR white
+        e = vec3<f32>(lin_to_srgb(max(r.x, 0.0)), lin_to_srgb(max(r.y, 0.0)), lin_to_srgb(max(r.z, 0.0)));
+    } else {
+        e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
+    }
     if (pu(F_CURVES) != 0u) {
         let e0 = e;
-        e = vec3<f32>(curve(0u, e.x), curve(1u, e.y), curve(2u, e.z));
+        if (hdr) {
+            // above SDR white the curves continue with slope 1 from their end point
+            e = vec3<f32>(curve_hdr(0u, e.x), curve_hdr(1u, e.y), curve_hdr(2u, e.z));
+        } else {
+            e = vec3<f32>(curve(0u, e.x), curve(1u, e.y), curve(2u, e.z));
+        }
         let rs = pf(F_REFINE_SAT);
         if (rs < 1.0) {
             e = refine_saturation(e0, e, rs);
         }
     }
     if (pu(F_LOCAL) != 0u) {
-        e = local_curves(e, i, n);
+        e = local_curves(e, i, n, hdr);
     }
     if (pu(F_GRAIN) != 0u) {
         let px = f32(x) + 0.5;
@@ -940,14 +965,55 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
     if (pu(F_LUT) != 0u) {
-        let m = lut_apply(clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)));
-        e = e + (m - e) * pf(F_LUT_AMT);
+        if (hdr) {
+            // the LUT sees SDR values; the part above SDR white is carried over
+            let c = clamp(e, vec3<f32>(0.0), vec3<f32>(1.0));
+            let m = lut_apply(c);
+            e = e + (m - c) * pf(F_LUT_AMT);
+        } else {
+            let m = lut_apply(clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)));
+            e = e + (m - e) * pf(F_LUT_AMT);
+        }
     }
     if (warn == 1u) {
         e = vec3<f32>(PROOF_DEST_R, PROOF_DEST_G, PROOF_DEST_B);
     } else if (warn == 2u) {
         e = vec3<f32>(PROOF_DISP_R, PROOF_DISP_G, PROOF_DISP_B);
     }
+    if (pu(F_HDR_OUT) != 0u) {
+        // linear in the output primaries, up to the peak (`OutputDepth::F32Hdr`); the fourth word
+        // marks the pixel written
+        let o = i * 4u;
+        out[o] = bitcast<u32>(clamp(srgb_to_lin(max(e.x, 0.0)), 0.0, peak));
+        out[o + 1u] = bitcast<u32>(clamp(srgb_to_lin(max(e.y, 0.0)), 0.0, peak));
+        out[o + 2u] = bitcast<u32>(clamp(srgb_to_lin(max(e.z, 0.0)), 0.0, peak));
+        out[o + 3u] = bitcast<u32>(1.0);
+        return;
+    }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x) | (enc8(e.y) << 8u) | (enc8(e.z) << 16u) | (255u << 24u);
+}
+
+// `transfer::linear_to_srgb`: exact, unbounded above 1.
+fn lin_to_srgb(v: f32) -> f32 {
+    if (v <= 0.0031308) {
+        return v * 12.92;
+    }
+    return 1.055 * pow(v, 1.0 / 2.4) - 0.055;
+}
+
+// `transfer::srgb_to_linear`: exact, unbounded above 1.
+fn srgb_to_lin(v: f32) -> f32 {
+    if (v <= 0.04045) {
+        return v / 12.92;
+    }
+    return pow((v + 0.055) / 1.055, 2.4);
+}
+
+// A tone curve continued above SDR white with slope 1 from its end point (HDR renders).
+fn curve_hdr(ch: u32, x: f32) -> f32 {
+    if (x > 1.0) {
+        return curve(ch, 1.0) + (x - 1.0);
+    }
+    return curve(ch, x);
 }

@@ -28,6 +28,7 @@ pub mod import_tab;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
+pub mod machine_test;
 pub mod mask_thumbs;
 pub mod menu_level;
 pub mod menubar;
@@ -593,6 +594,15 @@ pub struct LightcraftApp {
     /// Say once, when the GPU device has been tried, that no graphics processor was found
     /// ([`panels::notices::gpu_notice`]). The desktop app sets it; headless sessions and tests don't.
     pub gpu_notice: bool,
+    /// The last GPU event told (`lightcraft_gpu::events_after`: the graphics card stopped
+    /// responding, was restarted …).
+    gpu_event_seen: u64,
+    /// The window's size last frame: a resize asks the GPU's batch work (exports) to make room.
+    last_screen: egui::Vec2,
+    /// The export lanes, processor-only switch and GPU share last applied (install settings).
+    export_tuning_applied: Option<(u32, bool, u32, u32)>,
+    /// "Test my machine" while it runs (Settings ▸ Performance).
+    pub machine: Option<machine_test::MachineTask>,
     /// The memory budget setting last applied (MB, 0 = automatic).
     memory_applied: Option<u32>,
     /// The display profile setting last applied (`app.displayProfile`).
@@ -694,6 +704,10 @@ impl LightcraftApp {
             window_is_fullscreen: false,
             gpu_applied: None,
             gpu_notice: false,
+            gpu_event_seen: 0,
+            last_screen: egui::Vec2::ZERO,
+            export_tuning_applied: None,
+            machine: None,
             memory_applied: None,
             display_applied: None,
             display_error: None,
@@ -1574,6 +1588,28 @@ impl LightcraftApp {
         }
     }
 
+    /// The window and the GPU's batch work (exports): a resize makes room for the window's own
+    /// drawing first (`lightcraft_gpu::hold_batch`: the surface is reconfigured, which waits for
+    /// the GPU); what happened to the GPU (it stopped responding, it was restarted) is told once.
+    fn gpu_housekeeping(&mut self, ctx: &egui::Context) {
+        let screen = ctx.content_rect().size();
+        if screen != self.last_screen {
+            if self.last_screen != egui::Vec2::ZERO {
+                lightcraft_engine::gpu::hold_batch(std::time::Duration::from_millis(800));
+            }
+            self.last_screen = screen;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        for e in lightcraft_engine::gpu::events_after(self.gpu_event_seen) {
+            self.gpu_event_seen = self.gpu_event_seen.max(e.seq);
+            let text = crate::i18n::tr(&e.text).to_string();
+            match e.kind {
+                lightcraft_engine::gpu::EventKind::Recovered => self.toast_for(ctx, text, 8.0),
+                _ => self.toast_for(ctx, text, 15.0),
+            }
+        }
+    }
+
     /// Apply settings that act outside the UI state: GPU rendering and window full screen.
     fn apply_settings(&mut self, ctx: &egui::Context) {
         if self.gpu_applied != Some(self.ui.settings.gpu) {
@@ -1592,6 +1628,14 @@ impl LightcraftApp {
             let _ = self.session.execute("app.memoryBudget", &serde_json::json!({"mb": mb}));
         }
         self.memory_applied = Some(mb);
+        // export lanes and the GPU's share for exports (Settings ▸ Performance, "Test my machine")
+        let st = &self.ui.settings;
+        let tuning = (st.export_lanes, st.export_cpu_only, st.gpu_export_mb, st.gpu_export_jobs);
+        if self.export_tuning_applied != Some(tuning) {
+            crate::machine_test::apply(st);
+            self.export_tuning_applied = Some(tuning);
+        }
+        self.gpu_housekeeping(ctx);
         // the monitor profile (Settings ▸ Display): previews follow it from the next frame
         if self.display_applied.as_ref() != Some(&self.ui.settings.display_profile) {
             let path = self.ui.settings.display_profile.clone();
@@ -1827,6 +1871,7 @@ impl LightcraftApp {
         panels::dialogs::show(self, &ctx);
         panels::library_problem::show(self, &ctx);
         export_task::poll(self, &ctx);
+        machine_test::poll(self, &ctx);
         slideshow_export::poll(self, &ctx);
         panels::activity::show(self, &ctx);
         export_task::poll_photos(self, &ctx);

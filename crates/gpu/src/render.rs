@@ -23,6 +23,8 @@ pub struct GpuStages {
     entries: Mutex<Vec<Entry>>,
     /// The uploaded source (a view renders one photo at several sizes).
     source: Mutex<Option<(Arc<Rgb32f>, Arc<Buf>)>>,
+    /// The device generation the buffers belong to (0: none yet; see [`GpuStages::adopt_generation`]).
+    generation: std::sync::atomic::AtomicU64,
 }
 
 const CAPACITY: usize = 2;
@@ -144,6 +146,15 @@ impl GpuStages {
         total
     }
 
+    /// Use these stages on the device of `generation`: what was cached on another one (a device
+    /// that failed and was replaced) is dropped first.
+    pub(crate) fn adopt_generation(&self, generation: u64) {
+        use std::sync::atomic::Ordering;
+        if self.generation.swap(generation, Ordering::Relaxed) != generation {
+            self.clear();
+        }
+    }
+
     /// Drop everything (e.g. when memory is needed).
     pub fn clear(&self) {
         self.lock().clear();
@@ -162,6 +173,8 @@ pub(crate) struct Cx<'a> {
     enc: Option<wgpu::CommandEncoder>,
     /// Kernel invocations recorded since the last submit.
     pending: u64,
+    /// The last submission (a batch render waits for it before the next: see `gate::throttle`).
+    last: Option<wgpu::SubmissionIndex>,
 }
 
 /// Kernel invocations recorded before a render submits them (under one full-size pass over a
@@ -173,7 +186,7 @@ const BAND_PIXELS: usize = 4 << 20;
 
 impl<'a> Cx<'a> {
     pub fn new(gpu: &'a Gpu) -> Cx<'a> {
-        Cx { gpu, enc: Some(gpu.encoder()), pending: 0 }
+        Cx { gpu, enc: Some(gpu.encoder()), pending: 0, last: None }
     }
 
     /// Record kernel `name` (see [`Gpu::run`]).
@@ -201,7 +214,12 @@ impl<'a> Cx<'a> {
     pub fn flush(&mut self) {
         self.pending = 0;
         if let Some(enc) = self.enc.take() {
-            self.gpu.submit([enc.finish()]);
+            // an export keeps one submission queued at a time: the window's frames slot in between
+            if !crate::gate::throttle(&self.gpu.device, self.last.take()) {
+                fail(FailKind::Busy, "the GPU did not finish an earlier step in time (busy)".into());
+                return;
+            }
+            self.last = Some(self.gpu.submit([enc.finish()]));
         }
     }
 
@@ -511,10 +529,11 @@ static SOURCE_UPLOADS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU
 /// stages; it is released with the buffer pool when the app idles.
 static SHARED_SOURCE: std::sync::Mutex<Option<(std::sync::Weak<Rgb32f>, Arc<Buf>)>> = std::sync::Mutex::new(None);
 
-fn shared_source(src: &Arc<Rgb32f>, upload: impl FnOnce() -> Buf) -> Arc<Buf> {
+fn shared_source(src: &Arc<Rgb32f>, generation: u64, upload: impl FnOnce() -> Buf) -> Arc<Buf> {
     let mut g = SHARED_SOURCE.lock().unwrap_or_else(|e| e.into_inner());
     if let Some((weak, buf)) = &*g
         && weak.upgrade().is_some_and(|s| Arc::ptr_eq(&s, src))
+        && buf.generation() == generation
     {
         return buf.clone();
     }
@@ -653,7 +672,13 @@ pub enum Output {
 /// spots grew), and the texture fits the device.
 fn can_display(gpu: &Gpu, plan: &Plan<'_>, req: &RenderRequest) -> bool {
     let max = gpu.device.limits().max_texture_dimension_2d as usize;
-    gpu.window && req.overlay == lightcraft_pipeline::Overlay::None && plan.keep.is_none() && plan.w <= max && plan.h <= max && plan.w * plan.h > 0
+    gpu.window
+        && req.depth == lightcraft_pipeline::OutputDepth::U8
+        && req.overlay == lightcraft_pipeline::Overlay::None
+        && plan.keep.is_none()
+        && plan.w <= max
+        && plan.h <= max
+        && plan.w * plan.h > 0
 }
 
 /// Render on `gpu`, reusing `stages` (if given); with `display`, into a texture when
@@ -667,6 +692,7 @@ pub fn render(
     s: &DevelopSettings,
     req: &RenderRequest,
     stages: Option<&GpuStages>,
+    host_stages: Option<&lightcraft_pipeline::StageCache>,
     fault: Option<crate::Fault>,
     display: bool,
 ) -> Option<Output> {
@@ -711,7 +737,9 @@ pub fn render(
             // cut from the photo's own pixels, and what its stages keep is its own sampled pixels)
             let src_buf = match stages {
                 Some(c) if src.data.len() * 12 <= RETAIN_SOURCE_BYTES => c.source(src, upload),
-                Some(_) => shared_source(src, upload),
+                // (an export keeps its own: photos side by side would take the one copy from each other)
+                Some(_) if !crate::gate::is_batch() => shared_source(src, gpu.generation, upload),
+                Some(_) => Arc::new(upload()),
                 None => Arc::new(upload()),
             };
             sample(&mut cx, src, src_buf, &plan)
@@ -731,6 +759,21 @@ pub fn render(
         None => Arc::new(linear(&mut cx, &sampled, info, &plan, &mut host)),
     };
     lap("wb/nr", &mut t, &mut cx);
+    // host copies for a CPU render of the same plan that follows (an export's HDR rendition)
+    if let Some(hc) = host_stages.filter(|c| c.keeps_host_stages()) {
+        let sampled_host = match host.sampled.take() {
+            Some(img) => Arc::new(img),
+            None => Arc::new(cx.read_rgb(&sampled, w, h)),
+        };
+        let lin_host = match &host.lin {
+            Some(l) => l.clone(),
+            None => Arc::new(cx.read_rgb(&lin, w, h)),
+        };
+        host.lin = Some(lin_host.clone());
+        if !crate::ctx::failed() {
+            hc.seed_linear(src, plan.geo, sampled_host, plan.lin_key, lin_host);
+        }
+    }
 
     // 3. spatial planes
     let mut planes = match cached.map(|e| e.planes) {
@@ -776,10 +819,23 @@ pub fn render(
         (Some(b), None) | (None, Some(b)) => Some(b.clone()),
         (None, None) => None,
     };
-    let (p, aux) = finish_block(&fp, &terms, &present);
+    let (mut p, aux) = finish_block(&fp, &terms, &present);
+    // a float HDR render (`OutputDepth::F32Hdr`): 4 words a pixel out (see `finish.wgsl`)
+    let hdr_out = req.depth == lightcraft_pipeline::OutputDepth::F32Hdr;
+    if hdr_out && let Some(at) = crate::params::index("HDR_OUT") {
+        p[at] = 1;
+    }
+    if hdr_out && plan.keep.is_some() {
+        fail(FailKind::Limit, "a window of an HDR render that spots grew: the CPU cuts it".into());
+        return None;
+    }
+    if hdr_out && !gpu.fits(n * 4) {
+        fail(FailKind::Limit, format!("{w}×{h} HDR output needs {} MiB, over the device's buffer limit", (n * 16).div_ceil(1 << 20)));
+        return None;
+    }
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let out = cx.zeroed(n);
+    let out = cx.zeroed(if hdr_out { n * 4 } else { n });
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -787,7 +843,6 @@ pub fn render(
     // in bands of rows: each dispatch (and submission) stays short on a slow GPU
     let rows = (BAND_PIXELS / w.max(1) / 16 * 16).max(16); // whole workgroups: bands never overlap
     let y0_at = crate::params::index("Y0").unwrap_or(0);
-    let mut p = p;
     for y0 in (0..h).step_by(rows).filter(|_| fault != Some(crate::Fault::DropWork)) {
         p[y0_at] = y0 as u32;
         cx.run(
@@ -839,6 +894,9 @@ pub fn render(
     } else {
         None
     };
+    if hdr_out {
+        return hdr_image(&mut cx, &out, w, h, req, &mut t);
+    }
     let data: Vec<[u8; 4]> = cx.read(&out, n);
     let image = Rgba8 { width: w, height: h, data };
     lap("finish + readback", &mut t, &mut cx);
@@ -878,6 +936,37 @@ pub fn render(
         image = image.crop(k.x, k.y, k.w, k.h);
     }
     Some(Output::Image(Rendered { image, histogram, deep: None }))
+}
+
+/// The float HDR render's output (`out`: 4 words a pixel, see `finish.wgsl`) read back as the
+/// render's deep samples, with the 8-bit image and histogram the CPU's deep render gives too. Every
+/// pixel must have been written (its fourth word 1.0).
+fn hdr_image(cx: &mut Cx<'_>, out: &Buf, w: usize, h: usize, req: &RenderRequest, t: &mut Option<std::time::Instant>) -> Option<Output> {
+    let n = w * h;
+    let px: Vec<[f32; 4]> = cx.read(out, n * 4);
+    if let Some(t) = t {
+        eprintln!("  gpu finish (HDR) + readback: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+        *t = std::time::Instant::now();
+    }
+    if crate::ctx::failed() || px.len() != n {
+        return None;
+    }
+    let unwritten = px.iter().filter(|p| p[3] != 1.0).count();
+    if unwritten > 0 {
+        fail(FailKind::Fatal, format!("the GPU returned an incomplete HDR image ({unwritten} of {n} pixels unwritten)"));
+        return None;
+    }
+    let mut v = vec![0f32; n * 3];
+    lightcraft_raster::par_rows(&mut v, (w * 3).max(1), |y, row| {
+        let src = px.get(y * w..(y + 1) * w).unwrap_or(&[]);
+        for (o, p) in row.as_chunks_mut::<3>().0.iter_mut().zip(src) {
+            *o = [p[0], p[1], p[2]];
+        }
+    });
+    let deep = lightcraft_pipeline::DeepImage { width: w, height: h, space: req.space, samples: lightcraft_pipeline::DeepSamples::F32(v) };
+    let image = deep.to_rgba8();
+    let histogram = Histogram::of_srgb8(&image);
+    Some(Output::Image(Rendered { image, histogram, deep: Some(deep) }))
 }
 
 /// The finished output `out` (`w × h` packed RGBA8) as a texture on the device, with its
@@ -968,12 +1057,89 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
     if !lightcraft_pipeline::skin_needs_cpu(s) {
         return img;
     }
-    // Smooth Skin and the retouch of people's parts: the CPU's (the same code renders both, so they match)
+    // Smooth Skin on the device when every bucket's region fits its buffers (`skin_gpu`)
+    let skin_done = skin_gpu(cx, &img, plan);
+    if skin_done && !lightcraft_pipeline::retouch::active(s) {
+        return img;
+    }
+    // the retouch of people's parts (and Smooth Skin when it didn't fit): the CPU's (the same code
+    // renders both, so they match)
     let mut host_img = cx.read_rgb(&img, w, h);
-    lightcraft_pipeline::retouch_people(&mut host_img, s, &plan.frame, plan.px_per_long);
+    lightcraft_pipeline::timed("smooth skin", || {
+        if !skin_done {
+            lightcraft_pipeline::skin::apply(&mut host_img, s, &plan.frame, plan.px_per_long);
+        }
+    });
+    lightcraft_pipeline::timed("retouch", || lightcraft_pipeline::retouch::apply(&mut host_img, s, &plan.frame, plan.px_per_long));
     let buf = cx.gpu.upload(rgb_words(&host_img));
     host.lin = Some(Arc::new(host_img));
     buf
+}
+
+/// Smooth Skin (`lightcraft_pipeline::skin`) on the device, in place on `img`, from the CPU's plan
+/// (coverage and regions): `true` when done, `false` when there is nothing to do or a region is
+/// over the device's buffer limit (the CPU does it then).
+fn skin_gpu(cx: &mut Cx<'_>, img: &Buf, plan: &Plan<'_>) -> bool {
+    use lightcraft_pipeline::skin;
+    let (w, h) = (plan.w, plan.h);
+    let Some(work) = skin::plan(w, h, &plan.settings, &plan.frame, plan.px_per_long) else { return false };
+    if work.buckets.iter().any(|b| !cx.gpu.fits(b.region[2] * b.region[3] * 4)) || !cx.gpu.fits(work.cover.data.len()) {
+        return false;
+    }
+    let t = profiling().then(std::time::Instant::now);
+    let cov = cx.gpu.upload(&work.cover.data);
+    let (ox, oy) = work.origin;
+    let (cw, ch) = (work.cover.width, work.cover.height);
+    let [kr, kg, kb, eps] = skin::LAB_CONSTANTS;
+    let consts = skin::combine_constants(&work.params);
+    for b in &work.buckets {
+        let [rx0, ry0, rw, rh] = b.region;
+        let groups = groups2(rw, rh, [16, 16]);
+        let mut p = vec![w as u32, rx0 as u32, ry0 as u32, rw as u32, rh as u32, ox as u32, oy as u32, cw as u32, ch as u32];
+        p.extend([skin::MIN_COVER, kr, kg, kb, eps].map(f32::to_bits));
+        let lab = cx.gpu.buffer(rw * rh * 4);
+        cx.run("skin_lab", &p, &[Some(img), Some(&cov), Some(&lab), None, None, None], groups);
+        let fine = gaussian(cx, &lab, rw, rh, 4, b.fine_sigma());
+        // the wide bands on reduced copies (`skin::Reduced`)
+        let band = |cx: &mut Cx<'_>, sigma: f64| -> (Buf, usize, usize, usize) {
+            let (f, blur) = skin::reduction(sigma);
+            if f == 1 {
+                return (gaussian(cx, &lab, rw, rh, 4, blur), 1, rw, rh);
+            }
+            let (dw, dh) = (rw.div_ceil(f), rh.div_ceil(f));
+            let small = cx.gpu.buffer(dw * dh * 4);
+            // (the unused writable binding gets a buffer of its own: the shared placeholder is bound read-only too)
+            let scratch = cx.gpu.buffer(1);
+            cx.run(
+                "skin_reduce",
+                &[rw as u32, rh as u32, f as u32, dw as u32, dh as u32],
+                &[Some(&scratch), None, Some(&small), Some(&lab), None, None],
+                groups2(dw, dh, [16, 16]),
+            );
+            (gaussian(cx, &small, dw, dh, 4, blur), f, dw, dh)
+        };
+        let (mid, mf, mw, mh) = band(cx, b.mid_sigma());
+        let (low, lf, lw, lh) = band(cx, b.low_sigma());
+        let mut mask = [0u32; 2];
+        for &m in &b.members {
+            if let Some(word) = mask.get_mut(m / 32) {
+                *word |= 1 << (m % 32);
+            }
+        }
+        let faces = work.faces.len().min(64);
+        let mut p = vec![w as u32, rx0 as u32, ry0 as u32, rw as u32, rh as u32, ox as u32, oy as u32, cw as u32, ch as u32];
+        p.extend([mf, mw, mh, lf, lw, lh].map(|v| v as u32));
+        p.extend([b.all as u32, faces as u32, mask[0], mask[1]]);
+        p.extend(consts.map(f32::to_bits));
+        p.extend([skin::MIN_COVER, skin::SHINE[0], skin::SHINE[1], kr, kg, kb, eps].map(f32::to_bits));
+        p.extend(work.faces.iter().take(64).flat_map(|f| [f.x as f32, f.y as f32, f.d as f32]).map(f32::to_bits));
+        cx.run("skin_combine", &p, &[Some(img), Some(&cov), Some(&lab), Some(&fine), Some(&mid), Some(&low)], groups);
+    }
+    if let Some(t) = t {
+        cx.sync();
+        eprintln!("    gpu smooth skin ({} buckets): {:.1} ms", work.buckets.len(), t.elapsed().as_secs_f64() * 1e3);
+    }
+    true
 }
 
 /// Defringe (`optics::defringe`) of the white-balanced image.
@@ -1568,7 +1734,7 @@ mod tests {
         let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use lightcraft_raster::blur;
         let Some(gpu) = crate::device() else { return };
-        let _scope = crate::ctx::RenderScope::new(gpu);
+        let _scope = crate::ctx::RenderScope::new(&gpu);
         let v = |x: usize, y: usize, c: usize| ((x * 7 + y * 13 + c * 5) % 17) as f32 / 16.0 + if x % 61 < 3 { 2.0 } else { 0.0 };
         for (w, h) in [(1000, 5), (257, 3), (5, 4), (1, 9)] {
             for sigma in [0.8f32, 2.0, 4.5, 30.0, 250.0, 1000.0] {
@@ -1576,7 +1742,7 @@ mod tests {
                 let want: Vec<Plane> = planes.iter().map(|p| blur::gaussian(p, sigma)).collect();
                 for nc in [1, 2, 3] {
                     let words: Vec<f32> = (0..w * h).flat_map(|i| (0..nc).map(move |c| (i, c))).map(|(i, c)| planes[c].data[i]).collect();
-                    let mut cx = Cx::new(gpu);
+                    let mut cx = Cx::new(&gpu);
                     let src = gpu.upload(&words);
                     let out = gaussian(&mut cx, &src, w, h, nc, sigma);
                     let got: Vec<f32> = cx.read(&out, w * h * nc);
@@ -1596,14 +1762,14 @@ mod tests {
         // (creating the device writes the crash sentinel another test swaps out)
         let _serial = crate::DEVICE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let Some(gpu) = crate::device() else { return };
-        let _scope = crate::ctx::RenderScope::new(gpu);
+        let _scope = crate::ctx::RenderScope::new(&gpu);
         let (w, h) = (6000, 4000);
         eprintln!("{} ({:?})", gpu.info.name, gpu.info.backend);
         let src = gpu.upload(&vec![0.5f32; w * h * 3]);
         let time = |name: &str, f: &mut dyn FnMut(&mut Cx<'_>)| {
             let mut best = f64::MAX;
             for _ in 0..5 {
-                let mut cx = Cx::new(gpu);
+                let mut cx = Cx::new(&gpu);
                 cx.sync();
                 let t = std::time::Instant::now();
                 f(&mut cx);
@@ -1642,12 +1808,12 @@ mod tests {
             assert!(!why.contains("kernels failed to build"), "{why}");
             return;
         };
-        let _scope = crate::ctx::RenderScope::new(gpu);
+        let _scope = crate::ctx::RenderScope::new(&gpu);
         let img = lightcraft_scenes::demo_library()[3].render(640, 427);
         let buf = gpu.upload(rgb_words(&img));
         let mut differ = Vec::new();
         for (tx, ty, r) in [(25.6, 213.0, 19.2), (320.0, 192.0, 19.2), (100.0, 50.0, 12.0), (600.0, 400.0, 25.0), (320.0, 213.0, 6.0)] {
-            let mut cx = Cx::new(gpu);
+            let mut cx = Cx::new(&gpu);
             let g = auto_source(&mut cx, &buf, img.width, img.height, (tx, ty), r);
             let c = lightcraft_pipeline::spots::auto_source(&img, (tx, ty), r);
             if g != c {
