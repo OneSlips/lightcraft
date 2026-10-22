@@ -1727,6 +1727,8 @@ mod tests_merge;
 mod tests_move_to_share;
 #[cfg(test)]
 mod tests_organize;
+#[cfg(all(test, feature = "sam"))]
+mod tests_people_persist;
 #[cfg(test)]
 mod tests_persist;
 #[cfg(test)]
