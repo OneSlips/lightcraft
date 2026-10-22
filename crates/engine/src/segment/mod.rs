@@ -57,6 +57,9 @@ const WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 pub const MAX_CLICKS: usize = 64;
 /// Long edge of the image the openly licensed models (SAM 2.1, BiRefNet, EoMT) see.
 pub const AUTO_EDGE: usize = 1024;
+/// Long edge of the sharper render a People selection crops a group's people from (rendered only
+/// when the photo has people too small for the whole-image class map).
+pub const FINE_EDGE: usize = 3072;
 
 /// An automatic AI selection (no clicks, no words): what it selects.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -591,9 +594,11 @@ impl Segmenter {
                 };
                 // skin leaves the face's features out when the face model is there to find them
                 let skin = parts.iter().any(|p| p.to_ascii_lowercase().contains("skin"));
+                // and, for any part of the body, the faces (when that model is there) keep clothes
+                // off faces, drop what isn't on a person and crop a group's people for the class map
                 let face = if need_face {
                     Some(self.require_model("face"))
-                } else if skin {
+                } else if skin || body {
                     ok("face").map(Ok)
                 } else {
                     None
@@ -612,8 +617,10 @@ impl Segmenter {
                     (people, face) => Ok(AutoModel::People {
                         people: people.and_then(Result::ok),
                         face: face.and_then(Result::ok),
-                        scene: None,
-                        // one person of several: their silhouette from SAM 2.1
+                        // one person of several: everyone's figure from EoMT, so people without a
+                        // face found (a groom kissing in profile, a bystander) stay out
+                        scene: if *person > 0 || who.is_some() { ok("scene") } else { None },
+                        // and their silhouette from SAM 2.1
                         sam2: if *person > 0 || who.is_some() { ok("sam2") } else { None },
                     }),
                 }
@@ -827,12 +834,18 @@ impl Session {
                 job
             }
         };
+        // a People selection may crop a group's people from a sharper render (run only when needed)
+        let fine = match &kind {
+            worker::Kind::Auto { what: AutoKind::People { .. }, .. } if region.is_none() => self.preview_job(id, FINE_EDGE, FINE_EDGE, false, &d),
+            _ => None,
+        };
         Ok(worker::Job {
             dir,
             sam2,
             detector,
             key: if region.is_some() { 0 } else { key },
             render: Some(render),
+            fine,
             missing,
             kind,
             tag,

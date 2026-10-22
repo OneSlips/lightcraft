@@ -103,6 +103,186 @@ impl PeopleModel {
         }
         Ok(PeopleMap { side, probs: mediapipe::selfie_softmax(&logits) })
     }
+
+    /// Class probabilities for the part `bx` (photo pixels `[x0, y0, x1, y1]`) of `rgb` (`w × h`),
+    /// that part stretched to the model's input (supersampled, so a crop larger than the input is
+    /// averaged rather than aliased).
+    pub fn segment_crop(&self, rgb: &[u8], w: usize, h: usize, bx: [f32; 4]) -> Result<PeopleMap> {
+        let side = mediapipe::SELFIE_INPUT;
+        let input = crop_input(rgb, w, h, bx, side);
+        let out = self.net.run(&[&input])?;
+        let logits = out.into_iter().next().ok_or_else(|| Error::Message("Selfie Multiclass gave no output".into()))?;
+        if logits.len() != side * side * mediapipe::SELFIE_CLASSES.len() {
+            return Err(Error::Message("Selfie Multiclass: unexpected output size".into()));
+        }
+        Ok(PeopleMap { side, probs: mediapipe::selfie_softmax(&logits) })
+    }
+
+    /// The class map of the whole image (`whole`, from [`PeopleModel::segment`]) with the people
+    /// in `boxes` (normalized `[x0, y0, x1, y1]`, from [`person_boxes`]) segmented again on their
+    /// own crops of `rgb` (`w × h`: the sharpest render at hand, any size) and pasted back, as a
+    /// `side × side` map. A group's people are a few cells tall in the whole image's 256-cell map,
+    /// so its clothes, skin and hair blur into each other and onto the grass; on a crop each person
+    /// fills the model's input. Where crops overlap they blend, fading out towards their inner
+    /// edges; outside every crop the whole map stays. The crops run in parallel.
+    pub fn segment_people(&self, rgb: &[u8], w: usize, h: usize, whole: &PeopleMap, boxes: &[[f32; 4]], side: usize) -> Result<PeopleMap> {
+        use rayon::prelude::*;
+        let boxes: Vec<[f32; 4]> =
+            boxes.iter().take(MAX_CROPS).copied().filter(|b| b.iter().all(|v| v.is_finite()) && b[2] > b[0] && b[3] > b[1]).collect();
+        let (fw, fh) = (w as f32, h as f32);
+        let crops: Vec<PeopleMap> =
+            boxes.par_iter().map(|b| self.segment_crop(rgb, w, h, [b[0] * fw, b[1] * fh, b[2] * fw, b[3] * fh])).collect::<Result<Vec<_>>>()?;
+        Ok(paste_crops(whole, &boxes, &crops, side))
+    }
+}
+
+/// The class map `whole` with `crops` (each the class map of its box of `boxes`, normalized
+/// `[x0, y0, x1, y1]`) pasted back, as a `side × side` map: where crops overlap they blend, each
+/// fading out over its inner tenth on the sides the photo goes on past; outside every crop the
+/// whole map stays.
+pub fn paste_crops(whole: &PeopleMap, boxes: &[[f32; 4]], crops: &[PeopleMap], side: usize) -> PeopleMap {
+    let n = mediapipe::SELFIE_CLASSES.len();
+    let side = side.clamp(16, 2048);
+    let mut acc = vec![0f32; side * side * n];
+    let mut weight = vec![0f32; side * side];
+    for (b, map) in boxes.iter().zip(crops) {
+        let (i0, i1) = (((b[0] * side as f32).floor().max(0.0) as usize).min(side), ((b[2] * side as f32).ceil().max(0.0) as usize).min(side));
+        let (j0, j1) = (((b[1] * side as f32).floor().max(0.0) as usize).min(side), ((b[3] * side as f32).ceil().max(0.0) as usize).min(side));
+        // fade over the inner tenth of the crop on each side the photo goes on past
+        let fade = |t: f32, lo_open: bool, hi_open: bool| -> f32 {
+            let lo = if lo_open { (t / 0.1).clamp(0.0, 1.0) } else { 1.0 };
+            let hi = if hi_open { ((1.0 - t) / 0.1).clamp(0.0, 1.0) } else { 1.0 };
+            lo.min(hi)
+        };
+        for j in j0..j1 {
+            let v = (j as f32 + 0.5) / side as f32;
+            let t = (v - b[1]) / (b[3] - b[1]);
+            if !(0.0..=1.0).contains(&t) {
+                continue;
+            }
+            let wy = fade(t, b[1] > 0.001, b[3] < 0.999);
+            for i in i0..i1 {
+                let u = (i as f32 + 0.5) / side as f32;
+                let s = (u - b[0]) / (b[2] - b[0]);
+                if !(0.0..=1.0).contains(&s) {
+                    continue;
+                }
+                let wt = wy * fade(s, b[0] > 0.001, b[2] < 0.999);
+                if wt <= 0.0 {
+                    continue;
+                }
+                let c = j * side + i;
+                if let Some(wc) = weight.get_mut(c) {
+                    *wc += wt;
+                }
+                for k in 0..n {
+                    if let Some(a) = acc.get_mut(c * n + k) {
+                        *a += wt * map.at(&[k], s, t);
+                    }
+                }
+            }
+        }
+    }
+    let mut probs = vec![0f32; side * side * n];
+    for c in 0..side * side {
+        let (u, v) = (((c % side) as f32 + 0.5) / side as f32, ((c / side) as f32 + 0.5) / side as f32);
+        let wc = weight.get(c).copied().unwrap_or(0.0);
+        // (a trace of the whole map, so a crop's fading edge blends into it)
+        let w0 = if wc > 0.0 { (1.0 - wc).max(1e-3) } else { 1.0 };
+        for k in 0..n {
+            let a = acc.get(c * n + k).copied().unwrap_or(0.0);
+            if let Some(p) = probs.get_mut(c * n + k) {
+                *p = (w0 * whole.at(&[k], u, v) + a) / (w0 + wc);
+            }
+        }
+    }
+    PeopleMap { side, probs }
+}
+
+/// Most people [`PeopleModel::segment_people`] crops (the rest keep the whole image's map).
+pub const MAX_CROPS: usize = 160;
+
+/// A person is cropped for the class map when they are shorter than this share of the photo's
+/// height (about 9.5 face heights): in the whole image's 256-cell map they'd be under ~85 cells.
+pub const CROP_BELOW: f32 = 1.0 / 3.0;
+
+/// The bodies of the small people among `faces` (in a `w × h` photo) as normalized boxes for
+/// [`PeopleModel::segment_people`]: from a little above the head to the feet (or the photo's
+/// edge), wide enough for a gown. Empty when everyone is large enough for the whole-image map
+/// (close-ups, couples): no crops, no extra time.
+pub fn person_boxes(faces: &[Face], w: usize, h: usize) -> Vec<[f32; 4]> {
+    if w == 0 || h == 0 {
+        return Vec::new();
+    }
+    let (fw, fh) = (w as f32, h as f32);
+    faces
+        .iter()
+        .filter_map(|f| {
+            let d = &f.detection;
+            let s = d.height().max(d.width());
+            if !(s.is_finite() && s > 0.0) || s * 9.5 >= fh * CROP_BELOW {
+                return None;
+            }
+            let [cx, cy] = d.center();
+            let b = [
+                ((cx - 3.5 * s) / fw).clamp(0.0, 1.0),
+                ((cy - 1.5 * s) / fh).clamp(0.0, 1.0),
+                ((cx + 3.5 * s) / fw).clamp(0.0, 1.0),
+                ((cy + 8.5 * s) / fh).clamp(0.0, 1.0),
+            ];
+            (b[2] > b[0] && b[3] > b[1]).then_some(b)
+        })
+        .take(MAX_CROPS)
+        .collect()
+}
+
+/// The model input for the part `bx` (photo pixels) of `rgb` (`w × h`): `side²` RGB in −1..1,
+/// each output pixel the mean of up to 4 × 4 bilinear samples over its footprint; black outside
+/// the photo.
+fn crop_input(rgb: &[u8], w: usize, h: usize, bx: [f32; 4], side: usize) -> Vec<f32> {
+    let mut out = vec![-1f32; side * side * 3];
+    if w == 0 || h == 0 || rgb.len() < w.saturating_mul(h).saturating_mul(3) || !bx.iter().all(|v| v.is_finite()) {
+        return out;
+    }
+    let (cw, ch) = ((bx[2] - bx[0]).max(1e-3), (bx[3] - bx[1]).max(1e-3));
+    let (dx, dy) = (cw / side as f32, ch / side as f32);
+    let (kx, ky) = ((dx.ceil() as usize).clamp(1, 4), (dy.ceil() as usize).clamp(1, 4));
+    let px = |x: isize, y: isize, c: usize| -> f32 {
+        if x < 0 || y < 0 || x as usize >= w || y as usize >= h {
+            return 0.0;
+        }
+        rgb.get((y as usize * w + x as usize) * 3 + c).map_or(0.0, |v| f32::from(*v))
+    };
+    let bilinear = |x: f32, y: f32, c: usize| -> f32 {
+        let (x0, y0) = (x.floor(), y.floor());
+        let (tx, ty) = (x - x0, y - y0);
+        let (xi, yi) = (x0 as isize, y0 as isize);
+        let top = px(xi, yi, c) * (1.0 - tx) + px(xi + 1, yi, c) * tx;
+        let bot = px(xi, yi + 1, c) * (1.0 - tx) + px(xi + 1, yi + 1, c) * tx;
+        top * (1.0 - ty) + bot * ty
+    };
+    for oy in 0..side {
+        for ox in 0..side {
+            let mut acc = [0f32; 3];
+            for sy in 0..ky {
+                for sx in 0..kx {
+                    let x = bx[0] + (ox as f32 + (sx as f32 + 0.5) / kx as f32) * dx - 0.5;
+                    let y = bx[1] + (oy as f32 + (sy as f32 + 0.5) / ky as f32) * dy - 0.5;
+                    for (c, a) in acc.iter_mut().enumerate() {
+                        *a += bilinear(x, y, c);
+                    }
+                }
+            }
+            let k = (kx * ky) as f32;
+            let o = (oy * side + ox) * 3;
+            for (c, a) in acc.iter().enumerate() {
+                if let Some(v) = out.get_mut(o + c) {
+                    *v = a / k / 127.5 - 1.0;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Face Landmarker: BlazeFace + FaceMesh-V2.
@@ -418,11 +598,6 @@ fn colour_guide(grid: &Grid, rgb: &[u8]) -> Option<Vec<f32>> {
     )
 }
 
-fn smoothstep(lo: f32, hi: f32, v: f32) -> f32 {
-    let t = ((v - lo) / (hi - lo)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
 /// A garment's coverage (`cov`, the grid's cells) cleaned up on the photo: the skin and hair of
 /// the person wearing it taken out (the class map's, its edges pulled onto the photo's by a
 /// colour guided filter — a neckline, bare arms and hands holding a bouquet aren't the dress),
@@ -445,14 +620,14 @@ fn clean_garment(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], map: Option<&Peopl
             .collect();
         let excl = matte::guided_filter_rgb(&excl, &guide, side, side, r, 1e-3);
         for (c, e) in cov.iter_mut().zip(&excl) {
-            *c *= 1.0 - smoothstep(0.3, 0.6, *e);
+            *c *= 1.0 - matte::smoothstep(0.3, 0.6, *e);
         }
     }
     // (a wider window for the garment's own edge, a 64th of the grid — 16 cells, four of SAM's
     // 256 — so it reaches past a halo of that width to the photo's edge)
     let refined = matte::guided_filter_rgb(cov, &guide, side, side, (side / 64).max(r), 1e-3);
     // steeper: the refined edge's soft tail (the halo) goes, the inside stays whole
-    *cov = refined.into_iter().map(|v| smoothstep(0.25, 0.75, v)).collect();
+    *cov = refined.into_iter().map(|v| matte::smoothstep(0.25, 0.75, v)).collect();
 }
 
 /// Whether a selection (`cov` over `grid`) is mostly on a person: at least half of what it selects
@@ -551,12 +726,238 @@ impl Instances {
         Instances { side, people, owners }
     }
 
+    /// Everyone's claims from two sources, either of which may be missing: `silhouettes` (SAM 2.1,
+    /// one per face, `side²` logits each) and `figures` (EoMT's people, `side²` logits each, found
+    /// whether or not their face was). A figure that holds exactly one of `faces` (in a `w × h`
+    /// photo) bounds that face's silhouette (or is their claim without one); a figure holding no
+    /// face is a person of its own who claims what is theirs (a groom kissing in profile, a
+    /// bystander cut by the frame), so it never goes to the others; a figure holding several faces
+    /// (a couple EoMT sees as one) decides nothing. `None` when nothing claims anything.
+    pub fn combine(side: usize, silhouettes: Option<Vec<Vec<f32>>>, figures: &[Vec<f32>], faces: &[Face], w: usize, h: usize) -> Option<Instances> {
+        let n = side.saturating_mul(side);
+        if n == 0 || w == 0 || h == 0 {
+            return None;
+        }
+        let seeds: Vec<[f32; 2]> = faces.iter().map(|f| f.detection.center()).map(|[x, y]| [x / w as f32, y / h as f32]).collect();
+        let cell = |p: [f32; 2]| -> Option<usize> {
+            if !p.iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            let x = ((p[0].clamp(0.0, 1.0) * side as f32) as usize).min(side - 1);
+            let y = ((p[1].clamp(0.0, 1.0) * side as f32) as usize).min(side - 1);
+            Some(y * side + x)
+        };
+        let figures: Vec<&Vec<f32>> = figures.iter().filter(|f| f.len() == n).collect();
+        // the faces on each figure (by the face's centre, or just below it: the chin)
+        let on: Vec<Vec<usize>> = figures
+            .iter()
+            .map(|f| {
+                faces
+                    .iter()
+                    .zip(&seeds)
+                    .enumerate()
+                    .filter(|(_, (face, [x, y]))| {
+                        let s = face.detection.height() / h as f32;
+                        [0.0, 0.5].iter().filter_map(|t| cell([*x, y + t * s])).any(|c| f.get(c).is_some_and(|l| *l > 0.0))
+                    })
+                    .map(|(k, _)| k)
+                    .collect()
+            })
+            .collect();
+        let floor = -16.0f32;
+        let mut people: Vec<Vec<f32>> = match silhouettes {
+            Some(s) if s.len() == faces.len() && s.iter().all(|l| l.len() == n) => s,
+            _ => vec![vec![floor; n]; faces.len()],
+        };
+        let mut any = people.iter().any(|p| p.iter().any(|l| *l > -1.0));
+        for (f, holds) in figures.iter().zip(&on) {
+            match holds.as_slice() {
+                [k] => {
+                    let Some(p) = people.get_mut(*k) else { continue };
+                    if p.iter().all(|l| *l <= floor) {
+                        p.clone_from(f);
+                    } else {
+                        // the silhouette, but not where the figure clearly isn't (a little margin:
+                        // the figure's outline is coarser than SAM's)
+                        for (a, b) in p.iter_mut().zip(f.iter()) {
+                            *a = a.min(*b + 4.0);
+                        }
+                    }
+                    any = true;
+                }
+                [] => {
+                    people.push((*f).clone());
+                    any = true;
+                }
+                _ => {}
+            }
+        }
+        any.then(|| Instances::new(side, people, &seeds))
+    }
+
     /// Whose cell normalized point (u, v) is; `None` where no one's.
     pub fn owner(&self, u: f32, v: f32) -> Option<usize> {
         let s = self.side.max(1);
         let x = ((u.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
         let y = ((v.clamp(0.0, 1.0) * s as f32) as usize).min(s - 1);
         self.owners.get(y * s + x).filter(|o| **o != matte::NOBODY).map(|o| usize::from(*o))
+    }
+}
+
+/// The people of a class map as connected figures on a grid (cells where the map sees a person,
+/// widened by a few cells for the soft fringe), and the faces standing on each.
+struct Figures {
+    label: Vec<u32>,
+    /// The faces on each figure.
+    faces_on: Vec<Vec<usize>>,
+    /// The figure each face stands on.
+    figure_of: Vec<Option<u32>>,
+    /// Face centres (normalized) and the photo's aspect, for "nearest face" within a figure.
+    centres: Vec<[f32; 2]>,
+    aspect: f32,
+}
+
+impl Figures {
+    fn new(grid: &Grid, map: &PeopleMap, faces: &[Face]) -> Option<Figures> {
+        let side = grid.side;
+        if side == 0 || grid.w == 0 || grid.h == 0 {
+            return None;
+        }
+        let r = grid.rect;
+        let norm = |i: usize, j: usize| -> (f32, f32) {
+            ((r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) as f32, (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) as f32)
+        };
+        let person: Vec<f32> = (0..side * side)
+            .map(|c| {
+                let (u, v) = norm(c % side, c / side);
+                1.0 - map.at(&[0], u, v)
+            })
+            .collect();
+        let (mut label, count) = matte::regions(&person, side, 0.3);
+        // the fringe: unlabelled cells take a neighbour's figure, a few cells deep
+        for _ in 0..(side / 256).max(2) {
+            let snap = label.clone();
+            for c in 0..side * side {
+                if snap[c] != u32::MAX {
+                    continue;
+                }
+                let (x, y) = (c % side, c / side);
+                let near = [(x > 0).then(|| c - 1), (x + 1 < side).then(|| c + 1), (y > 0).then(|| c - side), (y + 1 < side).then(|| c + side)];
+                if let Some(l) = near.into_iter().flatten().map(|n| snap[n]).find(|l| *l != u32::MAX) {
+                    label[c] = l;
+                }
+            }
+        }
+        let (fw, fh) = (grid.w as f32, grid.h as f32);
+        let cell_of = |x: f32, y: f32| -> Option<usize> {
+            let (u, v) = (x / fw, y / fh);
+            if !(u.is_finite() && v.is_finite()) {
+                return None;
+            }
+            let i = ((u as f64 - r[0]) / (r[2] - r[0]) * side as f64).floor();
+            let j = ((v as f64 - r[1]) / (r[3] - r[1]) * side as f64).floor();
+            (i >= 0.0 && j >= 0.0 && (i as usize) < side && (j as usize) < side).then(|| j as usize * side + i as usize)
+        };
+        let mut faces_on = vec![Vec::new(); count];
+        let mut figure_of = Vec::with_capacity(faces.len());
+        for (k, f) in faces.iter().enumerate() {
+            let d = &f.detection;
+            let [cx, cy] = d.center();
+            let s = d.height().max(d.width());
+            // the face, the chin, the neck: whichever the map sees as the person first
+            let fig = [0.0, 0.5, 1.2].iter().filter_map(|t| cell_of(cx, cy + t * s)).map(|c| label[c]).find(|l| *l != u32::MAX);
+            if let Some(l) = fig
+                && let Some(on) = faces_on.get_mut(l as usize)
+            {
+                on.push(k);
+            }
+            figure_of.push(fig);
+        }
+        let centres = faces.iter().map(|f| f.detection.center()).map(|[x, y]| [x / fw, y / fh]).collect();
+        Some(Figures { label, faces_on, figure_of, centres, aspect: fw / fh })
+    }
+
+    /// Whether every face of `chosen` stands on a figure (else the figures can't be trusted for
+    /// them: a face the class map doesn't see as a person).
+    fn placed(&self, chosen: &[usize]) -> bool {
+        !chosen.is_empty() && chosen.iter().all(|k| self.figure_of.get(*k).is_some_and(Option::is_some))
+    }
+
+    fn faces_at(&self, cell: usize) -> &[usize] {
+        match self.label.get(cell).filter(|l| **l != u32::MAX) {
+            Some(l) => self.faces_on.get(*l as usize).map_or(&[], Vec::as_slice),
+            None => &[],
+        }
+    }
+
+    /// Whether `cell` is on a figure that no face stands on (a clothes-coloured patch of grass,
+    /// someone whose face wasn't found): nobody's. Off every figure is not (the class map fades
+    /// before a forehead's hairline; the face's own rules decide there).
+    fn faceless(&self, cell: usize) -> bool {
+        self.label.get(cell).is_some_and(|l| *l != u32::MAX) && self.faces_at(cell).is_empty()
+    }
+
+    /// Whether `cell` is on any figure.
+    fn on_figure(&self, cell: usize) -> bool {
+        self.label.get(cell).is_some_and(|l| *l != u32::MAX)
+    }
+
+    /// Whose `cell` (at normalized `(u, v)`) is: the nearest face on its figure; `None` off every
+    /// figure or on one without a face.
+    fn owner(&self, cell: usize, u: f32, v: f32) -> Option<usize> {
+        self.faces_at(cell)
+            .iter()
+            .filter_map(|k| self.centres.get(*k).map(|c| (*k, c)))
+            .map(|(k, c)| {
+                let (dx, dy) = ((u - c[0]) * self.aspect, (v - c[1]) * 0.6);
+                (k, dx * dx + dy * dy)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(k, _)| k)
+    }
+}
+
+/// Take every face out of a garment's coverage (`cov` over `grid`): an ellipse over each face's
+/// box (its landmarks' outline when FaceMesh placed them), from the hairline to the chin, with a
+/// soft rim. Clothing is never a face.
+fn cut_faces(grid: &Grid, cov: &mut [f32], faces: &[Face]) {
+    let side = grid.side;
+    if side == 0 || grid.w == 0 || grid.h == 0 || cov.len() < side * side {
+        return;
+    }
+    let r = grid.rect;
+    let (fw, fh) = (grid.w as f64, grid.h as f64);
+    for f in faces {
+        let d = &f.detection;
+        // the face's own outline when there is one, else the detector's box
+        let (x0, y0, x1, y1) = match &f.landmarks {
+            Some(lm) => {
+                let oval = mediapipe::FACE_OVAL.iter().filter_map(|i| lm.get(*i)).filter(|p| p.iter().all(|v| v.is_finite()));
+                oval.fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(a, b, c, e), p| (a.min(p[0]), b.min(p[1]), c.max(p[0]), e.max(p[1])))
+            }
+            None => (d.x0, d.y0 - 0.1 * d.height(), d.x1, d.y1),
+        };
+        if !(x1 > x0 && y1 > y0) {
+            continue;
+        }
+        let (cx, cy) = (f64::from(x0 + x1) / 2.0, f64::from(y0 + y1) / 2.0);
+        let (rx, ry) = (f64::from(x1 - x0) * 0.55, f64::from(y1 - y0) * 0.55);
+        // the cells the ellipse (and its rim) can touch
+        let to_i = |x: f64| ((x / fw - r[0]) / (r[2] - r[0]) * side as f64).floor();
+        let to_j = |y: f64| ((y / fh - r[1]) / (r[3] - r[1]) * side as f64).floor();
+        let (i0, i1) = (to_i(cx - rx * 1.3).max(0.0) as usize, (to_i(cx + rx * 1.3) + 1.0).clamp(0.0, side as f64) as usize);
+        let (j0, j1) = (to_j(cy - ry * 1.3).max(0.0) as usize, (to_j(cy + ry * 1.3) + 1.0).clamp(0.0, side as f64) as usize);
+        for j in j0..j1.min(side) {
+            for i in i0..i1.min(side) {
+                let x = (r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) * fw;
+                let y = (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) * fh;
+                let e = (((x - cx) / rx).powi(2) + ((y - cy) / ry).powi(2)).sqrt() as f32;
+                let keep = matte::smoothstep(1.0, 1.25, e);
+                if let Some(c) = cov.get_mut(j * side + i) {
+                    *c *= keep;
+                }
+            }
+        }
     }
 }
 
@@ -652,14 +1053,36 @@ pub fn people_mask_with(
     // out of it (refining after the cut filled the eye and brow holes back in)
     let mut skin_cov = vec![0f32; if skin { side * side } else { 0 }];
     let mut mine = vec![true; if skin { side * side } else { 0 }];
+    // the people as the class map's connected figures, each holding the faces on it: whose a pixel
+    // is never crosses to a figure the person isn't part of (a bystander at the frame's edge),
+    // and a figure with no face on it (a clothes-coloured patch of grass or brick) is nobody's
+    let figures = map.filter(|_| req.needs_people() && !faces.is_empty()).and_then(|m| Figures::new(&grid, m, faces));
     if let Some(map) = map.filter(|_| req.needs_people()) {
         let r = grid.rect;
+        // a garment of one person of several: where their silhouette says the pixel is theirs,
+        // what the class map splits between clothes and background (tulle, a sheer train showing
+        // the grass) counts as clothes
+        let sheer = req.person > 0 && other_classes.contains(&4) && instances.is_some();
         for j in 0..side {
             for i in 0..side {
                 let u = (r[0] + (i as f64 + 0.5) / side as f64 * (r[2] - r[0])) as f32;
                 let v = (r[1] + (j as f64 + 0.5) / side as f64 * (r[3] - r[1])) as f32;
-                if req.person > 0 && instances.and_then(|i| i.owner(u, v)).or_else(|| owner(u, v)).is_none_or(|o| !chosen.contains(&o)) {
-                    if let Some(m) = mine.get_mut(j * side + i) {
+                let cell = j * side + i;
+                let silhouette = instances.and_then(|s| s.owner(u, v));
+                let theirs = |o: Option<usize>| o.is_some_and(|o| chosen.contains(&o));
+                let allowed = if req.person > 0 {
+                    match (&figures, silhouette) {
+                        (_, Some(o)) => theirs(Some(o)),
+                        (Some(f), None) if f.placed(&chosen) && f.on_figure(cell) => theirs(f.owner(cell, u, v)),
+                        (Some(f), None) if f.faceless(cell) => false,
+                        _ => theirs(owner(u, v)),
+                    }
+                } else {
+                    // everyone: the whole person keeps every figure (a back turned to the camera)
+                    whole || figures.as_ref().is_none_or(|f| !f.faceless(cell))
+                };
+                if !allowed {
+                    if let Some(m) = mine.get_mut(cell) {
                         *m = false;
                     }
                     continue;
@@ -667,10 +1090,16 @@ pub fn people_mask_with(
                 let value = if whole {
                     1.0 - map.at(&[0], u, v)
                 } else {
-                    if let Some(s) = skin_cov.get_mut(j * side + i) {
+                    if let Some(s) = skin_cov.get_mut(cell) {
                         *s = map.at(&skin_classes, u, v);
                     }
-                    if other_classes.is_empty() { 0.0 } else { map.at(&other_classes, u, v) }
+                    if other_classes.is_empty() {
+                        0.0
+                    } else {
+                        let p = map.at(&other_classes, u, v);
+                        let bg = map.at(&[0], u, v);
+                        if sheer && theirs(silhouette) && p >= 0.15 && bg < 0.8 { (p / (1.0 - bg).max(0.05)).min(1.0) } else { p }
+                    }
                 };
                 if let Some(c) = cov.get_mut(j * side + i) {
                     *c = value.clamp(0.0, 1.0);
@@ -685,6 +1114,8 @@ pub fn people_mask_with(
         if !whole && req.classes == [4] {
             // Clothes alone: the class map's blur leaks onto a neckline, arms and hands
             clean_garment(&grid, &mut cov, rgb, map, true);
+            // and never on a face, whoever's (strong Texture or Clarity there ages a face)
+            cut_faces(&grid, &mut cov, faces);
         }
         if skin {
             // the face skin up to the hairline (the class map fades out on the upper forehead)
@@ -1115,5 +1546,178 @@ mod tests {
         assert!(PeopleModel::load(&dir).is_err());
         assert!(FaceModel::load(&dir).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A 200 × 200 scene for the garment tests: each of `people` (face centre x) a face (face skin)
+    /// at y 30..50 with a neck, white clothes x ± 20 from y 55 to 190, on grass; plus `patch` (x
+    /// range) of clothes-coloured stuff from y 150 to 190 nobody wears. The class map and the photo
+    /// agree; `train` (alpha) adds a sheer train beside the first person, part clothes part grass.
+    fn garment_scene(people: &[f32], patch: Option<(f32, f32)>, train: Option<f32>) -> (Vec<u8>, PeopleMap, Vec<Face>) {
+        let (w, h, side) = (200usize, 200usize, 100usize);
+        let class_at = |x: f32, y: f32| -> (usize, f32) {
+            for cx in people {
+                if (x - cx).abs() < 10.0 && (30.0..50.0).contains(&y) {
+                    return (3, 1.0);
+                }
+                if (x - cx).abs() < 5.0 && (50.0..55.0).contains(&y) {
+                    return (2, 1.0);
+                }
+                if (x - cx).abs() < 20.0 && (55.0..190.0).contains(&y) {
+                    return (4, 1.0);
+                }
+            }
+            if let Some((a, b)) = patch
+                && (a..b).contains(&x)
+                && (150.0..190.0).contains(&y)
+            {
+                return (4, 1.0);
+            }
+            if let (Some(t), Some(cx)) = (train, people.first())
+                && (20.0..40.0).contains(&(x - cx).abs())
+                && (120.0..190.0).contains(&y)
+            {
+                return (4, t);
+            }
+            (0, 1.0)
+        };
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i as f32 + 0.5) * 2.0, (j as f32 + 0.5) * 2.0);
+                let (c, a) = class_at(x, y);
+                probs[(j * side + i) * 6 + c] += a;
+                probs[(j * side + i) * 6] += 1.0 - a;
+            }
+        }
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let (c, a) = class_at(x as f32, y as f32);
+                let col: [f32; 3] = match c {
+                    2 | 3 => [205.0, 150.0, 125.0],
+                    4 => [240.0 * a + 60.0 * (1.0 - a), 240.0 * a + 120.0 * (1.0 - a), 235.0 * a + 50.0 * (1.0 - a)],
+                    _ => [60.0, 120.0, 50.0],
+                };
+                for (k, v) in col.iter().enumerate() {
+                    rgb[(y * w + x) * 3 + k] = *v as u8;
+                }
+            }
+        }
+        let faces = people
+            .iter()
+            .map(|cx| Face {
+                detection: Detection { x0: cx - 10.0, y0: 30.0, x1: cx + 10.0, y1: 50.0, score: 1.0, keypoints: [[0.0; 2]; 6] },
+                landmarks: None,
+            })
+            .collect();
+        (rgb, PeopleMap { side, probs }, faces)
+    }
+
+    fn logit_at(m: &MaskGrid, x: f32, y: f32) -> f32 {
+        let (i, j) = ((x / 200.0 * m.side as f32) as usize, (y / 200.0 * m.side as f32) as usize);
+        m.logits[j.min(m.side - 1) * m.side + i.min(m.side - 1)]
+    }
+
+    /// Regression (client note 16): Person 1's Clothes took a clothes-coloured patch nobody wears
+    /// (the nearest-face rule hands every pixel to someone). Now one person's clothes stay on the
+    /// figure their face stands on, and a figure without a face is in no one's mask, Everyone's
+    /// included.
+    #[test]
+    fn one_persons_clothes_stay_inside_their_figure() {
+        let (rgb, map, faces) = garment_scene(&[50.0, 150.0], Some((85.0, 115.0)), None);
+        let clothes = |n| people_mask(&PeopleRequest::parse(n, &["Clothes".into()]).unwrap(), &rgb, 200, 200, Some(&map), &faces).unwrap();
+        let one = clothes(1);
+        assert!(logit_at(&one, 50.0, 120.0) > 2.0, "their clothes: {}", logit_at(&one, 50.0, 120.0));
+        assert!(logit_at(&one, 150.0, 120.0) < -2.0, "not the other's");
+        assert!(logit_at(&one, 95.0, 170.0) < -2.0, "not the patch nearest to them: {}", logit_at(&one, 95.0, 170.0));
+        let all = clothes(0);
+        assert!(logit_at(&all, 50.0, 120.0) > 2.0 && logit_at(&all, 150.0, 120.0) > 2.0);
+        assert!(logit_at(&all, 100.0, 170.0) < -2.0, "nobody wears the patch: {}", logit_at(&all, 100.0, 170.0));
+    }
+
+    /// Clothes are never on a face (client note 22), even where the class map calls the face
+    /// clothes (a veil, or a group's blur).
+    #[test]
+    fn clothes_are_never_on_a_face() {
+        let (rgb, mut map, faces) = garment_scene(&[100.0], None, None);
+        for p in map.probs.chunks_mut(6) {
+            if p[3] > 0.5 {
+                p[3] = 0.0;
+                p[4] = 1.0;
+            }
+        }
+        let m = people_mask(&PeopleRequest::parse(0, &["Clothes".into()]).unwrap(), &rgb, 200, 200, Some(&map), &faces).unwrap();
+        assert!(logit_at(&m, 100.0, 40.0) < -2.0, "the face is not clothes: {}", logit_at(&m, 100.0, 40.0));
+        assert!(logit_at(&m, 100.0, 120.0) > 2.0, "the body's clothes are");
+    }
+
+    /// Regression (client note 16): a tulle train, which the class map splits between clothes and
+    /// the grass seen through it, was dropped from its wearer's Clothes. Inside her silhouette it
+    /// counts as clothes.
+    #[test]
+    fn a_sheer_train_inside_her_silhouette_is_clothes() {
+        let (rgb, map, faces) = garment_scene(&[60.0, 160.0], None, Some(0.4));
+        let side = 50;
+        let claim = |x0: f32, x1: f32| -> Vec<f32> {
+            (0..side * side).map(|c| if (x0..x1).contains(&((c % side) as f32 * 4.0 + 2.0)) && c / side * 4 >= 28 { 8.0 } else { -8.0 }).collect()
+        };
+        let seeds = [[0.3, 0.2], [0.8, 0.2]];
+        let inst = Instances::new(side, vec![claim(15.0, 105.0), claim(135.0, 185.0)], &seeds);
+        let req = PeopleRequest::parse(1, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &faces, Some(&inst)).unwrap();
+        assert!(logit_at(&m, 90.0, 160.0) > 0.0, "the train is hers: {}", logit_at(&m, 90.0, 160.0));
+        assert!(logit_at(&m, 60.0, 120.0) > 2.0);
+        assert!(logit_at(&m, 160.0, 120.0) < -2.0, "the other's clothes are not");
+        assert!(logit_at(&m, 110.0, 160.0) < -2.0, "grass beside the train is not");
+    }
+
+    #[test]
+    fn figures_bound_silhouettes_and_faceless_figures_are_their_own() {
+        let side = 8;
+        let face = |x: f32| Face {
+            detection: Detection { x0: x - 5.0, y0: 5.0, x1: x + 5.0, y1: 15.0, score: 1.0, keypoints: [[0.0; 2]; 6] },
+            landmarks: None,
+        };
+        let faces = [face(20.0), face(40.0)];
+        // a figure over the left columns (face 1's), one over the right ones (nobody's face)
+        let fig = |c0: usize, c1: usize| -> Vec<f32> { (0..side * side).map(|c| if (c0..c1).contains(&(c % side)) { 6.0 } else { -6.0 }).collect() };
+        let inst = Instances::combine(side, None, &[fig(0, 3), fig(6, 8)], &faces, 80, 80).unwrap();
+        assert_eq!(inst.owner(0.1, 0.5), Some(0));
+        assert_eq!(inst.owner(0.9, 0.5), Some(2), "the faceless figure is someone else");
+        // a silhouette reaching past its figure is cut back to it
+        let wide: Vec<f32> = (0..side * side).map(|c| if c % side < 6 { 6.0 } else { -6.0 }).collect();
+        let none = vec![-6.0; side * side];
+        let inst = Instances::combine(side, Some(vec![wide, none]), &[fig(0, 3)], &faces, 80, 80).unwrap();
+        assert_eq!(inst.owner(0.1, 0.5), Some(0));
+        assert_ne!(inst.owner(0.6, 0.5), Some(0), "past the figure");
+        assert!(Instances::combine(side, None, &[], &faces, 80, 80).is_none());
+        assert!(Instances::combine(0, None, &[], &faces, 0, 0).is_none());
+    }
+
+    #[test]
+    fn only_small_people_are_cropped_and_their_crops_paste_back() {
+        let face = |x: f32, s: f32| Face {
+            detection: Detection { x0: x, y0: 100.0, x1: x + s, y1: 100.0 + s, score: 1.0, keypoints: [[0.0; 2]; 6] },
+            landmarks: None,
+        };
+        // a close-up: no crops; a group: one box each, from above the head down the body
+        assert!(person_boxes(&[face(100.0, 200.0)], 1000, 1000).is_empty());
+        let b = person_boxes(&[face(100.0, 20.0), face(500.0, 20.0)], 1000, 1000);
+        assert_eq!(b.len(), 2);
+        assert!(b[0][0] < 0.1 && b[0][2] > 0.12 && b[0][1] < 0.1 && b[0][3] > 0.25, "{:?}", b[0]);
+        assert!(person_boxes(&[face(f32::NAN, 20.0)], 1000, 1000).iter().all(|b| b.iter().all(|v| v.is_finite())));
+        assert!(person_boxes(&[face(1.0, 1.0)], 0, 0).is_empty());
+        // the whole map says background; a crop says clothes: inside it clothes, outside background
+        let n = mediapipe::SELFIE_CLASSES.len();
+        let whole = PeopleMap { side: 16, probs: (0..16 * 16 * n).map(|i| if i % n == 0 { 1.0 } else { 0.0 }).collect() };
+        let crop = PeopleMap { side: 16, probs: (0..16 * 16 * n).map(|i| if i % n == 4 { 1.0 } else { 0.0 }).collect() };
+        let out = paste_crops(&whole, &[[0.25, 0.25, 0.75, 0.75]], &[crop], 64);
+        assert_eq!(out.side, 64);
+        assert!(out.at(&[4], 0.5, 0.5) > 0.95, "the crop's class inside");
+        assert!(out.at(&[0], 0.1, 0.1) > 0.99, "the whole map outside");
+        assert!(out.at(&[4], 0.26, 0.5) < out.at(&[4], 0.5, 0.5), "its edge fades into the whole map");
+        // nothing to paste: the whole map
+        let same = paste_crops(&whole, &[], &[], 64);
+        assert!(same.at(&[0], 0.5, 0.5) > 0.99);
     }
 }
