@@ -52,7 +52,7 @@
 //! | 7 | Kelvin white balance for raws whose camera has matrices (#730) | `Op::SetAsShotWb`, `WhiteBalance.scale` |
 //! | 8 | History cursor: Go to History Step adds no step | `Op::SetHistoryCursor`, `Photo.history_cursor` |
 //! | 9 | preview-only recheck | `Photo.preview_checked`, `Op::SetContent.preview_checked` |
-//! | 10 | Before / After: the import state and Set Before kept | `Op::SetBefore`, `Op::SetImportState`, `Photo.before`, `Photo.import_state` |
+//! | 10 | Before / After: the import state and Set Before kept | `Op::SetBefore`, `Op::SetImportState`, `Photo.before`, `Photo.import_state`, `EmbeddedLens.source` |
 //!
 //! Rules:
 //! - **Bump [`VERSION`]** (and add a row above) in the change that adds an [`Op`] variant or a
