@@ -348,7 +348,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         egui::RichText::new(crate::i18n::tr_format!("Creates {} stacks from {} of {scope}", preview["stacks"], preview["photos"], scope = crate::i18n::tr(scope))).color(t.text_dim),
                     );
                 }
-                Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes } => {
+                Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes, soft_eyes, everyone } => {
                     let n = app.session.selection.ids.len();
                     let scope = if n > 1 { crate::i18n::tr_format!("the {n} selected photos", n = n) } else { crate::i18n::tr_format!("the {} photos in view", app.session.visible_cloned().len()) };
                     ui.label(egui::RichText::new(crate::i18n::tr_format!("Scores {scope} for focus and exposure and finds similar shots taken within seconds of each other (bursts).", scope = scope)).color(t.text_label));
@@ -363,7 +363,24 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     crate::widgets::register(ui.ctx(), "check:cullClosedEyes", r.rect);
                     let r = ui.checkbox(blurry_eyes, crate::i18n::tr("Reject photos with blurry eyes"));
                     crate::widgets::register(ui.ctx(), "check:cullBlurryEyes", r.rect);
+                    if *blurry_eyes {
+                        // how soft is too soft: the strip's red only, or its amber too
+                        ui.horizontal(|ui| {
+                            ui.add_space(22.0);
+                            let r = ui.radio_value(soft_eyes, false, crate::i18n::tr("Only blurry eyes (red in the eye strip)"));
+                            crate::widgets::register(ui.ctx(), "radio:cullBlurryOnly", r.rect);
+                        });
+                        ui.horizontal(|ui| {
+                            ui.add_space(22.0);
+                            let r = ui.radio_value(soft_eyes, true, crate::i18n::tr("Soft eyes too (amber in the eye strip)"));
+                            crate::widgets::register(ui.ctx(), "radio:cullSoftToo", r.rect);
+                        });
+                    }
                     if *closed_eyes || *blurry_eyes {
+                        let mut main_only = !*everyone;
+                        let r = ui.checkbox(&mut main_only, crate::i18n::tr("Main subjects only (the largest faces), not the guests behind them"));
+                        crate::widgets::register(ui.ctx(), "check:cullMainOnly", r.rect);
+                        *everyone = !main_only;
                         ui.label(
                             egui::RichText::new(crate::i18n::tr(
                                 "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.",
@@ -2069,7 +2086,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::DenoiseModel { info, accepted } => crate::panels::denoise::install(app, info, *accepted),
         Dialog::FaceModel { path, info, accepted } => crate::panels::faces::install(app, path, info, *accepted),
         Dialog::AllMetadata { .. } | Dialog::SystemInfo { .. } | Dialog::WhatsNew => Ok(serde_json::Value::Null),
-        Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes } => {
+        Dialog::Cull { reject_below, pick_best, closed_eyes, blurry_eyes, soft_eyes, everyone } => {
             let mut p = json!({"pickBest": pick_best});
             if *reject_below > 0.0 {
                 p["rejectBelow"] = json!(reject_below);
@@ -2077,7 +2094,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             let r = app.run("photo.analyze", p);
             if r.is_ok() && (*closed_eyes || *blurry_eyes) {
                 // the eyes take longer: they are judged in the background, rejects come as one step
-                app.run("photo.rejectEyes", json!({"closed": closed_eyes, "blurry": blurry_eyes}))?;
+                app.run("photo.rejectEyes", json!({"closed": closed_eyes, "blurry": blurry_eyes, "soft": soft_eyes, "mainOnly": !everyone}))?;
             }
             r
         }

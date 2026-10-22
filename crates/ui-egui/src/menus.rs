@@ -1662,7 +1662,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "photo.editInExternal" => edit_in(app, &ctx, p, false),
         "photo.openOriginalInExternal" => open_original_in(app, &ctx, p),
         "dialog.cull" => {
-            app.ui.dialog = Some(Dialog::Cull { reject_below: 0.0, pick_best: true, closed_eyes: false, blurry_eyes: false });
+            app.ui.dialog =
+                Some(Dialog::Cull { reject_below: 0.0, pick_best: true, closed_eyes: false, blurry_eyes: false, soft_eyes: false, everyone: false });
             Ok(Value::Null)
         }
         "app.whatsNew" => {

@@ -2446,3 +2446,17 @@ fn space_zooms_to_is_a_choice_in_the_view_menu() {
     assert_eq!(r["ok"], false, "{r}");
     assert_eq!(h.app.ui.settings.space_zoom, crate::state::SpaceZoom::Eye);
 }
+
+/// Assisted Culling: with "blurry eyes" ticked the dialog asks how soft is too soft, and whether only
+/// the main subjects count; the choices reach the dialog's state.
+#[test]
+fn assisted_culling_asks_how_soft_and_whose_eyes() {
+    let mut h = demo([1400.0, 900.0], json!({"view": "photoGrid"}));
+    exec(&mut h, "dialog.cull", json!({}));
+    assert!(!h.app.widgets.iter().any(|(w, _)| w == "radio:cullSoftToo"), "only once blurry eyes are asked for");
+    click(&mut h, "check:cullBlurryEyes");
+    click(&mut h, "radio:cullSoftToo");
+    click(&mut h, "check:cullMainOnly");
+    let Some(crate::state::Dialog::Cull { blurry_eyes, soft_eyes, everyone, .. }) = h.app.ui.dialog.clone() else { panic!("the dialog stays") };
+    assert!(blurry_eyes && soft_eyes && everyone);
+}
