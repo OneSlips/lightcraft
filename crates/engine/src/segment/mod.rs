@@ -119,6 +119,11 @@ fn whole_person(parts: &[String]) -> bool {
     parts.iter().all(|p| matches!(p.to_ascii_lowercase().as_str(), "person" | "entire person" | "entireperson"))
 }
 
+/// The People selection is the clothes alone.
+fn clothes_only(parts: &[String]) -> bool {
+    !parts.is_empty() && parts.iter().all(|p| matches!(p.to_ascii_lowercase().as_str(), "clothes" | "clothing"))
+}
+
 /// The landscape classes [`AutoKind::Landscape`] knows.
 pub const LANDSCAPE_CLASSES: &[&str] = &["sky", "water", "vegetation", "mountains", "architecture", "naturalGround", "artificialGround"];
 
@@ -627,8 +632,9 @@ impl Segmenter {
                         people: people.and_then(Result::ok),
                         face: face.and_then(Result::ok),
                         // one person of several: everyone's figure from EoMT, so people without a
-                        // face found (a groom kissing in profile, a bystander) stay out
-                        scene: if *person > 0 || who.is_some() { ok("scene") } else { None },
+                        // face found (a groom kissing in profile, a bystander) stay out; and, for
+                        // Clothes, the floors, walls and tables the garment never takes
+                        scene: if *person > 0 || who.is_some() || clothes_only(parts) { ok("scene") } else { None },
                         // and their silhouette from SAM 2.1
                         sam2: if *person > 0 || who.is_some() { ok("sam2") } else { None },
                     }),

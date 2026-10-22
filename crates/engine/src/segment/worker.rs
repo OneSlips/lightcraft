@@ -834,6 +834,11 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             } else {
                 None
             };
+            // Clothes: the floor, wall or table around the people (EoMT) is never the garment
+            let surfaces = match &scene {
+                Some(dir) if req.classes == [4] => scene_surfaces(state, shared, job, dir),
+                _ => None,
+            };
             // a group: the class map again on each small person's crop, pasted back
             if people.is_some() {
                 crowd_map(state, shared, job, &faces);
@@ -845,7 +850,9 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             };
             let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
             let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
-            let Some(g) = lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref()) else {
+            let Some(g) =
+                lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref(), surfaces.as_ref())
+            else {
                 return Ok(None);
             };
             if skin && face.is_none() {
@@ -1035,6 +1042,20 @@ fn scene_people(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::pa
         Err(e) => {
             log::warn!("people: no figures from EoMT ({e})");
             Vec::new()
+        }
+    }
+}
+
+/// The floors, walls and tables EoMT sees on `job`'s photo, where no one is (`None`, with a log
+/// line, when EoMT can't run: the garment is then cut by the people model alone).
+fn scene_surfaces(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path) -> Option<lightcraft_segment::people::Surfaces> {
+    let scene = ensure(&mut state.scene, &mut state.scene_cache, shared, dir, "EoMT", SceneModel::load)
+        .and_then(|()| cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h)));
+    match scene {
+        Ok(scene) => Some(lightcraft_segment::people::Surfaces::from_scene(scene)),
+        Err(e) => {
+            log::warn!("clothes: no floors or walls from EoMT ({e})");
+            None
         }
     }
 }

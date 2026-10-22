@@ -57,7 +57,7 @@ pub fn fill_small_holes(cov: &mut [f32], side: usize, max_cells: usize) {
     }
 }
 
-fn neighbours(i: usize, side: usize) -> impl Iterator<Item = usize> {
+pub(crate) fn neighbours(i: usize, side: usize) -> impl Iterator<Item = usize> {
     let (x, y) = (i % side, i / side);
     [(x > 0).then(|| i - 1), (x + 1 < side).then(|| i + 1), (y > 0).then(|| i - side), (y + 1 < side).then(|| i + side)].into_iter().flatten()
 }
