@@ -167,4 +167,13 @@ fn grain_saved_without_the_new_fields_loads_with_their_defaults() {
     let d = Grain::default();
     assert_eq!((s.grain.amount, s.grain.size, s.grain.roughness, s.grain.seed), (20.0, 25.0, 50.0, 0));
     assert_eq!((s.grain.color, s.grain.response, s.grain.size_variation, s.grain.clumping), (d.color, d.response, d.size_variation, d.clumping));
+    // saved again, the grain gains no field (the JSON and `hash64` stay as they were) …
+    assert_eq!(s.to_json()["grain"], legacy()["grain"]);
+    // … and the new fields are written once they leave their defaults, and read back
+    let mut g = s.clone();
+    (g.grain.color, g.grain.response, g.grain.size_variation, g.grain.clumping) = (10.0, -20.0, 0.0, 70.0);
+    let v = g.to_json();
+    assert_eq!(v["grain"]["size_variation"], json!(0.0));
+    assert_eq!(DevelopSettings::from_json(&v).unwrap().grain, g.grain);
+    assert_ne!(g.hash64(), s.hash64());
 }

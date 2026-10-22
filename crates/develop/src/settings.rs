@@ -603,20 +603,36 @@ impl Default for Vignette {
 #[serde(default)]
 pub struct Grain {
     pub amount: f64,
-    /// Mean grain size, relative to the frame (0..100; ≈ 4–48 µm on a 35 mm frame).
+    /// Mean grain size, relative to the frame (0..100; ≈ 4.3–18 µm on a 35 mm frame).
     pub size: f64,
     /// Grain shape (Camera Raw's Roughness): 0 = round grains; 100 = elongated, irregular ones.
     pub roughness: f64,
     /// Seed for the procedural grain (stable per photo).
     pub seed: u32,
     /// Colour (chroma) grain, 0..100: independent dye-layer grain on top of the luminance grain.
+    /// This and the next three fields aren't written at their defaults, so settings saved before
+    /// they existed keep their JSON and `hash64` (and every cached preview stays valid).
+    #[serde(skip_serializing_if = "is_zero")]
     pub color: f64,
     /// Where grain is strongest: −100 shadows … 0 midtones … +100 highlights.
+    #[serde(skip_serializing_if = "is_zero")]
     pub response: f64,
     /// Spread of grain sizes, 0..100: 0 = all grains the mean size.
+    #[serde(skip_serializing_if = "Grain::is_default_size_variation")]
     pub size_variation: f64,
     /// Clumping, 0..100: 0 = single grains; 100 = clusters of several grains.
+    #[serde(skip_serializing_if = "Grain::is_default_clumping")]
     pub clumping: f64,
+}
+
+impl Grain {
+    fn is_default_size_variation(v: &f64) -> bool {
+        *v == Grain::default().size_variation
+    }
+
+    fn is_default_clumping(v: &f64) -> bool {
+        *v == Grain::default().clumping
+    }
 }
 
 impl Default for Grain {
