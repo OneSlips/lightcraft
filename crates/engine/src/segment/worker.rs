@@ -908,6 +908,8 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
         #[cfg(test)]
         #[allow(clippy::panic)]
         Kind::Panic => panic!("a test panic"),
+        #[cfg(test)]
+        Kind::FailOnGpu { .. } => Err("a GPU fallback test reached the SAM 2.1 path".into()),
     }
 }
 

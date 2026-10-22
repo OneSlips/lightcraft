@@ -297,5 +297,9 @@
   "“{to}” is already a person. Combining them makes one person; Undo separates them again.": "”{to}” on jo henkilö. Yhdistäminen tekee kahdesta yhden henkilön; Kumoa erottaa ne uudelleen.",
   "•  {assumption}": "•  {assumption}",
   "… and {more} more": "… ja {more} lisää",
-  "…and {more} more": "…ja {more} lisää"
+  "…and {more} more": "…ja {more} lisää",
+  "A one-time download of about {mb} MB, saved in {dir}": "Kertaluonteinen noin {mb} Mt:n lataus, tallennetaan kansioon {dir}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Lisenssi: {licence}, avoimen lähdekoodin lisenssi, joka sallii kaiken käytön, myös kaupallisen työn.",
+  "Person {n}": "Henkilö {n}",
+  "The AI model download failed: {e}": "Tekoälymallin lataus epäonnistui: {e}"
 }

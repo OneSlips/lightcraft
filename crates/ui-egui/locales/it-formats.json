@@ -297,5 +297,9 @@
   "Move {n} photo{} to “{}”": "Sposta foto in “{1}” ({n}){0:.0}",
   "Move {n} photo{} to “{}”?": "Spostare le foto in “{1}” ({n})?{0:.0}",
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "Foto spostate in “{1}”: {n}{0:.0}. Modifica → Annulla le riporta indietro.",
-  "Listing folders — folders: {folders}, files: {files}": "Elenco delle cartelle — cartelle: {folders}, file: {files}"
+  "Listing folders — folders: {folders}, files: {files}": "Elenco delle cartelle — cartelle: {folders}, file: {files}",
+  "A one-time download of about {mb} MB, saved in {dir}": "Un download una tantum di circa {mb} MB, salvato in {dir}",
+  "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licenza: {licence}, una licenza open source che consente qualsiasi uso, incluso il lavoro commerciale.",
+  "Person {n}": "Persona {n}",
+  "The AI model download failed: {e}": "Il download del modello IA non è riuscito: {e}"
 }

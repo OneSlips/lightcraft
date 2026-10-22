@@ -326,6 +326,11 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Photo pixel of cell `(i, j)`'s centre.
+    pub fn centre(&self, i: usize, j: usize) -> [f32; 2] {
+        self.photo(i, j, 0.5, 0.5)
+    }
+
     /// Photo pixel of cell `(i, j)`'s sub-sample `(sx, sy)` (0..1 within the cell).
     fn photo(&self, i: usize, j: usize, sx: f32, sy: f32) -> [f32; 2] {
         let u = (i as f64 + f64::from(sx)) / self.side as f64;

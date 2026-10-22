@@ -96,7 +96,15 @@ impl Segmenter {
         #[cfg(feature = "sam")]
         if let Some(d) = self.model_downloads.get(key) {
             let s = d.status();
-            return DownloadStatus { running: s.running, done: s.done, total: s.total, file: s.file, error: s.error, finished: s.finished };
+            return DownloadStatus {
+                running: s.running,
+                done: s.done,
+                total: s.total,
+                file: s.file,
+                error: s.error,
+                cancelled: s.cancelled,
+                finished: s.finished,
+            };
         }
         DownloadStatus::default()
     }

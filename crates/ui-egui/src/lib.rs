@@ -917,7 +917,7 @@ impl LightcraftApp {
         let e = e.into();
         if lightcraft_engine::segment::Segmenter::AVAILABLE && e.kind == ErrorKind::ModelMissing(AiModel::Sam3) {
             self.offer_sam_download(then);
-        } else if let Some(key) = lightcraft_engine::segment::models::missing_model(&e) {
+        } else if let Some(key) = lightcraft_engine::segment::models::missing_model(&e.message) {
             self.offer_ai_model(key, then);
         } else {
             self.toast_error(ctx, e.message);

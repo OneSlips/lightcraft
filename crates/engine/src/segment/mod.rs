@@ -1030,7 +1030,7 @@ mod tests {
         // the job after which the model runs on the CPU (the GPU failed) says so
         let mut s = Session::with_demo();
         let notice = Some(worker::GPU_FAILED.to_string());
-        s.segmenter.results.0.send(worker::Outcome { tag: Tag::Prepare, result: Ok(None), superseded: false, notice }).unwrap();
+        s.segmenter.results.0.send(worker::Outcome { tag: Tag::Prepare, result: Ok(None), superseded: false, note: None, notice }).unwrap();
         let polled = s.segment_poll();
         assert_eq!(polled.messages, vec![worker::GPU_FAILED.to_string()]);
         assert!(s.segment_poll().messages.is_empty(), "once");
