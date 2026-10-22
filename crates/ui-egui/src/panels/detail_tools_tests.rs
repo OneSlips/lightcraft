@@ -175,3 +175,22 @@ fn the_crop_view_turns_the_photo_level_and_fits_it() {
     let p = pos2(123.0, 77.0);
     assert!((map.screen(map.norm(p)) - p).length() < 0.01);
 }
+
+/// Under a perspective warp, a mask's on-screen place goes into its coordinates on the photo
+/// (`Mask::on_photo`) and back: the point clicked is the point the render puts the mask on, and
+/// its handle draws where it was clicked (notes 2026-10-22 #3).
+#[test]
+fn a_mask_drawn_on_a_warped_photo_lands_on_the_content_under_the_pointer() {
+    let mut d = DevelopSettings::default();
+    d.geometry.vertical = 30.0;
+    d.geometry.rotate = 5.0;
+    let frame = Frame::new(400, 300, &d, true);
+    let m = CanvasMap::new(&frame, Rect::from_min_size(pos2(100.0, 50.0), vec2(400.0, 300.0)));
+    let q = pos2(220.0, 140.0);
+    let on = m.for_mask(true).norm(q);
+    let plain = m.for_mask(false).norm(q);
+    assert!(!close(on, plain), "the warp moves the photo under the frame: {on:?} {plain:?}");
+    // the render maps the mask's coordinates through the warp to the same frame point
+    assert!(close(frame.for_mask(true).mask_to_norm(on), plain));
+    assert!((m.for_mask(true).screen(on) - q).length() < 0.01, "and its handle draws there");
+}
