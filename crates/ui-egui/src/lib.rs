@@ -25,6 +25,7 @@ pub mod i18n;
 pub mod icons;
 pub mod import;
 pub mod import_tab;
+pub mod lens_db;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
@@ -1435,6 +1436,7 @@ impl LightcraftApp {
         import::tick(self, ctx);
         lightroom_import::tick(self, ctx);
         recheck::tick(self);
+        lens_db::tick(self);
         tasks::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);

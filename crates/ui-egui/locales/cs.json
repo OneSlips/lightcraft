@@ -2796,5 +2796,11 @@
   "End Slideshow": "Ukončit prezentaci",
   "Save Current Settings as New Effect Preset…": "Uložit aktuální nastavení jako nové přednastavení efektu…",
   "Manage Effect Presets…": "Spravovat přednastavení efektů…",
-  "Export Effect Presets…": "Exportovat přednastavení efektů…"
+  "Export Effect Presets…": "Exportovat přednastavení efektů…",
+  "Profile: from the file (the camera's own correction)": "Profil: ze souboru (vlastní korekce fotoaparátu)",
+  "Downloading the lens database…": "Stahuje se databáze objektivů…",
+  "This file names no lens.": "Tento soubor neuvádí žádný objektiv.",
+  "1 photo got its lens profile": "1 fotka získala profil objektivu",
+  "Looking up lens profiles": "Hledání profilů objektivů",
+  "Downloading the lens database": "Stahování databáze objektivů"
 }

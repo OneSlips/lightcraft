@@ -3069,5 +3069,11 @@
   "Brighten": "Iluminar",
   "Whiter, brighter teeth: the yellow is taken out gently.": "Dentes mais brancos e claros: o amarelo é removido com suavidade.",
   "No teeth were found in this photo.": "Nenhum dente foi encontrado nesta foto.",
-  "The faces haven't been looked at yet.": "Os rostos ainda não foram analisados."
+  "The faces haven't been looked at yet.": "Os rostos ainda não foram analisados.",
+  "Profile: from the file (the camera's own correction)": "Perfil: do arquivo (correção da própria câmera)",
+  "Downloading the lens database…": "Baixando o banco de dados de lentes…",
+  "This file names no lens.": "Este arquivo não indica nenhuma lente.",
+  "1 photo got its lens profile": "1 foto recebeu o perfil da lente",
+  "Looking up lens profiles": "Procurando perfis de lente",
+  "Downloading the lens database": "Baixando o banco de dados de lentes"
 }

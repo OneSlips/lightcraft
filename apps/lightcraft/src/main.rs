@@ -882,6 +882,7 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
         Session::new()
             .with_fs()
             .with_default_denoise_models()
+            .with_default_lens_database()
             .with_default_genfill()
             .with_system_clock()
             .with_default_app_store()

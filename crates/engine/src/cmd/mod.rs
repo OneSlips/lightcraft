@@ -28,6 +28,7 @@ mod genfill;
 pub mod geocode;
 pub mod import_tab;
 pub mod keywords;
+pub mod lens_refresh;
 pub mod library;
 pub mod lut_profiles;
 pub mod manage;
@@ -195,6 +196,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(delete_rejected::specs());
         v.extend(missing::specs());
         v.extend(recheck::specs());
+        v.extend(lens_refresh::specs());
         v.extend(sync::specs());
         v.extend(metadata::specs());
         v.extend(geocode::specs());

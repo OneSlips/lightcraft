@@ -440,5 +440,8 @@
   "Smooth Skin: {n} photos.": "Lisser la peau : {n} photos.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Sauvegarder « {library} » avant de quitter LightCraft ? La sauvegarde garde le catalogue, ses réglages, vos préréglages et profils ; pas les photos.",
   "Preset {name} on {n} photos": "Préréglage {name} sur {n} photos",
-  "Apply to {n} Selected Photos": "Appliquer aux {n} photos sélectionnées"
+  "Apply to {n} Selected Photos": "Appliquer aux {n} photos sélectionnées",
+  "Profile: {} (lens database)": "Profil : {} (base de données d'objectifs)",
+  "No lens profile found for {}.": "Aucun profil d'objectif trouvé pour {}.",
+  "{n} photos got their lens profile": "{n} photos ont reçu leur profil d'objectif"
 }

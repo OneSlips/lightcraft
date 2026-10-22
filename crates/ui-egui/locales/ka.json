@@ -2777,5 +2777,11 @@
   "At Import": "იმპორტისას",
   "Favorites and At Import": "რჩეულები და იმპორტისას",
   "Take out of At Import": "„იმპორტისას“-დან ამოღება",
-  "Add to At Import (shown first when importing)": "„იმპორტისას“-ში დამატება (იმპორტისას პირველად ჩანს)"
+  "Add to At Import (shown first when importing)": "„იმპორტისას“-ში დამატება (იმპორტისას პირველად ჩანს)",
+  "Profile: from the file (the camera's own correction)": "პროფილი: ფაილიდან (კამერის საკუთარი კორექცია)",
+  "Downloading the lens database…": "ობიექტივების ბაზა იტვირთება…",
+  "This file names no lens.": "ამ ფაილში ობიექტივი არ არის მითითებული.",
+  "1 photo got its lens profile": "1 ფოტომ მიიღო ობიექტივის პროფილი",
+  "Looking up lens profiles": "ობიექტივის პროფილების ძიება",
+  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა"
 }

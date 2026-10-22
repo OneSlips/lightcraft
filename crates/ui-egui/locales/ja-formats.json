@@ -440,5 +440,8 @@
   "Smooth Skin: {n} photos.": "肌を滑らかに：{n} 枚。",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "LightCraft を終了する前に「{library}」をバックアップしますか？バックアップにはカタログ、その設定、プリセットとプロファイルが含まれます（写真は含まれません）。",
   "Preset {name} on {n} photos": "プリセット {name} を {n} 枚に適用",
-  "Apply to {n} Selected Photos": "選択した {n} 枚の写真に適用"
+  "Apply to {n} Selected Photos": "選択した {n} 枚の写真に適用",
+  "Profile: {} (lens database)": "プロファイル: {}（レンズデータベース）",
+  "No lens profile found for {}.": "{} のレンズプロファイルが見つかりません。",
+  "{n} photos got their lens profile": "{n} 枚の写真にレンズプロファイルが適用されました"
 }

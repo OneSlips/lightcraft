@@ -3218,5 +3218,11 @@
   "Brighten": "Осветлить",
   "Whiter, brighter teeth: the yellow is taken out gently.": "Более белые и светлые зубы: желтизна убирается мягко.",
   "No teeth were found in this photo.": "На этом фото зубы не найдены.",
-  "The faces haven't been looked at yet.": "Лица ещё не проанализированы."
+  "The faces haven't been looked at yet.": "Лица ещё не проанализированы.",
+  "Profile: from the file (the camera's own correction)": "Профиль: из файла (коррекция самой камеры)",
+  "Downloading the lens database…": "Загружается база объективов…",
+  "This file names no lens.": "В этом файле не указан объектив.",
+  "1 photo got its lens profile": "1 фото получило профиль объектива",
+  "Looking up lens profiles": "Поиск профилей объективов",
+  "Downloading the lens database": "Загрузка базы объективов"
 }

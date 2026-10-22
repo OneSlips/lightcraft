@@ -2676,5 +2676,11 @@
   "SDR Shadows": "Cienie SDR",
   "SDR Whites": "Biele SDR",
   "SDR Clarity": "Przejrzystość SDR",
-  "Face Models on the GPU": "Modele twarzy przetwarzane na GPU"
+  "Face Models on the GPU": "Modele twarzy przetwarzane na GPU",
+  "Profile: from the file (the camera's own correction)": "Profil: z pliku (korekcja aparatu)",
+  "Downloading the lens database…": "Pobieranie bazy obiektywów…",
+  "This file names no lens.": "Ten plik nie podaje obiektywu.",
+  "1 photo got its lens profile": "1 zdjęcie otrzymało profil obiektywu",
+  "Looking up lens profiles": "Wyszukiwanie profili obiektywów",
+  "Downloading the lens database": "Pobieranie bazy obiektywów"
 }

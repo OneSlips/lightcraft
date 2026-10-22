@@ -440,5 +440,8 @@
   "Smooth Skin: {n} photos.": "平滑皮肤：{n} 张照片。",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "退出 LightCraft 前备份“{library}”吗？备份包含目录、其设置、你的预设和配置文件；不含照片。",
   "Preset {name} on {n} photos": "预设 {name} 已应用到 {n} 张照片",
-  "Apply to {n} Selected Photos": "应用到 {n} 张所选照片"
+  "Apply to {n} Selected Photos": "应用到 {n} 张所选照片",
+  "Profile: {} (lens database)": "配置文件：{}（镜头数据库）",
+  "No lens profile found for {}.": "未找到 {} 的镜头配置文件。",
+  "{n} photos got their lens profile": "{n} 张照片获得了镜头配置文件"
 }

@@ -1057,6 +1057,15 @@ pub struct UiState {
     /// (`crate::recheck`).
     #[serde(skip)]
     pub rechecked_library: Option<u64>,
+    /// The first-run lens database download was considered this run (`crate::lens_db`).
+    #[serde(skip)]
+    pub lens_download_checked: bool,
+    /// The library and lens database generation whose raws were last looked up for a lens profile.
+    #[serde(skip)]
+    pub lens_refreshed: Option<(u64, u64)>,
+    /// Photos to look up for a lens profile on the next frame (Enable Lens Corrections ticked without one).
+    #[serde(skip)]
+    pub lens_lookup_ids: Vec<lightcraft_catalog::PhotoId>,
     #[serde(skip)]
     pub status: String,
     #[serde(skip)]
@@ -1632,6 +1641,9 @@ impl Default for UiState {
             #[cfg(test)]
             find_missing_test_delay: None,
             rechecked_library: None,
+            lens_download_checked: false,
+            lens_refreshed: None,
+            lens_lookup_ids: Vec::new(),
             status: String::new(),
             dialog: None,
             print: Default::default(),

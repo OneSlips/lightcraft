@@ -3223,5 +3223,11 @@
   "Brighten": "Éclaircir",
   "Whiter, brighter teeth: the yellow is taken out gently.": "Des dents plus blanches et plus claires : le jaune est retiré en douceur.",
   "No teeth were found in this photo.": "Aucune dent n’a été trouvée sur cette photo.",
-  "The faces haven't been looked at yet.": "Les visages n’ont pas encore été analysés."
+  "The faces haven't been looked at yet.": "Les visages n’ont pas encore été analysés.",
+  "Profile: from the file (the camera's own correction)": "Profil : du fichier (correction de l'appareil)",
+  "Downloading the lens database…": "Téléchargement de la base de données d'objectifs…",
+  "This file names no lens.": "Ce fichier n'indique aucun objectif.",
+  "1 photo got its lens profile": "1 photo a reçu son profil d'objectif",
+  "Looking up lens profiles": "Recherche des profils d'objectif",
+  "Downloading the lens database": "Téléchargement de la base de données d'objectifs"
 }

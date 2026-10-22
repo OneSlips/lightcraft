@@ -2740,5 +2740,11 @@
   "Color Overlay on B&W": "Sovrapposizione colore su B/N",
   "Image on Black": "Immagine su nero",
   "Image on White": "Immagine su bianco",
-  "White on Black": "Bianco su nero"
+  "White on Black": "Bianco su nero",
+  "Profile: from the file (the camera's own correction)": "Profilo: dal file (correzione della fotocamera)",
+  "Downloading the lens database…": "Download del database degli obiettivi…",
+  "This file names no lens.": "Questo file non indica alcun obiettivo.",
+  "1 photo got its lens profile": "1 foto ha ricevuto il profilo dell'obiettivo",
+  "Looking up lens profiles": "Ricerca dei profili degli obiettivi",
+  "Downloading the lens database": "Download del database degli obiettivi"
 }

@@ -825,6 +825,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
                 .with_default_genfill()
                 .with_system_clock()
                 .with_default_face_models()
+                .with_default_lens_database()
                 .with_default_slide_templates()
                 .with_default_app_store();
             s.open_library(dir, false).map_err(|e| library_error(dir, e))?;
@@ -836,6 +837,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
             .with_default_genfill()
             .with_system_clock()
             .with_default_face_models()
+            .with_default_lens_database()
             .with_default_slide_templates(),
         None => Session::new()
             .with_fs()
@@ -843,6 +845,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
             .with_default_genfill()
             .with_system_clock()
             .with_default_face_models()
+            .with_default_lens_database()
             .with_default_slide_templates(),
     };
     // Apply compute policy before imports or the first scripted query can discover an adapter.

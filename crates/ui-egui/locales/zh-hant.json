@@ -3022,5 +3022,11 @@
   "Brighten": "提亮",
   "Whiter, brighter teeth: the yellow is taken out gently.": "更白更亮的牙齒：輕柔地去除黃色。",
   "No teeth were found in this photo.": "此照片中未找到牙齒。",
-  "The faces haven't been looked at yet.": "尚未分析臉部。"
+  "The faces haven't been looked at yet.": "尚未分析臉部。",
+  "Profile: from the file (the camera's own correction)": "設定檔：來自檔案（相機本身的校正）",
+  "Downloading the lens database…": "正在下載鏡頭資料庫…",
+  "This file names no lens.": "此檔案未註明鏡頭。",
+  "1 photo got its lens profile": "1 張照片取得了鏡頭設定檔",
+  "Looking up lens profiles": "正在查找鏡頭設定檔",
+  "Downloading the lens database": "正在下載鏡頭資料庫"
 }
