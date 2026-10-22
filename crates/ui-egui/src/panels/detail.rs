@@ -3711,7 +3711,7 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
-/// Where the filmstrip is in the shoot: "1,234 / 2,233" at its right (with the selection's size).
+/// Where the filmstrip is in the shoot: "Photo 1,234 of 2,233 · 6 selected" at its right.
 fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[PhotoId], active: Option<PhotoId>) {
     let t = Tokens::get(ui.ctx());
     let n = ids.len();
@@ -3720,14 +3720,7 @@ fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[Pho
     }
     let p = ui.painter();
     let at = active.and_then(|a| ids.iter().position(|x| *x == a));
-    let mut text = match at {
-        Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(n)),
-        None => crate::i18n::group_digits(n),
-    };
-    let sel = app.session.selection.ids.len();
-    if sel > 1 {
-        text.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(sel)));
-    }
+    let text = super::bottombar::position_text(at, n, app.session.selection.ids.len());
     let g = p.layout_no_wrap(text, t.semibold(11.5), Color32::WHITE);
     let pill = Rect::from_min_size(pos2(r.right() - g.size().x - 22.0, r.top() + 7.0), g.size() + vec2(14.0, 4.0));
     p.rect_filled(pill, 4.0, Color32::from_black_alpha(190));

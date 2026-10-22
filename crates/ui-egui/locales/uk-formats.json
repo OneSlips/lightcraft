@@ -440,5 +440,9 @@
   "Smooth Skin: {n} photos.": "Згладжування шкіри: {n} фото.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "Створити резервну копію «{library}» перед виходом з LightCraft? Копія містить каталог, його налаштування, ваші пресети й профілі; фото — ні.",
   "Preset {name} on {n} photos": "Пресет {name} на {n} фото",
-  "Apply to {n} Selected Photos": "Застосувати до вибраних фото ({n})"
+  "Apply to {n} Selected Photos": "Застосувати до вибраних фото ({n})",
+  "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Вилучено з бібліотеки фото: {n}. Файли лишаються на диску, їх можна імпортувати знову.",
+  "Remove the {count} selected photos from the library?": "Вилучити з бібліотеки вибрані фото ({count})?",
+  "Photo {i} of {n}": "Фото {i} з {n}",
+  "Remove {n} Photos from Library": "Вилучити з бібліотеки фото: {n}"
 }

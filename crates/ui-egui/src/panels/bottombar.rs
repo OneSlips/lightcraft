@@ -156,16 +156,9 @@ fn facts(app: &mut LightcraftApp) -> Facts {
     let (_, ids) = app.session.visible_shared();
     let at = active.as_ref().and_then(|p| ids.iter().position(|x| *x == p.id));
     let n_sel = app.session.selection.ids.len();
-    let mut position = match at {
-        Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(ids.len())),
-        None => crate::i18n::group_digits(ids.len()),
-    };
-    let most = crate::i18n::group_digits(tally.total.max(ids.len()));
-    let mut position_room = format!("{most} / {most}");
-    if n_sel > 1 {
-        position.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(n_sel)));
-        position_room.push_str(&crate::i18n::tr_format!(" · {n} selected", n = most));
-    }
+    let position = position_text(at, ids.len(), n_sel);
+    let most = tally.total.max(ids.len());
+    let position_room = position_text(Some(most.saturating_sub(1)), most, if n_sel > 1 { most } else { 0 });
     Facts {
         tally,
         filter: app.session.filter.clone(),
@@ -176,6 +169,21 @@ fn facts(app: &mut LightcraftApp) -> Facts {
         position,
         position_room,
     }
+}
+
+/// Where the active photo is in the view, in words that can't be misread (client note 45: "116 / 123"
+/// read as "116 of 123 selected"): "Photo 116 of 123 · 6 selected", or "123 photos" with no active
+/// photo in the view. The grid's bottom bar and the filmstrip say it alike.
+pub fn position_text(at: Option<usize>, total: usize, selected: usize) -> String {
+    let n = crate::i18n::group_digits(total);
+    let mut text = match at {
+        Some(i) => crate::i18n::tr_format!("Photo {i} of {n}", i = crate::i18n::group_digits(i.saturating_add(1)), n = n),
+        None => crate::i18n::tr_format!("{n} photo{}", if total == 1 { "" } else { "s" }, n = n),
+    };
+    if selected > 1 {
+        text.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(selected)));
+    }
+    text
 }
 
 /// Change the view's filter from the bar: the bar draws what the view's filter is each frame, so
@@ -1027,6 +1035,14 @@ mod tests {
     use super::*;
     use crate::Services;
     use crate::headless::HeadlessView;
+
+    /// Client note 45: the position says "Photo … of …", never a bare "116 / 123" next to the selection.
+    #[test]
+    fn the_position_reads_as_a_photo_of_the_view() {
+        assert_eq!(position_text(Some(115), 123, 123), "Photo 116 of 123 · 123 selected");
+        assert_eq!(position_text(Some(0), 2233, 1), "Photo 1 of 2,233");
+        assert_eq!(position_text(None, 1, 0), "1 photo");
+    }
 
     fn bar(app: &mut LightcraftApp, width: f32) -> Vec<(String, Rect)> {
         let mut view = HeadlessView::new();
