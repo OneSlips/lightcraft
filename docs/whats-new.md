@@ -9,6 +9,23 @@
   preview, a zoomed view and the export look the same.
 
 ### Library
+- **Delete removes photos from the library, and the files show up in Import again.** As Lightroom's Remove from
+  Catalog: the confirmation asks "Remove the selected photo from the library?", the files and their XMP sidecars
+  stay on disk, and browsing the folder in Import lists them as not imported, ready to import (their edits come
+  back from the sidecar). There is no Recently Deleted step any more; photos already there stay until you restore
+  or remove them. The note after a delete has an **Undo** button.
+- **Selecting works as in Lightroom.** Shift-click selects a range and Ctrl/⌘-click adds or removes a photo without
+  changing the photo in the loupe; a click on a photo inside the selection shows it and keeps the selection. Select
+  All (Ctrl/⌘+A) keeps up with photos still arriving from an import.
+- **Selected photos are easy to see**: in the grid and the filmstrip the active photo is the brightest, the other
+  selected photos are lighter than the rest, and a pick's glow sits behind the thumbnail instead of over it.
+- **The filmstrip says "Photo 116 of 123 · 6 selected"** instead of "116 / 123".
+- **Auto Sync stays as you left it**, in every library and after a restart, and has a switch at the right end of
+  the bottom bar.
+- **Space can zoom to the eyes** even with the eye strip off: View ▸ Space Zooms To chooses the camera's focus
+  point (else the eyes) or the eyes first.
+- **Assisted Culling can reject soft eyes too**, and asks whether only the main subjects' eyes count.
+- **Import's Places leave out the folders Windows hides**, such as AppData.
 - **Capture Time sort goes through the day across all your cameras.** A collection sorted by capture time used to
   show the photos in the order they were added (one card after the other), and Recently Added kept each import in
   file-name order whatever the sort; both now follow the sort you chose. The sort compares the full capture time,
