@@ -1,7 +1,7 @@
 //! Develop commands. All operate on the active photo unless `ids` are given (sync).
 
 use lightcraft_catalog::{Op, PhotoId, Version};
-use lightcraft_develop::{DevelopSettings, Preset, ProcessVersion, Section, SettingsGroup, Treatment, Upright, WbMode, controls};
+use lightcraft_develop::{DevelopSettings, Preset, ProcessVersion, Section, SettingsGroup, SettingsPick, Treatment, Upright, WbMode, controls};
 use lightcraft_geom::{CropGeometry, CropHandle, Point, Rect, crop_fit_angle, drag_crop};
 use serde_json::{Value, json};
 
@@ -65,6 +65,46 @@ fn groups_param(p: &Value, c: &str) -> Result<Option<Vec<SettingsGroup>>> {
     match p.get("groups") {
         None | Some(Value::Null) => Ok(None),
         Some(v) => serde_json::from_value(v.clone()).map(Some).map_err(|e| bad(c, format!("invalid `groups`: {e}"))),
+    }
+}
+
+/// `groups` (whole groups) and `settings` (single settings of a group: `light.exposure`,
+/// `detail.sharpening`…; `develop.settingItems` lists them) as one pick; `None` when neither is given.
+fn pick_param(p: &Value, c: &str) -> Result<Option<SettingsPick>> {
+    let groups = groups_param(p, c)?;
+    let settings: Option<Vec<String>> = match p.get("settings") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| bad(c, format!("invalid `settings`: {e}")))?),
+    };
+    if groups.is_none() && settings.is_none() {
+        return Ok(None);
+    }
+    let settings = settings.unwrap_or_default();
+    if let Some(unknown) = settings.iter().find(|id| lightcraft_develop::presets::find_item(id).is_none()) {
+        return Err(bad(c, format!("unknown setting `{unknown}` (see develop.settingItems)")));
+    }
+    Ok(Some(SettingsPick { groups: groups.unwrap_or_default(), settings }.normalized()))
+}
+
+/// A preset group named like `name` (trimmed, any case) that exists already, else `name` trimmed:
+/// typing "wedding " never makes a second "Wedding" group (client note 8c).
+pub(crate) fn existing_preset_group(s: &Session, name: &str) -> String {
+    let name = name.trim();
+    let same = |g: &str| g.trim().eq_ignore_ascii_case(name);
+    s.presets
+        .iter()
+        .map(|p| p.group.as_str())
+        .chain(s.preset_state.group_order.iter().map(String::as_str))
+        .find(|g| same(g))
+        .map(|g| g.trim().to_string())
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Remember the dialogs' choices app-wide (saved with the store; a failed save is logged, the
+/// command itself went through).
+fn remember_dialogs(s: &mut Session) {
+    if let Err(e) = s.save_prefs() {
+        log::error!("dialogs: remembering the choices: {e}");
     }
 }
 
@@ -905,20 +945,23 @@ pub fn specs() -> Vec<CommandSpec> {
             "Copy Edit Settings",
             ["Edit"],
             Some("Cmd+C"),
-            "{groups?: [settingsGroup]} (default: all but crop, masks, remove)",
+            "{groups?: [settingsGroup], settings?: [settingItem] (single settings of a group, develop.settingItems)} (default: what was ticked last; at first all but crop, masks, remove) — the choice is remembered app-wide",
             has_active,
             |s, p| {
                 let c = "develop.copy";
                 let id = active(s, c)?;
-                if let Some(g) = groups_param(p, c)? {
-                    s.copy_groups = g;
+                if let Some(pick) = pick_param(p, c)?
+                    && pick != s.dialogs.copy
+                {
+                    s.dialogs.copy = pick;
+                    remember_dialogs(s);
                 }
                 let d = s.develop_of(id).unwrap_or_default();
                 // masks travel as recipes: each photo they are pasted on computes its own selections
-                let mut clip = lightcraft_develop::extract_groups(&d, &s.copy_groups);
+                let mut clip = s.dialogs.copy.extract(&d);
                 lightcraft_develop::presets::to_recipes(&mut clip);
                 s.clipboard = Some(clip);
-                Ok(json!({"groups": s.copy_groups}))
+                Ok(json!({"groups": s.dialogs.copy.groups, "settings": s.dialogs.copy.settings}))
             }
         ),
         cmd!(
@@ -926,14 +969,14 @@ pub fn specs() -> Vec<CommandSpec> {
             "Paste Settings from Previous",
             ["Edit"],
             Some("Cmd+Alt+V"),
-            "{ids?, groups?: [settingsGroup] (default: the copy groups)} — from the photo that was active before this one",
+            "{ids?, groups?: [settingsGroup], settings?: [settingItem] (default: the copy choice)} — from the photo that was active before this one",
             has_active,
             |s, p| {
                 let c = "develop.pastePrevious";
                 let prev =
                     s.previous_active.filter(|id| s.catalog.photo(*id).is_some_and(|ph| !ph.deleted)).ok_or_else(|| bad(c, "no previous photo"))?;
-                let groups = groups_param(p, c)?.unwrap_or_else(|| s.copy_groups.clone());
-                let mut partial = lightcraft_develop::extract_groups(&s.develop_of(prev).unwrap_or_default(), &groups);
+                let pick = pick_param(p, c)?.unwrap_or_else(|| s.dialogs.copy.clone());
+                let mut partial = pick.extract(&s.develop_of(prev).unwrap_or_default());
                 lightcraft_develop::presets::to_recipes(&mut partial);
                 let ids: Vec<PhotoId> = s.targets(p)?.into_iter().filter(|id| *id != prev).collect();
                 let ops = ids
@@ -952,16 +995,23 @@ pub fn specs() -> Vec<CommandSpec> {
             "Paste Edit Settings",
             ["Edit"],
             Some("Cmd+V"),
-            "{ids?, groups?: [settingsGroup] (paste only these of the copied groups)}",
+            "{ids?, groups?: [settingsGroup], settings?: [settingItem] (paste only these of the copied settings)}",
             has_clipboard,
             |s, p| {
                 let c = "develop.paste";
                 let mut clip = s.clipboard.clone().unwrap_or_default();
-                if let Some(only) = groups_param(p, c)? {
-                    // the clipboard holds whole groups: rebuild it with just the chosen (copied) ones
-                    let only: Vec<_> = only.into_iter().filter(|g| s.copy_groups.contains(g)).collect();
+                if let Some(only) = pick_param(p, c)? {
+                    // the clipboard holds what was copied: rebuild it with just the chosen part of it
+                    let only = only.intersect(&s.dialogs.copy);
+                    let masks = clip.get("masks").cloned();
                     let full = lightcraft_develop::apply_partial(&DevelopSettings::default(), &clip, 1.0);
-                    clip = lightcraft_develop::extract_groups(&full, &only);
+                    clip = only.extract(&full);
+                    // (the copied masks go as they were copied: recipes)
+                    if let (Some(m), Some(o)) = (masks, clip.as_object_mut())
+                        && o.contains_key("masks")
+                    {
+                        o.insert("masks".into(), m);
+                    }
                 }
                 lightcraft_develop::presets::to_recipes(&mut clip);
                 let ids = s.targets(p)?;
@@ -981,14 +1031,19 @@ pub fn specs() -> Vec<CommandSpec> {
             "Sync Settings",
             [],
             None,
-            "{groups?} — copy the active photo's settings to all selected photos",
+            "{groups?, settings?: [settingItem]} (default: what Sync ticked last) — copy the active photo's settings to all selected photos; the choice is remembered app-wide",
             has_selection,
             |s, p| {
                 let c = "develop.sync";
                 let id = active(s, c)?;
-                let groups = groups_param(p, c)?.unwrap_or_else(SettingsGroup::default_copy);
+                if let Some(pick) = pick_param(p, c)?
+                    && pick != s.dialogs.sync
+                {
+                    s.dialogs.sync = pick;
+                    remember_dialogs(s);
+                }
                 let d = s.develop_of(id).unwrap_or_default();
-                let mut partial = lightcraft_develop::extract_groups(&d, &groups);
+                let mut partial = s.dialogs.sync.extract(&d);
                 lightcraft_develop::presets::to_recipes(&mut partial);
                 let targets: Vec<PhotoId> = s.selection.ids.iter().copied().filter(|x| *x != id).collect();
                 let ops = targets
@@ -1000,6 +1055,33 @@ pub fn specs() -> Vec<CommandSpec> {
                 s.commit("Sync Settings", Op::Batch { ops })?;
                 let masks = if partial.get("masks").is_some() { s.compute_masks(&targets, false) } else { Value::Null };
                 Ok(json!({"changed": n, "masks": masks}))
+            }
+        ),
+        cmd!(
+            "develop.settingItems",
+            "List Settings to Copy",
+            [],
+            None,
+            "{} → {groups: [{group, label, settings: [{id, label}]}], copy, sync, newPreset, presetGroup}: the settings groups and the single settings inside them that copy, sync and presets can pick, and what Copy, Sync and New Preset tick now",
+            always,
+            |s, _| {
+                let groups: Vec<Value> = SettingsGroup::ALL
+                    .iter()
+                    .map(|g| {
+                        json!({
+                            "group": g.id(),
+                            "label": g.label(),
+                            "settings": g.items().iter().map(|i| json!({"id": i.id, "label": i.label})).collect::<Vec<_>>(),
+                        })
+                    })
+                    .collect();
+                Ok(json!({
+                    "groups": groups,
+                    "copy": s.dialogs.copy,
+                    "sync": s.dialogs.sync,
+                    "newPreset": s.dialogs.new_preset,
+                    "presetGroup": s.dialogs.preset_group,
+                }))
             }
         ),
         cmd!(
@@ -1128,20 +1210,46 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"changed": n, "masks": masks}))
             }
         ),
-        cmd!("preset.create", "Create Preset", ["Photo"], None, "{name, group?, groups?: [settingsGroup]}", has_active, |s, p| {
-            let c = "preset.create";
-            let id = active(s, c)?;
-            let name = str_param(p, "name").ok_or_else(|| bad(c, "missing name"))?;
-            let group = str_param(p, "group").unwrap_or("User Presets");
-            let groups = groups_param(p, c)?.unwrap_or_else(SettingsGroup::default_copy);
-            let d = s.develop_of(id).unwrap_or_default();
-            let pid = format!("user.{}.{}", s.presets.len(), name.to_lowercase().replace(' ', "-"));
-            let mut preset = Preset::from_settings(&pid, name, group, &d, &groups);
-            // masks are kept as recipes (what to select), never this photo's selections
-            lightcraft_develop::presets::to_recipes(&mut preset.settings);
-            s.presets.push(preset);
-            Ok(json!({"id": pid}))
-        }),
+        cmd!(
+            "preset.create",
+            "Create Preset",
+            ["Photo"],
+            None,
+            "{name, group?, groups?: [settingsGroup], settings?: [settingItem]} (default: what New Preset ticked last; White Balance only once ticked) — a group named like an existing one (any case, spaces trimmed) is that group; the choice is remembered app-wide → {id, group}",
+            has_active,
+            |s, p| {
+                let c = "preset.create";
+                let id = active(s, c)?;
+                let name = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(c, "missing name"))?.to_string();
+                let typed = str_param(p, "group").map(str::trim).filter(|g| !g.is_empty()).unwrap_or(crate::app_store::DEFAULT_PRESET_GROUP);
+                let group = existing_preset_group(s, typed);
+                let pick = match pick_param(p, c)? {
+                    Some(pick) => pick,
+                    None => s.dialogs.new_preset.clone(),
+                };
+                if pick.is_empty() {
+                    return Err(bad(c, "tick at least one setting to save in the preset"));
+                }
+                if pick != s.dialogs.new_preset || group != s.dialogs.preset_group {
+                    s.dialogs.new_preset = pick.clone();
+                    s.dialogs.preset_group = group.clone();
+                    remember_dialogs(s);
+                }
+                let d = s.develop_of(id).unwrap_or_default();
+                let base = format!("user.{}", crate::presets::slug(&format!("{group}-{name}")));
+                let mut pid = base.clone();
+                let mut n = 2u32;
+                while s.presets.iter().any(|x| x.id == pid) && n < 100_000 {
+                    pid = format!("{base}-{n}");
+                    n += 1;
+                }
+                let mut preset = Preset { settings: pick.extract(&d), ..Preset::from_settings(&pid, &name, &group, &d, &[]) };
+                // masks are kept as recipes (what to select), never this photo's selections
+                lightcraft_develop::presets::to_recipes(&mut preset.settings);
+                s.presets.push(preset);
+                Ok(json!({"id": pid, "group": group}))
+            }
+        ),
         cmd!("preset.delete", "Delete Preset", [], None, "{id}", always, |s, p| {
             let pid = str_param(p, "id").ok_or_else(|| bad("preset.delete", "missing id"))?;
             let i = s.presets.iter().position(|x| x.id == pid).ok_or_else(|| bad("preset.delete", "unknown preset"))?;
@@ -1165,7 +1273,9 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("preset.move", "Move Preset to Group", [], None, "{id, group}", always, |s, p| {
             let c = "preset.move";
-            let group = str_param(p, "group").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(c, "missing group"))?.to_string();
+            let group = str_param(p, "group").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(c, "missing group"))?;
+            // (a group named like one there is is that group: never two "Wedding" groups)
+            let group = existing_preset_group(s, group);
             user_preset(s, p, c)?.group = group;
             ok()
         }),
@@ -1174,24 +1284,54 @@ pub fn specs() -> Vec<CommandSpec> {
             "Update Preset with Current Settings",
             [],
             None,
-            "{id, groups?: [settingsGroup] (default: the groups the preset already sets)} — from the active photo",
+            "{id, groups?: [settingsGroup], settings?: [settingItem] (default: the settings the preset already has)} — from the active photo; keeps the preset's name, group, place, favourite and At Import mark; preset.undoUpdate puts the old settings back → {id, groups, settings}",
             has_active,
             |s, p| {
                 let c = "preset.update";
                 let id = active(s, c)?;
-                let current = s.develop_of(id).unwrap_or_default().to_json();
-                let groups = groups_param(p, c)?;
+                let current = s.develop_of(id).unwrap_or_default();
+                let pick = pick_param(p, c)?;
                 let pr = user_preset(s, p, c)?;
-                pr.settings = match groups {
-                    Some(g) => lightcraft_develop::extract_groups(&serde_json::from_value(current).unwrap_or_default(), &g),
-                    // the same keys as before, with the current values
-                    None => {
-                        let keys: Vec<String> = pr.settings.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-                        Value::Object(keys.into_iter().filter_map(|k| current.get(&k).cloned().map(|v| (k, v))).collect())
-                    }
-                };
-                lightcraft_develop::presets::to_recipes(&mut pr.settings);
-                ok()
+                let pick = pick.unwrap_or_else(|| SettingsPick::of_partial(&pr.settings));
+                if pick.is_empty() {
+                    return Err(bad(c, "tick at least one setting to keep in the preset"));
+                }
+                let mut settings = pick.extract(&current);
+                lightcraft_develop::presets::to_recipes(&mut settings);
+                let before = std::mem::replace(&mut pr.settings, settings);
+                let pid = pr.id.clone();
+                s.preset_undo = Some((pid.clone(), before));
+                Ok(json!({"id": pid, "groups": pick.groups, "settings": pick.settings}))
+            }
+        ),
+        cmd!(
+            "preset.undoUpdate",
+            "Undo Update Preset",
+            [],
+            None,
+            "{} — put back the settings the last Update with Current Settings replaced",
+            |s| if s.preset_undo.is_some() { Ok(()) } else { Err("no preset update to undo".into()) },
+            |s, _| {
+                let c = "preset.undoUpdate";
+                let (pid, before) = s.preset_undo.take().ok_or_else(|| bad(c, "no preset update to undo"))?;
+                let pr = s.presets.iter_mut().find(|x| x.id == pid).ok_or_else(|| bad(c, "the preset was deleted"))?;
+                pr.settings = before;
+                Ok(json!({"id": pid}))
+            }
+        ),
+        cmd!(
+            "preset.settings",
+            "Preset Settings",
+            [],
+            None,
+            "{id} → {groups, settings, ids}: what the preset holds, as the per-setting ticks (Update Preset's dialog starts from it)",
+            always,
+            |s, p| {
+                let c = "preset.settings";
+                let pid = str_param(p, "id").ok_or_else(|| bad(c, "missing id"))?;
+                let pr = s.presets.iter().find(|x| x.id == pid).ok_or_else(|| bad(c, format!("unknown preset `{pid}`")))?;
+                let pick = SettingsPick::of_partial(&pr.settings);
+                Ok(json!({"groups": pick.groups, "settings": pick.settings, "ids": pick.to_ids()}))
             }
         ),
         // ---- versions & history

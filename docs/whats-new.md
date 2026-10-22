@@ -41,6 +41,17 @@
   Nothing about them changed but the name; agents keep using the `album.*` commands.
 
 ### Presets
+- **New Preset, Copy Settings, Paste Selected and Sync Settings pick single settings**, as in Lightroom: open a group
+  with its arrow to tick Exposure but not Contrast, Sharpening but not Noise Reduction, the camera profile but not the
+  Calibration sliders. A group with only some settings ticked shows a dash.
+- **White Balance is no longer saved in a new preset unless you tick it**, so a look applied to a whole wedding
+  keeps each photo's own white balance.
+- **New Preset offers the groups you have** in a list, with New Group… for another; typing a name that exists
+  already (in any case) puts the preset in that group instead of making a second one.
+- **Update with Current Settings…** (right-click a preset) shows what the preset holds, ticked, so you can see and
+  change what is saved. The preset keeps its name, group, place and marks, and the message after it has **Undo**.
+- **Copy Settings, Sync Settings and New Preset remember their ticks** (and New Preset its group) in every library
+  and after a restart. Edit ▸ Sync Settings… opens Lightroom's Synchronize Settings choice.
 - **A preset clicked in the Presets panel follows Auto Sync, like a slider**: with Auto Sync off it goes on the
   active photo only; with it on, on every selected photo (one undo). Right-click ▸ **Apply to N Selected Photos**
   and Quick Develop's Saved Preset still put it on the whole selection.

@@ -444,5 +444,9 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Removed {n} photos from the library. The files stay on disk and can be imported again.",
   "Remove the {count} selected photos from the library?": "Remove the {count} selected photos from the library?",
   "Photo {i} of {n}": "Photo {i} of {n}",
-  "Remove {n} Photos from Library": "Remove {n} Photos from Library"
+  "Remove {n} Photos from Library": "Remove {n} Photos from Library",
+  "Goes into the group “{group}” that exists already.": "ჩაემატება არსებულ ჯგუფში „{group}“.",
+  "Preset saved in {group}": "პრესეტი შენახულია ჯგუფში {group}",
+  "From the active photo to {n} other selected photos": "აქტიური ფოტოდან {n} სხვა მონიშნულ ფოტოზე",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}“ აქტიური ფოტოს პარამეტრებს იღებს. სახელი, ჯგუფი, ადგილი და ნიშნები რჩება."
 }

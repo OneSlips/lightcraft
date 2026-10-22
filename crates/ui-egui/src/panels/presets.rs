@@ -68,7 +68,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         )
         .clicked()
         {
-            app.ui.dialog = Some(crate::state::Dialog::create_preset());
+            app.ui.dialog = Some(crate::state::Dialog::create_preset(&app.session));
         }
         let more = icon_button(&mut hdr, "presetMore", Icon::More, vec2(28.0, 28.0), false, true, crate::i18n::tr("More preset options"));
         egui::Popup::menu(&more).show(|ui| {
@@ -293,13 +293,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         }
                         ui.separator();
                         if ui
-                            .add_enabled(app.session.active().is_some(), egui::Button::new(crate::i18n::tr("Update with Current Settings")))
+                            .add_enabled(app.session.active().is_some(), egui::Button::new(crate::i18n::tr("Update with Current Settings…")))
                             .clicked()
+                            && let Err(e) = app.run("dialog.updatePreset", json!({"id": pid}))
                         {
-                            match app.run("preset.update", json!({"id": pid})) {
-                                Ok(_) => app.toast(ui.ctx(), crate::i18n::tr_format!("Updated “{name}”", name = name)),
-                                Err(e) => app.toast(ui.ctx(), e),
-                            }
+                            app.toast(ui.ctx(), e);
                         }
                         if ui.button(crate::i18n::tr("Rename…")).clicked() {
                             crate::panels::dialogs::prompt(app, "Rename Preset", "Preset name", &name, "preset.rename", json!({"id": pid}), "name");

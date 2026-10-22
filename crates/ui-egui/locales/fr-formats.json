@@ -444,5 +444,9 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "{n} photos retirées de la bibliothèque. Les fichiers restent sur le disque et peuvent être importés à nouveau.",
   "Remove the {count} selected photos from the library?": "Retirer les {count} photos sélectionnées de la bibliothèque ?",
   "Photo {i} of {n}": "Photo {i} sur {n}",
-  "Remove {n} Photos from Library": "Retirer {n} photos de la bibliothèque"
+  "Remove {n} Photos from Library": "Retirer {n} photos de la bibliothèque",
+  "Goes into the group “{group}” that exists already.": "Va dans le groupe existant « {group} ».",
+  "Preset saved in {group}": "Paramètre prédéfini enregistré dans {group}",
+  "From the active photo to {n} other selected photos": "De la photo active vers {n} autres photos sélectionnées",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "« {name} » reprend les réglages de la photo active. Son nom, son groupe, sa place et ses marques restent."
 }

@@ -316,8 +316,11 @@ pub struct Session {
     pub meta_clipboard: Option<Value>,
     /// The photo that was active before the current one (Paste Settings from Previous).
     pub previous_active: Option<PhotoId>,
-    /// Groups last used for Copy (Lightroom remembers them).
-    pub copy_groups: Vec<lightcraft_develop::SettingsGroup>,
+    /// What the dialogs with choices remember (Copy Settings' ticks, Sync's, New Preset's…), kept
+    /// app-wide with the store (client note 13).
+    pub dialogs: app_store::DialogMemory,
+    /// The last preset Update with Current Settings changed, and its settings before (Undo).
+    pub preset_undo: Option<(String, Value)>,
     /// Built-in then user presets; its generation tells savers and caches when it changed.
     pub presets: presets::PresetList,
     /// Favourite profile ids (persisted with the library, like preset favourites).
@@ -560,7 +563,8 @@ impl Session {
             browse: None,
             library_folder: None,
             previous_active: None,
-            copy_groups: lightcraft_develop::SettingsGroup::default_copy(),
+            dialogs: app_store::DialogMemory::default(),
+            preset_undo: None,
             presets: presets::PresetList::new(presets::builtin()),
             profile_favorites: Vec::new(),
             profile_recent: Vec::new(),
@@ -1755,6 +1759,8 @@ mod tests_people_persist;
 mod tests_persist;
 #[cfg(test)]
 mod tests_prefs;
+#[cfg(test)]
+mod tests_preset_picks;
 #[cfg(test)]
 mod tests_presets_scale;
 #[cfg(test)]

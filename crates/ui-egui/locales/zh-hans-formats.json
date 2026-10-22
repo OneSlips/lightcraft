@@ -444,5 +444,9 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "已从图库中移除 {n} 张照片。文件仍在磁盘上，可以再次导入。",
   "Remove the {count} selected photos from the library?": "从图库中移除所选的 {count} 张照片？",
   "Photo {i} of {n}": "第 {i} 张，共 {n} 张",
-  "Remove {n} Photos from Library": "从图库中移除 {n} 张照片"
+  "Remove {n} Photos from Library": "从图库中移除 {n} 张照片",
+  "Goes into the group “{group}” that exists already.": "将放入已有的组“{group}”。",
+  "Preset saved in {group}": "预设已存入 {group}",
+  "From the active photo to {n} other selected photos": "从当前照片到其他 {n} 张所选照片",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "“{name}”将采用当前照片的设置。名称、组、位置和标记保持不变。"
 }

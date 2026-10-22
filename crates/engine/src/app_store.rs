@@ -222,6 +222,10 @@ pub struct Habits {
     /// Auto Sync (`develop.autoSync`) stays as the user left it, whichever library is open (client
     /// note 20; the user's decision: app-wide, not per library).
     pub auto_sync: bool,
+    /// The choices every dialog remembers (client note 13): what Copy Settings, Sync and New Preset
+    /// tick, and the others' last answers.
+    #[serde(skip_serializing_if = "DialogMemory::is_default", deserialize_with = "lenient_dialogs")]
+    pub dialogs: DialogMemory,
     /// The grid's sort (a library's `view.json` keeps one too, for older builds). Not in
     /// `prefs.json`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,7 +233,7 @@ pub struct Habits {
 }
 
 /// The `prefs.json` keys of [`Habits`] (kept in the library as read while the store holds them).
-pub(crate) const HABITS_PREFS_KEYS: [&str; 16] = [
+pub(crate) const HABITS_PREFS_KEYS: [&str; 17] = [
     "exportPresets",
     "lastExport",
     "lastMerge",
@@ -246,7 +250,100 @@ pub(crate) const HABITS_PREFS_KEYS: [&str; 16] = [
     "slideTitles",
     "holdView",
     "autoSync",
+    "dialogs",
 ];
+
+/// What the dialogs with choices remember, across uses, restarts and libraries (client note 13): the
+/// settings Copy Settings, Sync Settings and New Preset tick, New Preset's group, and the last answers
+/// of the other dialogs (the camera profile creator, the Export dialog…) by dialog.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DialogMemory {
+    /// Copy Settings (Paste Selected offers what was copied).
+    pub copy: lightcraft_develop::SettingsPick,
+    /// Sync Settings.
+    pub sync: lightcraft_develop::SettingsPick,
+    /// New Preset's ticks (White Balance left out until it is ticked: note 8b).
+    pub new_preset: lightcraft_develop::SettingsPick,
+    /// The group New Preset put the last preset in.
+    pub preset_group: String,
+    /// The other dialogs' last choices by dialog id, as the app keeps them (`app.rememberChoices`).
+    pub other: BTreeMap<String, serde_json::Value>,
+}
+
+impl Default for DialogMemory {
+    fn default() -> Self {
+        use lightcraft_develop::{SettingsGroup, SettingsPick};
+        DialogMemory {
+            copy: SettingsPick::of_groups(SettingsGroup::default_copy()),
+            sync: SettingsPick::of_groups(SettingsGroup::default_copy()),
+            new_preset: SettingsPick::of_groups(SettingsGroup::default_preset()),
+            preset_group: DEFAULT_PRESET_GROUP.into(),
+            other: BTreeMap::new(),
+        }
+    }
+}
+
+/// A [`DialogMemory`] that can't be read (a hand-edited file) is the defaults, never a damaged store.
+fn lenient_dialogs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<DialogMemory, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_else(|e| {
+        log::warn!("store: the remembered dialog choices can't be read ({e}); the defaults are used");
+        DialogMemory::default()
+    }))
+}
+
+/// The group a new preset goes in unless another is chosen.
+pub const DEFAULT_PRESET_GROUP: &str = "User Presets";
+
+/// Most dialogs remembered in [`DialogMemory::other`] (a hand-edited file can't grow it without end).
+pub const MAX_REMEMBERED_DIALOGS: usize = 64;
+/// Largest remembered answer of one dialog (bytes of JSON).
+pub const MAX_REMEMBERED_BYTES: usize = 64 << 10;
+
+impl DialogMemory {
+    pub fn is_default(&self) -> bool {
+        *self == DialogMemory::default()
+    }
+
+    /// Checked after reading a file: picks normalized, the map and its answers capped.
+    pub(crate) fn sanitized(mut self) -> DialogMemory {
+        self.copy = self.copy.normalized();
+        self.sync = self.sync.normalized();
+        self.new_preset = self.new_preset.normalized();
+        if self.preset_group.trim().is_empty() {
+            self.preset_group = DEFAULT_PRESET_GROUP.into();
+        }
+        self.other.retain(|_, v| serde_json::to_vec(v).is_ok_and(|b| b.len() <= MAX_REMEMBERED_BYTES));
+        while self.other.len() > MAX_REMEMBERED_DIALOGS {
+            let Some(k) = self.other.keys().next_back().cloned() else { break };
+            self.other.remove(&k);
+        }
+        self
+    }
+
+    /// Take `other`'s choices where this has only the defaults (a library merged into the store).
+    fn merge(&mut self, other: DialogMemory) {
+        let d = DialogMemory::default();
+        if self.copy == d.copy {
+            self.copy = other.copy;
+        }
+        if self.sync == d.sync {
+            self.sync = other.sync;
+        }
+        if self.new_preset == d.new_preset {
+            self.new_preset = other.new_preset;
+        }
+        if self.preset_group == d.preset_group {
+            self.preset_group = other.preset_group;
+        }
+        for (k, v) in other.other {
+            if self.other.len() < MAX_REMEMBERED_DIALOGS {
+                self.other.entry(k).or_insert(v);
+            }
+        }
+    }
+}
 
 /// Add `theirs` to `mine` by name: the same item twice is kept once; the same name with other
 /// content is kept as "name 2" (nothing lost). → how many were added.
@@ -307,6 +404,7 @@ impl Habits {
         }
         self.hold_view |= other.hold_view;
         self.auto_sync |= other.auto_sync;
+        self.dialogs.merge(other.dialogs);
         if self.sort.is_none() {
             self.sort = other.sort;
         }
@@ -916,6 +1014,7 @@ impl Session {
             slide_titles: self.slide_titles.clone(),
             hold_view: self.hold_view,
             auto_sync: self.auto_sync,
+            dialogs: self.dialogs.clone(),
             sort: Some(self.sort),
         }
     }
@@ -939,6 +1038,7 @@ impl Session {
         self.slide_titles = h.slide_titles.sanitized();
         self.hold_view = h.hold_view;
         self.auto_sync = h.auto_sync;
+        self.dialogs = h.dialogs.sanitized();
         if let Some(sort) = h.sort {
             self.sort = sort;
         }

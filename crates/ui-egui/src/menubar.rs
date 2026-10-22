@@ -107,7 +107,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "dialog.copySettings",
             "develop.paste",
             "dialog.pasteSettings",
-            "develop.sync",
+            "dialog.syncSettings",
             "develop.autoSync",
             "---",
             "library.selectAll",

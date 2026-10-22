@@ -444,5 +444,9 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Удалено из библиотеки фото: {n}. Файлы остаются на диске, их можно импортировать снова.",
   "Remove the {count} selected photos from the library?": "Удалить из библиотеки выбранные фото ({count})?",
   "Photo {i} of {n}": "Фото {i} из {n}",
-  "Remove {n} Photos from Library": "Удалить из библиотеки фото: {n}"
+  "Remove {n} Photos from Library": "Удалить из библиотеки фото: {n}",
+  "Goes into the group “{group}” that exists already.": "Попадёт в существующую группу «{group}».",
+  "Preset saved in {group}": "Пресет сохранён в группе {group}",
+  "From the active photo to {n} other selected photos": "С активного фото на {n} других выбранных фото",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "«{name}» получит настройки активного фото. Название, группа, место и отметки сохранятся."
 }
