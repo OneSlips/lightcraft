@@ -103,6 +103,8 @@ fn walk(op: &Op, into: &mut BTreeSet<PhotoId>, kind: &mut Option<ChangeKind>, de
         Op::SetHistory { .. }
         | Op::PushHistory { .. }
         | Op::SetHistoryCursor { .. }
+        | Op::SetBefore { .. }
+        | Op::SetImportState { .. }
         | Op::SetAnalysis { .. }
         | Op::SetEmbeddedLens { .. }
         | Op::SetAsShotWb { .. }

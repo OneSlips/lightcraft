@@ -80,7 +80,7 @@ pub enum BeforeAfter {
 
 impl BeforeAfter {
     /// One of the Before / After layouts (two views or a split line), which the bottom bar's
-    /// Before/After (Y) button stands for. Show Original (`\`) is a view of its own, not a layout.
+    /// Before/After (Y) button stands for. Show Before (`\`) is a view of its own, not a layout.
     pub fn is_layout(self) -> bool {
         !matches!(self, BeforeAfter::Off | BeforeAfter::Original)
     }

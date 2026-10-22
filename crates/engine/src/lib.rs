@@ -418,9 +418,6 @@ pub struct Session {
     pub keyword_sets: Vec<cmd::keywords::KeywordSet>,
     pub keyword_set: Option<String>,
     pub recent_keywords: Vec<String>,
-    /// Before/After: the "before" settings chosen per photo (this session; default: the photo's
-    /// import state). See `cmd/before.rs`.
-    pub before: std::collections::HashMap<PhotoId, Arc<DevelopSettings>>,
     /// File probes from the last import review (`library.importPreview`), reused by the import.
     pub import_probes: std::collections::HashMap<String, media::ProbeInfo>,
     /// The last Synchronize Folder scan, which `folder.synchronize` acts on while it is current
@@ -596,7 +593,6 @@ impl Session {
             keyword_sets: Vec::new(),
             keyword_set: None,
             recent_keywords: Vec::new(),
-            before: Default::default(),
             import_probes: Default::default(),
             folder_changes: None,
             activity: Default::default(),

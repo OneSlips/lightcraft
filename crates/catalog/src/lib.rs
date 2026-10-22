@@ -127,6 +127,20 @@ pub enum Op {
         id: PhotoId,
         step: HistoryStep,
     },
+    /// What the Before view shows (see [`Photo::before`]; `None`: the import state). Format
+    /// version 10.
+    SetBefore {
+        id: PhotoId,
+        #[serde(default)]
+        before: Option<Arc<DevelopSettings>>,
+    },
+    /// The photo as it came into the library (see [`Photo::import_state`]): what a browsed photo's
+    /// import sets. Format version 10.
+    SetImportState {
+        id: PhotoId,
+        #[serde(default)]
+        state: Option<Arc<DevelopSettings>>,
+    },
     /// Move the History cursor (see [`Photo::history_cursor`]) without changing the steps.
     SetHistoryCursor {
         id: PhotoId,
@@ -647,9 +661,13 @@ impl Catalog {
             Op::SetCaptured { .. } => self.changes.now = Aspects::CAPTURED,
             Op::SetFile { .. } | Op::Relink { .. } => self.changes.now = Aspects::FILE,
             Op::SetAnalysis { .. } => self.changes.now = Aspects::ANALYSIS,
-            Op::SetDevelop { .. } | Op::SetVersions { .. } | Op::SetHistory { .. } | Op::PushHistory { .. } | Op::SetHistoryCursor { .. } => {
-                self.changes.now = Aspects::DEVELOP
-            }
+            Op::SetDevelop { .. }
+            | Op::SetVersions { .. }
+            | Op::SetHistory { .. }
+            | Op::PushHistory { .. }
+            | Op::SetHistoryCursor { .. }
+            | Op::SetBefore { .. }
+            | Op::SetImportState { .. } => self.changes.now = Aspects::DEVELOP,
             // (its ops say for themselves, one by one)
             Op::Batch { .. } => {}
             Op::AddAlbum { .. }
@@ -743,6 +761,14 @@ impl Catalog {
                 } else {
                     Op::Batch { ops: vec![Op::SetHistory { id, history: old }, Op::SetHistoryCursor { id, cursor: old_cursor }] }
                 }
+            }
+            Op::SetBefore { id, before } => {
+                let p = self.photo_mut(id)?;
+                Op::SetBefore { id, before: std::mem::replace(&mut p.before, before) }
+            }
+            Op::SetImportState { id, state } => {
+                let p = self.photo_mut(id)?;
+                Op::SetImportState { id, state: std::mem::replace(&mut p.import_state, state) }
             }
             Op::SetHistoryCursor { id, cursor } => {
                 let p = self.photo_mut(id)?;
