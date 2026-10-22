@@ -83,6 +83,18 @@ const MODULES: &[Module] = &[
         entries: &["unwritten", "pad_rows"],
     },
     Module {
+        src: include_str!("wgsl/skin.wgsl"),
+        bindings: &[
+            ("img", true, "f32"),
+            ("cov", false, "f32"),
+            ("lab", true, "f32"),
+            ("fine", false, "f32"),
+            ("mid", false, "f32"),
+            ("low", false, "f32"),
+        ],
+        entries: &["skin_lab", "skin_reduce", "skin_combine"],
+    },
+    Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
         entries: &["orient", "sample_affine", "sample_warp"],

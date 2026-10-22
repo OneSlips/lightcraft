@@ -170,6 +170,13 @@ walks the drive.
   `spots::{layout, candidates, ring_dirs, score_radii, rank}`) run on the device in `lin_cpu`'s
   order. The histogram is counted on the device (`hist`, atomics, the same sampling grid as
   `Histogram::of_srgb8`, so it is exact).
+- Smooth Skin (`skin` module: `skin_lab`, `skin_reduce`, `skin_combine`, with the box Gaussian on
+  4-channel bands) runs on the device from the CPU's plan (`skin::plan`: the coverage over the
+  skin's box, the faces grouped by size and each group's region), the same fast log / exp as the
+  CPU (`crates/gpu/tests/skin_gpu.rs`: max 1 LSB). Before, a photo with Smooth Skin had its whole
+  linear image read back, smoothed on the processor and uploaded again (a 45 MP export spent ~0.8 s
+  of its GPU turn on that). The retouch of people's parts still runs on the CPU (read back, uploaded),
+  and so does Smooth Skin when a region is over the device's buffer limit.
 - Per-stage hybrid: the camera's local tone mapping (ProRAW gain tables, off by default) runs the
   scene-linear stage on the CPU and uploads; heuristic mask shapes (Sky, Subject, Background, …), brushes with pen pressure and
   brushes of more than 65 536 dabs (or whose tile lists would pass 8 M words) are evaluated on the CPU and uploaded. The
