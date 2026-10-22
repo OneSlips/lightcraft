@@ -307,12 +307,23 @@ fn config_dir() -> Option<std::path::PathBuf> {
 /// The window at the size it was last used at, zoomed if it was (`window`), or at the usual size
 /// when nothing is remembered. A zoomed window is given the size it goes back to. Where it
 /// opens is the system's to say.
-fn as_remembered(builder: egui::ViewportBuilder, window: Option<lightcraft_ui_egui::window_place::WindowPlace>) -> egui::ViewportBuilder {
+///
+/// Windows (client note 17): a window built maximized could open covering half the screen while
+/// the system took it for maximized, so there (`maximize_later`) it is built at its size and
+/// maximized once it shows ([`lightcraft_ui_egui::window_place::StartPlace`]).
+fn as_remembered(
+    builder: egui::ViewportBuilder,
+    window: Option<lightcraft_ui_egui::window_place::WindowPlace>,
+    maximize_later: bool,
+) -> egui::ViewportBuilder {
     let builder = builder.with_inner_size(window.map_or(lightcraft_ui_egui::window_place::DEFAULT_SIZE, |w| w.size));
     // (only ever asked to zoom: asked not to, macOS un-zooms a window whose size fills the screen
     // to a size of its own choosing)
-    if window.is_some_and(|w| w.zoomed) { builder.with_maximized(true) } else { builder }
+    if window.is_some_and(|w| w.zoomed) && !maximize_later { builder.with_maximized(true) } else { builder }
 }
+
+/// Windows maximizes a remembered maximized window once it shows (see [`as_remembered`]).
+const MAXIMIZE_LATER: bool = cfg!(target_os = "windows");
 
 /// `<config>/ui.json`, the saved UI state and app settings — `None` when nothing is read or
 /// written: `LIGHTCRAFT_NO_PREFS` (tests, scripts) or no home folder.
@@ -437,6 +448,9 @@ struct PrefsWriter {
     /// When the window was first looked at: its watch goes by the clock from then on, not by
     /// the interface's time, which stands still while the window is hidden.
     window_since: Option<std::time::Instant>,
+    /// The window as it first shows: maximized then on Windows, fitted to a smaller screen
+    /// (client note 17). `None` once done, and in tests.
+    start: Option<lightcraft_ui_egui::window_place::StartPlace>,
 }
 
 impl PrefsWriter {
@@ -488,6 +502,15 @@ impl PrefsWriter {
         // the settings hold is checked first: a script may have set it (`ui.set`)
         let remembered = app.ui.window.and_then(lightcraft_ui_egui::window_place::WindowPlace::checked);
         let at = self.window_since.get_or_insert_with(std::time::Instant::now).elapsed().as_secs_f64();
+        if let Some(start) = &mut self.start {
+            for command in start.step(&seen, at) {
+                ctx.send_viewport_cmd(command);
+            }
+            match start.waits() {
+                Some(wait) => ctx.request_repaint_after(wait),
+                None => self.start = None,
+            }
+        }
         app.ui.window = self.window.note(remembered, &seen, at);
         if let Some(wait) = self.window.waits(at) {
             // (a size is only remembered once the window has rested at it: look again then, though
@@ -1077,7 +1100,7 @@ fn main() -> eframe::Result {
     let opens_as = prefs.as_ref().and_then(|ui| ui.window).and_then(lightcraft_ui_egui::window_place::WindowPlace::checked);
     let options = eframe::NativeOptions {
         renderer,
-        viewport: as_remembered(egui::ViewportBuilder::default().with_title("LightCraft"), opens_as)
+        viewport: as_remembered(egui::ViewportBuilder::default().with_title("LightCraft"), opens_as, MAXIMIZE_LATER)
             .with_min_inner_size(lightcraft_ui_egui::window_place::MIN_SIZE)
             .with_drag_and_drop(true)
             .with_fullsize_content_view(true)
@@ -1148,6 +1171,7 @@ fn main() -> eframe::Result {
                     written: serde_json::to_vec_pretty(&app.ui).unwrap_or_default(),
                     library: app.ui.settings.library_path.clone(),
                     keep_file: keep_prefs_file,
+                    start: Some(lightcraft_ui_egui::window_place::StartPlace::new(MAXIMIZE_LATER && opens_as.is_some_and(|w| w.zoomed))),
                     ..Default::default()
                 };
                 // after the snapshot above, so the writer saves the switched-off preference
@@ -1620,12 +1644,15 @@ mod tests {
     #[test]
     fn the_window_opens_as_it_was() {
         use lightcraft_ui_egui::window_place::{DEFAULT_SIZE, WindowPlace};
-        let fresh = as_remembered(egui::ViewportBuilder::default(), None);
+        let fresh = as_remembered(egui::ViewportBuilder::default(), None, false);
         assert_eq!((fresh.inner_size, fresh.position, fresh.maximized), (Some(egui::Vec2::from(DEFAULT_SIZE)), None, None));
-        let b = as_remembered(egui::ViewportBuilder::default(), Some(WindowPlace { size: [1300.0, 800.0], zoomed: true }));
+        let b = as_remembered(egui::ViewportBuilder::default(), Some(WindowPlace { size: [1300.0, 800.0], zoomed: true }), false);
         assert_eq!((b.inner_size, b.position, b.maximized), (Some(egui::vec2(1300.0, 800.0)), None, Some(true)));
+        // Windows (client note 17): built at its size, maximized once it shows
+        let b = as_remembered(egui::ViewportBuilder::default(), Some(WindowPlace { size: [1300.0, 800.0], zoomed: true }), true);
+        assert_eq!((b.inner_size, b.maximized), (Some(egui::vec2(1300.0, 800.0)), None));
         // (not asked to un-zoom: macOS would then resize a window that fills its screen)
-        let b = as_remembered(egui::ViewportBuilder::default(), Some(WindowPlace { size: [1300.0, 800.0], zoomed: false }));
+        let b = as_remembered(egui::ViewportBuilder::default(), Some(WindowPlace { size: [1300.0, 800.0], zoomed: false }), false);
         assert_eq!((b.inner_size, b.position, b.maximized), (Some(egui::vec2(1300.0, 800.0)), None, None));
     }
 
