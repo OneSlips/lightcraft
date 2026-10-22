@@ -613,8 +613,9 @@ fn clicks_in(clicks: &[super::Click], region: [f64; 4]) -> Option<Vec<lightcraft
     inside.iter().any(|c| c.positive).then_some(inside)
 }
 
-/// Side of the grid an EoMT selection is stored at (its output is 160 px on the long edge).
-const SCENE_SIDE: usize = 256;
+/// Side of the grid an EoMT selection is stored at: its output (160 px on the long edge) refined on
+/// the model input ([`lightcraft_segment::matte::refine_coarse`]).
+const SCENE_SIDE: usize = 1024;
 
 /// The COCO panoptic classes (by name) each landscape class covers.
 fn landscape_classes(class: &str) -> &'static [&'static str] {
@@ -737,7 +738,15 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             let scene =
                 cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h))?;
             let Some(probs) = scene_probs(scene, what) else { return Ok(None) };
-            let logits = lightcraft_segment::grid::to_square_logits(&probs, scene.width, scene.height, SCENE_SIDE);
+            // the sky through the leaves: trees are where it may show (not grass: a pale lawn under
+            // a hazy sky is not sky)
+            let foliage = (*what == AutoKind::Sky).then(|| scene.class_probability(&lightcraft_segment::scene::class_ids(|n| n == "tree-merged")));
+            let (sw, sh) = (scene.width, scene.height);
+            let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+            let t = web_time::Instant::now();
+            let cov = lightcraft_segment::matte::refine_coarse(&probs, sw, sh, &input.rgb, input.w, input.h, SCENE_SIDE, foliage.as_deref());
+            log::info!("EoMT selection refined on the photo at {SCENE_SIDE} cells in {:?}", t.elapsed());
+            let logits = lightcraft_segment::mediapipe::coverage_to_logits(&cov);
             let logits = if background { invert(logits) } else { logits };
             Ok(Some(SegMask::from_logits(SCENE_SIDE, &logits)))
         }
