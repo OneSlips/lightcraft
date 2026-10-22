@@ -138,6 +138,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "view.faceBoxes",
             "view.focusPoint",
             "view.zoomToFocus",
+            "@Space Zooms To",
             "view.filmstrip",
             "view.histogram",
             "view.navigator",
@@ -581,6 +582,13 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
             v.push(item("view.toolOverlay", Value::Null, "Cycle Tool Overlay", shortcut, true, None));
             v
         }
+        "Space Zooms To" => crate::state::SpaceZoom::ALL
+            .into_iter()
+            .map(|z| {
+                let on = app.ui.settings.zoom_to_focus && app.ui.settings.space_zoom == z;
+                item("view.spaceZoomsTo", json!({"to": z.id()}), z.label(), None, true, Some(on))
+            })
+            .collect(),
         "Grid Info" => ["filename", "exposure", "date"]
             .into_iter()
             .zip(["File Name", "Exposure (shutter · aperture · ISO)", "Capture Date"])

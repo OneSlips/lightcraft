@@ -2432,3 +2432,17 @@ fn the_bottom_bar_auto_sync_switch_turns_it_on_and_off() {
         assert!(!h.app.session.auto_sync, "{view}: off again");
     }
 }
+
+/// View ▸ Space Zooms To: the choice is kept with the settings, turns Zoom to Focus Point on, and
+/// a word it doesn't know is refused.
+#[test]
+fn space_zooms_to_is_a_choice_in_the_view_menu() {
+    let mut h = demo([1400.0, 900.0], json!({"view": "detail"}));
+    exec(&mut h, "view.zoomToFocus", json!({"on": false}));
+    exec(&mut h, "view.spaceZoomsTo", json!({"to": "eye"}));
+    assert_eq!(h.app.ui.settings.space_zoom, crate::state::SpaceZoom::Eye);
+    assert!(h.app.ui.settings.zoom_to_focus);
+    let r = h.request("engine.execute", json!({"command": "view.spaceZoomsTo", "params": {"to": "nose"}}), T);
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(h.app.ui.settings.space_zoom, crate::state::SpaceZoom::Eye);
+}

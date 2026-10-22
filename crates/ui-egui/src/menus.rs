@@ -79,6 +79,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.faceBoxes", "Face Boxes", None, "View"),
     ("view.focusPoint", "Show Focus Point", Some("Alt+F"), "View"),
     ("view.zoomToFocus", "Zoom to Focus Point", None, "View"),
+    ("view.spaceZoomsTo", "Space Zooms To", None, ""),
     ("view.reference", "Reference View", Some("Shift+R"), "View"),
     ("photo.setReference", "Set as Reference Photo", None, ""),
     ("compare.swap", "Swap Compare Photos", None, "View"),
@@ -670,6 +671,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             // {on?}; no params toggles. Toggle Zoom (Z) centres on the focus point when there is one.
             app.ui.settings.zoom_to_focus = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.settings.zoom_to_focus);
             Ok(json!({"on": app.ui.settings.zoom_to_focus}))
+        }
+        "view.spaceZoomsTo" => {
+            // {to: focusPoint|eye} → {to}; it also turns Zoom to Focus Point on
+            let to = p.get("to").and_then(Value::as_str).unwrap_or_default();
+            let Some(z) = crate::state::SpaceZoom::ALL.into_iter().find(|z| z.id() == to) else {
+                return Some(Err(format!("view.spaceZoomsTo: `to` is focusPoint or eye, not `{to}`")));
+            };
+            app.ui.settings.space_zoom = z;
+            app.ui.settings.zoom_to_focus = true;
+            Ok(json!({"to": z.id()}))
         }
         "view.faceBoxes" => {
             app.ui.face_boxes = p.get("show").and_then(Value::as_bool).unwrap_or(!app.ui.face_boxes);

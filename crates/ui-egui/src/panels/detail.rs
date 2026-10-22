@@ -370,14 +370,28 @@ pub(crate) fn focus_box(photo: &lightcraft_catalog::Photo) -> Option<lightcraft_
 
 /// Where Toggle Zoom centres the view on the photo's focus point (`app.ui.pan`), if it has one in frame.
 pub(crate) fn focus_pan(app: &LightcraftApp, id: PhotoId) -> Option<(f32, f32)> {
-    if let Some(r) = focus_box(app.session.catalog.photo(id)?) {
-        return Some((((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32));
+    let point = focus_box(app.session.catalog.photo(id)?).map(|r| (((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32));
+    // the main subject's sharpest open eye, else the largest face, once the eye finder has looked
+    // at the photo (with the eye strip off too: `wants_eyes`)
+    let eye = app.session.eye_job(id).and_then(|j| app.eye_strip.report(j.key)).and_then(|r| r.zoom_target()).map(|[x, y]| (x, y));
+    space_target(app.ui.settings.space_zoom, point, eye)
+}
+
+/// Where Space zooms to from the camera's focus point and the main subject's eye (either may be
+/// missing), as View ▸ Space Zooms To says; `None`: where the photo was zoomed last.
+pub(crate) fn space_target(mode: crate::state::SpaceZoom, point: Option<(f32, f32)>, eye: Option<(f32, f32)>) -> Option<(f32, f32)> {
+    match mode {
+        crate::state::SpaceZoom::FocusPoint => point.or(eye),
+        crate::state::SpaceZoom::Eye => eye.or(point),
     }
-    // no point recorded: the main subject's sharpest open eye, else the largest face (when the
-    // eye finder has looked at the photo)
-    let key = app.session.eye_job(id)?.key;
-    let [x, y] = app.eye_strip.report(key)?.zoom_target()?;
-    Some((x, y))
+}
+
+/// Whether Toggle Zoom on photo `id` may want its eyes found ([`focus_pan`]): Zoom to Focus Point
+/// on, and the eyes asked for first or no focus point recorded. The eyes are then looked for in the
+/// background while the photo is on screen, eye strip or not.
+pub(crate) fn wants_eyes(app: &LightcraftApp, id: PhotoId) -> bool {
+    app.ui.settings.zoom_to_focus
+        && (app.ui.settings.space_zoom == crate::state::SpaceZoom::Eye || app.session.catalog.photo(id).is_some_and(|p| focus_box(p).is_none()))
 }
 
 /// Draw the camera's focus box over a photo drawn in `img` (View ▸ Show Focus Point): green corner
@@ -991,6 +1005,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let ids = app.session.visible_cloned();
         let upcoming = ids.iter().position(|p| *p == id).map(|i| app.look_ahead.targets(&ids, i)).unwrap_or_default();
         crate::eye_strip::show(app, ui, canvas, id, &upcoming);
+    } else if wants_eyes(app, id) {
+        // Space zooms to the eyes without the strip: they are found quietly for this photo
+        crate::eye_strip::find_quietly(app, id);
     }
     // the line of a wipe over both
     if app.ui.before_after == BeforeAfter::Split {
@@ -3928,6 +3945,18 @@ fn film_badges(p: &egui::Painter, t: &Tokens, fr: Rect, ph: &lightcraft_catalog:
 #[cfg(test)]
 mod preview_geometry_tests {
     use super::{fit_rect, fit_texture_rect, label_badge_rect};
+
+    /// Space without a camera focus point zooms to the eyes; "eyes first" prefers them to the point.
+    #[test]
+    fn space_zooms_to_the_focus_point_or_the_eyes_as_chosen() {
+        use crate::state::SpaceZoom;
+        let (point, eye) = (Some((0.2, 0.3)), Some((0.6, 0.4)));
+        assert_eq!(super::space_target(SpaceZoom::FocusPoint, point, eye), point);
+        assert_eq!(super::space_target(SpaceZoom::FocusPoint, None, eye), eye, "no focus point: the eyes");
+        assert_eq!(super::space_target(SpaceZoom::Eye, point, eye), eye);
+        assert_eq!(super::space_target(SpaceZoom::Eye, point, None), point, "no face: the focus point");
+        assert_eq!(super::space_target(SpaceZoom::Eye, None, None), None);
+    }
     use crate::state::Zoom;
     use egui::{Rect, pos2, vec2};
 
