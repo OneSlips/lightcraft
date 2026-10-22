@@ -2740,5 +2740,11 @@
   "Color Overlay on B&W": "Sovrapposizione colore su B/N",
   "Image on Black": "Immagine su nero",
   "Image on White": "Immagine su bianco",
-  "White on Black": "Bianco su nero"
+  "White on Black": "Bianco su nero",
+  "Recalculate AI Mask": "Ricalcola maschera IA",
+  "Recalculate All AI Masks": "Ricalcola tutte le maschere IA",
+  "Pick the object on this photo: click it with the Object tool.": "Scegli l’oggetto in questa foto: fai clic su di esso con lo strumento Oggetto.",
+  "This mask's AI selection wasn't computed for this photo yet.": "La selezione IA di questa maschera non è ancora stata calcolata per questa foto.",
+  "Click to update it.": "Fai clic per aggiornarla.",
+  "Compute this mask's AI selection again from this photo": "Ricalcola la selezione IA di questa maschera da questa foto"
 }

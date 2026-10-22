@@ -1158,9 +1158,15 @@ impl Session {
         }
         let settings = Arc::new(settings);
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
-        ops.extend(self.auto_sync_ops(id, &requested, label));
+        let (synced, compute) = self.auto_sync_ops(id, &requested, label);
+        ops.extend(synced);
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
-        self.commit(label, op)
+        self.commit(label, op)?;
+        // AI masks Auto Sync carried over are computed on each photo from its own pixels
+        if !compute.is_empty() {
+            let _ = self.compute_masks(&compute, false);
+        }
+        Ok(())
     }
 
     /// "Constrain Crop" keeps the stored crop inside the warped photo, as Lightroom does (issue
@@ -1208,36 +1214,52 @@ impl Session {
     /// before its crop is fitted) over to the other selected photos: only the settings that changed;
     /// never spot removal or red eye (they belong to one photo's pixels), nor the rendering process
     /// (Sync doesn't carry it either), nor history / snapshot restores. Constrain Crop then fits each
-    /// photo's own crop: the active photo's fitted crop is never copied over another's.
-    fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str) -> Vec<Op> {
+    /// photo's own crop: the active photo's fitted crop is never copied over another's. Masks are
+    /// merged into each photo's own ([`lightcraft_develop::recipe::sync_masks`]): AI selections
+    /// travel as recipes, never as the active photo's pixels. Also returns the photos whose AI masks
+    /// now need computing (note 1).
+    fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str) -> (Vec<Op>, Vec<PhotoId>) {
         if !self.auto_sync
             || self.active() != Some(id)
             || self.selection.ids.len() < 2
             || label.starts_with("History:")
             || label.starts_with("Restore ")
         {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
-        let Some(old) = self.develop_of(id) else { return Vec::new() };
-        let Some(mut delta) = json_delta(&old.to_json(), &new.to_json()) else { return Vec::new() };
+        let Some(old) = self.develop_of(id) else { return (Vec::new(), Vec::new()) };
+        let masks_changed = old.masks != new.masks;
+        let mut delta = json_delta(&old.to_json(), &new.to_json()).unwrap_or_else(|| Value::Object(Default::default()));
         if let Some(o) = delta.as_object_mut() {
-            for k in ["spots", "red_eye", "version", "process"] {
+            for k in ["spots", "red_eye", "version", "process", "masks"] {
                 o.remove(k);
             }
-            if o.is_empty() {
-                return Vec::new();
-            }
         }
-        self.selection
+        let settings_changed = delta.as_object().is_some_and(|o| !o.is_empty());
+        if !settings_changed && !masks_changed {
+            return (Vec::new(), Vec::new());
+        }
+        let mut compute = Vec::new();
+        let ops = self
+            .selection
             .ids
             .iter()
             .filter(|x| **x != id)
             .filter_map(|x| self.develop_of(*x).map(|d| (*x, d)))
             .filter_map(|(x, d)| {
-                let synced = self.fit_constrained_crop(x, lightcraft_develop::apply_partial(&d, &delta, 1.0));
+                let mut synced = if settings_changed { lightcraft_develop::apply_partial(&d, &delta, 1.0) } else { (*d).clone() };
+                if masks_changed {
+                    let (masks, needs) = lightcraft_develop::recipe::sync_masks(&old.masks, &new.masks, &d.masks, self.photo_aspect(x));
+                    synced.masks = masks;
+                    if needs {
+                        compute.push(x);
+                    }
+                }
+                let synced = self.fit_constrained_crop(x, synced);
                 (synced != *d).then(|| self.develop_op(x, synced, label)).flatten()
             })
-            .collect()
+            .collect();
+        (ops, compute)
     }
 
     /// The op that sets a photo's develop settings and appends a History entry (for batches).
@@ -1714,6 +1736,8 @@ mod tests_merge;
 mod tests_move_to_share;
 #[cfg(test)]
 mod tests_organize;
+#[cfg(all(test, feature = "sam"))]
+mod tests_people_persist;
 #[cfg(test)]
 mod tests_persist;
 #[cfg(test)]

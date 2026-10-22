@@ -2777,5 +2777,11 @@
   "At Import": "იმპორტისას",
   "Favorites and At Import": "რჩეულები და იმპორტისას",
   "Take out of At Import": "„იმპორტისას“-დან ამოღება",
-  "Add to At Import (shown first when importing)": "„იმპორტისას“-ში დამატება (იმპორტისას პირველად ჩანს)"
+  "Add to At Import (shown first when importing)": "„იმპორტისას“-ში დამატება (იმპორტისას პირველად ჩანს)",
+  "Recalculate AI Mask": "AI ნიღბის ხელახლა გამოთვლა",
+  "Recalculate All AI Masks": "ყველა AI ნიღბის ხელახლა გამოთვლა",
+  "Pick the object on this photo: click it with the Object tool.": "აირჩიეთ ობიექტი ამ ფოტოზე: დააწკაპუნეთ მასზე ობიექტის ხელსაწყოთი.",
+  "This mask's AI selection wasn't computed for this photo yet.": "ამ ნიღბის AI მონიშვნა ამ ფოტოსთვის ჯერ არ გამოთვლილა.",
+  "Click to update it.": "დააწკაპუნეთ განსაახლებლად.",
+  "Compute this mask's AI selection again from this photo": "ამ ნიღბის AI მონიშვნის ხელახლა გამოთვლა ამ ფოტოდან"
 }

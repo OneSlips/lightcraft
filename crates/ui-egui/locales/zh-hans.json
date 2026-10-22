@@ -3067,5 +3067,11 @@
   "Suggests who is in a photo from the faces you have named. Everything stays on your computer.": "根据你已命名的人脸，推测照片中的人物。所有数据仅保存在本机。",
   "This build cannot run recognition models: they can be added and chosen, not used.": "此版本无法运行识别模型：可以添加和选择，但无法使用。",
   "Detect Faces (Photo menu) needs it: a small one-time download.": "“检测人脸”（照片菜单）依赖它：一次性小文件下载。",
-  "This build has nowhere to keep face models, so the model list is not available. (The desktop app has.)": "此版本无法存放人脸模型，因此模型列表不可用。（桌面版可以存放。）"
+  "This build has nowhere to keep face models, so the model list is not available. (The desktop app has.)": "此版本无法存放人脸模型，因此模型列表不可用。（桌面版可以存放。）",
+  "Recalculate AI Mask": "重新计算 AI 蒙版",
+  "Recalculate All AI Masks": "重新计算所有 AI 蒙版",
+  "Pick the object on this photo: click it with the Object tool.": "请在这张照片上选取对象：用“对象”工具点击它。",
+  "This mask's AI selection wasn't computed for this photo yet.": "此蒙版的 AI 选区尚未针对这张照片计算。",
+  "Click to update it.": "点击以更新。",
+  "Compute this mask's AI selection again from this photo": "根据这张照片重新计算此蒙版的 AI 选区"
 }

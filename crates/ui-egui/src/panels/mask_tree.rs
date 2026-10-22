@@ -92,11 +92,36 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         } else {
             m.name.clone()
         };
-        let g = one_line(ui.painter(), &shown, t.font(12.5), color, (eye.left() - tr.right() - 12.0).max(10.0));
+        // note 2: a mask whose AI selection isn't there for this photo (copied, synced, a preset's,
+        // made before its model) has a badge before the eye: click it to update (or to pick the
+        // object again)
+        let status = super::masking::mask_ai_status(m).filter(|_| crate::panels::detail::ai_computing(app, m).is_none());
+        let badge = Rect::from_center_size(pos2(eye.left() - 12.0, r.center().y), vec2(16.0, 16.0));
+        let name_right = if status.is_some() { badge.left() } else { eye.left() };
+        let g = one_line(ui.painter(), &shown, t.font(12.5), color, (name_right - tr.right() - 12.0).max(10.0));
         let elided = g.elided;
         let at = pos2(tr.right() + 8.0, r.center().y - g.size().y / 2.0);
         register(ui.ctx(), format!("maskName:{}", m.id), Rect::from_min_size(at, g.size()));
         ui.painter().galley(at, g, color);
+        if let Some(why) = status {
+            let bv = ui.interact(badge, egui::Id::new(("maskStale", m.id)), Sense::click());
+            register(ui.ctx(), format!("maskStale:{}", m.id), badge);
+            let warn = t.caution;
+            ui.painter().circle_filled(badge.center(), 7.0, if bv.hovered() { warn } else { warn.gamma_multiply(0.85) });
+            ui.painter().text(badge.center(), egui::Align2::CENTER_CENTER, "!", t.semibold(11.0), egui::Color32::BLACK);
+            let update = why == super::masking::NEEDS_UPDATE;
+            let tip = if update {
+                format!("{} {}", crate::i18n::tr(why), crate::i18n::tr("Click to update it."))
+            } else {
+                crate::i18n::tr(why).to_string()
+            };
+            if bv.on_hover_text(tip).clicked() {
+                let _ = app.run("mask.select", json!({"id": m.id}));
+                if update && let Err(e) = app.run("mask.recompute", json!({"id": m.id})) {
+                    app.ai_error(ui.ctx(), e, None);
+                }
+            }
+        }
         let ev = ui.interact(eye, egui::Id::new(("maskVisible", m.id)), Sense::click());
         register(ui.ctx(), format!("maskVisible:{}", m.id), eye);
         paint(ui.painter(), eye.shrink(2.0), if m.visible { Icon::Eye } else { Icon::EyeOff }, if ev.hovered() { t.text } else { t.text_dim });

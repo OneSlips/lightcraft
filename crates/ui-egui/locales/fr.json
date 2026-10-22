@@ -3223,5 +3223,11 @@
   "Brighten": "Éclaircir",
   "Whiter, brighter teeth: the yellow is taken out gently.": "Des dents plus blanches et plus claires : le jaune est retiré en douceur.",
   "No teeth were found in this photo.": "Aucune dent n’a été trouvée sur cette photo.",
-  "The faces haven't been looked at yet.": "Les visages n’ont pas encore été analysés."
+  "The faces haven't been looked at yet.": "Les visages n’ont pas encore été analysés.",
+  "Recalculate AI Mask": "Recalculer le masque IA",
+  "Recalculate All AI Masks": "Recalculer tous les masques IA",
+  "Pick the object on this photo: click it with the Object tool.": "Choisissez l’objet sur cette photo : cliquez dessus avec l’outil Objet.",
+  "This mask's AI selection wasn't computed for this photo yet.": "La sélection IA de ce masque n’a pas encore été calculée pour cette photo.",
+  "Click to update it.": "Cliquez pour la mettre à jour.",
+  "Compute this mask's AI selection again from this photo": "Recalculer la sélection IA de ce masque à partir de cette photo"
 }
