@@ -1912,8 +1912,18 @@ impl crate::Session {
 
     /// The embedded preview of an unedited raw (path, loader), when the app installed a loader.
     fn embedded_of(&self, p: &Photo) -> Option<(String, PreviewLoader)> {
+        self.embedded_stand_in_of(p).filter(|_| crate::import::has_import_look(p))
+    }
+
+    /// The embedded preview of any raw (path, loader), when the app installed a loader: the
+    /// cheapest full picture of the photo, shown until LightCraft's render of it arrives (notes 1
+    /// and 4 of 2026-10-22: a body's default camera profile, picked for every photo of a folder
+    /// browsed before import, made each photo "edited", so the grid, the filmstrip and the loupe
+    /// had no picture at all until a full raw render, seconds a photo). Only an unedited raw's is
+    /// its final picture ([`Self::embedded_thumb_is_final`]); for the others a render replaces it.
+    fn embedded_stand_in_of(&self, p: &Photo) -> Option<(String, PreviewLoader)> {
         match (&p.source, &self.media.preview_loader) {
-            (Source::File { path }, Some(l)) if p.kind == MediaKind::Raw && crate::import::has_import_look(p) => Some((path.clone(), l.clone())),
+            (Source::File { path }, Some(l)) if p.kind == MediaKind::Raw => Some((path.clone(), l.clone())),
             _ => None,
         }
     }
@@ -1955,7 +1965,7 @@ impl crate::Session {
         let cached = vec![(self.media.rendered.clone(), self.view_key(&p, apply_crop))];
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
-        let embedded = self.embedded_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
+        let embedded = self.embedded_stand_in_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
         let embedded_cache = embedded
             .as_ref()
             .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
@@ -1977,7 +1987,10 @@ impl crate::Session {
     /// seconds. Not kept in any cache (a full-size picture is 180 MB). `None` for other photos.
     pub fn embedded_full_job(&mut self, id: PhotoId, max_edge: usize) -> Option<QuickJob> {
         let p = self.catalog.photo(id)?.clone();
-        let (path, l) = self.embedded_of(&p)?;
+        if !crate::import::looks_as_shot(&p) {
+            return None;
+        }
+        let (path, l) = self.embedded_stand_in_of(&p)?;
         let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(max_edge as u64).finish().0 as u64;
         Some(QuickJob {
             request_id: 0,
@@ -1999,7 +2012,7 @@ impl crate::Session {
     /// cell empty (issue #1448). `None` for other photos (render them directly).
     pub fn quick_thumb_job(&mut self, job: &RenderJob) -> Option<QuickJob> {
         let p = self.catalog.photo(job.photo)?.clone();
-        let (path, l) = self.embedded_of(&p)?;
+        let (path, l) = self.embedded_stand_in_of(&p)?;
         let edge = job.request.max_w.max(job.request.max_h);
         Some(QuickJob {
             request_id: 0,
@@ -2188,6 +2201,31 @@ mod thumbnail_hash_tests {
         edited.light.exposure = 1.0;
         s.catalog.apply(Op::SetDevelop { id: PhotoId(1), settings: Arc::new(edited), label: "edit".into(), edited: None }).unwrap();
         assert!(s.embedded_full_job(PhotoId(1), 8192).is_none(), "an edit is shown rendered");
+    }
+
+    /// Notes 1 and 4 of 2026-10-22: a raw with its body's camera profile picked (every photo of a
+    /// folder browsed before import, for a body with a default profile) still shows its camera JPEG
+    /// first, in the grid and the loupe, until its render replaces it; only an unedited raw's is final.
+    #[test]
+    fn a_raw_with_a_camera_profile_still_shows_its_camera_preview_first() {
+        let mut s = crate::Session::new();
+        s.media.preview_loader =
+            Some(Arc::new(|_: &str, edge: usize| Some(Rgba8 { width: edge.min(8), height: 2, data: vec![[9, 8, 7, 255]; edge.min(8) * 2] })));
+        let mut raw = Photo::new(PhotoId(1), Source::File { path: "a.cr3".into() }, "a.cr3", "CR3", 6000, 4000, "2026-01-01");
+        raw.kind = MediaKind::Raw;
+        let mut d = raw.camera_defaults();
+        d.camera_profile = "dcp:body-71".into();
+        raw.develop = Arc::new(d);
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(raw) }).unwrap();
+        let p = s.catalog.photo(PhotoId(1)).unwrap().clone();
+        assert!(!s.embedded_thumb_is_final(&p), "its render replaces the camera JPEG");
+        let q = s.quick_view_job(PhotoId(1), 64, true).unwrap();
+        assert!(q.embedded.is_some(), "the loupe's stand-in is the camera JPEG");
+        assert_eq!(q.run().quick, Some(QuickSource::Embedded));
+        let thumb = s.thumb_job(PhotoId(1), 256).unwrap();
+        let q = s.quick_thumb_job(&thumb).expect("the grid's stand-in");
+        assert_eq!(q.run().quick, Some(QuickSource::Embedded));
+        assert!(s.embedded_full_job(PhotoId(1), 8192).is_some(), "framed and exposed as shot: a fair focus check");
     }
 
     #[test]

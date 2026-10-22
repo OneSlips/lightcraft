@@ -359,7 +359,35 @@ impl Default for Renderer {
     }
 }
 
+/// Workers kept for the stand-ins ([`Slot::is_stand_in`]) on top of the others: the cheapest
+/// pictures (a raw's embedded JPEG, a cached thumbnail or render) never wait for a worker while the
+/// others render raws for seconds (notes 1 and 4 of 2026-10-22: "Rendering…" in the loupe and empty
+/// cells in the filmstrip and grid while every worker decoded a 45 MP raw).
+const STAND_IN_WORKERS: usize = 2;
+
+/// Jobs below this priority are background work (the real thumbnails rendered behind the
+/// stand-ins, [`crate::panels::grid::BACKGROUND_THUMB_PRIORITY`]: for a folder of raws with a
+/// camera profile picked, every cell's): at most [`BACKGROUND_AT_ONCE`] of them run at once, so a
+/// worker is always free for the photo on screen. (The neighbours prepared ahead have their own
+/// limit.)
+const BACKGROUND_BELOW: u32 = 4;
+const BACKGROUND_AT_ONCE: usize = 2;
+
+impl Slot {
+    /// A stand-in picture: cheap to make (a raw's embedded JPEG, a cached picture), and what a view
+    /// shows first, before any render ([`STAND_IN_WORKERS`]).
+    pub fn is_stand_in(&self) -> bool {
+        matches!(self, Slot::ThumbQuick(_) | Slot::Preview | Slot::QuickAhead(_))
+    }
+}
+
 impl Renderer {
+    fn pool(threads: usize) -> JobPool<Slot, Finished> {
+        let pool = if threads == 0 { JobPool::new(0) } else { JobPool::with_fast_lane(threads, STAND_IN_WORKERS, Slot::is_stand_in) };
+        pool.cap_background(BACKGROUND_BELOW, BACKGROUND_AT_ONCE);
+        pool
+    }
+
     /// Explicit worker count for hosts and bounded validation runs (one to six on native).
     /// Browser hosts continue to use inline jobs or their installed worker offload.
     pub fn with_worker_threads(threads: usize) -> Self {
@@ -371,7 +399,7 @@ impl Renderer {
             shown_ids: HashMap::new(),
             epoch: 0,
             preview_generation: None,
-            pool: JobPool::new(threads),
+            pool: Self::pool(threads),
             thumb_inputs: HashMap::new(),
             embedded_thumbs: HashMap::new(),
             offload: None,
@@ -636,16 +664,10 @@ impl Renderer {
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
         let display = self.display.clone();
-        let background = matches!(slot, Slot::QuickAhead(_));
-        self.pool.submit(
-            slot,
-            key,
-            priority,
-            Box::new(move || {
-                let run = || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                Self::run_for(run, &display)
-            }),
-        );
+        // (no stand-in waits at the memory gate as background work, not even one made ahead: it is a
+        // small read and a JPEG decoded at the size shown, on a worker kept for stand-ins, which
+        // must not sit there while the renders hold the memory)
+        self.pool.submit(slot, key, priority, Box::new(move || Self::run_for(|| job.run(), &display)));
     }
 
     /// Move a [`Slot::QuickAhead`] texture of `photo` made for `key` into [`Slot::Preview`].
@@ -930,6 +952,11 @@ impl Renderer {
             let pending = &self.pending;
             self.variant_used.retain(|k, _| textures.contains_key(&Slot::Variant(*k)) || pending.contains_key(&Slot::Variant(*k)));
         }
+    }
+
+    /// Frames polled so far (one a frame).
+    pub fn frame(&self) -> u64 {
+        self.frame
     }
 
     pub fn thumb_textures(&self) -> usize {
@@ -1339,7 +1366,7 @@ impl Renderer {
     pub fn evict_thumbs(&mut self, keep: &std::collections::HashSet<PhotoId>, max: usize) {
         self.thumb_inputs.retain(|id, _| keep.contains(id));
         let dropped = self.pool.reprioritize(|s, p| match s {
-            Slot::Thumb(id) | Slot::ThumbQuick(id) if !keep.contains(id) && p <= 11 => None,
+            Slot::Thumb(id) | Slot::ThumbQuick(id) if !keep.contains(id) && (p <= 11 || p == crate::panels::grid::STAND_IN_ON_SCREEN) => None,
             _ => Some(p),
         });
         for s in dropped {

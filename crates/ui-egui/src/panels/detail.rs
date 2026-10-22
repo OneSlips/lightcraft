@@ -751,8 +751,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         && !held
         && let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool)
     {
-        // the photo on screen comes first: background preparation waits while it is being made
-        lightcraft_engine::prep::foreground();
         let job = if interacting { job.draft() } else { job };
         // at rest the render is shrunk to exactly the size it is drawn at with a Lanczos filter on
         // the worker, so the window draws it texel for texel instead of shrinking it with 2-tap
@@ -765,6 +763,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let job = job.with_overlay(overlay).with_proof(app.ui.soft_proof.then_some(app.ui.proof));
         let job = job.with_hidden_grading(app.ui.grading_hidden_for(id));
         app.renderer.request(Slot::Main, job, 100);
+        // the photo on screen comes first: background preparation waits while it is being made
+        // (not once it is there: asking every frame held the background build back for good)
+        if app.renderer.is_pending(Slot::Main) || app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id) {
+            lightcraft_engine::prep::foreground();
+        }
         // a drag's draft that renders in a few ms (GPU) is drawn in this frame, not the next (zoomed
         // in, what changes on screen is the window's draft)
         #[cfg(not(target_arch = "wasm32"))]
@@ -790,7 +793,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // once this photo is on screen: prepare its neighbours in filmstrip order (source decoded and
     // kept, view render cached) so stepping to them is instant
     // (not while an edit is in progress, even paused: the neighbours' decodes would hold up its drafts)
-    if !drag_open && !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id) {
+    // (nor while a cell on screen waits for its first picture: those come before anything bigger)
+    if !drag_open
+        && !app.renderer.is_pending(Slot::Main)
+        && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id)
+        && !app.pictures_busy(app.renderer.frame())
+    {
         let ids = app.session.visible_cloned();
         let mode = prep_mode(app);
         let prep = app.session.prep_settings();
@@ -909,16 +917,16 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             app.renderer.release(slot);
         }
     }
-    // zoomed in on an unedited raw: its camera JPEG at full size under the window render, so a
-    // focus check doesn't wait for the raw (PERF-CULL-5; Capture One's Cull view shows the
-    // embedded JPEG at 100 % too). Released when the view is not zoomed any more (180 MB).
+    // zoomed in on a raw as shot (unedited, or only its camera profile picked): its camera JPEG at
+    // full size under the window render, so a focus check doesn't wait for the raw (PERF-CULL-5;
+    // Capture One's Cull view shows the embedded JPEG at 100 % too). Released when the view is not zoomed any more (180 MB).
     let camera_full = !windows.is_empty()
         && hover_key.is_none()
         && !split
         && !show_before
         && !split_view
         && !interacting
-        && app.session.embedded_thumb_is_final(&photo);
+        && lightcraft_engine::import::looks_as_shot(&photo);
     if camera_full {
         if let Some(q) = app.session.embedded_full_job(id, native_long.min(texture_side)) {
             app.renderer.request_quick(Slot::QuickFull, q, 98);
@@ -1010,6 +1018,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     app.loupe_shown = Some((id, shown));
     app.loupe_timing.observe(id, shown, now);
+    // no picture of this photo yet, or only a small one while its full-size stand-in is on its way:
+    // background work waits (the photo on screen comes first, at its cheapest first)
+    let coming = app.renderer.is_pending(Slot::Preview);
+    if (shown == "none" && (coming || app.renderer.is_pending(Slot::Main))) || (!crate::loupe_timing::is_full_size(shown) && coming) {
+        app.pictures_missing(app.renderer.frame());
+    }
     // the camera's own JPEG is on screen, not LightCraft's rendering of the raw: say so, so colour
     // and tone are not judged on it (PERF-CULL-4; Lightroom Classic badges its embedded previews)
     if shown == "embedded" || (shown == "thumb" && app.session.embedded_thumb_is_final(&photo)) {
@@ -4040,8 +4054,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             // the cells on screen first, then the few either side of them
             super::grid::request_thumb(app, *id, thumb_px, if local.intersects(vp) { 10 } else { 5 });
             if local.intersects(vp) {
-                let has = app.renderer.thumb(*id).is_some();
-                app.thumb_first.note(ui.ctx().cumulative_pass_nr(), *id, has, crate::now_ms());
+                super::grid::note_cell(app, *id, ui.ctx().cumulative_pass_nr());
             }
             if let Some(tex) = app.renderer.thumb(*id) {
                 let [tw, th] = tex.size;

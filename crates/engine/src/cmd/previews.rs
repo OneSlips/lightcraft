@@ -227,7 +227,11 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
             if !force && already_built(&photo_jobs) {
                 state.skipped.fetch_add(1, Ordering::Relaxed);
             } else if let Some(_held) = Building::take(id, &photo_jobs) {
-                let ok = crate::guard::catch("building previews", || run_photo(photo_jobs)).unwrap_or(false);
+                // the background preparation's decodes wait at the memory gate behind the photo on
+                // screen's, as the other background work does
+                let build = || run_photo(photo_jobs);
+                let run = || if state.background { crate::memory::in_background(build) } else { build() };
+                let ok = crate::guard::catch("building previews", run).unwrap_or(false);
                 if !ok {
                     state.failed.fetch_add(1, Ordering::Relaxed);
                 }
@@ -243,8 +247,15 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::scope(|sc| {
         for k in 1..lanes.max(1) {
-            // a lane that can't start leaves its photos to the others (and to this thread)
-            if std::thread::Builder::new().name(format!("previews-{k}")).spawn_scoped(sc, work).is_err() {
+            // a lane that can't start leaves its photos to the others (and to this thread); the
+            // background preparation's run below normal priority, like the render workers
+            let lane = || {
+                if state.background {
+                    lightcraft_preview::pool::as_worker();
+                }
+                work()
+            };
+            if std::thread::Builder::new().name(format!("previews-{k}")).spawn_scoped(sc, lane).is_err() {
                 break;
             }
         }
@@ -313,7 +324,12 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
         let st = state.clone();
         std::thread::Builder::new()
             .name("lc-build-previews".into())
-            .spawn(move || run_all(jobs, &st, task.as_ref(), lanes, force))
+            .spawn(move || {
+                if st.background {
+                    lightcraft_preview::pool::as_worker();
+                }
+                run_all(jobs, &st, task.as_ref(), lanes, force)
+            })
             .map_err(|e| bad(C, format!("could not start: {e}")))?;
     }
     Ok(state.json())
