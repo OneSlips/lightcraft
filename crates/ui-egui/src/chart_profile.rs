@@ -56,6 +56,27 @@ impl Default for ChartProfileDialog {
     }
 }
 
+/// The dialog's id in what the dialogs remember (`dialog.remember`).
+const REMEMBER: &str = "cameraProfile";
+
+/// A fresh dialog with the lights and look chosen last time (client note 13); the defaults when
+/// nothing (or nothing readable) is remembered.
+fn remembered(app: &LightcraftApp) -> ChartProfileDialog {
+    let mut opts = ChartProfileDialog::default();
+    let Some(r) = app.session.dialogs.other.get(REMEMBER) else { return opts };
+    if let Some(lights) = r.get("lights").and_then(Value::as_array) {
+        for (slot, l) in opts.lights.iter_mut().zip(lights) {
+            if let Some(l) = l.as_str().filter(|l| matches!(*l, "D55" | "A")) {
+                *slot = l.to_string();
+            }
+        }
+    }
+    if let Some(natural) = r.get("natural").and_then(Value::as_bool) {
+        opts.natural = natural;
+    }
+    opts
+}
+
 /// One chart photo in the dialog.
 pub struct Shot {
     pub photo: Option<PhotoId>,
@@ -157,7 +178,7 @@ pub fn open(app: &mut LightcraftApp) -> Result<Value, String> {
     let first = ids.first().copied().ok_or_else(|| crate::i18n::tr("Select a raw photo of a ColorChecker first").to_string())?;
     let path = path_of(app, first).ok_or_else(|| crate::i18n::tr("The photo has no file to profile from").to_string())?;
     app.chart_profile = ChartProfileState::default();
-    app.ui.dialog = Some(Dialog::ChartProfile { opts: ChartProfileDialog::default() });
+    app.ui.dialog = Some(Dialog::ChartProfile { opts: remembered(app) });
     load(app, 0, Some(first), path)?;
     // exactly two photos selected: the other is the second chart (another light)
     if ids.len() == 2
@@ -272,6 +293,10 @@ pub fn start_build(app: &mut LightcraftApp, opts: &ChartProfileDialog) -> Result
     }
     if let Some(e) = same_light(app, opts) {
         return Err(e);
+    }
+    // the lights and the look are asked the same way next time, in every library (client note 13)
+    if let Err(e) = app.run("dialog.remember", json!({"dialog": REMEMBER, "choices": {"lights": opts.lights, "natural": opts.natural}})) {
+        log::warn!("camera profile: remembering the choices: {e}");
     }
     let camera = app.chart_profile.shots[0].as_ref().and_then(|s| s.prepared.as_ref()).map(|p| p.camera_model.clone()).unwrap_or_default();
     if let Some(e) = lightcraft_engine::cmd::dcp_profiles::existing(&app.session, &opts.name, &camera) {
@@ -1231,5 +1256,24 @@ mod view_tests {
         let mut small = View::default();
         small.pan(AREA, TEX, egui::vec2(50.0, 50.0));
         assert_eq!(small.center, [0.5, 0.5]);
+    }
+}
+
+#[cfg(test)]
+mod remember_tests {
+    use super::*;
+
+    /// Client note 13: the camera profile creator opens with the lights and look chosen last time;
+    /// anything unreadable is the defaults.
+    #[test]
+    fn the_dialog_opens_with_the_last_choices() {
+        let services = crate::Services { png: None, ..Default::default() };
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+        assert_eq!(remembered(&app), ChartProfileDialog::default());
+        app.run("dialog.remember", json!({"dialog": REMEMBER, "choices": {"lights": ["A", "D55"], "natural": false}})).unwrap();
+        let o = remembered(&app);
+        assert_eq!((o.lights.clone(), o.natural), (["A".to_string(), "D55".to_string()], false));
+        app.run("dialog.remember", json!({"dialog": REMEMBER, "choices": {"lights": ["X", 3], "natural": "yes"}})).unwrap();
+        assert_eq!(remembered(&app), ChartProfileDialog::default());
     }
 }
