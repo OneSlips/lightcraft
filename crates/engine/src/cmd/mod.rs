@@ -174,6 +174,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(dcp_profiles::body_specs());
         v.extend(crate::profile_manager::specs());
         v.extend(crate::preset_manager::specs());
+        v.extend(crate::machine_test::specs());
         v.extend(store::specs());
         v.extend(crate::backup::specs());
         v.extend(cull::specs());

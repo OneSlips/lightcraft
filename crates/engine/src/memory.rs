@@ -117,6 +117,10 @@ pub fn cache_share(budget: usize) -> usize {
 pub struct WorkGate {
     state: Mutex<(usize, usize)>,
     cv: Condvar,
+    /// Acquires that had to wait, and their total wait (ms): what a benchmark reports as memory
+    /// holding work back.
+    waits: std::sync::atomic::AtomicU64,
+    waited_ms: std::sync::atomic::AtomicU64,
 }
 
 /// Bytes held from a [`WorkGate`] until dropped.
@@ -127,7 +131,7 @@ pub struct Permit<'a> {
 
 impl WorkGate {
     pub fn new(limit: usize) -> WorkGate {
-        WorkGate { state: Mutex::new((0, limit)), cv: Condvar::new() }
+        WorkGate { state: Mutex::new((0, limit)), cv: Condvar::new(), waits: Default::default(), waited_ms: Default::default() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, (usize, usize)> {
@@ -139,6 +143,11 @@ impl WorkGate {
         self.cv.notify_all();
     }
 
+    /// Acquires that waited so far, and their total wait (ms).
+    pub fn waits(&self) -> (u64, u64) {
+        (self.waits.load(Ordering::Relaxed), self.waited_ms.load(Ordering::Relaxed))
+    }
+
     /// Bytes held now and the limit.
     pub fn usage(&self) -> (usize, usize) {
         *self.lock()
@@ -147,8 +156,14 @@ impl WorkGate {
     /// Hold `bytes`, waiting until they fit (or nothing else is held).
     pub fn acquire(&self, bytes: usize) -> Permit<'_> {
         let mut g = self.lock();
+        let waits = g.0 > 0 && g.0 + bytes > g.1;
+        let start = waits.then(web_time::Instant::now);
         while g.0 > 0 && g.0 + bytes > g.1 {
             g = self.cv.wait(g).unwrap_or_else(|e| e.into_inner());
+        }
+        if let Some(t) = start {
+            self.waits.fetch_add(1, Ordering::Relaxed);
+            self.waited_ms.fetch_add(t.elapsed().as_millis() as u64, Ordering::Relaxed);
         }
         g.0 += bytes;
         Permit { gate: self, bytes }

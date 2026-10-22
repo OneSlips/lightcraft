@@ -1630,6 +1630,8 @@ pub struct PreparedExport {
     /// Estimated working memory of [`Self::run`] (bytes), held from [`crate::memory::export_gate`]
     /// while it runs beside other photos of a batch.
     weight: usize,
+    /// Its renders may use the GPU ([`export_gpu`] when it was prepared).
+    gpu: bool,
 }
 
 struct RenderWork {
@@ -1736,7 +1738,7 @@ fn prepare_guarded(
         };
         (work, weight)
     };
-    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight })
+    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight, gpu: export_gpu() })
 }
 
 /// The folder a photo's original is in, for [`DestinationMode::SameAsOriginal`]. None for a demo
@@ -2010,6 +2012,25 @@ pub fn export_batch(
     run_batch(items, o, to, write, exists, true, &mut |_, _| true)
 }
 
+/// [`export_batch`] with `lanes` photos side by side, on the GPU or not, the files thrown away
+/// (a benchmark: [`crate::machine_test`]). Changes nothing process-wide.
+pub(crate) fn export_batch_tuned(
+    session: &mut crate::Session,
+    ids: &[lightcraft_catalog::PhotoId],
+    o: &ExportOptions,
+    lanes: usize,
+    gpu: bool,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut items = prepare_batch(session, ids, o)?;
+    for it in &mut items {
+        it.gpu = gpu;
+    }
+    let lanes = lanes.clamp(1, MAX_EXPORT_LANES).min(items.len().max(1));
+    let to = Destination::default();
+    let mut sink = |_: &str, _: &[u8]| Ok(());
+    run_batch_with(items, &mut Placer::new(o, &to, &mut sink, &|_| false, true), &mut |_, _| true, lanes)
+}
+
 /// Write an exported or rendered file on disk: its folder is created if needed, and the file is
 /// replaced atomically ([`lightcraft_catalog::safe_file::write_atomic_nosync`]: a temp file
 /// renamed into place), so a failure part-way leaves any previous file intact and no truncated
@@ -2097,6 +2118,20 @@ pub fn export_lanes_override() -> Option<usize> {
     env.or(Some(LANES.load(std::sync::atomic::Ordering::Relaxed)).filter(|n| *n > 0))
 }
 
+/// Exports render on the GPU when there is one (`false`: on the processor; the install settings,
+/// when "Test my machine" found the processor alone faster).
+static EXPORT_GPU: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Let exports use the GPU or not (views and the rest of the app keep it either way).
+pub fn set_export_gpu(on: bool) {
+    EXPORT_GPU.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether exports use the GPU ([`set_export_gpu`]).
+pub fn export_gpu() -> bool {
+    EXPORT_GPU.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// [`run_batch`] with `lanes` photos in flight (the calling thread is one of them).
 fn run_batch_with(
     items: Vec<PreparedExport>,
@@ -2152,7 +2187,10 @@ fn run_gated(item: PreparedExport) -> Result<Exported, String> {
     let _held = crate::memory::export_gate().acquire(item.weight);
     let what = format!("exporting {}", item.file_name);
     // (its GPU renders take turns with the other photos' and stay behind the window's: `lightcraft_gpu::as_batch`)
-    crate::guard::catch(&what, || lightcraft_gpu::as_batch(|| item.run())).and_then(|r| r)
+    // (on the processor when the GPU is turned off for exports: `set_export_gpu`)
+    let gpu = item.gpu;
+    let render = || lightcraft_gpu::as_batch(|| item.run());
+    crate::guard::catch(&what, || if gpu { render() } else { lightcraft_gpu::on_cpu(render) }).and_then(|r| r)
 }
 
 /// The photos of a batch shared by its lanes: each lane takes the next one, at most
