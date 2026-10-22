@@ -984,13 +984,37 @@ fn list_subfolders(path: &str) -> Vec<(String, String)> {
                 .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
                 .filter_map(|e| {
                     let name = e.file_name().to_string_lossy().to_string();
-                    (!name.starts_with('.')).then(|| (name, e.path().to_string_lossy().to_string()))
+                    (!name.starts_with('.') && !hidden_by_system(&e)).then(|| (name, e.path().to_string_lossy().to_string()))
                 })
                 .collect()
         })
         .unwrap_or_default();
     v.sort_by_key(|(n, _)| n.to_lowercase());
     v
+}
+
+/// A folder the system hides from people: on Windows one marked hidden or system (AppData,
+/// `$RECYCLE.BIN`, System Volume Information), which Explorer doesn't show either. Never a photo
+/// folder a person made.
+fn hidden_by_system(e: &std::fs::DirEntry) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        e.metadata().is_ok_and(|m| windows_hidden(m.file_attributes()))
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = e;
+        false
+    }
+}
+
+/// Windows file attributes that keep a folder out of Places: hidden (0x2) or system (0x4).
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_hidden(attributes: u32) -> bool {
+    const HIDDEN: u32 = 0x2;
+    const SYSTEM: u32 = 0x4;
+    attributes & (HIDDEN | SYSTEM) != 0
 }
 
 /// How many [`fs_cached`] answers for `ctx` are being worked out right now. Rows appear (and
@@ -2181,6 +2205,21 @@ fn keyword_row(app: &mut LightcraftApp, ui: &mut egui::Ui, n: &KeywordNode, id: 
 mod tests {
     use super::local_places;
     use crate::widgets::elide_head;
+
+    /// Import ▸ Places: folders Windows hides (AppData, system folders) are left out, as Explorer
+    /// does; the attributes are read, not guessed from names.
+    #[test]
+    fn folders_the_system_hides_are_not_listed() {
+        assert!(super::windows_hidden(0x2) && super::windows_hidden(0x4) && super::windows_hidden(0x16));
+        assert!(!super::windows_hidden(0x10), "a plain folder");
+        #[cfg(windows)]
+        if let Some(home) = std::env::var_os("USERPROFILE").map(std::path::PathBuf::from)
+            && home.join("AppData").is_dir()
+        {
+            let listed = super::list_subfolders(&home.to_string_lossy());
+            assert!(!listed.iter().any(|(n, _)| n.eq_ignore_ascii_case("AppData")), "{listed:?}");
+        }
+    }
 
     /// Width = characters, so a limit of 12 is "12 characters".
     fn fit(text: &str, max: usize) -> String {
