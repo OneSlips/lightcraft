@@ -381,3 +381,47 @@ fn background_prep_is_app_wide_with_a_per_library_override() {
     assert_eq!(s.prep_settings().library.ahead, 10, "app-wide after a restart");
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Remembered objects ("Wedding dress") are the photographer's, like presets: they live in the app
+/// store, and a library's own (from before) joins it once, the library's file left as it was.
+#[test]
+fn remembered_objects_travel_with_the_store() {
+    let root = temp_dir("concepts");
+    let (a, b, store) = (root.join("A"), root.join("B"), root.join("store"));
+    // an older library with its own concepts.json
+    let mut s = Session::new();
+    s.open_library(&a, true).unwrap();
+    s.with_concepts(|c| c.teach("Wedding dress", 1, json!({"example": 1}))).unwrap().unwrap();
+    s.close_library().unwrap();
+    let a_own = std::fs::read(a.join(crate::concepts_store::FILE)).unwrap();
+    drop(s);
+
+    let mut s = with_store(&store);
+    s.open_library(&a, false).unwrap();
+    assert!(s.concept_store().get("wedding dress").is_some(), "merged from the library");
+    assert!(store.join(crate::app_store::CONCEPTS).exists());
+    s.close_library().unwrap();
+    s.open_library(&b, true).unwrap();
+    assert!(s.concept_store().get("Wedding dress").is_some(), "in another library");
+    s.with_concepts(|c| c.teach("Veil", 2, json!({"example": 2}))).unwrap().unwrap();
+    assert!(!b.join(crate::concepts_store::FILE).exists(), "not kept in the library");
+    s.close_library().unwrap();
+    drop(s);
+    // a restart, back in A: both, the library's examples once
+    let mut s = with_store(&store);
+    s.open_library(&a, false).unwrap();
+    let names: Vec<String> = s.concept_store().concepts.iter().map(|c| c.name.clone()).collect();
+    assert_eq!(names, vec!["Wedding dress".to_string(), "Veil".to_string()]);
+    assert_eq!(s.concept_store().get("Wedding dress").unwrap().examples.len(), 1);
+    assert_eq!(std::fs::read(a.join(crate::concepts_store::FILE)).unwrap(), a_own, "the library's file is only read");
+    // a damaged store file is left alone, never overwritten
+    s.close_library().unwrap();
+    drop(s);
+    std::fs::write(store.join(crate::app_store::CONCEPTS), b"{broken").unwrap();
+    let mut s = with_store(&store);
+    s.open_library(&b, false).unwrap();
+    assert!(s.concept_store().concepts.is_empty());
+    assert!(s.with_concepts(|c| c.teach("Suit", 3, json!(3))).is_err());
+    assert_eq!(std::fs::read(store.join(crate::app_store::CONCEPTS)).unwrap(), b"{broken");
+    let _ = std::fs::remove_dir_all(&root);
+}

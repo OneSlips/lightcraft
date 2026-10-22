@@ -1,5 +1,6 @@
-//! Remembered objects ("Wedding dress", "Groom's suit"): what the photographer taught, kept in the
-//! library as `concepts.json` (local only). Each example is opaque JSON here
+//! Remembered objects ("Wedding dress", "Groom's suit"): what the photographer taught, kept as
+//! `concepts.json` in the app store (shared by every library, like presets), or in a library that
+//! keeps its own (local only). Each example is opaque JSON here
 //! (`lightcraft_segment::concept::Example`: SAM 2.1 feature prototypes and colours of one taught
 //! selection; the AI crate isn't in every build).
 
@@ -104,6 +105,43 @@ impl ConceptStore {
         Ok(())
     }
 
+    /// Add `other`'s objects: the same name (any case) is one object, its examples added (the newest
+    /// [`MAX_EXAMPLES`] kept, the same example once). → objects added or grown.
+    pub fn merge(&mut self, other: ConceptStore) -> usize {
+        let mut changed = 0;
+        for theirs in other.concepts {
+            let room = self.concepts.len() < MAX_CONCEPTS;
+            match self.concepts.iter_mut().find(|c| same(&c.name, &theirs.name)) {
+                Some(mine) => {
+                    let before = mine.examples.len();
+                    for ex in theirs.examples {
+                        if !mine.examples.contains(&ex) {
+                            mine.examples.push(ex);
+                        }
+                    }
+                    for p in theirs.photos {
+                        if !mine.photos.contains(&p) {
+                            mine.photos.push(p);
+                        }
+                    }
+                    let n = mine.examples.len();
+                    if n > MAX_EXAMPLES {
+                        mine.examples.drain(..n - MAX_EXAMPLES);
+                    }
+                    if n != before {
+                        changed += 1;
+                    }
+                }
+                None if room => {
+                    self.concepts.push(theirs);
+                    changed += 1;
+                }
+                None => {}
+            }
+        }
+        changed
+    }
+
     pub fn forget(&mut self, name: &str) -> bool {
         let n = self.concepts.len();
         self.concepts.retain(|c| !same(&c.name, name));
@@ -131,6 +169,16 @@ mod tests {
         assert!(s.get("groom's suit").is_some());
         assert!(s.forget("GROOM'S SUIT"));
         assert!(ConceptStore::from_bytes(b"[1,2").is_err());
+        // merging: one object per name, examples added once
+        let mut other = ConceptStore::default();
+        other.teach("WEDDING DRESS", 9, Value::from(1)).unwrap();
+        other.teach("Veil", 9, Value::from(2)).unwrap();
+        let mut mine = ConceptStore::default();
+        mine.teach("Wedding dress", 1, Value::from(1)).unwrap();
+        assert_eq!(mine.merge(other.clone()), 1);
+        assert_eq!(mine.concepts.len(), 2);
+        assert_eq!(mine.get("wedding dress").unwrap().examples.len(), 1);
+        assert_eq!(mine.merge(other), 0, "twice is once");
         assert_eq!(ConceptStore::from_bytes(&s.to_bytes()).unwrap(), s);
     }
 }

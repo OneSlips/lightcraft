@@ -2,6 +2,10 @@
 
 ## 2026-10-22
 
+### Masking
+- **Remembered objects ("Wedding dress") work in every library**, like presets: they are kept with LightCraft's
+  settings instead of one library. Objects a library remembered before are added once, the first time it is open.
+
 ### Develop
 - **A mask's Whites and Blacks adapt to what is under the mask**, as in Lightroom: Whites works up to the
   brightest tones of that mask and Blacks down to its darkest, so Whites on a white dress pushes the dress's own

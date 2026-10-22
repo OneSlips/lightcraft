@@ -9,6 +9,7 @@
 //!                   filter, curve, colour-label and keyword-set presets, slideshow settings,
 //!                   the last export, the grid's sort: [`Habits`])
 //!   presets.json   (develop presets + favourites, profile favourites and recents: as a library's)
+//!   concepts.json  (remembered objects: "Wedding dress"; a library's own merged in once)
 //!   Profiles/      (the profile files: .dcp, .cube)
 //! ```
 //!
@@ -51,6 +52,8 @@ pub const SHARED: &str = "shared.json";
 pub const PRESETS: &str = "presets.json";
 /// The profile files.
 pub const PROFILES_DIR: &str = "Profiles";
+/// Remembered objects ("Wedding dress": `crate::concepts_store`), shared by every library.
+pub const CONCEPTS: &str = "concepts.json";
 /// Largest `presets.json` read when a library is merged (a 11 000-preset collection is ~40 MB).
 const MAX_PRESETS_FILE: u64 = 512 << 20;
 /// Largest `prefs.json` / `shared.json` read.
@@ -186,6 +189,9 @@ pub struct Merged {
     /// build are merged again for them, once.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub habits: bool,
+    /// Its remembered objects (`concepts.json`) were merged (done when the library is next open).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub concepts: bool,
 }
 
 /// The user's way of working beyond develop presets and profiles: the same in every library
@@ -194,7 +200,8 @@ pub struct Merged {
 ///
 /// What stays with a library is what belongs to its photos and its disk: XMP sidecar writing, the
 /// thumbnail cache size, the smart-preview folder, forgetting Local records, recent keywords,
-/// auto-import, the background queue (`import-finishing.json`), people and concepts. A library's
+/// auto-import, the background queue (`import-finishing.json`) and people (remembered objects
+/// moved to the store's `concepts.json`). A library's
 /// own override of an app-wide setting (e.g. background preparation) goes in its `prefs.json` too
 /// and wins over the app's while that library is open.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -559,6 +566,16 @@ impl AppStore {
     /// The store's files (a background save takes a handle of its own from it).
     pub(crate) fn store(&self) -> &dyn Store {
         self.files.as_ref()
+    }
+
+    /// A store file as it is (`None`: missing).
+    pub(crate) fn read_raw(&mut self, name: &'static str) -> std::result::Result<Option<Vec<u8>>, String> {
+        self.files.read(name).map_err(|e| format!("the shared {name} couldn't be read ({e})"))
+    }
+
+    /// Write a store file (not one that couldn't be read when the store was loaded).
+    pub(crate) fn write_raw(&mut self, name: &'static str, bytes: &[u8]) -> Result<()> {
+        self.write(name, bytes)
     }
 
     pub(crate) fn write_presets(&mut self, bytes: &[u8]) -> Result<()> {
@@ -987,6 +1004,7 @@ impl Session {
                 remap,
                 remapped: false,
                 habits: true,
+                concepts: false,
             });
             for p in &report.problems {
                 log::warn!("store: merging {}: {p}", dir.display());
