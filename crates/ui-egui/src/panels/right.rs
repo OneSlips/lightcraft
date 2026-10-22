@@ -512,10 +512,14 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(4.0);
         ui.label(egui::RichText::new(crate::i18n::tr("Paint over a distraction on the photo to remove it.")).color(Tokens::get(ui.ctx()).text_dim));
     });
-    // brush settings; with a spot selected they edit that spot too
+    // brush settings; with a spot selected they edit that spot too, except a spot that shows a generated fill: it
+    // keeps the stroke its paid fill was made for, and the sliders are the next stroke's (test note 5)
     let sel = app.session.active_spot.and_then(|i| d.spots.get(i).map(|sp| (i, sp.clone())));
+    let bound = sel.as_ref().is_some_and(|(_, sp)| sp.shown_gen().is_none());
     if let Some((i, sp)) = &sel {
-        (app.ui.remove_size, app.ui.remove_feather, app.ui.remove_opacity) = (sp.size as f32, sp.feather as f32, sp.opacity as f32);
+        if bound {
+            (app.ui.remove_size, app.ui.remove_feather, app.ui.remove_opacity) = (sp.size as f32, sp.feather as f32, sp.opacity as f32);
+        }
         divider(ui);
         let mode = match sp.mode {
             lightcraft_develop::SpotMode::Heal => "Heal",
@@ -553,7 +557,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 _ => app.ui.remove_opacity = v as f32,
             }
         }
-        if sel.is_some() {
+        if bound {
             super::edit::apply_slider_out(app, &spec, out, |app, v| app.run("spot.update", json!({key: v / scale})));
         }
     }

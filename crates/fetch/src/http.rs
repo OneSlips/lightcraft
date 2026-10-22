@@ -5,9 +5,9 @@
 //!
 //! Only what a large-file download needs: one request per connection (`Connection: close`),
 //! `Range` requests for resuming, redirects (followed by the caller), `Content-Length`,
-//! chunked and read-to-close bodies. Every read waits at most `stall` for data and checks the
-//! cancel flag at least twice a second, so a dead server or a cancelled download never hangs
-//! the downloading thread. No proxies (see docs/ai-masks.md).
+//! chunked and read-to-close bodies. Sockets are non-blocking: every read or write waits at most
+//! `stall` for progress and checks the cancel flag every few milliseconds, so a dead server or a
+//! cancelled download never hangs the downloading thread. No proxies (see docs/ai-masks.md).
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
@@ -28,6 +28,9 @@ pub enum HttpError {
     Cancelled,
     /// TLS failed (certificate, handshake).
     Tls(String),
+    /// The server ended the secure connection with a fatal alert (it could not read what was sent, or refused it):
+    /// it did not act on the request.
+    TlsAlert(String),
     /// The server's response could not be understood.
     Protocol(String),
     /// Any other I/O error.
@@ -42,6 +45,7 @@ impl std::fmt::Display for HttpError {
             HttpError::Stalled => write!(f, "the server stopped sending data"),
             HttpError::Cancelled => write!(f, "cancelled"),
             HttpError::Tls(e) => write!(f, "secure connection failed: {e}"),
+            HttpError::TlsAlert(a) => write!(f, "the server closed the secure connection ({a})"),
             HttpError::Protocol(e) => write!(f, "unexpected response: {e}"),
             HttpError::Io(e) => write!(f, "{e}"),
         }
@@ -161,8 +165,9 @@ pub struct Limits<'a> {
     pub cancel: &'a AtomicBool,
 }
 
-/// How often a blocked read wakes up to check the cancel flag.
-const TICK: Duration = Duration::from_millis(250);
+/// Longest pause between two looks at a socket that had nothing to read or no room to write (the cancel flag is
+/// checked at each look).
+const MAX_WAIT: Duration = Duration::from_millis(16);
 /// Longest status line + headers accepted.
 const MAX_HEAD: usize = 64 * 1024;
 
@@ -171,8 +176,38 @@ enum Stream {
     Tls(Box<rustls::ClientConnection>, TcpStream),
 }
 
+/// A rustls error as an [`HttpError`]: an alert the server sent is [`HttpError::TlsAlert`].
+fn tls_error(e: &rustls::Error) -> HttpError {
+    match e {
+        rustls::Error::AlertReceived(a) => HttpError::TlsAlert(format!("{a:?}")),
+        e => HttpError::Tls(e.to_string()),
+    }
+}
+
+/// An I/O error from rustls (it wraps its own errors as `InvalidData`).
+fn io_tls_error(e: &std::io::Error) -> HttpError {
+    match e.get_ref().and_then(|i| i.downcast_ref::<rustls::Error>()) {
+        Some(t) => tls_error(t),
+        None => HttpError::Tls(e.to_string()),
+    }
+}
+
 fn is_timeout(e: &std::io::Error) -> bool {
     matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted)
+}
+
+/// Pauses between looks at a non-blocking socket: 1 ms, doubling up to [`MAX_WAIT`].
+struct Backoff(Duration);
+
+impl Backoff {
+    fn new() -> Backoff {
+        Backoff(Duration::from_millis(1))
+    }
+
+    fn pause(&mut self) {
+        std::thread::sleep(self.0);
+        self.0 = (self.0 * 2).min(MAX_WAIT);
+    }
 }
 
 fn tls_config() -> Result<Arc<rustls::ClientConfig>, HttpError> {
@@ -212,7 +247,7 @@ fn lookup(
         if left.is_zero() {
             return Err(HttpError::Connect(format!("{host}: the name lookup timed out")));
         }
-        match rx.recv_timeout(left.min(TICK)) {
+        match rx.recv_timeout(left.min(Duration::from_millis(250))) {
             Ok(r) => return r.map_err(|e| HttpError::Connect(format!("{host}: {e}"))),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Err(HttpError::Connect(format!("{host}: the name lookup failed"))),
@@ -247,8 +282,11 @@ impl Stream {
         let (host, port) = (url.host.clone(), url.port);
         let addrs = lookup(&url.host, move || (host.as_str(), port).to_socket_addrs().map(Iterator::collect), deadline, limits)?;
         let sock = connect_any(&url.host, &addrs, deadline, limits)?;
-        sock.set_read_timeout(Some(TICK)).map_err(|e| HttpError::Io(e.to_string()))?;
-        sock.set_write_timeout(Some(TICK)).map_err(|e| HttpError::Io(e.to_string()))?;
+        // Non-blocking, not socket timeouts: on Windows a send that times out may already have sent part of its
+        // data ("the socket state is indeterminate"), and sending it again corrupted the TLS stream: the server
+        // answered "received fatal alert: BadRecordMac" (note 5). A non-blocking send that can't go out says
+        // WouldBlock having sent nothing, so waiting and trying again is exact.
+        sock.set_nonblocking(true).map_err(|e| HttpError::Io(e.to_string()))?;
         let _ = sock.set_nodelay(true);
         if !url.tls {
             return Ok(Stream::Plain(sock));
@@ -264,9 +302,10 @@ impl Stream {
         Ok(s)
     }
 
-    /// Wait for `f` to make progress, retrying timeouts until `stall` passes without any.
+    /// Wait for `f` to make progress, retrying "not now" until `stall` passes without any.
     fn retry<T>(limits: &Limits, mut f: impl FnMut() -> std::io::Result<T>) -> Result<T, HttpError> {
         let start = Instant::now();
+        let mut backoff = Backoff::new();
         loop {
             if limits.cancel.load(Ordering::Relaxed) {
                 return Err(HttpError::Cancelled);
@@ -277,8 +316,9 @@ impl Stream {
                     if start.elapsed() >= limits.stall {
                         return Err(HttpError::Stalled);
                     }
+                    backoff.pause();
                 }
-                Err(e) if e.kind() == ErrorKind::InvalidData => return Err(HttpError::Tls(e.to_string())),
+                Err(e) if e.kind() == ErrorKind::InvalidData => return Err(io_tls_error(&e)),
                 Err(e) => return Err(HttpError::Io(e.to_string())),
             }
         }
@@ -328,12 +368,29 @@ impl Stream {
         }
     }
 
+    /// After a failed send: the alert the server sent before it closed, if one is waiting (it says why).
+    fn alert(&mut self) -> Option<HttpError> {
+        let Stream::Tls(conn, sock) = self else { return None };
+        for _ in 0..8 {
+            match conn.read_tls(sock) {
+                Ok(0) | Err(_) => return None,
+                Ok(_) => {
+                    if let Err(e) = conn.process_new_packets() {
+                        return Some(tls_error(&e)).filter(|e| matches!(e, HttpError::TlsAlert(_)));
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Read some bytes (0 at the end of the stream), waiting at most `stall` for them.
     fn read(&mut self, buf: &mut [u8], limits: &Limits) -> Result<usize, HttpError> {
         match self {
             Stream::Plain(sock) => Self::retry(limits, || sock.read(buf)),
             Stream::Tls(conn, sock) => {
                 let start = Instant::now();
+                let mut backoff = Backoff::new();
                 loop {
                     if limits.cancel.load(Ordering::Relaxed) {
                         return Err(HttpError::Cancelled);
@@ -343,13 +400,13 @@ impl Stream {
                         // closed without close_notify: the caller checks the length it got
                         Err(e) if e.kind() == ErrorKind::UnexpectedEof => return Ok(0),
                         Err(e) if e.kind() == ErrorKind::WouldBlock => {}
-                        Err(e) => return Err(HttpError::Tls(e.to_string())),
+                        Err(e) => return Err(io_tls_error(&e)),
                     }
                     // no plaintext buffered: more TLS records from the socket
                     match conn.read_tls(sock) {
                         Ok(0) => return Ok(0),
                         Ok(_) => {
-                            conn.process_new_packets().map_err(|e| HttpError::Tls(e.to_string()))?;
+                            conn.process_new_packets().map_err(|e| tls_error(&e))?;
                             while conn.wants_write() {
                                 Self::retry(limits, || conn.write_tls(sock))?;
                             }
@@ -358,6 +415,7 @@ impl Stream {
                             if start.elapsed() >= limits.stall {
                                 return Err(HttpError::Stalled);
                             }
+                            backoff.pause();
                         }
                         Err(e) => return Err(HttpError::Io(e.to_string())),
                     }
@@ -547,7 +605,47 @@ pub const MAX_BODY: usize = 64 * 1024 * 1024;
 /// `Content-Length`; the caller names its `Content-Type` in `headers`), then read the status
 /// line and headers. Header values never appear in errors (they may hold an API key).
 pub fn request(method: &str, url: &Url, headers: &[(&str, String)], body: Option<&[u8]>, limits: &Limits) -> Result<Response, HttpError> {
+    request_with(method, url, headers, body, limits, None).map_err(|(e, _)| e)
+}
+
+/// How far a failed request got.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stage {
+    /// Before anything was sent (the URL, the name lookup, connecting, the TLS handshake).
+    Connect,
+    /// While the request was being sent.
+    Send,
+    /// After it was sent, before the status line and headers arrived.
+    Receive,
+}
+
+/// [`request`], saying how far a failure got (a caller decides from it whether sending again is safe).
+pub fn request_staged(
+    method: &str,
+    url: &Url,
+    headers: &[(&str, String)],
+    body: Option<&[u8]>,
+    limits: &Limits,
+) -> Result<Response, (HttpError, Stage)> {
     request_with(method, url, headers, body, limits, None)
+}
+
+/// Whether a request that failed with `e` at `stage` certainly did not reach the server's application, so
+/// sending it again cannot do anything twice (a paid generation): it never left this machine, it broke off
+/// while being sent, or the server's TLS layer rejected it with an alert before any response.
+/// A request whose sending failed never reached the server's application either: it acts on a whole request,
+/// and the connection broke before all of it went out.
+pub fn not_delivered(e: &HttpError, stage: Stage) -> bool {
+    match e {
+        HttpError::Cancelled | HttpError::BadUrl(_) => false,
+        HttpError::TlsAlert(_) => true,
+        _ => matches!(stage, Stage::Connect | Stage::Send),
+    }
+}
+
+/// Whether `e` is a network failure worth one more try on a new connection (not a refusal or a cancel).
+pub fn transient(e: &HttpError) -> bool {
+    matches!(e, HttpError::Connect(_) | HttpError::Stalled | HttpError::Tls(_) | HttpError::TlsAlert(_) | HttpError::Io(_) | HttpError::Protocol(_))
 }
 
 /// [`request`] with its own TLS configuration (tests: a local server's test certificate).
@@ -558,12 +656,13 @@ fn request_with(
     body: Option<&[u8]>,
     limits: &Limits,
     tls: Option<Arc<rustls::ClientConfig>>,
-) -> Result<Response, HttpError> {
+) -> Result<Response, (HttpError, Stage)> {
+    let at = |stage: Stage| move |e: HttpError| (e, stage);
     if method.is_empty() || !method.chars().all(|c| c.is_ascii_uppercase()) {
-        return Err(HttpError::BadUrl("bad request method".into()));
+        return Err((HttpError::BadUrl("bad request method".into()), Stage::Connect));
     }
     if body.is_some_and(|b| b.len() > MAX_BODY) {
-        return Err(HttpError::BadUrl(format!("request body over {} MB", MAX_BODY >> 20)));
+        return Err((HttpError::BadUrl(format!("request body over {} MB", MAX_BODY >> 20)), Stage::Connect));
     }
     let mut req = format!(
         "{method} {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: LightCraft/{}\r\nAccept-Encoding: identity\r\nConnection: close\r\n",
@@ -576,7 +675,7 @@ fn request_with(
     }
     for (k, v) in headers {
         if v.chars().any(|c| c == '\r' || c == '\n') || k.chars().any(|c| c == '\r' || c == '\n' || c == ':') {
-            return Err(HttpError::BadUrl("header with a line break".into()));
+            return Err((HttpError::BadUrl("header with a line break".into()), Stage::Connect));
         }
         req.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -584,14 +683,25 @@ fn request_with(
         req.push_str(&format!("Content-Length: {}\r\n", b.len()));
     }
     req.push_str("\r\n");
-    let mut stream = Stream::connect(url, limits, tls)?;
-    stream.write_all(req.as_bytes(), limits)?;
-    if let Some(b) = body {
+    let mut stream = Stream::connect(url, limits, tls).map_err(at(Stage::Connect))?;
+    let mut sent = stream.write_all(req.as_bytes(), limits);
+    if let (Ok(()), Some(b)) = (&sent, body) {
         for chunk in b.chunks(256 * 1024) {
-            stream.write_all(chunk, limits)?;
+            sent = stream.write_all(chunk, limits);
+            if sent.is_err() {
+                break;
+            }
         }
     }
-    let mut conn = Conn { stream, buf: Vec::new(), pos: 0 };
+    if let Err(e) = sent {
+        // a server that could not read what arrived says so with an alert before it closes
+        return Err((if e == HttpError::Cancelled { e } else { stream.alert().unwrap_or(e) }, Stage::Send));
+    }
+    read_head(Conn { stream, buf: Vec::new(), pos: 0 }, limits).map_err(at(Stage::Receive))
+}
+
+/// The status line and headers of the reply on `conn`.
+fn read_head(mut conn: Conn, limits: &Limits) -> Result<Response, HttpError> {
     let status_line = conn.line(MAX_HEAD, limits)?;
     let mut parts = status_line.split_whitespace();
     let version = parts.next().unwrap_or_default();
@@ -887,11 +997,167 @@ sQ6l5HDDBbhGkYuLCq/Hs2w/8suhRANCAATfwLLDsrJ+pxUuCMLz7sTkEYam3ozL\
         let sum: u64 = body.iter().enumerate().map(|(i, b)| (i as u64 % 251) * u64::from(*b)).sum();
         let url = Url::parse(&format!("https://localhost:{port}/v1/images/edits")).unwrap();
         let mut r =
-            request_with("POST", &url, &[("Content-Type", "application/octet-stream".into())], Some(&body), &limits, Some(client_cfg)).unwrap();
+            request_with("POST", &url, &[("Content-Type", "application/octet-stream".into())], Some(&body), &limits, Some(client_cfg)).ok().unwrap();
         assert_eq!(r.status, 200);
         let got = String::from_utf8(r.read_to_end(1 << 20, &limits).unwrap()).unwrap();
         assert_eq!(got, format!("{{\"len\":6000000,\"sum\":{sum}}}"));
         server.join().unwrap();
+    }
+
+    /// The test server's and client's TLS configurations (the client trusts only the test CA).
+    fn test_tls() -> (rustls::ServerConfig, Arc<rustls::ClientConfig>) {
+        use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+        let provider = Arc::new(rustls_rustcrypto::provider());
+        let server_cfg = rustls::ServerConfig::builder_with_provider(provider.clone())
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from(pem_der(TEST_LEAF)), CertificateDer::from(pem_der(TEST_CA))],
+                PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(b64(TEST_LEAF_KEY))),
+            )
+            .unwrap();
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(CertificateDer::from(pem_der(TEST_CA))).unwrap();
+        let client_cfg = Arc::new(
+            rustls::ClientConfig::builder_with_provider(provider)
+                .with_safe_default_protocol_versions()
+                .unwrap()
+                .with_root_certificates(roots)
+                .with_no_client_auth(),
+        );
+        (server_cfg, client_cfg)
+    }
+
+    /// A server that reads the upload slowly (a slow uplink: the client's sends wait longer than one cancel tick)
+    /// still gets every byte intact. On Windows a socket send that times out may already have sent part of its
+    /// data ("the socket state is indeterminate"), so sending it again corrupted the TLS record stream and the
+    /// server answered "received fatal alert: BadRecordMac" (note 5, the second generative-fill request).
+    #[test]
+    fn a_slow_reading_server_gets_the_whole_upload_over_tls() {
+        let (server_cfg, client_cfg) = test_tls();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || -> Result<String, String> {
+            let (mut sock, _) = l.accept().unwrap();
+            let mut conn = rustls::ServerConnection::new(Arc::new(server_cfg)).unwrap();
+            let mut plain = Vec::new();
+            let mut buf = [0u8; 4096];
+            let mut want: Option<usize> = None;
+            let mut reads = 0u32;
+            let end = |p: &[u8]| p.windows(4).position(|w| w == b"\r\n\r\n");
+            loop {
+                if conn.wants_write() {
+                    conn.write_tls(&mut sock).map_err(|e| e.to_string())?;
+                    continue;
+                }
+                let n = conn.read_tls(&mut sock).map_err(|e| e.to_string())?;
+                if n == 0 {
+                    return Err("client closed".into());
+                }
+                // read in bites with pauses: the client's send buffer fills and its sends wait
+                reads += 1;
+                if reads.is_multiple_of(48) {
+                    std::thread::sleep(Duration::from_millis(400));
+                }
+                conn.process_new_packets().map_err(|e| format!("server: {e}"))?;
+                while let Ok(k) = conn.reader().read(&mut buf) {
+                    if k == 0 {
+                        break;
+                    }
+                    plain.extend_from_slice(&buf[..k]);
+                }
+                if want.is_none()
+                    && let Some(i) = end(&plain)
+                {
+                    let head = String::from_utf8_lossy(&plain[..i]).to_string();
+                    let len: usize = head.lines().find_map(|l| l.strip_prefix("Content-Length: ")).unwrap().trim().parse().unwrap();
+                    want = Some(i + 4 + len);
+                }
+                if want.is_some_and(|w| plain.len() >= w) {
+                    break;
+                }
+            }
+            let body = &plain[end(&plain).unwrap() + 4..];
+            let sum: u64 = body.iter().enumerate().map(|(i, b)| (i as u64 % 251) * u64::from(*b)).sum();
+            let reply = format!("{{\"len\":{},\"sum\":{sum}}}", body.len());
+            let mut tls = rustls::StreamOwned::new(conn, sock);
+            write!(tls, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).unwrap();
+            tls.flush().unwrap();
+            Ok(reply)
+        });
+        let cancel = AtomicBool::new(false);
+        let limits = Limits { connect: Duration::from_secs(5), stall: Duration::from_secs(30), cancel: &cancel };
+        let body: Vec<u8> = (0..12_000_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 24) as u8).collect();
+        let sum: u64 = body.iter().enumerate().map(|(i, b)| (i as u64 % 251) * u64::from(*b)).sum();
+        let url = Url::parse(&format!("https://localhost:{port}/v1/flux-tools/erase-v1")).unwrap();
+        let r =
+            request_with("POST", &url, &[("Content-Type", "application/json".into())], Some(&body), &limits, Some(client_cfg)).map_err(|(e, _)| e);
+        let served = server.join().unwrap();
+        assert_eq!(served, Ok(format!("{{\"len\":12000000,\"sum\":{sum}}}")));
+        let mut r = r.unwrap();
+        assert_eq!(r.status, 200);
+        assert_eq!(String::from_utf8(r.read_to_end(1 << 20, &limits).unwrap()).unwrap(), served.unwrap());
+    }
+
+    /// A server whose TLS layer can't read what arrived answers with a fatal alert: that is reported as the
+    /// server closing the secure connection (BadRecordMac), and as a request it never acted on, so sending it
+    /// again is safe. A failure after the request went out is not.
+    #[test]
+    fn a_server_alert_means_the_request_was_not_delivered() {
+        let (server_cfg, client_cfg) = test_tls();
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut sock, _) = l.accept().unwrap();
+            let mut conn = rustls::ServerConnection::new(Arc::new(server_cfg)).unwrap();
+            let mut seen = 0usize;
+            let mut buf = vec![0u8; 16 * 1024];
+            loop {
+                while conn.wants_write() {
+                    conn.write_tls(&mut sock).unwrap();
+                }
+                let n = sock.read(&mut buf).unwrap();
+                if n == 0 {
+                    return;
+                }
+                // a byte damaged on the way, well after the handshake
+                if !conn.is_handshaking() && seen + n > 40_000 && seen <= 40_000 {
+                    let i = 40_000 - seen;
+                    buf[i.min(n - 1)] ^= 0x5a;
+                }
+                seen += n;
+                conn.read_tls(&mut &buf[..n]).unwrap();
+                if conn.process_new_packets().is_err() {
+                    // the alert goes out, then the server stops sending and drains what still arrives
+                    let _ = conn.write_tls(&mut sock);
+                    let _ = sock.shutdown(std::net::Shutdown::Write);
+                    sock.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                    while sock.read(&mut buf).is_ok_and(|n| n > 0) {}
+                    return;
+                }
+                let mut sink = [0u8; 16 * 1024];
+                while let Ok(k) = conn.reader().read(&mut sink) {
+                    if k == 0 {
+                        break;
+                    }
+                }
+            }
+        });
+        let cancel = AtomicBool::new(false);
+        let limits = Limits { connect: Duration::from_secs(5), stall: Duration::from_secs(10), cancel: &cancel };
+        let url = Url::parse(&format!("https://localhost:{port}/v1/flux-tools/erase-v1")).unwrap();
+        let body = vec![b'x'; 400_000];
+        let Err((e, stage)) = request_with("POST", &url, &[], Some(&body), &limits, Some(client_cfg)) else { panic!("the server refused it") };
+        server.join().unwrap();
+        assert!(matches!(&e, HttpError::TlsAlert(a) if a.contains("BadRecordMac")), "{e:?} at {stage:?}");
+        assert_eq!(e.to_string(), "the server closed the secure connection (BadRecordMac)");
+        assert!(not_delivered(&e, stage) && transient(&e));
+        // a connection that broke after the request was sent may have been acted on
+        assert!(!not_delivered(&HttpError::Io("connection reset".into()), Stage::Receive));
+        assert!(not_delivered(&HttpError::Io("connection reset".into()), Stage::Send));
+        assert!(not_delivered(&HttpError::Connect("refused".into()), Stage::Connect));
+        assert!(!transient(&HttpError::Cancelled) && !not_delivered(&HttpError::Cancelled, Stage::Connect));
     }
 
     #[test]

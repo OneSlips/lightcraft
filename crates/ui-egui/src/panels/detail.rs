@@ -3639,6 +3639,11 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
         if Some(spot) != active {
             let _ = app.run("spot.select", json!({"index": spot}));
         }
+        // a spot that shows a generated fill stays where the fill was made (a nudge hid it, test note 5)
+        if d.spots.get(spot).is_some_and(|s| s.shown_gen().is_some()) {
+            app.toast(ui.ctx(), crate::i18n::tr("A generated fill stays where it was made. Paint a new area to fill somewhere else."));
+            return;
+        }
         let _ = app.run("develop.beginInteraction", json!({"label": "Edit Spot"}));
         app.gesture = Some(Gesture::SpotMove { spot, source });
     }
