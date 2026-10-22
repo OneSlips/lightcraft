@@ -3229,5 +3229,9 @@
   "This file names no lens.": "Ce fichier n'indique aucun objectif.",
   "1 photo got its lens profile": "1 photo a reçu son profil d'objectif",
   "Looking up lens profiles": "Recherche des profils d'objectif",
-  "Downloading the lens database": "Téléchargement de la base de données d'objectifs"
+  "Downloading the lens database": "Téléchargement de la base de données d'objectifs",
+  "Upgrade Library": "Mettre à niveau la bibliothèque",
+  "Open the Upgraded Copy": "Ouvrir la copie mise à niveau",
+  "Make Upgraded Copy and Open": "Créer une copie mise à niveau et l'ouvrir",
+  "Your library needs an upgrade": "Votre bibliothèque doit être mise à niveau"
 }

@@ -2802,5 +2802,9 @@
   "This file names no lens.": "Tento soubor neuvádí žádný objektiv.",
   "1 photo got its lens profile": "1 fotka získala profil objektivu",
   "Looking up lens profiles": "Hledání profilů objektivů",
-  "Downloading the lens database": "Stahování databáze objektivů"
+  "Downloading the lens database": "Stahování databáze objektivů",
+  "Upgrade Library": "Upgradovat knihovnu",
+  "Open the Upgraded Copy": "Otevřít upgradovanou kopii",
+  "Make Upgraded Copy and Open": "Vytvořit upgradovanou kopii a otevřít",
+  "Your library needs an upgrade": "Vaše knihovna potřebuje upgrade"
 }

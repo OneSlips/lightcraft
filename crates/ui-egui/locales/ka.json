@@ -2783,5 +2783,9 @@
   "This file names no lens.": "ამ ფაილში ობიექტივი არ არის მითითებული.",
   "1 photo got its lens profile": "1 ფოტომ მიიღო ობიექტივის პროფილი",
   "Looking up lens profiles": "ობიექტივის პროფილების ძიება",
-  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა"
+  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა",
+  "Upgrade Library": "ბიბლიოთეკის განახლება",
+  "Open the Upgraded Copy": "განახლებული ასლის გახსნა",
+  "Make Upgraded Copy and Open": "განახლებული ასლის შექმნა და გახსნა",
+  "Your library needs an upgrade": "თქვენს ბიბლიოთეკას განახლება სჭირდება"
 }

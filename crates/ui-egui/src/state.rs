@@ -1340,6 +1340,14 @@ pub enum Dialog {
         folder: String,
         catalog: Option<String>,
     },
+    /// A library made by an earlier LightCraft: open it through an upgraded copy beside it (made
+    /// unless it exists), the original untouched. `message`: what will happen, in plain words.
+    LibraryUpgrade {
+        path: String,
+        copy: String,
+        copy_exists: bool,
+        message: String,
+    },
     /// Save the selected mask's sliders as a mask effect preset: which sliders (`FIELDS` names,
     /// the colour as `color_sat`), whether it carries Amount and the brush settings.
     SaveEffect {

@@ -3075,5 +3075,9 @@
   "This file names no lens.": "Este arquivo não indica nenhuma lente.",
   "1 photo got its lens profile": "1 foto recebeu o perfil da lente",
   "Looking up lens profiles": "Procurando perfis de lente",
-  "Downloading the lens database": "Baixando o banco de dados de lentes"
+  "Downloading the lens database": "Baixando o banco de dados de lentes",
+  "Upgrade Library": "Atualizar biblioteca",
+  "Open the Upgraded Copy": "Abrir a cópia atualizada",
+  "Make Upgraded Copy and Open": "Criar cópia atualizada e abrir",
+  "Your library needs an upgrade": "Sua biblioteca precisa ser atualizada"
 }

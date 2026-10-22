@@ -60,6 +60,7 @@ pub mod import_profiles;
 pub mod lens_profiles;
 pub mod lensfun_download;
 pub mod library;
+pub mod library_upgrade;
 mod lightroom_archive;
 pub mod lightroom_catalog;
 pub mod lightroom_folder;
@@ -134,6 +135,10 @@ pub enum EngineError {
     /// Another process (the app, `lightcraft-cli`, another computer) has the library open.
     #[error("{0}")]
     LibraryInUse(String),
+    /// The library was made by an earlier LightCraft: it opens through an upgraded copy beside it
+    /// ([`Session::open_library_upgraded`], `app.openLibrary {upgrade: true}`), never changed itself.
+    #[error("{}", library_upgrade_message(path, copy, *copy_exists))]
+    LibraryNeedsUpgrade { path: std::path::PathBuf, copy: std::path::PathBuf, copy_exists: bool },
     /// The folder (or file) asked for is a Lightroom Classic catalog or part of one, not a
     /// LightCraft library (issue #891): nothing was created or opened. `catalog`: the `.lrcat`
     /// to import with `library.importLightroom`, when one was found.
@@ -151,6 +156,24 @@ pub enum EngineError {
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
+
+/// [`EngineError::LibraryNeedsUpgrade`] in plain words.
+fn library_upgrade_message(path: &std::path::Path, copy: &std::path::Path, exists: bool) -> String {
+    let name = |p: &std::path::Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+    if exists {
+        format!(
+            "“{}” was made by an earlier version of LightCraft, and an upgraded copy of it, “{}”, already exists next to it. Open that copy instead; the original stays untouched.",
+            name(path),
+            name(copy)
+        )
+    } else {
+        format!(
+            "“{}” was made by an earlier version of LightCraft. To open it, LightCraft makes an upgraded copy next to it, named “{}”, and opens the copy; the original stays untouched.",
+            name(path),
+            name(copy)
+        )
+    }
+}
 
 /// One undo step: the inverse op and a label.
 #[derive(Clone, Debug)]

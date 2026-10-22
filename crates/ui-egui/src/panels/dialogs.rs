@@ -264,6 +264,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::DeleteRejected { .. } => "Delete Rejected Files from Disk",
         Dialog::MovePhotos { .. } => "Move Photos",
         Dialog::LightroomCatalog { .. } => "Lightroom Classic Catalog",
+        Dialog::LibraryUpgrade { .. } => "Upgrade Library",
         Dialog::SaveEffect { .. } => "New Effect Preset",
         Dialog::ManageEffects { .. } => "Manage Effect Presets",
         Dialog::DeleteEffects { names } if names.len() == 1 => "Delete Effect Preset",
@@ -313,7 +314,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             Dialog::AllMetadata { .. } => 620.0,
             Dialog::Print => 1100.0,
             Dialog::FaceModel { .. } => 460.0,
-            Dialog::LightroomCatalog { .. } => 440.0,
+            Dialog::LightroomCatalog { .. } | Dialog::LibraryUpgrade { .. } => 440.0,
             Dialog::ManageEffects { .. } => 560.0,
             _ => 380.0,
         });
@@ -1301,6 +1302,9 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     c.on_hover_text(crate::i18n::tr("Settings → Confirm before moving photos to another folder on disk turns it back on"));
                 }
                 d @ Dialog::SynchronizeFolder { .. } => crate::sync::body(app, ui, d),
+                Dialog::LibraryUpgrade { message, .. } => {
+                    ui.add(egui::Label::new(message.as_str()).wrap());
+                }
                 Dialog::LightroomCatalog { folder, catalog } => {
                     ui.label(crate::i18n::tr("This is a Lightroom catalog, not a LightCraft library. Import it into a LightCraft library instead?"));
                     ui.label(egui::RichText::new(catalog.as_deref().unwrap_or(folder.as_str())).color(t.text_dim));
@@ -1443,6 +1447,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::KeywordTag { .. } => "Save",
                     Dialog::RemoveFolder { .. } => "Remove",
                     Dialog::LightroomCatalog { .. } => "Import Lightroom Catalog…",
+                    Dialog::LibraryUpgrade { copy_exists: true, .. } => "Open the Upgraded Copy",
+                    Dialog::LibraryUpgrade { .. } => "Make Upgraded Copy and Open",
                     Dialog::SynchronizeFolder { .. } => "Synchronize",
                     Dialog::SamModel { then: Some(_), .. } if sam_installed => "Continue",
                     Dialog::SamModel { .. } if sam_installed || sam_running || sam_nowhere => "",
@@ -2143,6 +2149,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             crate::panels::left::move_photos(app, Some(ids), folder).map(|n| json!({"moved": n}))
         }
         // the catalog found: no file dialog; none: File ▸ Import Lightroom Catalog… asks for it
+        Dialog::LibraryUpgrade { path, .. } => app.run("app.openLibrary", json!({"path": path, "upgrade": true})),
         Dialog::LightroomCatalog { catalog, .. } => {
             app.run("file.importLightroom", catalog.as_ref().map_or_else(|| json!({}), |c| json!({"path": c})))
         }

@@ -2682,5 +2682,9 @@
   "This file names no lens.": "Ten plik nie podaje obiektywu.",
   "1 photo got its lens profile": "1 zdjęcie otrzymało profil obiektywu",
   "Looking up lens profiles": "Wyszukiwanie profili obiektywów",
-  "Downloading the lens database": "Pobieranie bazy obiektywów"
+  "Downloading the lens database": "Pobieranie bazy obiektywów",
+  "Upgrade Library": "Uaktualnij bibliotekę",
+  "Open the Upgraded Copy": "Otwórz uaktualnioną kopię",
+  "Make Upgraded Copy and Open": "Utwórz uaktualnioną kopię i otwórz",
+  "Your library needs an upgrade": "Biblioteka wymaga uaktualnienia"
 }

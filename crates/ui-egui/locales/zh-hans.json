@@ -3073,5 +3073,9 @@
   "This file names no lens.": "此文件未注明镜头。",
   "1 photo got its lens profile": "1 张照片获得了镜头配置文件",
   "Looking up lens profiles": "正在查找镜头配置文件",
-  "Downloading the lens database": "正在下载镜头数据库"
+  "Downloading the lens database": "正在下载镜头数据库",
+  "Upgrade Library": "升级图库",
+  "Open the Upgraded Copy": "打开升级后的副本",
+  "Make Upgraded Copy and Open": "创建升级副本并打开",
+  "Your library needs an upgrade": "您的图库需要升级"
 }

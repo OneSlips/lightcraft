@@ -3224,5 +3224,9 @@
   "This file names no lens.": "В этом файле не указан объектив.",
   "1 photo got its lens profile": "1 фото получило профиль объектива",
   "Looking up lens profiles": "Поиск профилей объективов",
-  "Downloading the lens database": "Загрузка базы объективов"
+  "Downloading the lens database": "Загрузка базы объективов",
+  "Upgrade Library": "Обновить библиотеку",
+  "Open the Upgraded Copy": "Открыть обновлённую копию",
+  "Make Upgraded Copy and Open": "Создать обновлённую копию и открыть",
+  "Your library needs an upgrade": "Библиотеку нужно обновить"
 }
