@@ -279,6 +279,27 @@ fn menu_label(source: &str) -> &str {
     crate::i18n::tr(source)
 }
 
+/// The photo's right-click menu in the Masking panel: on a mask's pin, that mask's menu (as its
+/// row in the Masks list has); elsewhere, Update AI Mask for the selected mask when it has an AI
+/// selection, before the photo's own items. Whether the menu was the mask's (nothing else to add).
+pub(crate) fn photo_mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) -> bool {
+    let Some(d) = app.session.active().and_then(|p| app.session.develop_of(p)) else { return false };
+    if let Some((index, m)) = app.ui.mask_menu_for.and_then(|id| d.masks.iter().enumerate().find(|(_, m)| m.id == id)) {
+        mask_menu(app, ui, m.id, &m.name, m.visible, index, d.masks.len());
+        return true;
+    }
+    if let Some(m) = d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).filter(|m| m.uses_ai()) {
+        if ui.button(menu_label("Update AI Mask")).clicked() {
+            if let Err(e) = app.run("mask.recompute", json!({"id": m.id})) {
+                app.ai_error(ui.ctx(), e, None);
+            }
+            ui.close();
+        }
+        ui.separator();
+    }
+    false
+}
+
 /// The right-click menu of a mask in the Masks list.
 pub(crate) fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, name: &str, visible: bool, index: usize, count: usize) {
     let mut run = |ui: &mut egui::Ui, label: &str, enabled: bool, cmd: &str, p: serde_json::Value| {
@@ -298,13 +319,13 @@ pub(crate) fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, nam
     let d = photo.and_then(|p| app.session.develop_of(p));
     let ai = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| m.uses_ai());
     let any_ai = d.as_ref().is_some_and(|d| d.masks.iter().any(|m| m.uses_ai()));
-    if ui.add_enabled(ai, egui::Button::new(menu_label("Recalculate AI Mask"))).clicked() {
+    if ui.add_enabled(ai, egui::Button::new(menu_label("Update AI Mask"))).clicked() {
         if let Err(e) = app.run("mask.recompute", json!({"id": id})) {
             app.ai_error(ui.ctx(), e, None);
         }
         ui.close();
     }
-    if ui.add_enabled(any_ai, egui::Button::new(menu_label("Recalculate All AI Masks"))).clicked() {
+    if ui.add_enabled(any_ai, egui::Button::new(menu_label("Update All AI Masks"))).clicked() {
         if let Some(p) = photo {
             let _ = app.run("masks.recalculate", json!({"ids": [p.0]}));
         }
@@ -552,6 +573,19 @@ pub(crate) fn component_row_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, mas
     }
     crate::widgets::menu_button(ui, crate::i18n::tr("Intersect with"), |ui| component_menu(app, ui, "intersect"));
     crate::widgets::menu_button(ui, crate::i18n::tr("Subtract"), |ui| component_menu(app, ui, "subtract"));
+    // an AI selection: computed again from this photo (as the mask's own menu does for all of them)
+    let ai = app
+        .session
+        .active()
+        .and_then(|p| app.session.develop_of(p))
+        .and_then(|d| d.masks.iter().find(|m| m.id == mask).and_then(|m| m.components.get(k)).map(|c| c.shape.is_ai()))
+        .unwrap_or(false);
+    if ui.add_enabled(ai, egui::Button::new(menu_label("Update AI Mask"))).clicked() {
+        if let Err(e) = app.run("mask.recompute", json!({"id": mask, "component": k})) {
+            app.ai_error(ui.ctx(), e, None);
+        }
+        ui.close();
+    }
     ui.separator();
     if ui.button(crate::i18n::tr("Rename…")).clicked() {
         app.ui.renaming_component = Some((mask, k, label.to_string()));
@@ -772,7 +806,7 @@ fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             let pick = status == Some(PICK_OBJECT);
             if !pick
-                && text_button(ui, "maskAiUpdate", crate::i18n::tr("Recalculate AI Mask"), false)
+                && text_button(ui, "maskAiUpdate", crate::i18n::tr("Update AI Mask"), false)
                     .on_hover_text(crate::i18n::tr("Compute this mask's AI selection again from this photo"))
                     .clicked()
                 && let Err(e) = app.run("mask.recompute", json!({"id": m.id}))

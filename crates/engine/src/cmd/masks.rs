@@ -880,7 +880,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "mask.recompute",
-            "Recalculate AI Mask",
+            "Update AI Mask",
             [],
             None,
             "{id?: maskId, component?: index} — compute the mask's automatic AI selections (Subject, Background, Sky, People, Landscape) again with their model, e.g. after the photo changed or once the model is installed (all of them without `component`) → {updated, pending}",

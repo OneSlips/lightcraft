@@ -1248,6 +1248,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         preview_only_pill(ui, canvas, why);
     }
     resp.context_menu(|ui| {
+        // Masking: a pin right-clicked opens its mask's menu; elsewhere the selected AI mask
+        // can be updated from here too (note 2026-10-22 #3)
+        if right == RightPanel::Masking && super::masking::photo_mask_menu(app, ui) {
+            return;
+        }
         crate::widgets::menu_button(ui, crate::i18n::tr("Zoom"), |ui| {
             for (label, cmd) in [("Fit", "view.zoomFit"), ("100%", "view.zoom100"), ("Zoom In", "view.zoomIn"), ("Zoom Out", "view.zoomOut")] {
                 if ui.button(crate::i18n::tr(label)).clicked() {
@@ -3214,6 +3219,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     {
         app.ui.mask_hover = Some(*mid);
     }
+    // a right-click on a pin: the photo's menu is that mask's (see `masking::photo_mask_menu`)
+    if resp.secondary_clicked() {
+        let at = resp.interact_pointer_pos();
+        app.ui.mask_menu_for =
+            at.and_then(|q| grips.iter().filter(|g| g.3.distance(q) < 10.0).min_by(|a, b| a.3.distance(q).total_cmp(&b.3.distance(q)))).map(|g| g.0);
+    }
     mask_keys(app, ui, map, d, &grips);
     // Object selections (SAM 3) of the selected mask: each click, green to include, red to exclude
     // (clicks still on their way to the model included)
@@ -3267,6 +3278,13 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if app.ui.tool == "object" {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            // ⌥ / Alt: the click leaves out what's under it — a minus beside the pointer says so
+            if ui.input(|i| i.modifiers.alt)
+                && let Some(h) = resp.hover_pos()
+            {
+                brush_minus(p, h + vec2(14.0, 14.0));
+                register(ui.ctx(), "objectCursor:exclude", Rect::from_center_size(h, vec2(12.0, 12.0)));
+            }
         }
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
@@ -3302,8 +3320,15 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
             p.circle_stroke(h, r * (1.0 - app.ui.brush_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(120)));
-            // the centre, where Auto Mask samples the colour and texture to follow
-            brush_crosshair(p, h);
+            // the centre, where Auto Mask samples the colour and texture to follow: a minus while a
+            // stroke would erase (Erase on, or ⌥ / Alt held to switch modes), as the stroke will
+            let erasing = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
+            if erasing {
+                brush_minus(p, h);
+            } else {
+                brush_crosshair(p, h);
+            }
+            register(ui.ctx(), if erasing { "brushCursor:erase" } else { "brushCursor:paint" }, Rect::from_center_size(h, vec2(2.0 * r, 2.0 * r)));
         }
         if let Some(q) = resp.interact_pointer_pos()
             && (resp.drag_started() || resp.dragged() || resp.clicked())
@@ -3486,6 +3511,13 @@ fn live_due(live: Option<(f64, usize)>, len: usize, now: f64) -> bool {
     match live {
         None => len >= 2,
         Some((at, sent)) => len > sent && (now - at >= LIVE_AUTO_MASK_EVERY || now < at || now.is_nan()),
+    }
+}
+
+/// The erasing brush's centre: a minus (dark under light, so it reads on any photo).
+fn brush_minus(p: &egui::Painter, c: Pos2) {
+    for (w, col) in [(3.5, Color32::from_black_alpha(140)), (1.5, Color32::WHITE)] {
+        p.line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], Stroke::new(w, col));
     }
 }
 

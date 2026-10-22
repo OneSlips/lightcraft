@@ -1757,3 +1757,74 @@ fn effect_dropdown_applies_saves_and_shows_the_matching_effect() {
     assert_eq!((a.exposure, a.shadows, a.clarity, a.amount), (0.7, 25.0, 0.0, 50.0));
     assert_eq!(exec(&mut h, "mask.effects", json!({}))["current"], "Lift");
 }
+
+fn widget(h: &Headless, id: &str) -> Option<egui::Rect> {
+    h.app.widgets.iter().rev().find(|(w, _)| w == id).map(|(_, r)| *r)
+}
+
+/// Note 2026-10-22 #7: holding ⌥ / Alt over the photo with the brush shows the erase cursor (a
+/// stroke would erase), and letting go shows the paint cursor again; with Erase on, the other way.
+#[test]
+fn alt_over_the_photo_switches_the_brush_cursor_to_erase() {
+    let mut h = detail("panel.masking");
+    click(&mut h, "maskNew:brush");
+    pointer(&mut h, json!([{"kind": "move", "x": 0.5, "y": 0.5}]));
+    h.step();
+    h.step();
+    assert!(widget(&h, "brushCursor:paint").is_some(), "painting");
+    let alt = egui::Modifiers { alt: true, ..Default::default() };
+    let at = widget(&h, "brushCursor:paint").map(|r| r.center()).unwrap_or_default();
+    h.app.synthetic.extend([egui::Event::ModifiersChanged(alt), egui::Event::PointerMoved(at)]);
+    h.step();
+    h.step();
+    assert!(widget(&h, "brushCursor:erase").is_some(), "⌥ held: the erase cursor");
+    h.app.synthetic.extend([egui::Event::ModifiersChanged(egui::Modifiers::NONE), egui::Event::PointerMoved(at)]);
+    h.step();
+    h.step();
+    assert!(widget(&h, "brushCursor:paint").is_some(), "released: painting again");
+    h.app.ui.brush_erase = true;
+    h.app.synthetic.push(egui::Event::PointerMoved(at));
+    h.step();
+    h.step();
+    assert!(widget(&h, "brushCursor:erase").is_some(), "Erase on");
+}
+
+/// Note 2026-10-22 #3: a right-click on a mask's pin on the photo opens that mask's menu (Update AI
+/// Mask in it); elsewhere on the photo, the selected AI mask can be updated from the photo's menu.
+#[test]
+fn the_photo_menu_offers_update_ai_mask() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.3, 0.4]}));
+    h.app.ui.mask_pins = true;
+    // (pins show while the pointer is over the photo)
+    pointer(&mut h, json!([{"kind": "move", "x": 0.5, "y": 0.5}]));
+    h.step();
+    h.step();
+    let id = h.app.session.active_mask.expect("the new mask");
+    let pin = widget(&h, &format!("maskPin:{id}:0"))
+        .unwrap_or_else(|| panic!("the radial's pin: {:?}", h.app.widgets.iter().map(|w| &w.0).filter(|w| w.starts_with("mask")).collect::<Vec<_>>()))
+        .center();
+    let r = h.request("ui.click", json!({"x": pin.x, "y": pin.y, "button": "right"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    for _ in 0..4 {
+        h.step();
+    }
+    let text = h.painted_text();
+    assert!(text.iter().any(|t| t == "Duplicate Mask") && text.iter().any(|t| t == "Update AI Mask"), "the mask's menu: {text:?}");
+    assert!(!text.iter().any(|t| t == "Zoom"), "not the photo's");
+    let _ = h.request("ui.key", json!({"key": "Escape"}), T);
+    h.step();
+    // an AI mask selected, a right-click away from the pins
+    exec(&mut h, "mask.add", json!({"kind": "sky"}));
+    h.step();
+    let img = h.app.image_rect.expect("photo on screen");
+    let away = img.left_top() + (img.size() * egui::vec2(0.8, 0.85));
+    let r = h.request("ui.click", json!({"x": away.x, "y": away.y, "button": "right"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    for _ in 0..4 {
+        h.step();
+    }
+    let text = h.painted_text();
+    assert!(text.iter().any(|t| t == "Update AI Mask") && text.iter().any(|t| t == "Zoom"), "{text:?}");
+    h.settle(SETTLE);
+}
