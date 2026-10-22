@@ -429,26 +429,90 @@ pub struct Analysis {
     pub horizontal: Vec<Segment>,
     pub vertical_vp: Option<[f64; 3]>,
     pub horizontal_vp: Option<[f64; 3]>,
+    /// Why there is no vertical vanishing point (when there is none).
+    pub vertical_why: Option<Reject>,
+    /// Why there is no horizontal vanishing point (when there is none).
+    pub horizontal_why: Option<Reject>,
+}
+
+/// Why a family of lines gives no perspective to correct.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reject {
+    /// Fewer than two long lines of the family.
+    TooFew,
+    /// Too little of them: short lines only.
+    TooShort,
+    /// All on one object: not spread across the photo.
+    OneObject,
+    /// They point in different directions (trees, people, folds), not at one vanishing point.
+    Disagree,
+    /// They meet inside or near the photo: a scene feature (a road, rays), not a tilted camera.
+    MeetInside,
+}
+
+impl Reject {
+    /// In words for the user: "No vertical correction: …".
+    pub fn message(self) -> &'static str {
+        match self {
+            Reject::TooFew => "it found too few straight lines",
+            Reject::TooShort => "the straight lines it found are too short",
+            Reject::OneObject => "the straight lines are all on one object",
+            Reject::Disagree => "the straight lines point in different directions (people, trees or folds rather than buildings)",
+            Reject::MeetInside => "the straight lines meet inside the photo (a scene feature rather than a tilted camera)",
+        }
+    }
 }
 
 /// Whether a family's vanishing point is backed by real structure rather than one object: at least three
 /// inlier segments, a total inlier length of a quarter of the long edge, and inliers spread across at least a
-/// fifth of the long edge perpendicular to the family, and at least 60 % of the family's length agreeing (the
-/// mirrored flanks of conical trees or peaks converge somewhere but say nothing about the camera).
-fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> bool {
+/// fifth of the long edge perpendicular to the family, and most of the family's long lines agreeing (the
+/// mirrored flanks of conical trees or peaks converge somewhere but say nothing about the camera), or at least
+/// the lines that disagree not gathering at a rival point (two posts flanking a crowd).
+fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> Result<(), Reject> {
     let thr = 3f64.to_radians();
     let inl: Vec<&Segment> = segs.iter().filter(|s| vp_error(s, v) < thr).collect();
     let total: f64 = inl.iter().map(|s| s.len()).sum();
     let across = |s: &&Segment| if vertical { s.mid().x } else { s.mid().y };
     let (lo, hi) = inl.iter().map(across).fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
-    // consensus: real structure agrees; mirrored flanks (trees, peaks) split the family roughly in half
-    let family: f64 = segs.iter().map(Segment::len).sum();
     // a camera-tilt vanishing point lies far outside the frame; one inside or near it is a scene feature
     // (sun rays, a road to the horizon), not perspective to correct
     if v[2].abs() > 1e-9 && (v[0] / v[2]).hypot(v[1] / v[2]) < 2.0 {
-        return false;
+        return Err(Reject::MeetInside);
     }
-    inl.len() >= 3 && total >= 0.5 && hi - lo >= 0.4 && total >= 0.6 * family
+    if inl.len() < 3 {
+        return Err(Reject::TooFew);
+    }
+    if total < 0.5 {
+        return Err(Reject::TooShort);
+    }
+    if hi - lo < 0.4 {
+        return Err(Reject::OneObject);
+    }
+    // consensus: real structure agrees; mirrored flanks (trees, peaks) split the family in two halves that each
+    // converge somewhere. Most of the family agreeing settles it; else the lines that disagree must not gather at
+    // a rival point of their own nearly as strongly (people, folds and foliage point every which way, so a few
+    // long posts among them still decide)
+    let family: f64 = segs.iter().map(Segment::len).sum();
+    if total >= 0.6 * family {
+        return Ok(());
+    }
+    let rest: Vec<Segment> = segs.iter().copied().filter(|s| vp_error(s, v) >= thr).collect();
+    let rival = vanishing_point(&rest).map_or(0.0, |(_, support)| support);
+    if total >= 0.3 * family && total >= 2.0 * rival {
+        return Ok(());
+    }
+    Err(Reject::Disagree)
+}
+
+/// One family's vanishing point, if [`reliable`], else why not.
+fn family_vp(segs: &[Segment], vertical: bool) -> (Option<[f64; 3]>, Option<Reject>) {
+    match vanishing_point(segs) {
+        None => (None, Some(Reject::TooFew)),
+        Some((v, _)) => match reliable(segs, v, vertical) {
+            Ok(()) => (Some(v), None),
+            Err(why) => (None, Some(why)),
+        },
+    }
 }
 
 /// Group segments into near-vertical / near-horizontal families and find their vanishing points (only reliable
@@ -456,9 +520,23 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> bool {
 pub fn analyze(segs: &[Segment]) -> Analysis {
     let vertical: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() < 30.0).collect();
     let horizontal: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() > 60.0).collect();
-    let vertical_vp = vanishing_point(&vertical).map(|v| v.0).filter(|v| reliable(&vertical, *v, true));
-    let horizontal_vp = vanishing_point(&horizontal).map(|v| v.0).filter(|v| reliable(&horizontal, *v, false));
-    Analysis { vertical, horizontal, vertical_vp, horizontal_vp }
+    let (vertical_vp, vertical_why) = family_vp(&vertical, true);
+    let (horizontal_vp, horizontal_why) = family_vp(&horizontal, false);
+    Analysis { vertical, horizontal, vertical_vp, horizontal_vp, vertical_why, horizontal_why }
+}
+
+/// Why `mode` corrects less than it asks for on this analysis: `None` when it does what it says (or it is Off,
+/// Guided or Auto with nothing to fix). In words for the user, after "No vertical correction: ".
+pub fn shortfall(mode: Upright, a: &Analysis) -> Option<&'static str> {
+    match mode {
+        Upright::Vertical | Upright::Full if a.vertical_vp.is_none() => Some(a.vertical_why.unwrap_or(Reject::TooFew).message()),
+        Upright::Full if a.horizontal_vp.is_none() => Some(a.horizontal_why.unwrap_or(Reject::TooFew).message()),
+        Upright::Level if level_angle(&a.vertical, &a.horizontal).is_none() => Some(Reject::Disagree.message()),
+        Upright::Auto if a.vertical_vp.is_none() && level_angle(&a.vertical, &a.horizontal).is_none() => {
+            Some(a.vertical_why.unwrap_or(Reject::TooFew).message())
+        }
+        _ => None,
+    }
 }
 
 /// The Upright correction for `mode` from an analysis (lens-corrected → transformed, centred coordinates).
@@ -486,7 +564,7 @@ pub fn solve(mode: Upright, a: &Analysis) -> Homography {
                 let roll = x.atan2(y).to_degrees();
                 let confirmed = roll.abs() <= 3.0 || level_angle(&[], &a.horizontal).is_some_and(|h| (h - roll).abs() <= 3.0);
                 if !confirmed {
-                    let weaker = Analysis { vertical_vp: None, horizontal_vp: None, ..a.clone() };
+                    let weaker = Analysis { vertical_vp: None, horizontal_vp: None, vertical_why: Some(Reject::Disagree), ..a.clone() };
                     return solve(Upright::Auto, &weaker);
                 }
             }

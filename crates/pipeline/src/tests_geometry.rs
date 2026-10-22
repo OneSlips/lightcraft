@@ -524,3 +524,97 @@ fn auto_straighten_leaves_steep_lines_alone() {
     let deg = level(&tilted_scene(8.0, 30.0)).expect("8° is");
     assert!((deg + 8.0).abs() < 0.5, "{deg}");
 }
+
+/// A ceremony aisle under a pavilion, shot from below and slightly rolled. Two thick white posts,
+/// left and right, clipped by the frame's top and bottom, converge; a level hedge line; in the middle, people and
+/// a dress whose edges are near-vertical but point nowhere in common; tree texture behind. Upright Vertical / Auto
+/// did nothing on such a photo.
+fn pavilion(w: usize, h: usize, fwd: lightcraft_geom::Homography) -> Rgb32f {
+    let l = w.max(h) as f64 / 2.0;
+    let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+    // cheap deterministic noise
+    let noise = |x: f64, y: f64| {
+        let n = ((x * 12.9898 + y * 78.233).sin() * 43758.5453).fract().abs();
+        n as f32
+    };
+    synth(
+        w,
+        h,
+        move |p| {
+            let q = fwd.apply(Point::new((p.x - cx) / l, (p.y - cy) / l));
+            Point::new(q.x, q.y)
+        },
+        move |q| {
+            let (x, y) = (q.x, q.y);
+            // posts: thick, bright, the whole height
+            for px in [-0.78, 0.8] {
+                if (x - px).abs() < 0.045 {
+                    return [0.95; 3];
+                }
+            }
+            // people in the middle: tilted shapes (a dress, suits), near-vertical edges in every direction
+            let people: [(f64, f64, f64, f64, f32); 6] = [
+                (-0.32, 0.25, 0.09, 9.0, 0.08),
+                (-0.12, 0.2, 0.13, -11.0, 0.92),
+                (0.05, 0.22, 0.08, 14.0, 0.1),
+                (0.22, 0.28, 0.07, -7.0, 0.85),
+                (0.38, 0.3, 0.06, 18.0, 0.15),
+                (-0.5, 0.33, 0.05, -16.0, 0.12),
+            ];
+            for (px, py, half_w, tilt, v) in people {
+                let (s, c) = tilt.to_radians().sin_cos();
+                let (dx, dy) = (x - px, y - py);
+                let (u, t) = (dx * c - dy * s, dx * s + dy * c);
+                // a body from py − 0.35 (head) to py + 0.35, wider at the bottom (a dress)
+                if t.abs() < 0.35 && u.abs() < half_w * (1.0 + 0.8 * (t + 0.35)) {
+                    return [v; 3];
+                }
+            }
+            if y < -0.12 {
+                // sky (bright, but not as bright as the white posts)
+                [0.62 - 0.05 * y.abs() as f32; 3]
+            } else if y < 0.08 {
+                // trees: dark, textured
+                [0.18 + 0.12 * noise((x * 90.0).floor(), (y * 90.0).floor()); 3]
+            } else {
+                // lawn, below a level hedge line
+                [0.42 + 0.06 * noise((x * 140.0).floor(), (y * 140.0).floor()); 3]
+            }
+        },
+    )
+}
+
+#[test]
+fn upright_corrects_converging_posts_among_people() {
+    let (w, h) = (900usize, 600usize);
+    let shot = lightcraft_develop::Geometry { vertical: 30.0, rotate: -1.5, ..Default::default() };
+    let src = pavilion(w, h, crate::transform::manual(&shot));
+    let a = crate::upright::analyze_source(&src, &SourceInfo::default(), &DevelopSettings::default());
+    assert!(a.vertical_vp.is_some(), "the posts give a vertical vanishing point: {:?}", a.vertical_why);
+    // the middle of the bright post in a quarter of the frame, on a row (centroid of the white pixels)
+    let post_x = |img: &Rgba8, y: usize, right: bool| {
+        let (a, b) = if right { (img.width * 3 / 4, img.width) } else { (0, img.width / 4) };
+        let (mut s, mut n) = (0.0f64, 0.0f64);
+        for x in a..b {
+            if img.get(x, y)[1] > 225 {
+                s += x as f64;
+                n += 1.0;
+            }
+        }
+        s / n.max(1.0)
+    };
+    let lean = |img: &Rgba8, right: bool| post_x(img, img.height / 6, right) - post_x(img, img.height * 5 / 6, right);
+    let raw = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(w, h)).image;
+    assert!(lean(&raw, false).abs() > 8.0 && lean(&raw, true).abs() > 8.0, "the posts lean in the photo: {} {}", lean(&raw, false), lean(&raw, true));
+    for mode in [Upright::Vertical, Upright::Auto] {
+        let img = upright_render(&src, mode);
+        for right in [false, true] {
+            assert!(
+                lean(&img, right).abs() < 2.5,
+                "{mode:?}: the {} post still leans {} px",
+                if right { "right" } else { "left" },
+                lean(&img, right)
+            );
+        }
+    }
+}
