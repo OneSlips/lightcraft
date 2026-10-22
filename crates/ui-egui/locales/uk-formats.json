@@ -448,5 +448,7 @@
   "Goes into the group “{group}” that exists already.": "Потрапить до наявної групи «{group}».",
   "Preset saved in {group}": "Пресет збережено в групі {group}",
   "From the active photo to {n} other selected photos": "З активного фото на {n} інших вибраних фото",
-  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "«{name}» отримає налаштування активного фото. Назва, група, місце й позначки залишаться."
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "«{name}» отримає налаштування активного фото. Назва, група, місце й позначки залишаться.",
+  "Saved naming preset “{name}”": "Шаблон імен «{name}» збережено",
+  "{n} items": "{n} елем."
 }

@@ -22,7 +22,9 @@ pub(crate) fn rename_preview(
 ) -> (Option<Vec<lightcraft_engine::rename::RenamePlan>>, usize) {
     use std::hash::{Hash, Hasher};
     type Rows = std::sync::Arc<std::sync::Mutex<Option<Vec<lightcraft_engine::rename::RenamePlan>>>>;
-    let ids = app.session.selected();
+    // numbered in the order on screen, as the rename itself (client note 38)
+    let selected = app.session.selected();
+    let ids = app.session.in_view_order(&selected);
     let photos = lightcraft_engine::rename::rename_photos(&app.session.catalog, &ids);
     let total = photos.len();
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -317,7 +319,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             Dialog::FaceModel { .. } => 460.0,
             Dialog::LightroomCatalog { .. } => 440.0,
             Dialog::ManageEffects { .. } => 560.0,
-            Dialog::CreatePreset { .. }
+            Dialog::Rename { .. }
+            | Dialog::CreatePreset { .. }
             | Dialog::UpdatePreset { .. }
             | Dialog::CopySettings { .. }
             | Dialog::PasteSettings { .. }
@@ -615,37 +618,35 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                             .color(t.text_dim),
                     );
                 }
-                Dialog::Rename { template, start } => {
+                Dialog::Rename { template, start, texts } => {
                     let n = app.session.selected().len();
                     ui.label(egui::RichText::new(crate::i18n::tr_format!("{n} photo{}", if n == 1 { "" } else { "s" }, n = n)).color(t.text_dim));
                     let template_id = egui::Id::new("rename-template");
-                    let tags_open = field(ui, "Template", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let w = crate::import::tag_field_width(ui);
-                        let r = crate::widgets::named(ui.add(egui::TextEdit::singleline(template).id(template_id).hint_text("{name}").desired_width(w)), crate::i18n::tr("Template"));
-                        crate::widgets::register(ui.ctx(), "field:renameTemplate", r.rect);
-                        crate::import::tag_toggle(ui, "renameTemplate")
+                    let mut tags_open = false;
+                    field(ui, "Template", |ui| {
+                        trailing_button_row(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            tags_open = crate::import::tag_toggle(ui, "renameTemplate");
+                            number_chip(ui, "renameTemplate", template);
+                            let w = ui.available_width();
+                            let r = crate::widgets::named(ui.add(egui::TextEdit::singleline(template).id(template_id).hint_text("{name}").desired_width(w)), crate::i18n::tr("Template"));
+                            crate::widgets::register(ui.ctx(), "field:renameTemplate", r.rect);
+                        });
                     });
                     if tags_open {
                         crate::import::tag_help(ui, "renameTemplate", template, template_id);
                     }
                     crate::import::unknown_tags_warning(ui, template);
-                    field(ui, "Presets", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        for (i, (label, tpl)) in
-                            [("Name", "{name}"), ("Date–Name", "{date}_{name}"), ("Title–Seq", "{title}-{seq:3}"), ("Custom–Seq", "Photo-{seq:3}")].iter().enumerate()
-                        {
-                            if crate::widgets::text_button(ui, &format!("renamePreset-{i}"), label, template == tpl).clicked() {
-                                *template = tpl.to_string();
-                            }
-                        }
-                    });
+                    naming_preset_row(app, ui, "rename", template, true);
+                    text_tag_fields(ui, "rename", template, texts);
+                    same_name_warning(app, ui, template, texts);
                     field(ui, "Start at", |ui| ui.add(egui::DragValue::new(start).range(0..=999_999)));
                     ui.label(
                         egui::RichText::new(crate::i18n::tr("Tags: see Tags beside the template. Files are renamed on disk (with their XMP sidecars); existing names get -1, -2…"))
                             .color(t.text_dim),
                     );
-                    let (preview, total) = rename_preview(app, ui.ctx(), template, *start as usize);
+                    let filled = lightcraft_engine::rename::fill_texts(template, &|l| texts.get(l).cloned());
+                    let (preview, total) = rename_preview(app, ui.ctx(), &filled, *start as usize);
                     match &preview {
                         Some(rows) => {
                             egui::Grid::new("rename-preview").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
@@ -1067,16 +1068,25 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         choices(ui, "Compression", "exportDngCompression", &[(Z::Lossless, "Lossless"), (Z::Deflate, "ZIP"), (Z::Uncompressed, "None"), (Z::Lossy, "Lossy")], &mut opts.dng_compression);
                     }
                     let naming_id = egui::Id::new("export-naming");
-                    let tags_open = field(ui, "File name", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let w = crate::import::tag_field_width(ui);
-                        crate::widgets::named(ui.add(egui::TextEdit::singleline(&mut opts.naming).id(naming_id).hint_text("{name}-{seq}  ·  {date}  ·  {title}  ·  {folder}").desired_width(w)), crate::i18n::tr("File name"));
-                        crate::import::tag_toggle(ui, "exportNaming")
+                    let mut tags_open = false;
+                    field(ui, "File name", |ui| {
+                        trailing_button_row(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            tags_open = crate::import::tag_toggle(ui, "exportNaming");
+                            number_chip(ui, "exportNaming", &mut opts.naming);
+                            let w = ui.available_width();
+                            crate::widgets::named(
+                                ui.add(egui::TextEdit::singleline(&mut opts.naming).id(naming_id).hint_text("{name}-{seq}  ·  {date}  ·  {title}  ·  {folder}").desired_width(w)),
+                                crate::i18n::tr("File name"),
+                            );
+                        });
                     });
                     if tags_open {
                         crate::import::tag_help(ui, "exportNaming", &mut opts.naming, naming_id);
                     }
                     crate::import::unknown_tags_warning(ui, &opts.naming);
+                    naming_preset_row(app, ui, "export", &mut opts.naming, true);
+                    text_tag_fields(ui, "export", &opts.naming.clone(), &mut opts.texts);
                     if opts.naming.contains("{seq") {
                         let mut v = opts.start_number as f64;
                         if num(ui, &START_NUMBER, &mut v) {
@@ -2040,7 +2050,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             }
             r
         }
-        Dialog::Rename { template, start } => app.run("photo.rename", json!({"template": template, "start": start})),
+        Dialog::Rename { template, start, texts } => app.run("photo.rename", json!({"template": template, "start": start, "texts": texts})),
         Dialog::RenameKeyword { from, to } => app.run("keyword.rename", json!({"from": from, "to": to})),
         Dialog::RenamePerson { from, to, merge } => app.run("faces.renamePerson", json!({"from": from, "to": to.trim(), "merge": merge})),
         Dialog::KeywordTag {
@@ -2422,6 +2432,160 @@ fn preset_group_picker(app: &LightcraftApp, ui: &mut egui::Ui, group: &mut Strin
 fn pick_params(ids: &[String]) -> serde_json::Value {
     let pick = SettingsPick::from_ids(ids);
     json!({"groups": pick.groups, "settings": pick.settings})
+}
+
+/// "+ Number": puts `{seq}` at the end of a file-name template (client note 38: the sequence tag
+/// must be easy to find; a plain "1" typed instead gave every file the same name).
+fn number_chip(ui: &mut egui::Ui, tag: &str, template: &mut String) {
+    let has = template.contains("{seq") || template.contains("{n}") || template.contains("{n:");
+    let r = ui
+        .add_enabled(!has, egui::Button::new(crate::i18n::tr("+ Number")).small())
+        .on_hover_text(crate::i18n::tr("Add {seq}: 1, 2, 3… in the order the photos are shown"))
+        .on_disabled_hover_text(crate::i18n::tr("The template numbers the photos already"));
+    crate::widgets::register(ui.ctx(), format!("button:{tag}Number"), r.rect);
+    if r.clicked() {
+        let t = template.trim_end();
+        let sep = if t.is_empty() || t.ends_with(['_', '-', ' ', '.']) { "" } else { "_" };
+        *template = format!("{t}{sep}{{seq}}");
+    }
+}
+
+/// Naming presets (client note 35): a list of the saved templates (LightCraft's, then the user's;
+/// right-click a user's to delete it) that sets `template`, and Save as… with a name. `with_text`:
+/// presets with `{text:…}` tags are offered (not at import, where nothing asks for the text).
+fn naming_preset_row(app: &mut LightcraftApp, ui: &mut egui::Ui, tag: &str, template: &mut String, with_text: bool) {
+    let presets: Vec<(String, String, bool)> = lightcraft_engine::cmd::manage::builtin_naming_presets()
+        .into_iter()
+        .map(|p| (p.name, p.template, true))
+        .chain(app.session.naming_presets.iter().map(|p| (p.name.clone(), p.template.clone(), false)))
+        .filter(|(_, t, _)| with_text || lightcraft_engine::rename::text_labels(t).is_empty())
+        .collect();
+    let save_id = egui::Id::new(("naming-save-as", tag));
+    let mut save_as: Option<String> = ui.data(|d| d.get_temp(save_id));
+    let mut delete: Option<String> = None;
+    field(ui, "Preset", |ui| {
+        trailing_button_row(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if crate::widgets::text_button(ui, &format!("{tag}NamingSaveAs"), crate::i18n::tr("Save as…"), save_as.is_some()).clicked() {
+                save_as = if save_as.is_some() { None } else { Some(String::new()) };
+            }
+            let current = presets.iter().find(|(_, t, _)| t == template).map(|(n, _, _)| n.clone());
+            let shown = current.unwrap_or_else(|| crate::i18n::tr("Custom").to_string());
+            let w = ui.available_width();
+            let r = crate::widgets::combo_box(("naming-preset", tag)).selected_text(shown).width(w).show_ui(ui, |ui| {
+                for (name, tpl, builtin) in &presets {
+                    let item = ui.selectable_label(tpl == template, name).on_hover_text(tpl.as_str());
+                    if item.clicked() {
+                        *template = tpl.clone();
+                    }
+                    if !builtin {
+                        item.context_menu(|ui| {
+                            if ui.button(crate::i18n::tr("Delete Preset")).clicked() {
+                                delete = Some(name.clone());
+                                ui.close();
+                            }
+                        });
+                    }
+                }
+            });
+            crate::widgets::register(ui.ctx(), format!("combo:{tag}NamingPreset"), r.response.rect);
+        });
+    });
+    if let Some(name) = delete
+        && let Err(e) = app.run("naming.deletePreset", json!({"name": name}))
+    {
+        app.toast(ui.ctx(), e);
+    }
+    if let Some(name) = save_as.as_mut() {
+        let mut save = false;
+        field(ui, "Preset name", |ui| {
+            trailing_button_row(ui, |ui| {
+                let named = !name.trim().is_empty() && !template.trim().is_empty();
+                if crate::widgets::text_button(ui, &format!("{tag}NamingSave"), crate::i18n::tr("Save"), false).clicked() && named {
+                    save = true;
+                }
+                let w = ui.available_width();
+                let r = crate::text_field::TextField::singleline(&format!("field:{tag}NamingPresetName"), name)
+                    .hint(crate::i18n::tr("Preset name"))
+                    .label(crate::i18n::tr("Preset name"))
+                    .width(w)
+                    .show(ui);
+                if r.ending == Some(crate::text_field::Ending::Return) && named {
+                    save = true;
+                }
+            });
+        });
+        if save {
+            match app.run("naming.savePreset", json!({"name": name.trim(), "template": template.trim()})) {
+                Ok(_) => {
+                    app.toast(ui.ctx(), crate::i18n::tr_format!("Saved naming preset “{name}”", name = name.trim()));
+                    save_as = None;
+                }
+                Err(e) => app.toast(ui.ctx(), e),
+            }
+        }
+    }
+    ui.data_mut(|d| match save_as {
+        Some(v) => {
+            d.insert_temp(save_id, v);
+        }
+        None => {
+            d.remove_temp::<String>(save_id);
+        }
+    });
+}
+
+/// A text field for each `{text:Label}` of `template`, asked each time (client note 35): the
+/// couple's initials for a delivery, while the preset stays as it is.
+fn text_tag_fields(ui: &mut egui::Ui, tag: &str, template: &str, texts: &mut std::collections::BTreeMap<String, String>) {
+    let labels = lightcraft_engine::rename::text_labels(template);
+    texts.retain(|k, _| labels.contains(k));
+    for (i, label) in labels.iter().enumerate() {
+        let text = texts.entry(label.clone()).or_default();
+        let shown = if label.is_empty() { crate::i18n::tr("Text").to_string() } else { label.clone() };
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, 18.0), egui::Sense::hover());
+            ui.painter().text(
+                rect.left_center(),
+                egui::Align2::LEFT_CENTER,
+                &shown,
+                egui::FontId::proportional(12.0),
+                Tokens::get(ui.ctx()).text_label,
+            );
+            let w = ui.available_width();
+            crate::text_field::TextField::singleline(&format!("field:{tag}Text{i}"), text)
+                .hint(crate::i18n::tr("Type it for this batch"))
+                .label(shown.clone())
+                .width(w)
+                .show(ui);
+        });
+    }
+}
+
+/// Every photo would get the same name (no `{seq}` and nothing that differs between them), so
+/// the rename adds -1, -2… (client note 38: a template with a plain "1" renamed 570 photos
+/// `1_…-1` to `1_…-570`).
+fn same_name_warning(app: &mut LightcraftApp, ui: &mut egui::Ui, template: &str, texts: &std::collections::BTreeMap<String, String>) {
+    let selected = app.session.selected();
+    if selected.len() < 2 || template.contains("{seq") || template.contains("{n}") || template.contains("{n:") {
+        return;
+    }
+    let filled = lightcraft_engine::rename::fill_texts(template, &|l| texts.get(l).cloned());
+    let names: Vec<String> = selected
+        .iter()
+        .take(5)
+        .filter_map(|id| app.session.catalog.photo(*id))
+        .map(|p| lightcraft_engine::rename::expand(&filled, p, 1).to_lowercase())
+        .collect();
+    if names.len() > 1 && names.windows(2).all(|w| w.first() == w.get(1)) {
+        let t = Tokens::get(ui.ctx());
+        ui.label(
+            egui::RichText::new(crate::i18n::tr(
+                "Every photo gets the same name, so LightCraft adds -1, -2… Add a number with + Number to count them in the order shown.",
+            ))
+            .color(t.caution),
+        );
+    }
 }
 
 /// Width of the label column in dialogs.

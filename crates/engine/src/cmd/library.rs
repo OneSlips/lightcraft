@@ -1418,6 +1418,69 @@ pub fn specs() -> Vec<CommandSpec> {
             }
         ),
         cmd!(
+            "album.movePhotos",
+            "Move Photos in Collection",
+            [],
+            None,
+            "{id?: albumId (default: the collection shown), ids?: [photoIds] (default: the selection), before?: photoId (null or absent: to the end)} — Lightroom's custom order: the photos go, in the order shown, before `before`; the view sorts by the collection's own order (Custom Order), so Rename and Export number them so (client note 38); one undo step → {moved}",
+            has_library_selection,
+            |s, p| {
+                let c = "album.movePhotos";
+                let id = match p.get("id") {
+                    None | Some(Value::Null) => match s.source {
+                        LibrarySource::Album(a) => a,
+                        _ => return Err(bad(c, "open a collection, or give its `id`")),
+                    },
+                    Some(_) => album_param(p, "id", c)?,
+                };
+                let al = s.catalog.album(id).ok_or_else(|| bad(c, "no such collection"))?.clone();
+                if al.is_smart() || al.folder {
+                    return Err(bad(c, "only a collection's own photos can be put in order"));
+                }
+                let before = match p.get("before") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => Some(v.as_u64().map(PhotoId).ok_or_else(|| bad(c, "`before` must be a photo id or null"))?),
+                };
+                let wanted = ids_param(p).unwrap_or_else(|| s.selected());
+                let held: std::collections::HashSet<PhotoId> = al.photos.iter().copied().collect();
+                if let Some(b) = before
+                    && !held.contains(&b)
+                {
+                    return Err(bad(c, "`before` is not in the collection"));
+                }
+                // in the order they are shown (the selection's order is the order clicked)
+                let moving: Vec<PhotoId> = s.in_view_order(&wanted).into_iter().filter(|x| held.contains(x)).collect();
+                if moving.is_empty() {
+                    return Err(bad(c, "none of the photos are in the collection"));
+                }
+                let set: std::collections::HashSet<PhotoId> = moving.iter().copied().collect();
+                // the photos in the order shown now (Custom Order may be reversed), the moved ones taken out
+                let shown: Vec<PhotoId> = if s.source == LibrarySource::Album(id) && s.sort.key == SortKey::Custom && !s.sort.ascending {
+                    al.photos.iter().rev().copied().collect()
+                } else if s.source == LibrarySource::Album(id) && s.sort.key != SortKey::Custom {
+                    s.in_view_order(&al.photos)
+                } else {
+                    al.photos.clone()
+                };
+                let mut rest: Vec<PhotoId> = shown.into_iter().filter(|x| !set.contains(x)).collect();
+                let at = before.filter(|b| !set.contains(b)).and_then(|b| rest.iter().position(|x| *x == b)).unwrap_or(rest.len());
+                let tail = rest.split_off(at.min(rest.len()));
+                let photos: Vec<PhotoId> = rest.into_iter().chain(moving.iter().copied()).chain(tail).collect();
+                let n = moving.len();
+                if photos != al.photos {
+                    s.commit("Move in Collection", Op::SetAlbumPhotos { id, photos })?;
+                }
+                if s.source == LibrarySource::Album(id) && (s.sort.key != SortKey::Custom || !s.sort.ascending) {
+                    s.sort = Sort { key: SortKey::Custom, ascending: true, ..s.sort };
+                    if let Err(e) = s.save_app_store() {
+                        log::warn!("store: {e}");
+                    }
+                    s.refresh_view();
+                }
+                Ok(json!({"moved": n}))
+            }
+        ),
+        cmd!(
             "album.toggleTarget",
             "Add to Target Collection",
             [],

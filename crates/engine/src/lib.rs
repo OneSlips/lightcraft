@@ -316,6 +316,9 @@ pub struct Session {
     pub meta_clipboard: Option<Value>,
     /// The photo that was active before the current one (Paste Settings from Previous).
     pub previous_active: Option<PhotoId>,
+    /// File-name templates saved by name (Rename, Export, Import; client note 35), kept with the
+    /// app store.
+    pub naming_presets: Vec<cmd::manage::NamingPreset>,
     /// What the dialogs with choices remember (Copy Settings' ticks, Sync's, New Preset's…), kept
     /// app-wide with the store (client note 13).
     pub dialogs: app_store::DialogMemory,
@@ -563,6 +566,7 @@ impl Session {
             browse: None,
             library_folder: None,
             previous_active: None,
+            naming_presets: Vec::new(),
             dialogs: app_store::DialogMemory::default(),
             preset_undo: None,
             presets: presets::PresetList::new(presets::builtin()),
@@ -1645,6 +1649,17 @@ impl Session {
         }
     }
 
+    /// `ids` in the order the view shows them (the sort, or a collection's own order); photos not in
+    /// the view follow in the order given.
+    pub fn in_view_order(&mut self, ids: &[PhotoId]) -> Vec<PhotoId> {
+        let wanted: std::collections::HashSet<PhotoId> = ids.iter().copied().collect();
+        let mut out: Vec<PhotoId> = self.visible().iter().copied().filter(|id| wanted.contains(id)).collect();
+        let shown: std::collections::HashSet<PhotoId> = out.iter().copied().collect();
+        let mut seen = std::collections::HashSet::new();
+        out.extend(ids.iter().copied().filter(|id| !shown.contains(id) && seen.insert(*id)));
+        out
+    }
+
     /// The photos commands act on when a call names none: the selection, else the active photo.
     pub fn selected(&self) -> Vec<PhotoId> {
         if self.selection.ids.is_empty() { self.selection.active.into_iter().collect() } else { self.selection.ids.clone() }
@@ -1751,6 +1766,8 @@ mod tests_mask_local;
 mod tests_merge;
 #[cfg(test)]
 mod tests_move_to_share;
+#[cfg(test)]
+mod tests_naming;
 #[cfg(test)]
 mod tests_organize;
 #[cfg(all(test, feature = "sam"))]

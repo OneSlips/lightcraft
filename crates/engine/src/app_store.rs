@@ -220,6 +220,8 @@ pub struct Habits {
     pub label_sets: Vec<crate::cmd::manage::LabelSet>,
     pub keyword_sets: Vec<crate::cmd::keywords::KeywordSet>,
     pub keyword_set: Option<String>,
+    /// File-name templates saved by name, shared by Rename, Export and Import (client note 35).
+    pub naming_presets: Vec<crate::cmd::manage::NamingPreset>,
     pub slideshow: crate::slideshow::PlaybackSettings,
     pub slide_layout: crate::slide::SlideSettings,
     pub slide_overlays: crate::slide_overlay::OverlaySettings,
@@ -240,7 +242,7 @@ pub struct Habits {
 }
 
 /// The `prefs.json` keys of [`Habits`] (kept in the library as read while the store holds them).
-pub(crate) const HABITS_PREFS_KEYS: [&str; 17] = [
+pub(crate) const HABITS_PREFS_KEYS: [&str; 18] = [
     "exportPresets",
     "lastExport",
     "lastMerge",
@@ -251,6 +253,7 @@ pub(crate) const HABITS_PREFS_KEYS: [&str; 17] = [
     "labelSets",
     "keywordSets",
     "keywordSet",
+    "namingPresets",
     "slideshow",
     "slideLayout",
     "slideOverlays",
@@ -387,6 +390,7 @@ impl Habits {
         n += merge_named(&mut self.curve_presets, other.curve_presets, |p| p.name.clone(), |p, v| p.name = v);
         n += merge_named(&mut self.label_sets, other.label_sets, |p| p.name.clone(), |p, v| p.name = v);
         n += merge_named(&mut self.keyword_sets, other.keyword_sets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.naming_presets, other.naming_presets, |p| p.name.clone(), |p, v| p.name = v);
         if self.last_export.is_none() {
             self.last_export = other.last_export;
         }
@@ -1026,6 +1030,7 @@ impl Session {
             label_sets: self.label_sets.clone(),
             keyword_sets: self.keyword_sets.clone(),
             keyword_set: self.keyword_set.clone(),
+            naming_presets: self.naming_presets.clone(),
             slideshow: self.slideshow.clone(),
             slide_layout: self.slide_layout.clone(),
             slide_overlays: self.slide_overlays.clone(),
@@ -1050,6 +1055,8 @@ impl Session {
         self.label_sets = h.label_sets;
         self.keyword_sets = h.keyword_sets;
         self.keyword_set = h.keyword_set;
+        self.naming_presets =
+            h.naming_presets.into_iter().filter(|p| !p.name.trim().is_empty()).take(crate::cmd::manage::MAX_NAMING_PRESETS).collect();
         self.slideshow = h.slideshow.sanitized();
         self.slide_layout = h.slide_layout.sanitized();
         self.slide_overlays = h.slide_overlays.sanitized();

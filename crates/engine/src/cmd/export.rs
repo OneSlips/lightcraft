@@ -49,8 +49,9 @@ fn list(s: &Session) -> Value {
     Value::Array(s.all_export_presets().into_iter().map(|(p, builtin)| json!({"name": p.name, "builtin": builtin, "params": p.params})).collect())
 }
 
-/// Params that describe a destination or a selection, not the export settings.
-const NOT_SETTINGS: &[&str] = &["ids", "path", "dir", "preset"];
+/// Params that describe a destination or a selection, not the export settings (and the texts of
+/// `{text:…}` tags, typed for each export: client note 35).
+const NOT_SETTINGS: &[&str] = &["ids", "path", "dir", "preset", "texts"];
 
 fn save(s: &mut Session, p: &Value) -> Result<Value> {
     const ID: &str = "export.savePreset";

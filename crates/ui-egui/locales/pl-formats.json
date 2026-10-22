@@ -448,5 +448,7 @@
   "Goes into the group “{group}” that exists already.": "Trafi do istniejącej grupy „{group}”.",
   "Preset saved in {group}": "Ustawienie zapisane w grupie {group}",
   "From the active photo to {n} other selected photos": "Ze zdjęcia aktywnego na {n} pozostałych zaznaczonych zdjęć",
-  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}” przejmie ustawienia aktywnego zdjęcia. Nazwa, grupa, miejsce i oznaczenia zostaną."
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}” przejmie ustawienia aktywnego zdjęcia. Nazwa, grupa, miejsce i oznaczenia zostaną.",
+  "Saved naming preset “{name}”": "Zapisano ustawienie nazw „{name}”",
+  "{n} items": "{n} elementów"
 }

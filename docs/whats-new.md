@@ -3,6 +3,15 @@
 ## 2026-10-22
 
 ### Export
+- **Naming presets** in Rename Photos and Export: pick a saved file-name template, or save the one you typed
+  (Save as…). They are kept with LightCraft's settings, in every library.
+- **{text:Couple initials} asks for a text each time**: a delivery preset such as
+  `{seq:1}_{text:Couple initials}_Studio` stays the same, and the dialog asks for "R+A" for this wedding.
+- **Numbers follow the order on screen** in Rename Photos and Export (the sort, or a collection's own order),
+  not the order the photos were clicked. **+ Number** beside the template adds the number, and Rename warns when
+  every photo would get the same name.
+- **Collections keep your own order**: drag photos in a collection's grid to put them where you want (a line
+  shows where); the view switches to Custom Order and Undo puts the old order back.
 - **A name typed in Save preset is saved when you press Export**, with a note saying so; the small Save button
   is no longer needed.
 

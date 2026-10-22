@@ -448,5 +448,7 @@
   "Goes into the group “{group}” that exists already.": "将放入已有的组“{group}”。",
   "Preset saved in {group}": "预设已存入 {group}",
   "From the active photo to {n} other selected photos": "从当前照片到其他 {n} 张所选照片",
-  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "“{name}”将采用当前照片的设置。名称、组、位置和标记保持不变。"
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "“{name}”将采用当前照片的设置。名称、组、位置和标记保持不变。",
+  "Saved naming preset “{name}”": "已保存命名预设“{name}”",
+  "{n} items": "{n} 项"
 }
