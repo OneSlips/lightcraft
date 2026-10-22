@@ -2417,3 +2417,17 @@ fn the_histogram_clipping_buttons_stay_clear_of_the_hovered_scroll_bar() {
     // and the shadow one keeps the same inset from its edge
     assert!(((low.left() - hist.left()) - (hist.right() - high.right())).abs() < 0.5, "{low:?} {high:?} in {hist:?}");
 }
+
+/// Client note 20: Auto Sync has a labelled switch at the right of the bottom bar, in the grid and
+/// in Detail; a click turns it on and off.
+#[test]
+fn the_bottom_bar_auto_sync_switch_turns_it_on_and_off() {
+    for view in ["photoGrid", "detail"] {
+        let mut h = demo([1400.0, 900.0], json!({"view": view}));
+        assert!(!h.app.session.auto_sync);
+        click(&mut h, "toggle:autoSync");
+        assert!(h.app.session.auto_sync, "{view}: on");
+        click(&mut h, "toggle:autoSync");
+        assert!(!h.app.session.auto_sync, "{view}: off again");
+    }
+}

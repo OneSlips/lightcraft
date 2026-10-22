@@ -37,6 +37,10 @@ const CHIP: f32 = BTN;
 /// shares one size (the view modes, sort, the setters, the filters, the toggles on the right).
 pub const BTN: f32 = 26.0;
 
+/// From this bar width the Auto Sync switch carries its name; narrower, the switch alone (its
+/// tooltip names it), so the filters keep their room.
+pub const LABELLED_SWITCH_WIDTH: f32 = 1600.0;
+
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     egui::Panel::bottom("bottom_bar")
@@ -705,10 +709,23 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, compact_zo
     let t = Tokens::get(ui.ctx());
     let mut child = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(Rect::from_min_max(pos2((full.right() - 400.0).max(full.left()), full.top()), full.right_bottom()))
+            .max_rect(Rect::from_min_max(pos2((full.right() - 540.0).max(full.left()), full.top()), full.right_bottom()))
             .layout(egui::Layout::right_to_left(egui::Align::Center)),
     );
     child.spacing_mut().item_spacing.x = 4.0;
+    // Auto Sync at the far right, always there in the library (client note 20)
+    // (gone on a very narrow bar, the label too on a narrow one: Edit ▸ Auto Sync is always there)
+    if !app.importing() && full.width() >= 360.0 {
+        if auto_sync_switch(&mut child, &t, app.session.auto_sync, full.width() >= LABELLED_SWITCH_WIDTH).clicked()
+            && let Err(e) = app.run("develop.autoSync", json!({}))
+        {
+            app.toast_error(child.ctx(), e);
+        }
+        child.add_space(DIVIDER_GAP);
+        let (sep, _) = child.allocate_exact_size(vec2(1.0, 22.0), Sense::hover());
+        child.painter().rect_filled(sep, 0.0, t.button_border);
+        child.add_space(DIVIDER_GAP);
+    }
     if matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey)
         && icon_button(
             &mut child,
@@ -801,6 +818,40 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, compact_zo
         }
     }
     if child.min_rect().width() > 0.0 { child.min_rect().left() } else { full.right() }
+}
+
+/// The bottom bar's Auto Sync switch (widget `toggle:autoSync`): its name (when `labelled`) and a small switch, the
+/// bar's button height, filled with the accent colour while on so one glance says whether edits
+/// go to every selected photo.
+fn auto_sync_switch(ui: &mut egui::Ui, t: &Tokens, on: bool, labelled: bool) -> egui::Response {
+    let label = crate::i18n::tr("Auto Sync");
+    let text = if on { Color32::WHITE } else { t.text_label };
+    let g = ui.painter().layout_no_wrap(if labelled { label.to_string() } else { String::new() }, t.font(12.0), text);
+    let knob_w = 22.0;
+    let w = if labelled { g.size().x + knob_w + 22.0 } else { knob_w + 14.0 };
+    let (r, resp) = ui.allocate_exact_size(vec2(w, BTN), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, on, label));
+    register(ui.ctx(), "toggle:autoSync", r);
+    let p = ui.painter();
+    let fill = if on {
+        t.accent
+    } else if resp.hovered() {
+        t.hover
+    } else {
+        t.button
+    };
+    p.rect_filled(r, 4.0, fill);
+    p.rect_stroke(r, 4.0, Stroke::new(1.0, if on { t.accent } else { t.button_border }), StrokeKind::Inside);
+    if labelled {
+        p.galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, text);
+    }
+    // the switch: a track with its knob at the right when on
+    let track = Rect::from_center_size(pos2(r.right() - 8.0 - knob_w / 2.0, r.center().y), vec2(knob_w, 12.0));
+    p.rect_filled(track, 6.0, if on { Color32::from_white_alpha(90) } else { t.track });
+    let kx = if on { track.right() - 6.0 } else { track.left() + 6.0 };
+    p.circle_filled(pos2(kx, track.center().y), 5.0, if on { Color32::WHITE } else { t.thumb });
+    let tip = if on { "Auto Sync is on: edits change every selected photo" } else { "Auto Sync is off: edits change the active photo only" };
+    resp.on_hover_text(crate::i18n::tr(tip))
 }
 
 fn click_zoom_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {

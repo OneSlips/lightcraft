@@ -78,7 +78,8 @@ fn every_bar_filter_toggles_on_off_clear_and_on_again() {
         ("all", ViewMode::PhotoGrid, 2200.0, false),
         ("recentlyAdded", ViewMode::PhotoGrid, 2200.0, false),
         ("all", ViewMode::Detail, 2200.0, false),
-        ("recentlyAdded", ViewMode::Detail, 1500.0, false),
+        // (the bar also holds the Auto Sync switch and "Photo n of N": the labels need a little more room)
+        ("recentlyAdded", ViewMode::Detail, 1700.0, false),
         ("all", ViewMode::PhotoGrid, 2200.0, true),
         ("recentlyAdded", ViewMode::Detail, 2200.0, true),
     ] {
