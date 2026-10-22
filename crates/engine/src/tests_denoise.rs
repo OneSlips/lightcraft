@@ -841,10 +841,18 @@ fn denoise_row_while_queue_is_busy() {
         let rows = rows(&x.s);
         // (what the pump left running or queued is what the row reflects until the next pump)
         if x.s.denoise_busy() {
-            assert_eq!(rows.len(), 1, "{r}");
-            assert_eq!((rows[0].label.as_str(), rows[0].cancellable, rows[0].unit), ("AI Denoise", false, crate::activity::Unit::Percent), "{r}");
+            // client note 34: one batch row counting photos, and under it the running photo's tiles
+            let batch = rows.iter().find(|t| t.batch).unwrap_or_else(|| panic!("a batch row: {rows:?} {r}"));
+            assert_eq!(
+                (batch.label.as_str(), batch.cancellable, batch.unit, batch.total),
+                ("AI Denoise", true, crate::activity::Unit::Count, 1),
+                "{r}"
+            );
             if !r["running"].is_null() {
-                assert_eq!(rows[0].detail, "ramp.dng", "{r}");
+                assert_eq!(rows.len(), 2, "{rows:?}");
+                let photo = rows.iter().find(|t| !t.batch).unwrap_or_else(|| panic!("{rows:?}"));
+                assert_eq!((photo.parent, photo.unit, photo.detail.as_str()), (Some(batch.id), crate::activity::Unit::Percent, "ramp.dng"), "{r}");
+                assert_eq!(batch.detail, "ramp.dng", "{r}");
             }
             shown = true;
         } else {
@@ -857,5 +865,108 @@ fn denoise_row_while_queue_is_busy() {
     }
     assert!(shown, "the photo never showed a row");
     assert!(rows(&x.s).is_empty(), "the row goes once the photo is made");
+    let done = x.s.activity.finished();
+    let last = done.last().expect("the batch leaves its summary");
+    assert_eq!((last.kind, last.done, last.failed), ("denoise", 1, 0));
     let _ = std::fs::remove_dir_all(&x.dir);
+}
+
+/// Client note 29: the AI Denoise switch follows the Develop sliders. With Auto Sync on, every selected raw photo switches
+/// with the active one, in one undo step, and their pictures are made under one batch row; with it off, only the active
+/// photo. Explicit `ids` switch exactly those.
+#[test]
+fn the_denoise_switch_follows_auto_sync_in_one_undo_step() {
+    let mut x = setup("autosync", true);
+    let originals = x.dir.join("originals");
+    let mut paths = Vec::new();
+    for i in 0..3 {
+        let path = originals.join(format!("more{i}.dng"));
+        std::fs::write(&path, ramp_dng(192 + 2 * (i + 1), 160, "RGGB")).unwrap();
+        paths.push(path.to_string_lossy().to_string());
+    }
+    x.s.execute("library.import", &json!({"paths": paths})).unwrap();
+    let ids: Vec<u64> = x.s.catalog.photos().map(|p| p.id.0).collect();
+    assert_eq!(ids.len(), 4);
+    x.s.execute("library.select", &json!({"ids": ids, "active": ids[0]})).unwrap();
+    x.s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let on = |s: &Session, id: u64| s.develop_of(lightcraft_catalog::PhotoId(id)).unwrap().enhance.denoise_enabled();
+    let undo = x.s.undo.len();
+    let r = x.s.execute("denoise.toggle", &json!({"enabled": true})).unwrap();
+    assert_eq!(r["ids"].as_array().map(Vec::len), Some(4), "{r}");
+    assert_eq!(x.s.undo.len(), undo + 1, "one undo step");
+    assert!(ids.iter().all(|id| on(&x.s, *id)));
+    assert_eq!(x.s.develop_of(lightcraft_catalog::PhotoId(ids[3])).unwrap().enhance.denoise, 50.0);
+    // the pictures are made under one batch row, and it says how it went
+    pump_until_ready(&mut x.s, 4);
+    for _ in 0..20 {
+        x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+    }
+    let done = x.s.activity.finished();
+    let last = done.last().expect("a summary");
+    assert_eq!((last.kind, last.done, last.failed), ("denoise", 4, 0), "{done:?}");
+    // undo: all four go back off at once
+    x.s.execute("edit.undo", &json!({})).unwrap();
+    assert!(ids.iter().all(|id| !on(&x.s, *id)));
+    x.s.execute("edit.redo", &json!({})).unwrap();
+    // Auto Sync off: only the active photo
+    x.s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    let r = x.s.execute("denoise.toggle", &json!({"enabled": false})).unwrap();
+    assert_eq!(r["ids"], json!([ids[0]]));
+    assert!(!on(&x.s, ids[0]) && on(&x.s, ids[1]));
+    // explicit ids: exactly those
+    x.s.execute("denoise.toggle", &json!({"ids": [ids[1], ids[2]], "enabled": false})).unwrap();
+    assert!(!on(&x.s, ids[1]) && !on(&x.s, ids[2]) && on(&x.s, ids[3]));
+    assert!(x.s.execute("denoise.toggle", &json!({"ids": "all"})).is_err());
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// Client note 34: cancelling AI Denoise's batch row stops it, and the photos it held are not queued again just because
+/// they are looked at (Auto); asking for them again does queue them.
+#[test]
+fn a_cancelled_denoise_batch_stays_cancelled_until_asked_again() {
+    let mut x = setup("cancelbatch", true);
+    x.s.execute("denoise.settings", &json!({"auto": true})).unwrap();
+    set_amount(&mut x.s, 100.0);
+    x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
+    let batch = x.s.activity.list().into_iter().find(|t| t.kind == "denoise" && t.batch).expect("a batch row");
+    x.s.activity.cancel(batch.id).unwrap();
+    x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
+    assert!(!x.s.denoise_busy(), "stopped");
+    for _ in 0..3 {
+        x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
+    }
+    assert!(!x.s.denoise_busy(), "not queued again by being looked at");
+    x.s.execute("denoise.queue", &json!({})).unwrap();
+    assert!(x.s.denoise_busy(), "asked for again");
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// Client note 29: "AI Denoise from ISO N" at import switches it on for new raw photos shot at that ISO or above (part of
+/// the look they start from), and leaves the others alone.
+#[test]
+fn ai_denoise_above_an_iso_is_switched_on_at_import() {
+    let mut x = setup("importiso", true);
+    let r = x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 3200}})).unwrap();
+    assert_eq!(r["import"]["denoiseAboveIso"], 3200);
+    assert!(x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 7}})).is_err());
+    let mut p = (**x.s.catalog.photo(photo(&x.s)).unwrap()).clone();
+    p.develop = std::sync::Arc::new(lightcraft_develop::DevelopSettings::default());
+    p.meta.iso = Some(6400);
+    crate::import::apply_import_defaults(&x.s, &mut p);
+    assert!(p.develop.enhance.denoise_enabled() && p.develop.enhance.denoise == 50.0);
+    assert!(p.import_look.as_ref().is_some_and(|l| l.enhance.denoise_enabled()), "where editing starts");
+    p.meta.iso = Some(800);
+    p.develop = std::sync::Arc::new(lightcraft_develop::DevelopSettings::default());
+    crate::import::apply_import_defaults(&x.s, &mut p);
+    assert!(!p.develop.enhance.denoise_enabled(), "below the ISO");
+    // off again
+    let r = x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 0}})).unwrap();
+    assert!(r["import"].get("denoiseAboveIso").is_none(), "{r}");
+    p.meta.iso = Some(25_600);
+    crate::import::apply_import_defaults(&x.s, &mut p);
+    assert!(!p.develop.enhance.denoise_enabled());
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
 }

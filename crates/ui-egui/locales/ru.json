@@ -3224,5 +3224,12 @@
   "Pick the object on this photo: click it with the Object tool.": "Выберите объект на этом фото: щёлкните по нему инструментом «Объект».",
   "This mask's AI selection wasn't computed for this photo yet.": "Выделение ИИ этой маски ещё не вычислено для этого фото.",
   "Click to update it.": "Щёлкните, чтобы обновить его.",
-  "Compute this mask's AI selection again from this photo": "Заново вычислить выделение ИИ этой маски по этому фото"
+  "Compute this mask's AI selection again from this photo": "Заново вычислить выделение ИИ этой маски по этому фото",
+  "less than a minute left": "осталось меньше минуты",
+  "cancelled": "отменено",
+  "Hide each photo": "Скрыть отдельные фото",
+  "AI Denoise from": "ИИ-шумоподавление от",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Новые raw-фото, снятые с этим ISO или выше, получают включённое ИИ-шумоподавление, а их очищенные изображения создаются в фоне после импорта. Нужна модель шумоподавления (Настройки, ИИ-шумоподавление).",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Фото и превью хранятся в памяти, чтобы фото, к которым вы возвращаетесь, появлялись сразу. «Автоматически» использует четверть памяти этого компьютера, до 16 ГБ. Для больших съёмок выберите больше, но оставьте немного другим приложениям.",
+  "Finding skin and faces to retouch": "Поиск кожи и лиц для ретуши"
 }

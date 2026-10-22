@@ -3231,5 +3231,12 @@
   "Pick the object on this photo: click it with the Object tool.": "この写真でオブジェクトを選んでください：オブジェクトツールでクリックします。",
   "This mask's AI selection wasn't computed for this photo yet.": "このマスクの AI 選択範囲はこの写真ではまだ計算されていません。",
   "Click to update it.": "クリックして更新します。",
-  "Compute this mask's AI selection again from this photo": "このマスクの AI 選択範囲をこの写真から再計算します"
+  "Compute this mask's AI selection again from this photo": "このマスクの AI 選択範囲をこの写真から再計算します",
+  "less than a minute left": "残り1分未満",
+  "cancelled": "キャンセルしました",
+  "Hide each photo": "各写真を隠す",
+  "AI Denoise from": "AIノイズ除去の開始ISO",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "このISO以上で撮影された新しいRAW写真はAIノイズ除去がオンの状態で始まり、読み込み後にノイズ除去済みの画像がバックグラウンドで作成されます。ノイズ除去モデルが必要です（設定、AIノイズ除去）。",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "写真とプレビューをメモリに保持し、戻った写真をすぐに表示します。自動ではこのコンピューターのメモリの4分の1（最大16 GB）を使います。大きな撮影ではより多く選べますが、他のアプリの分も残してください。",
+  "Finding skin and faces to retouch": "レタッチする肌と顔を検出中"
 }

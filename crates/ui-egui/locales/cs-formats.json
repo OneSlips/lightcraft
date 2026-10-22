@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Z knihovny odebráno fotografií: {n}. Soubory zůstávají na disku a lze je znovu importovat.",
   "Remove the {count} selected photos from the library?": "Odebrat z knihovny vybrané fotografie ({count})?",
   "Photo {i} of {n}": "Fotografie {i} z {n}",
-  "Remove {n} Photos from Library": "Odebrat z knihovny fotografie: {n}"
+  "Remove {n} Photos from Library": "Odebrat z knihovny fotografie: {n}",
+  "about {n} min left": "zbývá asi {n} min",
+  "about {h} h {m} min left": "zbývá asi {h} h {m} min",
+  "{n} done": "hotovo: {n}",
+  ", {n} failed": ", selhalo: {n}",
+  "{n} failed": "selhalo: {n}",
+  "Show each photo ({n})": "Zobrazit jednotlivé fotografie ({n})"
 }

@@ -123,6 +123,8 @@ pub struct Job {
     /// The batch it belongs to and the batches cancelled meanwhile (an undone preset): a job of a
     /// cancelled batch is skipped.
     pub batch: Option<(u64, Arc<std::sync::Mutex<std::collections::HashSet<u64>>>)>,
+    /// The batch's activity row: the slow steps' rows show under it (client note 34).
+    pub parent: Option<u64>,
 }
 
 impl Job {
@@ -657,7 +659,10 @@ fn landscape_classes(class: &str) -> &'static [&'static str] {
 /// An activity row for a slow step of `job` (analyzing a photo with `name`).
 fn row(job: &Job, name: &str) -> Option<crate::activity::TaskGuard> {
     job.activity.as_ref().map(|a| {
-        let t = a.start("ai", "Analyzing photo for AI masks", crate::activity::Cancel::No);
+        let t = match job.parent {
+            Some(parent) => a.start_child(parent, "ai", "Analyzing photo for AI masks", crate::activity::Cancel::No),
+            None => a.start("ai", "Analyzing photo for AI masks", crate::activity::Cancel::No),
+        };
         t.detail(name);
         t
     })
@@ -1579,6 +1584,7 @@ mod tests {
             reply: reply.clone(),
             activity: None,
             batch: None,
+            parent: None,
         }
     }
 

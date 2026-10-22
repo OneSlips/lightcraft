@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "{n} Fotos aus der Bibliothek entfernt. Die Dateien bleiben auf dem Datenträger und können erneut importiert werden.",
   "Remove the {count} selected photos from the library?": "Die {count} ausgewählten Fotos aus der Bibliothek entfernen?",
   "Photo {i} of {n}": "Foto {i} von {n}",
-  "Remove {n} Photos from Library": "{n} Fotos aus der Bibliothek entfernen"
+  "Remove {n} Photos from Library": "{n} Fotos aus der Bibliothek entfernen",
+  "about {n} min left": "noch etwa {n} Min.",
+  "about {h} h {m} min left": "noch etwa {h} Std. {m} Min.",
+  "{n} done": "{n} fertig",
+  ", {n} failed": ", {n} fehlgeschlagen",
+  "{n} failed": "{n} fehlgeschlagen",
+  "Show each photo ({n})": "Einzelne Fotos zeigen ({n})"
 }

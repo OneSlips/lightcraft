@@ -61,6 +61,20 @@
 ### AI Denoise
 - **LightCraft's own AI Denoise model** (MIT OR Apache-2.0, trained on public-domain raws) is offered in
   Settings ▸ AI Denoise, downloaded from radfilms.com.au. `LIGHTCRAFT_DENOISE_MODEL_URL` points it elsewhere.
+- **AI Denoise follows Auto Sync**, like the sliders: with Auto Sync on, the switch turns it on (or off) for every
+  selected raw photo in one undo step, and their denoised pictures are made in the background.
+- **AI Denoise at import:** Settings ▸ Import ▸ AI Denoise from (ISO 800 … 12800) switches it on for new raw photos
+  shot at that ISO or above.
+
+### Speed and long jobs
+- **One progress row for a job over many photos.** AI Denoise, AI masks (Recalculate All included), exports,
+  Remove Dust and the retouch analyses show one row in the activity stack: "37 of 200 · about 6 min left · 2
+  failed". "Show each photo" opens the rows of the photos in progress. When the job ends, a note says how it went
+  ("AI Denoise: 198 done, 2 failed: …").
+- **More memory for photos on big computers.** The memory LightCraft keeps photos and previews in was 1.5 GB on
+  every computer; it is now a quarter of the computer's memory, up to 16 GB, so photos you go back to show at
+  once. Settings ▸ Performance ▸ Memory for caches offers more, up to three quarters of the memory.
+- **Windows: a maximized window opens maximized**, filling the screen, instead of sometimes covering half of it.
 
 ## 2026-10-19
 

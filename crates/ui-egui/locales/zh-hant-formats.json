@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "已從圖庫中移除 {n} 張照片。檔案仍在磁碟上，可以再次匯入。",
   "Remove the {count} selected photos from the library?": "從圖庫中移除所選的 {count} 張照片？",
   "Photo {i} of {n}": "第 {i} 張，共 {n} 張",
-  "Remove {n} Photos from Library": "從圖庫中移除 {n} 張照片"
+  "Remove {n} Photos from Library": "從圖庫中移除 {n} 張照片",
+  "about {n} min left": "約剩 {n} 分鐘",
+  "about {h} h {m} min left": "約剩 {h} 小時 {m} 分鐘",
+  "{n} done": "完成 {n} 張",
+  ", {n} failed": "，失敗 {n} 張",
+  "{n} failed": "失敗 {n} 張",
+  "Show each photo ({n})": "顯示各張照片（{n}）"
 }

@@ -2802,5 +2802,12 @@
   "Pick the object on this photo: click it with the Object tool.": "Vyberte objekt na této fotografii: klikněte na něj nástrojem Objekt.",
   "This mask's AI selection wasn't computed for this photo yet.": "Výběr AI této masky ještě nebyl pro tuto fotografii vypočten.",
   "Click to update it.": "Kliknutím ho aktualizujete.",
-  "Compute this mask's AI selection again from this photo": "Znovu vypočítat výběr AI této masky z této fotografie"
+  "Compute this mask's AI selection again from this photo": "Znovu vypočítat výběr AI této masky z této fotografie",
+  "less than a minute left": "zbývá méně než minuta",
+  "cancelled": "zrušeno",
+  "Hide each photo": "Skrýt jednotlivé fotografie",
+  "AI Denoise from": "Redukce šumu pomocí AI od",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Nové raw fotografie pořízené při tomto ISO nebo vyšším začínají se zapnutou redukcí šumu pomocí AI a jejich odšuměné obrázky se po importu vytvoří na pozadí. Potřebuje model pro odšumění (Nastavení, Redukce šumu pomocí AI).",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Fotografie a náhledy držené v paměti, aby se fotografie, ke kterým se vracíte, zobrazily hned. Automaticky použije čtvrtinu paměti počítače, nejvýše 16 GB. Pro velká focení zvolte víc, ale nechte něco i ostatním aplikacím.",
+  "Finding skin and faces to retouch": "Hledání pleti a tváří k retuši"
 }

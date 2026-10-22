@@ -3075,5 +3075,12 @@
   "Pick the object on this photo: click it with the Object tool.": "Escolha o objeto nesta foto: clique nele com a ferramenta Objeto.",
   "This mask's AI selection wasn't computed for this photo yet.": "A seleção de IA desta máscara ainda não foi calculada para esta foto.",
   "Click to update it.": "Clique para atualizá-la.",
-  "Compute this mask's AI selection again from this photo": "Calcular de novo a seleção de IA desta máscara a partir desta foto"
+  "Compute this mask's AI selection again from this photo": "Calcular de novo a seleção de IA desta máscara a partir desta foto",
+  "less than a minute left": "falta menos de um minuto",
+  "cancelled": "cancelado",
+  "Hide each photo": "Ocultar cada foto",
+  "AI Denoise from": "Redução de ruído com IA a partir de",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Novas fotos raw feitas com este ISO ou mais começam com a redução de ruído com IA ligada, e as imagens sem ruído são criadas em segundo plano após a importação. Precisa de um modelo de redução de ruído (Configurações, Redução de ruído com IA).",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Fotos e prévias mantidas na memória, para que as fotos às quais você volta apareçam na hora. Automático usa um quarto da memória deste computador, até 16 GB. Escolha mais para ensaios grandes, mas deixe um pouco para outros apps.",
+  "Finding skin and faces to retouch": "Procurando pele e rostos para retocar"
 }

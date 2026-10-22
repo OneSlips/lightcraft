@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Вилучено з бібліотеки фото: {n}. Файли лишаються на диску, їх можна імпортувати знову.",
   "Remove the {count} selected photos from the library?": "Вилучити з бібліотеки вибрані фото ({count})?",
   "Photo {i} of {n}": "Фото {i} з {n}",
-  "Remove {n} Photos from Library": "Вилучити з бібліотеки фото: {n}"
+  "Remove {n} Photos from Library": "Вилучити з бібліотеки фото: {n}",
+  "about {n} min left": "лишилося близько {n} хв",
+  "about {h} h {m} min left": "лишилося близько {h} год {m} хв",
+  "{n} done": "готово: {n}",
+  ", {n} failed": ", з помилкою: {n}",
+  "{n} failed": "з помилкою: {n}",
+  "Show each photo ({n})": "Показати окремі фото ({n})"
 }

@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Removed {n} photos from the library. The files stay on disk and can be imported again.",
   "Remove the {count} selected photos from the library?": "Remove the {count} selected photos from the library?",
   "Photo {i} of {n}": "Photo {i} of {n}",
-  "Remove {n} Photos from Library": "Remove {n} Photos from Library"
+  "Remove {n} Photos from Library": "Remove {n} Photos from Library",
+  "about {n} min left": "დარჩა დაახლ. {n} წთ",
+  "about {h} h {m} min left": "დარჩა დაახლ. {h} სთ {m} წთ",
+  "{n} done": "{n} მზადაა",
+  ", {n} failed": ", {n} ვერ შესრულდა",
+  "{n} failed": "{n} ვერ შესრულდა",
+  "Show each photo ({n})": "თითოეული ფოტოს ჩვენება ({n})"
 }

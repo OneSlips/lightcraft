@@ -444,5 +444,11 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "{n} 枚の写真をライブラリから削除しました。ファイルはディスクに残り、再度読み込めます。",
   "Remove the {count} selected photos from the library?": "選択した {count} 枚の写真をライブラリから削除しますか？",
   "Photo {i} of {n}": "写真 {i} / {n}",
-  "Remove {n} Photos from Library": "{n} 枚の写真をライブラリから削除"
+  "Remove {n} Photos from Library": "{n} 枚の写真をライブラリから削除",
+  "about {n} min left": "残り約{n}分",
+  "about {h} h {m} min left": "残り約{h}時間{m}分",
+  "{n} done": "{n}件完了",
+  ", {n} failed": "、{n}件失敗",
+  "{n} failed": "{n}件失敗",
+  "Show each photo ({n})": "各写真を表示（{n}）"
 }
