@@ -3838,14 +3838,10 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let label = app.session.catalog.photo(*id).and_then(|ph| ph.label);
             let selected = state != lightcraft_engine::SelectionState::NotSelected;
             let flag = app.session.catalog.photo(*id).map(|ph| ph.flag).unwrap_or_default();
-            let base = if selected {
-                t.cell_selected
-            } else if resp.hovered() {
-                t.cell_selected.gamma_multiply(0.6)
-            } else {
-                super::grid::flag_tint(t.canvas, flag)
-            };
+            let base = super::grid::cell_fill(&t, state, flag, resp.hovered(), t.canvas);
             p.rect_filled(cr, 0.0, crate::theme::label_background(base, label, selected));
+            // the flag's glow behind the picture, never over it (note 53)
+            super::grid::flag_line(p, &t, cr, flag);
             let names = app.ui.settings.film_names;
             if let Some(ph) = app.session.catalog.photo(*id).filter(|_| names) {
                 let name = ph.file_name.rsplit_once('.').map(|(n, _)| n).unwrap_or(&ph.file_name);
@@ -3888,8 +3884,6 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     p.galley(pos2(br.min.x + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
                 }
             }
-            // the flag's glow over the picture's bottom, under the marks (a white pick flag stays readable)
-            super::grid::flag_line(p, &t, Rect::from_min_max(cr.min, pos2(cr.right(), cr.bottom() - strip)), flag);
             if under && let Some(ph) = app.session.catalog.photo(*id) {
                 let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
                 super::grid::paint_badges(p, &t, bar, ph, false);
