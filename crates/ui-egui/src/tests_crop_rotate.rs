@@ -417,13 +417,18 @@ fn crop_rect(h: &Headless) -> lightcraft_geom::Rect {
 /// Press where the pointer shows the resize cursor for the left edge handle, `dx` px from the
 /// edge, and drag on by `step` px per event: the drag must resize, as the cursor said (issue #1930).
 fn drag_left_handle(dx: f32, step: f32) -> Headless {
+    drag_left_edge_at(dx, 0.5, step)
+}
+
+/// [`drag_left_handle`] at `y` (0..1) down the left edge.
+fn drag_left_edge_at(dx: f32, y: f32, step: f32) -> Headless {
     let mut h = crop_tool();
     let img = h.app.image_rect.expect("the photo on screen");
-    hover(&mut h, egui::pos2(img.left() + dx, img.center().y));
+    hover(&mut h, egui::pos2(img.left() + dx, img.top() + img.height() * y));
     assert_eq!(h.last_cursor, egui::CursorIcon::ResizeHorizontal, "the pointer shows a resize");
     let x = |px: f32| px / img.width();
-    let events: Vec<_> = std::iter::once(json!({"kind": "down", "x": x(dx), "y": 0.5}))
-        .chain((1..=4).map(|i| json!({"kind": "drag", "x": x(dx + step * i as f32), "y": 0.5})))
+    let events: Vec<_> = std::iter::once(json!({"kind": "down", "x": x(dx), "y": y}))
+        .chain((1..=4).map(|i| json!({"kind": "drag", "x": x(dx + step * i as f32), "y": y})))
         .collect();
     let r = h.request("ui.pointer", json!({ "events": events }), T);
     assert_eq!(r["ok"], true, "{r}");
@@ -446,4 +451,100 @@ fn a_drag_from_just_inside_a_handle_resizes_not_moves() {
     let r = crop_rect(&h);
     assert!(r.x0 > 0.0, "the left edge moved in: {r:?}");
     assert!((r.x1 - 1.0).abs() < 1e-6, "the right edge stays: {r:?}");
+}
+
+/// Client note 3d: on entering the crop tool, an immediate corner drag must move the corner
+/// (it slid past the handle until a render or layout finished).
+#[test]
+fn the_corners_are_live_from_the_first_frame() {
+    for upright in [false, true] {
+        let app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+        let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
+        let r = h.request("ui.set", json!({"view": "detail"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        if upright {
+            let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"control": "geometry.vertical", "value": 30.0}}), T);
+            assert_eq!(r["ok"], true, "{r}");
+            h.settle(SETTLE);
+        }
+        let r = h.request("engine.execute", json!({"command": "panel.crop"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.step();
+        let before = crop_rect(&h);
+        let c = h.app.widgets.iter().find(|(w, _)| w == "cropHandle:2").map(|(_, r)| r.center()).expect("the bottom-right corner");
+        let img = h.app.image_rect.expect("the photo on screen");
+        let n = |p: egui::Pos2| ((p.x - img.left()) / img.width(), (p.y - img.top()) / img.height());
+        let (x, y) = n(c);
+        let events: Vec<_> = std::iter::once(json!({"kind": "down", "x": x, "y": y}))
+            .chain((1..=4).map(|i| json!({"kind": "drag", "x": x - 0.04 * i as f32, "y": y - 0.04 * i as f32})))
+            .chain(std::iter::once(json!({"kind": "up", "x": x - 0.16, "y": y - 0.16})))
+            .collect();
+        let r = h.request("ui.pointer", json!({ "events": events }), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        let after = crop_rect(&h);
+        assert!(after.x1 < before.x1 - 0.05 && after.y1 < before.y1 - 0.05, "upright {upright}: the corner moved in: {before:?} → {after:?}");
+        assert_eq!(angle(&h), 0.0, "upright {upright}: nothing rotated");
+    }
+}
+
+/// Client note 3c: on an untouched photo the crop tool shows the crop locked to the photo's own
+/// shape; swapping the orientation ten times (X, the panel button and the console all run
+/// `crop.rotateAspect` through `app.run`) keeps it locked and only inverts the ratio.
+#[test]
+fn ten_swaps_on_an_untouched_photo_keep_the_lock() {
+    let mut h = crop_tool();
+    let id = h.app.session.active().expect("a photo");
+    let shape = |h: &Headless| {
+        let p = h.app.session.catalog.photo(id).expect("the photo");
+        let (w, ht) = (p.width as f64, p.height as f64);
+        let (w, ht) = if p.develop.orientation.swaps_axes() { (ht, w) } else { (w, ht) };
+        let r = p.develop.crop.geometry.rect_px(w, ht);
+        (p.develop.crop.aspect, r.width() / r.height(), w / ht)
+    };
+    let (_, _, photo) = shape(&h);
+    for i in 0..10 {
+        h.app.run("crop.rotateAspect", json!({})).expect("swap");
+        let (lock, crop, _) = shape(&h);
+        let (w, ht) = lock.unwrap_or_else(|| panic!("swap {i}: the lock is gone"));
+        let want = if i % 2 == 0 { 1.0 / photo } else { photo };
+        assert!((w as f64 / ht as f64 - want).abs() < 0.01, "swap {i}: lock {w}:{ht}, want {want}");
+        assert!((crop - want).abs() < 0.01, "swap {i}: crop {crop}, want {want}");
+        assert!(h.app.crop_tool_aspect().is_some(), "swap {i}: the tool shows it locked");
+    }
+}
+
+/// Client note 3e: anywhere along an edge resizes that side, not only at its middle handle
+/// (away from the handle a press there rotated the photo).
+#[test]
+fn a_drag_anywhere_along_an_edge_resizes_it() {
+    for (dx, y) in [(-6.0, 0.2), (5.0, 0.8)] {
+        let h = drag_left_edge_at(dx, y, 4.0);
+        assert_eq!(angle(&h), 0.0, "at {y}: nothing rotates");
+        let r = crop_rect(&h);
+        assert!(r.x0 > 0.0 && (r.x1 - 1.0).abs() < 1e-6, "at {y}: the left edge moved in: {r:?}");
+    }
+}
+
+/// Client note 3b: Done shows the crop at once. Until the cropped render arrives, the crop tool's
+/// whole-photo render is drawn cut to the crop, in the crop's shape: never a frame of the
+/// uncropped photo.
+#[test]
+fn done_shows_the_crop_at_once() {
+    let mut h = crop_tool();
+    let r = h.request("engine.execute", json!({"command": "crop.aspect", "params": {"aspect": "1x1"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let whole = h.app.renderer.textures.get(&crate::render::Slot::Main).map(|t| t.key).expect("the crop tool's render");
+    assert!(h.app.crop_tool_renders.iter().any(|(_, k)| *k == whole), "remembered as the whole photo");
+    h.app.run("tool.done", json!({})).expect("done");
+    h.step();
+    let img = h.app.image_rect.expect("the photo on screen");
+    assert!((img.width() / img.height() - 1.0).abs() < 0.02, "the view has the crop's shape at once: {img:?}");
+    let shown = h.app.loupe_shown.map(|l| l.1);
+    let main = h.app.renderer.textures.get(&crate::render::Slot::Main).map(|t| t.key);
+    assert!(shown == Some("cropping") || main != Some(whole), "the whole-photo render is drawn cropped: {shown:?}");
+    h.settle(SETTLE);
+    assert_eq!(h.app.loupe_shown.map(|l| l.1), Some("render"), "then the cropped render replaces it");
 }

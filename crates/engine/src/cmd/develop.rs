@@ -793,19 +793,43 @@ pub fn specs() -> Vec<CommandSpec> {
                 })
             }
         ),
-        cmd!("crop.rotateAspect", "Rotate Crop Aspect", [], Some("X"), "{}", has_active, |s, _| {
-            let id = active(s, "crop.rotateAspect")?;
-            let (w, h) = crop_dims(s, id);
-            edit(s, "crop.rotateAspect", "Rotate Crop", |d| {
-                let r = d.crop.geometry.rect_px(w, h);
-                // a degenerate crop has no aspect to rotate: fall back to the image's own
-                let a = Some(r.height() / r.width()).filter(|a| a.is_finite() && *a > 0.0);
-                d.crop.aspect = d.crop.aspect.map(|(x, y)| (y, x));
-                let angle = d.crop.geometry.angle;
-                d.crop.geometry = crop_fit_angle(w, h, angle, a);
-                Ok(())
-            })
-        }),
+        cmd!(
+            "crop.rotateAspect",
+            "Rotate Crop Aspect",
+            [],
+            Some("X"),
+            "{lock?: [w,h]} — swap the crop between landscape and portrait, keeping its lock and ratio (3:2 → 2:3); `lock` is the ratio the crop tool shows locked on a crop that has none yet (an untouched photo), so the swap keeps it locked",
+            has_active,
+            |s, p| {
+                let id = active(s, "crop.rotateAspect")?;
+                let (w, h) = crop_dims(s, id);
+                let lock = match p.get("lock") {
+                    None | Some(Value::Null) => None,
+                    Some(v @ Value::Array(_)) => match numbers(Some(v)).as_deref() {
+                        Some(&[x, y]) => Some(aspect_tuple("crop.rotateAspect", x, y)?),
+                        _ => return Err(bad("crop.rotateAspect", "lock is [w, h] with two numbers")),
+                    },
+                    Some(_) => return Err(bad("crop.rotateAspect", "lock is [w, h] with two numbers")),
+                };
+                edit(s, "crop.rotateAspect", "Rotate Crop", |d| {
+                    // client note 3c: the tool showed an untouched photo's crop locked (to the photo's
+                    // own shape or the remembered ratio) while the crop itself had no lock, so the swap
+                    // left it free and the ratio became Custom. Lock it first, as the tool shows it.
+                    if d.crop.aspect.is_none()
+                        && let Some(l) = lock
+                    {
+                        set_aspect(d, w, h, Some(l), Turn::LikeCrop);
+                    }
+                    let r = d.crop.geometry.rect_px(w, h);
+                    // a degenerate crop has no aspect to rotate: fall back to the image's own
+                    let a = Some(r.height() / r.width()).filter(|a| a.is_finite() && *a > 0.0);
+                    d.crop.aspect = d.crop.aspect.map(|(x, y)| (y, x));
+                    let angle = d.crop.geometry.angle;
+                    d.crop.geometry = crop_fit_angle(w, h, angle, a);
+                    Ok(())
+                })
+            }
+        ),
         cmd!("crop.reset", "Reset Crop", [], Some("Cmd+Alt+R"), "{}", has_active, |s, _| {
             edit(s, "crop.reset", "Reset Crop", |d| {
                 d.crop = Default::default();
