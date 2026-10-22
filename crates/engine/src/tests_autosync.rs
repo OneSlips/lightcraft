@@ -209,3 +209,42 @@ fn pasted_object_masks_leave_their_clicks_behind() {
     let MaskShape::Object { hint, exclude, seg, .. } = &got[0].components[0].shape else { panic!("an Object: {got:?}") };
     assert!(hint.is_empty() && exclude.is_empty() && seg.is_none(), "no clicks or pixels from a");
 }
+
+/// Note 2: Recalculate All AI Masks (Photo menu, `masks.recalculate`) drops whatever AI selection
+/// the selected photos hold (a copied, stale or approximate one) back to the recipe, to be computed
+/// from each photo's own pixels; hand-drawn masks are left as they are. Recalculate AI Mask on an
+/// Object without clicks on this photo says to pick it first.
+#[test]
+fn recalculate_all_ai_masks_replaces_every_ai_selection_on_the_selected_photos() {
+    use lightcraft_develop::MaskShape;
+    let mut s = demo();
+    let ids: Vec<u64> = s.visible_cloned().iter().take(2).map(|p| p.0).collect();
+    let (a, b) = (lightcraft_catalog::PhotoId(ids[0]), lightcraft_catalog::PhotoId(ids[1]));
+    for id in [a, b] {
+        s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+        s.execute("mask.add", &json!({"kind": "subject", "seg": seg(2.0)})).unwrap();
+        s.execute("mask.add", &json!({"kind": "radial", "center": [0.3, 0.6], "rx": 0.1, "ry": 0.1})).unwrap();
+    }
+    let radial = masks(&s, b)[1].clone();
+    assert!(masks(&s, b)[0].components[0].shape.has_seg());
+    s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
+    let r = s.execute("masks.recalculate", &json!({})).unwrap();
+    assert!(r.get("queued").is_some(), "{r}");
+    for id in [a, b] {
+        let got = masks(&s, id);
+        assert_eq!(got[0].components[0].shape, MaskShape::Subject { seg: None }, "back to the recipe on {id:?}");
+        assert!(got[0].needs_compute());
+        assert_eq!(got[1].components, radial.components, "hand-drawn masks stay");
+    }
+    // an Object pasted from another photo has no clicks here: pick it first
+    s.execute("library.select", &json!({"ids": [a.0]})).unwrap();
+    s.execute("mask.add", &json!({"kind": "object", "points": [[0.4, 0.5]], "seg": seg(2.0)})).unwrap();
+    s.execute("develop.copy", &json!({"groups": ["masks"]})).unwrap();
+    s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
+    s.execute("develop.paste", &json!({})).unwrap();
+    let object = masks(&s, b).iter().find(|m| matches!(m.components[0].shape, MaskShape::Object { .. })).map(|m| m.id).unwrap();
+    let e = s.execute("mask.recompute", &json!({"id": object})).unwrap_err().to_string();
+    assert!(e.contains("pick the object"), "{e}");
+    // the command needs a selection and caps its size
+    assert!(s.execute("masks.recalculate", &json!({"ids": (0..50_001).collect::<Vec<u64>>()})).is_err());
+}

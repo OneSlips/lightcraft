@@ -2796,5 +2796,11 @@
   "End Slideshow": "Ukončit prezentaci",
   "Save Current Settings as New Effect Preset…": "Uložit aktuální nastavení jako nové přednastavení efektu…",
   "Manage Effect Presets…": "Spravovat přednastavení efektů…",
-  "Export Effect Presets…": "Exportovat přednastavení efektů…"
+  "Export Effect Presets…": "Exportovat přednastavení efektů…",
+  "Recalculate AI Mask": "Přepočítat masku AI",
+  "Recalculate All AI Masks": "Přepočítat všechny masky AI",
+  "Pick the object on this photo: click it with the Object tool.": "Vyberte objekt na této fotografii: klikněte na něj nástrojem Objekt.",
+  "This mask's AI selection wasn't computed for this photo yet.": "Výběr AI této masky ještě nebyl pro tuto fotografii vypočten.",
+  "Click to update it.": "Kliknutím ho aktualizujete.",
+  "Compute this mask's AI selection again from this photo": "Znovu vypočítat výběr AI této masky z této fotografie"
 }

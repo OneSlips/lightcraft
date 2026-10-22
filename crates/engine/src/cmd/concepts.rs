@@ -101,5 +101,20 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(s.compute_masks(&ids, force))
             }
         ),
+        cmd!(
+            "masks.recalculate",
+            "Recalculate All AI Masks",
+            ["Photo"],
+            None,
+            "{ids?} — compute every AI mask on the photos (default: the selection) again from each photo's own pixels, replacing whatever they hold (a copied, stale or approximate selection); Object masks from their clicks on that photo. In the app in the background (one activity row, cancellable) → {queued, updated, approximate, notes}",
+            super::has_selection,
+            |s, p| {
+                let ids = s.targets(p)?;
+                if ids.len() > 50_000 {
+                    return Err(bad("masks.recalculate", "at most 50000 photos at a time"));
+                }
+                Ok(s.compute_masks(&ids, true))
+            }
+        ),
     ]
 }

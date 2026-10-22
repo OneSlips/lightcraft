@@ -880,7 +880,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "mask.recompute",
-            "Update AI Mask",
+            "Recalculate AI Mask",
             [],
             None,
             "{id?: maskId, component?: index} — compute the mask's automatic AI selections (Subject, Background, Sky, People, Landscape) again with their model, e.g. after the photo changed or once the model is installed (all of them without `component`) → {updated, pending}",
@@ -899,10 +899,19 @@ pub fn specs() -> Vec<CommandSpec> {
                     .filter(|(k, _)| wanted.is_none_or(|w| w == *k))
                     .filter_map(|(k, comp)| AutoKind::of(&comp.shape).map(|kind| (k, kind)))
                     .collect();
+                // by name, role or remembered object, anchored, or an Object (from its clicks on this
+                // photo) / Describe selection: computed as a recipe
                 let recipe = todo.iter().any(|(_, k)| matches!(k, AutoKind::People { who: Some(_), .. } | AutoKind::Concept { .. }))
-                    || m.components.iter().any(|c| c.anchor.is_some());
+                    || m.components.iter().enumerate().filter(|(k, _)| wanted.is_none_or(|w| w == *k)).any(|(_, c)| {
+                        c.anchor.is_some()
+                            || matches!(&c.shape, MaskShape::Object { hint, .. } if !hint.is_empty())
+                            || matches!(c.shape, MaskShape::Prompt { .. })
+                    });
                 if todo.is_empty() && !recipe {
-                    return Err(bad(c, "the mask has no Subject, Background, Sky, People or Landscape selection"));
+                    if m.components.iter().any(|c| matches!(c.shape, MaskShape::Object { .. })) {
+                        return Err(bad(c, "pick the object on this photo first: click it with the Object tool"));
+                    }
+                    return Err(bad(c, "the mask has no AI selection"));
                 }
                 for (_, kind) in &todo {
                     s.segmenter.auto_model(kind).map_err(ai_err)?;

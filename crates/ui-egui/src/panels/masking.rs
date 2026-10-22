@@ -292,6 +292,31 @@ pub(crate) fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, nam
     run(ui, "Invert Mask", true, "mask.invert", json!({"id": id}));
     run(ui, if visible { "Hide Mask" } else { "Show Mask" }, true, "mask.visible", json!({"id": id}));
     ui.separator();
+    // note 2: compute the mask's AI selections again from this photo's pixels (one, or every AI
+    // mask on the photo)
+    let photo = app.session.active();
+    let d = photo.and_then(|p| app.session.develop_of(p));
+    let ai = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| m.uses_ai());
+    let any_ai = d.as_ref().is_some_and(|d| d.masks.iter().any(|m| m.uses_ai()));
+    if ui.add_enabled(ai, egui::Button::new(menu_label("Recalculate AI Mask"))).clicked() {
+        if let Err(e) = app.run("mask.recompute", json!({"id": id})) {
+            app.ai_error(ui.ctx(), e, None);
+        }
+        ui.close();
+    }
+    if ui.add_enabled(any_ai, egui::Button::new(menu_label("Recalculate All AI Masks"))).clicked() {
+        if let Some(p) = photo {
+            let _ = app.run("masks.recalculate", json!({"ids": [p.0]}));
+        }
+        ui.close();
+    }
+    ui.separator();
+    let mut run = |ui: &mut egui::Ui, label: &str, enabled: bool, cmd: &str, p: serde_json::Value| {
+        if ui.add_enabled(enabled, egui::Button::new(menu_label(label))).clicked() {
+            let _ = app.run(cmd, p);
+            ui.close();
+        }
+    };
     run(ui, "Move Up", index > 0, "mask.move", json!({"id": id, "delta": -1}));
     run(ui, "Move Down", index + 1 < count, "mask.move", json!({"id": id, "delta": 1}));
     ui.separator();
@@ -729,21 +754,28 @@ fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             });
         }
     }
-    // the selected mask has automatic selections without a model's segmentation, and the model is there now
-    let stale = app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| {
-        d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).is_some_and(|m| {
-            m.components.iter().any(|c| {
-                lightcraft_engine::segment::AutoKind::of(&c.shape)
-                    .is_some_and(|k| k.seg_of(&c.shape).is_some_and(Option::is_none) && app.session.segmenter.auto_model(&k).is_ok())
-            })
-        })
-    });
-    if stale && !app.session.segmenter.busy() {
+    // the selected AI mask: Recalculate (note 2) always offered; a mask whose AI selections were
+    // never computed for this photo (copied, synced, a preset's, made before the model) says so
+    let selected = app
+        .session
+        .active()
+        .and_then(|id| app.session.develop_of(id))
+        .and_then(|d| d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).cloned());
+    if let Some(m) = selected.filter(|m| m.uses_ai())
+        && crate::panels::detail::ai_computing(app, &m).is_none()
+    {
+        let status = mask_ai_status(&m);
         ui.add_space(4.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("The AI model for this mask is installed.")).color(t.text_dim));
-            if text_button(ui, "maskAiUpdate", crate::i18n::tr("Update"), false).clicked()
-                && let Err(e) = app.run("mask.recompute", json!({}))
+            if let Some(why) = status {
+                ui.label(egui::RichText::new(crate::i18n::tr(why)).color(t.text_dim));
+            }
+            let pick = status == Some(PICK_OBJECT);
+            if !pick
+                && text_button(ui, "maskAiUpdate", crate::i18n::tr("Recalculate AI Mask"), false)
+                    .on_hover_text(crate::i18n::tr("Compute this mask's AI selection again from this photo"))
+                    .clicked()
+                && let Err(e) = app.run("mask.recompute", json!({"id": m.id}))
             {
                 app.ai_error(ui.ctx(), e, None);
             }
@@ -772,6 +804,23 @@ fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
 }
+
+/// What an AI mask's row badge and panel say when its AI selection isn't there for this photo:
+/// an Object without clicks here (copied or synced from another photo) is picked again, any other
+/// AI part not computed for this photo needs updating. `None`: it is up to date.
+pub(crate) fn mask_ai_status(m: &lightcraft_develop::Mask) -> Option<&'static str> {
+    if !m.uses_ai() || !m.needs_compute() {
+        return None;
+    }
+    let unpicked =
+        m.components.iter().any(|c| matches!(&c.shape, MaskShape::Object { hint, seg: None, detail, .. } if hint.is_empty() && detail.is_empty()));
+    Some(if unpicked { PICK_OBJECT } else { NEEDS_UPDATE })
+}
+
+/// See [`mask_ai_status`].
+pub(crate) const PICK_OBJECT: &str = "Pick the object on this photo: click it with the Object tool.";
+/// See [`mask_ai_status`].
+pub(crate) const NEEDS_UPDATE: &str = "This mask's AI selection wasn't computed for this photo yet.";
 
 /// Whether a tile shows pressed: its tool is in use, or its picker / field is open.
 fn tile_active(app: &LightcraftApp, kind: &str) -> bool {
