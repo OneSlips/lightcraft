@@ -140,12 +140,13 @@ walks the drive.
   wait for device creation at startup. Six workers rendering 256 px thumbnails: 3.6 ms each on an
   RTX 5070 vs 4.3–5.2 ms on 32 CPU threads (`crates/gpu/tests/thumbs_bench.rs`), and the cores stay
   free for raw decoding.
-- Every 8-bit render takes the GPU path whatever its settings: LUT profiles (the `.cube` table
-  rides in the kernel's `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with
-  Refine Edges (the cross guided filter of Auto Mask, blended by √refine before the mask's invert
-  and amount) and soft proofs (proof-space gamut mapping and both gamut warnings, into an output
-  space or a display). Only high-bit-depth exports and Visualize HDR (both need float output)
-  render on the CPU.
+- 8-bit renders take the GPU path with LUT profiles (the `.cube` table rides in the kernel's
+  `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with Refine Edges (the cross
+  guided filter of Auto Mask, blended by √refine before the mask's invert and amount) and soft
+  proofs into a colour space (proof-space gamut mapping and both gamut warnings, into an output
+  space or a display). These render on the CPU: high-bit-depth exports and Visualize HDR (both
+  need float output), soft proofs to an output device's profile (a printer or paper profile), and
+  photos with a content-aware Fill spot (no GPU kernel for it).
 - Anything the GPU path cannot do returns `None` and the CPU renders instead: no adapter (CI
   machines, software-only adapters), `LIGHTCRAFT_GPU=0` or `LIGHTCRAFT_GPU_BACKEND=off` (whole
   process; see [Backends](#backends-environment-variables-and-troubleshooting-issue-136)), the `app.gpu {enabled}`

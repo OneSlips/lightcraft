@@ -752,8 +752,8 @@
   burst by file name, so the first file is the cover.
 
 ### More of the rendering on the GPU
-- LUT profiles, masks with Refine Edges and soft proofing render on the GPU (they used to send the whole render to the
-  CPU), and so do spot removal, defringe and the histogram (they used to bounce the image through the CPU mid-render).
+- LUT profiles, masks with Refine Edges and soft proofing into a colour space render on the GPU (they used to send the
+  whole render to the CPU; soft proofing to a printer or paper profile still renders on the CPU), and so do spot removal, defringe and the histogram (they used to bounce the image through the CPU mid-render).
   Results match the CPU within 1 level in 8 bits.
 - Grid, filmstrip, preset and profile thumbnails render on the GPU once it is ready (about a quarter faster on an RTX
   5070, and the CPU stays free for decoding raws).

@@ -101,6 +101,8 @@ impl lightcraft_ui_egui::render::ScreenTextures for WindowTextures {
 fn adopt_window_device(rs: &eframe::egui_wgpu::RenderState, ctx: &egui::Context) -> WindowTextures {
     let (device, queue, info) = (rs.device.clone(), rs.queue.clone(), rs.adapter.get_info());
     let ctx = ctx.clone();
+    // before the first frame's GPU warm-up can start a device of its own
+    lightcraft_engine::gpu::set_window_device_pending(true);
     let spawned = std::thread::Builder::new().name("lc-gpu-window".into()).spawn(move || {
         match lightcraft_engine::gpu::adopt_window_device(device, queue, info) {
             Ok(()) => log::info!("gpu: rendering on the window's device"),
@@ -110,6 +112,7 @@ fn adopt_window_device(rs: &eframe::egui_wgpu::RenderState, ctx: &egui::Context)
     });
     if let Err(e) = spawned {
         log::warn!("gpu: {e}");
+        lightcraft_engine::gpu::set_window_device_pending(false);
     }
     WindowTextures { device: rs.device.clone(), queue: rs.queue.clone(), renderer: rs.renderer.clone() }
 }

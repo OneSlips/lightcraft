@@ -548,7 +548,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // a drag drafts at full size where the GPU draws the view (by the GPU's own rule, `handles`;
     // `ready` first: `available` would wait for a device still being created)
     let gpu = interacting
-        && lightcraft_engine::gpu::handles(lightcraft_pipeline::OutputDepth::U8, app.ui.soft_proof, overlay)
+        // (a soft proof into a colour space renders on the GPU; one to a device profile doesn't)
+        && lightcraft_engine::gpu::handles(lightcraft_pipeline::OutputDepth::U8, app.ui.soft_proof && app.ui.proof.profile != 0, overlay)
         && lightcraft_engine::gpu::ready()
         && lightcraft_engine::gpu::available();
     let shown = app.renderer.textures.get(&Slot::Main).filter(|t| t.photo == id && t.quick.is_none()).map(|t| (t.key, t.ms));

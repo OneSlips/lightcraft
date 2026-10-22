@@ -282,6 +282,21 @@ fn env_disabled() -> bool {
 #[cfg(not(target_arch = "wasm32"))]
 static GPU: std::sync::OnceLock<Result<ctx::Gpu, String>> = std::sync::OnceLock::new();
 
+/// Set while [`adopt_window_device`] is about to run or running: [`device`] and [`warm_up`] then
+/// don't create a device of their own (review of PR #1065: the settings' warm-up raced the
+/// adoption thread and could win, so the window's device went unused).
+#[cfg(not(target_arch = "wasm32"))]
+static WINDOW_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Announce (before spawning it) that [`adopt_window_device`] will run, or withdraw that when it
+/// can't (`false`). Until it has finished, renders take the CPU path and [`warm_up`] does nothing.
+pub fn set_window_device_pending(pending: bool) {
+    #[cfg(not(target_arch = "wasm32"))]
+    WINDOW_PENDING.store(pending, Ordering::Release);
+    #[cfg(target_arch = "wasm32")]
+    let _ = pending;
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn device() -> Option<&'static ctx::Gpu> {
     // turned off (preference, environment): don't even load the driver (issue #136)
@@ -290,6 +305,11 @@ pub(crate) fn device() -> Option<&'static ctx::Gpu> {
     }
     if let Some(g) = GPU.get() {
         return g.as_ref().ok();
+    }
+    // the window's device is being adopted: render on the CPU until it is, rather than create a
+    // device of our own first (which would leave the window's unused)
+    if WINDOW_PENDING.load(Ordering::Acquire) {
+        return None;
     }
     // creating the device is a long call into the driver: not once the process is ending
     let _work = exit::enter()?;
@@ -318,7 +338,7 @@ pub(crate) fn existing_device() -> Option<&'static ctx::Gpu> {
 /// while GPU rendering is turned off.
 pub fn warm_up() {
     #[cfg(not(target_arch = "wasm32"))]
-    if !env_disabled() && ENABLED.load(Ordering::Relaxed) && GPU.get().is_none() {
+    if !env_disabled() && ENABLED.load(Ordering::Relaxed) && GPU.get().is_none() && !WINDOW_PENDING.load(Ordering::Acquire) {
         let _ = std::thread::Builder::new().name("lc-gpu-init".into()).spawn(|| {
             let _ = device();
         });
@@ -517,6 +537,14 @@ pub fn on_window_device() -> bool {
 /// before; `Err` says why the window's wasn't used. Does nothing once a device exists.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn adopt_window_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu::AdapterInfo) -> Result<(), String> {
+    /// Whatever the outcome, renders may create or use a device again afterwards.
+    struct Done;
+    impl Drop for Done {
+        fn drop(&mut self) {
+            WINDOW_PENDING.store(false, Ordering::Release);
+        }
+    }
+    let _done = Done;
     if env_disabled() || !ENABLED.load(Ordering::Relaxed) {
         return Err("GPU rendering is off".into());
     }
