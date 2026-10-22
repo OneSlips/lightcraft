@@ -81,7 +81,7 @@ fn deleting_a_photo_still_removes_it_everywhere() {
     let (mut s, folder, album, ids) = imported("delete");
     s.execute("library.source", &json!({"kind": "album", "id": album})).unwrap();
     s.selection = Selection::single(ids[0]);
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert!(s.catalog.photo(ids[0]).unwrap().deleted);
     assert_eq!(counts(&mut s, &folder, album), (2, 2, 2), "(library folder, folder on disk, collection)");
     let n = s.execute("library.source", &json!({"kind": "recentlyDeleted"})).unwrap()["count"].as_u64().unwrap();

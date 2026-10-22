@@ -599,13 +599,23 @@ fn console_erase_works_while_held_and_delete_needs_a_hold() {
 }
 
 #[test]
-fn deleting_says_the_file_stays_on_disk_and_undo_brings_it_back() {
+fn deleting_says_the_file_stays_on_disk_and_the_toast_undo_brings_it_back() {
     let mut h = demo();
     open_photo(&mut h);
+    let n = h.app.session.visible_cloned().len();
     assert_eq!(h.request("engine.execute", json!({"command": "photo.delete"}), T)["ok"], true);
-    h.settle(T);
+    // (read at once: a settle under load can outlast the toast)
     let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
-    assert!(toast.contains("Recently Deleted") && toast.contains("stays on disk") && toast.contains("Undo"), "{toast:?}");
+    assert!(toast.contains("Removed") && toast.contains("stays on disk") && toast.contains("imported again"), "{toast:?}");
+    // SAFETY 2: the toast carries an Undo button, and it brings the photo back
+    for _ in 0..3 {
+        h.step();
+    }
+    let r = h.request("ui.clickWidget", json!({"id": "button:toastAction"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    assert_eq!(h.app.session.visible_cloned().len(), n, "Undo on the toast restored the photo");
+    assert!(h.app.ui.toast.as_ref().is_none_or(|t| !t.0.contains("Removed")), "the toast went with it");
 }
 
 #[test]

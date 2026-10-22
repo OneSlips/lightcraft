@@ -116,9 +116,11 @@ fn permanently_deleting_photos_keeps_the_current_view_neighbour_in_sight() {
     for view in ["photoGrid", "squareGrid", "detail"] {
         for count in [1, 3] {
             let mut h = demo(view);
-            for (command, params) in
-                [("library.selectAll", json!({})), ("photo.delete", json!({})), ("library.source", json!({"kind": "recentlyDeleted"}))]
-            {
+            for (command, params) in [
+                ("library.selectAll", json!({})),
+                ("photo.delete", json!({"recentlyDeleted": true})),
+                ("library.source", json!({"kind": "recentlyDeleted"})),
+            ] {
                 let r = h.request("engine.execute", json!({"command": command, "params": params}), T);
                 assert_eq!(r["ok"], true, "{r}");
             }
@@ -199,14 +201,20 @@ fn filmstrip_shows_every_selected_photo() {
     let r = h.request("engine.execute", json!({"command": "library.selectAll"}), T);
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(h.app.session.active().map(|p| p.0), Some(first));
-    assert_eq!(fill(&mut h, second), active, "a selected photo that is not the active one looks selected");
+    let selected = fill(&mut h, second);
+    // three levels, as in Lightroom (client note 19d): unselected < selected < active, each plainly apart
+    let luma = |c: egui::Color32| i32::from(c.r()) + i32::from(c.g()) + i32::from(c.b());
+    assert!(luma(selected) > luma(idle) + 3 * 24, "a selected photo is clearly brighter than an unselected one ({selected:?} vs {idle:?})");
+    assert!(luma(active) > luma(selected) + 3 * 16, "the active photo is brighter still ({active:?} vs {selected:?})");
+    assert_eq!(fill(&mut h, first), active);
     // back to one photo; then what a ⌘-click on a filmstrip cell runs (toggle) adds the second
     let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [first]}}), T);
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(fill(&mut h, second), idle);
     let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [second], "mode": "toggle"}}), T);
     assert_eq!(r["ok"], true, "{r}");
-    assert_eq!(fill(&mut h, second), active);
+    assert_eq!(fill(&mut h, second), selected, "added, not made active (client note 19b)");
+    assert_eq!(h.app.session.active().map(|p| p.0), Some(first));
 }
 
 /// One notch of a mouse wheel (a line).

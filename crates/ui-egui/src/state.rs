@@ -418,6 +418,10 @@ pub struct AppSettings {
     /// View ▸ Zoom to Focus Point: Toggle Zoom (Z) centres the zoomed view on the camera's focus point
     /// when the photo has one (`view.zoomToFocus`).
     pub zoom_to_focus: bool,
+    /// View ▸ Space Zooms To: where Toggle Zoom (Space / Z) centres the zoomed photo while Zoom to
+    /// Focus Point is on (`view.spaceZoomsTo`).
+    #[serde(deserialize_with = "lenient")]
+    pub space_zoom: SpaceZoom,
     /// The Settings window's content size in points as the user left it (`None` = the default
     /// size; clamped to the screen when the window opens).
     #[serde(deserialize_with = "lenient")]
@@ -460,6 +464,7 @@ impl Default for AppSettings {
             keyword_chips: KeywordChips::default(),
             focus_point: false,
             zoom_to_focus: true,
+            space_zoom: SpaceZoom::default(),
             settings_size: None,
             settings_tab: String::new(),
         }
@@ -651,6 +656,39 @@ pub enum KeywordingView {
     Keywords,
     Containing,
     WillExport,
+}
+
+/// Where Toggle Zoom (Space / Z) centres the zoomed photo (View ▸ Space Zooms To).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SpaceZoom {
+    /// The camera's focus point; without one, the main subject's sharpest open eye (else the largest
+    /// face).
+    #[default]
+    FocusPoint,
+    /// The main subject's sharpest open eye (else the largest face); without a face, the camera's
+    /// focus point.
+    Eye,
+}
+
+impl SpaceZoom {
+    pub const ALL: [SpaceZoom; 2] = [SpaceZoom::FocusPoint, SpaceZoom::Eye];
+
+    /// The id `view.spaceZoomsTo` takes.
+    pub fn id(self) -> &'static str {
+        match self {
+            SpaceZoom::FocusPoint => "focusPoint",
+            SpaceZoom::Eye => "eye",
+        }
+    }
+
+    /// The menu's words.
+    pub fn label(self) -> &'static str {
+        match self {
+            SpaceZoom::FocusPoint => "Camera Focus Point, Else the Eyes",
+            SpaceZoom::Eye => "Main Subject's Eyes, Else the Focus Point",
+        }
+    }
 }
 
 /// How the Keywording box lays out the selection's keywords.
@@ -1064,6 +1102,9 @@ pub struct UiState {
     /// Transient toast text, expiry (seconds of app time), and optional colour-label styling.
     #[serde(skip)]
     pub toast: Option<(String, f64, Option<lightcraft_catalog::ColorLabel>)>,
+    /// A button on the toast showing `text` (SAFETY 2: Undo on the "Removed from the library" toast).
+    #[serde(skip)]
+    pub toast_action: Option<ToastAction>,
     /// The result of the last Find Missing Photos (it searches in the background).
     #[serde(skip)]
     pub last_find_missing: Option<serde_json::Value>,
@@ -1259,6 +1300,12 @@ pub enum Dialog {
         pick_best: bool,
         closed_eyes: bool,
         blurry_eyes: bool,
+        /// Soft eyes are rejected as well as blurry ones (`photo.rejectEyes` `soft`).
+        #[serde(default)]
+        soft_eyes: bool,
+        /// Everyone's eyes count, not only the main subjects' (`mainOnly: false`).
+        #[serde(default)]
+        everyone: bool,
     },
     /// Help ▸ System Info: (label, value) rows.
     DenoiseModel {
@@ -1382,9 +1429,13 @@ pub enum Dialog {
         prompt: String,
         variations: u32,
     },
-    /// Confirm moving photos to Recently Deleted.
+    /// Delete in the library: confirm removing photos from the library (client note 7; the shape of
+    /// upstream PR #1851's dialog, whose Remove this is: `photo.delete`, the files stay on disk).
     ConfirmDelete {
         count: usize,
+        /// The photos asked about (fixed when the dialog opened).
+        #[serde(default)]
+        ids: Vec<u64>,
     },
     /// Photo ▸ Delete Rejected Photos…: how many rejects the view has, and whether their files go
     /// to the Recycle Bin too (`library.deleteRejected`).
@@ -1648,6 +1699,7 @@ impl Default for UiState {
             compare: None,
             reference: None,
             toast: None,
+            toast_action: None,
             last_find_missing: None,
             last_find_missing_result: None,
             #[cfg(test)]
@@ -1776,4 +1828,14 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
         }
     }
     Ok(values)
+}
+
+/// A button on a toast: shown while that toast is ([`ToastAction::text`]) and only while the undo
+/// history is as it was then ([`ToastAction::undo_len`]), so Undo never takes back a later step.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToastAction {
+    pub text: String,
+    pub label: String,
+    pub command: String,
+    pub undo_len: usize,
 }

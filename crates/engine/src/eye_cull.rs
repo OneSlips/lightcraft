@@ -24,6 +24,8 @@ pub struct EyeRules {
     pub closed: bool,
     /// A main subject's eyes are blurry (the strip's red).
     pub blurry: bool,
+    /// With `blurry`: soft eyes (the strip's amber) count as blurry too (the stricter threshold).
+    pub soft: bool,
     /// Only the main subjects count (faces at least half as wide as the largest); else everyone.
     pub main_only: bool,
 }
@@ -33,7 +35,8 @@ pub fn reasons(r: &EyeReport, rules: EyeRules) -> (usize, usize) {
     use crate::eyes::{Focus, Lids};
     let people = r.eyes.iter().filter(|e| e.main || !rules.main_only);
     let closed = if rules.closed { people.clone().filter(|e| e.lids == Lids::Closed).count() } else { 0 };
-    let blurry = if rules.blurry { people.filter(|e| !matches!(e.lids, Lids::Closed | Lids::Hidden) && e.focus == Focus::Blurry).count() } else { 0 };
+    let too_soft = |f: Focus| f == Focus::Blurry || (rules.soft && f == Focus::Soft);
+    let blurry = if rules.blurry { people.filter(|e| !matches!(e.lids, Lids::Closed | Lids::Hidden) && too_soft(e.focus)).count() } else { 0 };
     (closed, blurry)
 }
 
@@ -157,6 +160,7 @@ pub fn reject_eyes(s: &mut Session, p: &Value) -> Result<Value> {
     let rules = EyeRules {
         closed: p.get("closed").and_then(Value::as_bool).unwrap_or(true),
         blurry: p.get("blurry").and_then(Value::as_bool).unwrap_or(true),
+        soft: p.get("soft").and_then(Value::as_bool).unwrap_or(false),
         main_only: p.get("mainOnly").and_then(Value::as_bool).unwrap_or(true),
     };
     if !rules.closed && !rules.blurry {
@@ -261,11 +265,16 @@ mod tests {
             ],
             ..EyeReport::empty()
         };
-        let all = EyeRules { closed: true, blurry: true, main_only: true };
+        let all = EyeRules { closed: true, blurry: true, soft: false, main_only: true };
         assert_eq!(reasons(&r, all), (1, 1));
         assert_eq!(reasons(&r, EyeRules { main_only: false, ..all }), (2, 1));
         assert_eq!(reasons(&r, EyeRules { closed: false, ..all }), (0, 1));
         assert_eq!(reasons(&r, EyeRules { blurry: false, ..all }), (1, 0));
+        // the stricter threshold: soft eyes are rejected too
+        let soft = EyeReport { eyes: vec![shot(true, Lids::Open, Focus::Soft)], ..EyeReport::empty() };
+        assert_eq!(reasons(&soft, all), (0, 0));
+        assert_eq!(reasons(&soft, EyeRules { soft: true, ..all }), (0, 1));
+        assert_eq!(reasons(&soft, EyeRules { soft: true, blurry: false, ..all }), (0, 0));
         let good = EyeReport { eyes: vec![shot(true, Lids::Open, Focus::Sharp), shot(true, Lids::Hidden, Focus::Blurry)], ..EyeReport::empty() };
         assert_eq!(reasons(&good, all), (0, 0));
     }

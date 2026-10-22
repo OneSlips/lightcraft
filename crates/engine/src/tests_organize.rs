@@ -151,12 +151,12 @@ fn deleting_a_virtual_copy_drops_it_from_the_stack() {
     let c1 = lightcraft_catalog::PhotoId(s.execute("photo.virtualCopy", &json!({})).unwrap()["ids"][0].as_u64().unwrap());
     let c2 = lightcraft_catalog::PhotoId(s.execute("photo.virtualCopy", &json!({"ids": [src.0]})).unwrap()["ids"][0].as_u64().unwrap());
     assert_eq!(s.catalog.stack_of(src).unwrap().photos, vec![src, c2, c1]);
-    s.execute("photo.delete", &json!({"ids": [c2.0]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [c2.0], "recentlyDeleted": true})).unwrap();
     let left = s.catalog.stack_of(src).expect("two members remain stacked");
     assert_eq!(left.photos, vec![src, c1]);
     assert_eq!((left.position(src), left.position(c1), left.photos.len()), (Some(0), Some(1), 2), "1/2 and 2/2");
     assert!(s.catalog.photo(c2).unwrap().deleted);
-    s.execute("photo.delete", &json!({"ids": [c1.0]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [c1.0], "recentlyDeleted": true})).unwrap();
     assert!(s.catalog.stack_of(src).is_none(), "the original is unstacked once it is the only member");
     assert!(s.catalog.photo(c1).unwrap().deleted);
     s.execute("edit.undo", &json!({})).unwrap();

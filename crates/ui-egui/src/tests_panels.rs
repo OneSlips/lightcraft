@@ -2291,16 +2291,17 @@ fn deleting_a_photo_asks_first_from_the_key_the_menu_and_the_right_click_menu() 
     assert!(h.app.ui.settings.confirm_delete, "on by default");
     let photo = h.app.session.visible_cloned()[0];
     exec(&mut h, "library.select", json!({"ids": [photo.0]}));
-    let deleted = |h: &Headless| h.app.session.catalog.photo(photo).unwrap().deleted;
+    // removed from the library (client note 7): the record is gone, the file stays
+    let deleted = |h: &Headless| h.app.session.catalog.photo(photo).is_none();
 
     // ⌫ and Photo ▸ Delete Photo ask; Cancel keeps the photo
     h.request("ui.key", json!({"key": "delete"}), T);
-    assert_eq!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1 }), "the key asks");
+    assert!(matches!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1, .. })), "the key asks");
     h.request("ui.dialog.cancel", json!({}), T);
     assert!(!deleted(&h));
     // (what a click on the menu bar's item runs; `ui.menu.invoke` is the agents' engine.execute)
     crate::menubar::run_item(&mut h.app, "photo.delete", json!({})).unwrap();
-    assert_eq!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1 }), "the menu asks");
+    assert!(matches!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1, .. })), "the menu asks");
     h.request("ui.dialog.cancel", json!({}), T);
     assert!(!deleted(&h));
 
@@ -2308,7 +2309,7 @@ fn deleting_a_photo_asks_first_from_the_key_the_menu_and_the_right_click_menu() 
     let thumb = format!("thumb:{}", photo.0);
     right_click(&mut h, &thumb);
     click(&mut h, "button:contextDeletePhoto");
-    assert_eq!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1 }), "the right-click menu asks");
+    assert!(matches!(h.app.ui.dialog, Some(Dialog::ConfirmDelete { count: 1, .. })), "the right-click menu asks");
     assert!(!deleted(&h), "nothing deleted before the answer");
     let r = h.request("ui.dialog.confirm", json!({}), T);
     assert_eq!(r["ok"], true, "{r}");
@@ -2416,4 +2417,46 @@ fn the_histogram_clipping_buttons_stay_clear_of_the_hovered_scroll_bar() {
     assert!(high.right() <= bar_left, "the highlight clipping button {high:?} is under the scroll bar (from x = {bar_left})");
     // and the shadow one keeps the same inset from its edge
     assert!(((low.left() - hist.left()) - (hist.right() - high.right())).abs() < 0.5, "{low:?} {high:?} in {hist:?}");
+}
+
+/// Client note 20: Auto Sync has a labelled switch at the right of the bottom bar, in the grid and
+/// in Detail; a click turns it on and off.
+#[test]
+fn the_bottom_bar_auto_sync_switch_turns_it_on_and_off() {
+    for view in ["photoGrid", "detail"] {
+        let mut h = demo([1400.0, 900.0], json!({"view": view}));
+        assert!(!h.app.session.auto_sync);
+        click(&mut h, "toggle:autoSync");
+        assert!(h.app.session.auto_sync, "{view}: on");
+        click(&mut h, "toggle:autoSync");
+        assert!(!h.app.session.auto_sync, "{view}: off again");
+    }
+}
+
+/// View ▸ Space Zooms To: the choice is kept with the settings, turns Zoom to Focus Point on, and
+/// a word it doesn't know is refused.
+#[test]
+fn space_zooms_to_is_a_choice_in_the_view_menu() {
+    let mut h = demo([1400.0, 900.0], json!({"view": "detail"}));
+    exec(&mut h, "view.zoomToFocus", json!({"on": false}));
+    exec(&mut h, "view.spaceZoomsTo", json!({"to": "eye"}));
+    assert_eq!(h.app.ui.settings.space_zoom, crate::state::SpaceZoom::Eye);
+    assert!(h.app.ui.settings.zoom_to_focus);
+    let r = h.request("engine.execute", json!({"command": "view.spaceZoomsTo", "params": {"to": "nose"}}), T);
+    assert_eq!(r["ok"], false, "{r}");
+    assert_eq!(h.app.ui.settings.space_zoom, crate::state::SpaceZoom::Eye);
+}
+
+/// Assisted Culling: with "blurry eyes" ticked the dialog asks how soft is too soft, and whether only
+/// the main subjects count; the choices reach the dialog's state.
+#[test]
+fn assisted_culling_asks_how_soft_and_whose_eyes() {
+    let mut h = demo([1400.0, 900.0], json!({"view": "photoGrid"}));
+    exec(&mut h, "dialog.cull", json!({}));
+    assert!(!h.app.widgets.iter().any(|(w, _)| w == "radio:cullSoftToo"), "only once blurry eyes are asked for");
+    click(&mut h, "check:cullBlurryEyes");
+    click(&mut h, "radio:cullSoftToo");
+    click(&mut h, "check:cullMainOnly");
+    let Some(crate::state::Dialog::Cull { blurry_eyes, soft_eyes, everyone, .. }) = h.app.ui.dialog.clone() else { panic!("the dialog stays") };
+    assert!(blurry_eyes && soft_eyes && everyone);
 }

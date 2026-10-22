@@ -270,6 +270,8 @@ fn settings_made_in_library_a_are_there_in_library_b() {
     s.execute("metadata.savePreset", &json!({"name": "Studio", "fields": {"creator": "Studio Photographer"}})).unwrap();
     s.execute("slideshow.playback", &json!({"slideDuration": 7.0, "repeat": true})).unwrap();
     s.execute("library.holdView", &json!({"on": true})).unwrap();
+    // Auto Sync is app-wide (client note 20): on in A, on in B and after a restart
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
     s.execute("library.sort", &json!({"key": "fileName", "ascending": true})).unwrap();
     let slideshow = s.slideshow.clone();
     s.close_library().unwrap();
@@ -287,6 +289,7 @@ fn settings_made_in_library_a_are_there_in_library_b() {
         assert!(s.metadata_presets.iter().any(|m| m.name == "Studio"), "{when}");
         assert_eq!(s.slideshow, slideshow, "{when}");
         assert!(s.hold_view, "{when}");
+        assert!(s.auto_sync, "{when}: Auto Sync stays on");
         assert_eq!((s.sort.key, s.sort.ascending), (lightcraft_catalog::SortKey::FileName, true), "{when}");
     };
     s.open_library(&b, true).unwrap();

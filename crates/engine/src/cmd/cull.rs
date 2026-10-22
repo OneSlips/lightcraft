@@ -124,7 +124,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Reject Closed and Blurry Eyes",
             [],
             None,
-            "{ids?, closed?: bool (true), blurry?: bool (true), mainOnly?: bool (true), wait?: bool} — judge the eyes of the selected photos (else all in view) as the culling strip does and reject those where a main subject (a face at least half as wide as the largest) has closed or blurry eyes; picked photos are left alone. Runs in the background (activity row, cancellable) and flags the rejects in one undo step when done (`photo.rejectEyesPump`); `wait` runs it now → {done, photos} or {done, rejected, closedEyes, blurryEyes, noFaces, looked, failed, cancelled}",
+            "{ids?, closed?: bool (true), blurry?: bool (true), soft?: bool (false: soft eyes, the strip's amber, count as blurry too), mainOnly?: bool (true), wait?: bool} — judge the eyes of the selected photos (else all in view) as the culling strip does and reject those where a main subject (a face at least half as wide as the largest; everyone with mainOnly false) has closed or blurry (or, with soft, soft) eyes; picked photos are left alone. Runs in the background (activity row, cancellable) and flags the rejects in one undo step when done (`photo.rejectEyesPump`); `wait` runs it now → {done, photos} or {done, rejected, closedEyes, blurryEyes, noFaces, looked, failed, cancelled}",
             always,
             crate::eye_cull::reject_eyes
         ),

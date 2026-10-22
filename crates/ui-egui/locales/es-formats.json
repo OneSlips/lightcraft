@@ -440,5 +440,9 @@
   "Smooth Skin: {n} photos.": "Suavizar piel: {n} fotos.",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "¿Hacer una copia de seguridad de «{library}» antes de salir de LightCraft? La copia guarda el catálogo, sus ajustes, tus ajustes preestablecidos y perfiles; no las fotos.",
   "Preset {name} on {n} photos": "Ajuste {name} en {n} fotos",
-  "Apply to {n} Selected Photos": "Aplicar a {n} fotos seleccionadas"
+  "Apply to {n} Selected Photos": "Aplicar a {n} fotos seleccionadas",
+  "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Se quitaron {n} fotos de la biblioteca. Los archivos siguen en el disco y se pueden volver a importar.",
+  "Remove the {count} selected photos from the library?": "¿Quitar las {count} fotos seleccionadas de la biblioteca?",
+  "Photo {i} of {n}": "Foto {i} de {n}",
+  "Remove {n} Photos from Library": "Quitar {n} fotos de la biblioteca"
 }

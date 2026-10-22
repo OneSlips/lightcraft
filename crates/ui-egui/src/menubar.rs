@@ -138,6 +138,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "view.faceBoxes",
             "view.focusPoint",
             "view.zoomToFocus",
+            "@Space Zooms To",
             "view.filmstrip",
             "view.histogram",
             "view.navigator",
@@ -391,7 +392,7 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
         "edit.redo" => {
             app.session.redo.last().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
         }
-        "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
+        "photo.delete" if n > 1 => crate::i18n::tr_format!("Remove {n} Photos from Library", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
         "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
         "app.showInFinder" => crate::i18n::tr(crate::menus::reveal_label()).to_string(),
@@ -589,6 +590,13 @@ pub(crate) fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>>
             v.push(item("view.toolOverlay", Value::Null, "Cycle Tool Overlay", shortcut, true, None));
             v
         }
+        "Space Zooms To" => crate::state::SpaceZoom::ALL
+            .into_iter()
+            .map(|z| {
+                let on = app.ui.settings.zoom_to_focus && app.ui.settings.space_zoom == z;
+                item("view.spaceZoomsTo", json!({"to": z.id()}), z.label(), None, true, Some(on))
+            })
+            .collect(),
         "Grid Info" => ["filename", "exposure", "date"]
             .into_iter()
             .zip(["File Name", "Exposure (shutter · aperture · ISO)", "Capture Date"])

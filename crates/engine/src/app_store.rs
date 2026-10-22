@@ -219,6 +219,9 @@ pub struct Habits {
     pub slide_titles: crate::slide_title::TitleSettings,
     /// A view holds its photos until it is refreshed (`library.holdView`).
     pub hold_view: bool,
+    /// Auto Sync (`develop.autoSync`) stays as the user left it, whichever library is open (client
+    /// note 20; the user's decision: app-wide, not per library).
+    pub auto_sync: bool,
     /// The grid's sort (a library's `view.json` keeps one too, for older builds). Not in
     /// `prefs.json`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -226,7 +229,7 @@ pub struct Habits {
 }
 
 /// The `prefs.json` keys of [`Habits`] (kept in the library as read while the store holds them).
-pub(crate) const HABITS_PREFS_KEYS: [&str; 15] = [
+pub(crate) const HABITS_PREFS_KEYS: [&str; 16] = [
     "exportPresets",
     "lastExport",
     "lastMerge",
@@ -242,6 +245,7 @@ pub(crate) const HABITS_PREFS_KEYS: [&str; 15] = [
     "slideOverlays",
     "slideTitles",
     "holdView",
+    "autoSync",
 ];
 
 /// Add `theirs` to `mine` by name: the same item twice is kept once; the same name with other
@@ -302,6 +306,7 @@ impl Habits {
             self.slide_titles = other.slide_titles;
         }
         self.hold_view |= other.hold_view;
+        self.auto_sync |= other.auto_sync;
         if self.sort.is_none() {
             self.sort = other.sort;
         }
@@ -910,6 +915,7 @@ impl Session {
             slide_overlays: self.slide_overlays.clone(),
             slide_titles: self.slide_titles.clone(),
             hold_view: self.hold_view,
+            auto_sync: self.auto_sync,
             sort: Some(self.sort),
         }
     }
@@ -932,6 +938,7 @@ impl Session {
         self.slide_overlays = h.slide_overlays.sanitized();
         self.slide_titles = h.slide_titles.sanitized();
         self.hold_view = h.hold_view;
+        self.auto_sync = h.auto_sync;
         if let Some(sort) = h.sort {
             self.sort = sort;
         }

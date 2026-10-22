@@ -79,6 +79,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("view.faceBoxes", "Face Boxes", None, "View"),
     ("view.focusPoint", "Show Focus Point", Some("Alt+F"), "View"),
     ("view.zoomToFocus", "Zoom to Focus Point", None, "View"),
+    ("view.spaceZoomsTo", "Space Zooms To", None, ""),
     ("view.reference", "Reference View", Some("Shift+R"), "View"),
     ("photo.setReference", "Set as Reference Photo", None, ""),
     ("compare.swap", "Swap Compare Photos", None, "View"),
@@ -670,6 +671,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             // {on?}; no params toggles. Toggle Zoom (Z) centres on the focus point when there is one.
             app.ui.settings.zoom_to_focus = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.settings.zoom_to_focus);
             Ok(json!({"on": app.ui.settings.zoom_to_focus}))
+        }
+        "view.spaceZoomsTo" => {
+            // {to: focusPoint|eye} → {to}; it also turns Zoom to Focus Point on
+            let to = p.get("to").and_then(Value::as_str).unwrap_or_default();
+            let Some(z) = crate::state::SpaceZoom::ALL.into_iter().find(|z| z.id() == to) else {
+                return Some(Err(format!("view.spaceZoomsTo: `to` is focusPoint or eye, not `{to}`")));
+            };
+            app.ui.settings.space_zoom = z;
+            app.ui.settings.zoom_to_focus = true;
+            Ok(json!({"to": z.id()}))
         }
         "view.faceBoxes" => {
             app.ui.face_boxes = p.get("show").and_then(Value::as_bool).unwrap_or(!app.ui.face_boxes);
@@ -1651,7 +1662,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "photo.editInExternal" => edit_in(app, &ctx, p, false),
         "photo.openOriginalInExternal" => open_original_in(app, &ctx, p),
         "dialog.cull" => {
-            app.ui.dialog = Some(Dialog::Cull { reject_below: 0.0, pick_best: true, closed_eyes: false, blurry_eyes: false });
+            app.ui.dialog =
+                Some(Dialog::Cull { reject_below: 0.0, pick_best: true, closed_eyes: false, blurry_eyes: false, soft_eyes: false, everyone: false });
             Ok(Value::Null)
         }
         "app.whatsNew" => {
@@ -2454,12 +2466,12 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
 /// The Delete key in an album: a normal album loses the selected photos (`album.removePhotos`),
 /// which stay in the library and their folder; a smart album keeps them (its rules decide) and
 /// says so. True when the key was handled here, false outside albums (then it deletes the photos
-/// from the library). Photo ▸ Delete Photo still deletes from the library everywhere.
+/// from the library). Photo ▸ Remove from Library still removes them from the library everywhere.
 pub fn delete_in_album(app: &mut LightcraftApp, ctx: &egui::Context) -> bool {
     let lightcraft_engine::LibrarySource::Album(aid) = app.session.source else { return false };
     let Some(album) = app.session.catalog.album(aid) else { return false };
     if album.is_smart() {
-        app.toast(ctx, crate::i18n::tr("Smart collections update automatically: change their rules, or use Photo ▸ Delete Photo"));
+        app.toast(ctx, crate::i18n::tr("Smart collections update automatically: change their rules, or use Photo ▸ Remove from Library"));
         return true;
     }
     if app.session.selected().is_empty() {
@@ -2478,17 +2490,17 @@ pub fn delete_in_album(app: &mut LightcraftApp, ctx: &egui::Context) -> bool {
 }
 
 /// With Settings → General → "Confirm before deleting" on, open the confirmation dialog instead
-/// of deleting; true when it did (the dialog's OK runs `photo.delete`).
+/// of removing; true when it did (the dialog's Remove runs `photo.delete`).
 pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
     if !app.ui.settings.confirm_delete {
         return false;
     }
     // browsed photos (Import) are never deleted: the command says so, no dialog first
-    let count = app.session.selected().iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| !p.local)).count();
-    if count == 0 {
+    let ids: Vec<u64> = app.session.selected().iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| !p.local)).map(|id| id.0).collect();
+    if ids.is_empty() {
         return false;
     }
-    app.ui.dialog = Some(Dialog::ConfirmDelete { count });
+    app.ui.dialog = Some(Dialog::ConfirmDelete { count: ids.len(), ids });
     true
 }
 

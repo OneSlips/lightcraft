@@ -743,13 +743,17 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     let under = app.ui.settings.badges_under;
     let strip = if under { BADGE_STRIP.min(r.height() * 0.4) } else { 0.0 };
     let pic = Rect::from_min_max(r.min, pos2(r.right(), r.bottom() - strip));
-    let img_rect = if square {
-        let base = if selected { t.cell_selected } else { flag_tint(t.cell, photo.flag) };
-        p.rect_filled(r, 0.0, crate::theme::label_background(base, photo.label, selected));
-        Rect::from_min_max(pic.min + vec2(10.0, 24.0), pic.max - vec2(10.0, if under { 2.0 } else { 10.0 }))
-    } else {
-        pic
-    };
+    // the strip under a justified photo (a square cell is filled whole)
+    let bar = Rect::from_min_max(pos2(r.left(), pic.bottom()), r.max);
+    let fill = crate::theme::label_background(cell_fill(&t, state, photo.flag, false, if square { t.cell } else { t.canvas }), photo.label, selected);
+    if square {
+        p.rect_filled(r, 0.0, fill);
+    } else if under {
+        p.rect_filled(bar, 0.0, fill);
+    }
+    // the flag's glow behind the picture: it shows around it and under it, never over it (note 53)
+    flag_line(p, &t, r, photo.flag);
+    let img_rect = if square { Rect::from_min_max(pic.min + vec2(10.0, 24.0), pic.max - vec2(10.0, if under { 2.0 } else { 10.0 })) } else { pic };
     // thumbnail
     let size = thumb_px(img_rect.width().max(img_rect.height()), ppp);
     request_thumb(app, id, size, if onscreen { 10 } else { 5 });
@@ -781,8 +785,6 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
             p.text(ph.center(), Align2::CENTER_CENTER, "!", t.semibold(18.0), t.text_dim);
         }
     }
-    // the flag's glow, over the picture's bottom and under the marks (a white pick flag stays readable)
-    flag_line(p, &t, pic, photo.flag);
     // labels and badges
     if square && app.ui.show_filenames {
         let m = &photo.meta;
@@ -817,12 +819,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         crate::state::GridBadges::Never => false,
     };
     if under {
-        // the strip under the picture: tinted by the label, always there (it covers nothing)
-        let bar = Rect::from_min_max(pos2(r.left(), pic.bottom()), r.max);
-        if !square {
-            let base = if selected { t.cell_selected } else { flag_tint(t.canvas, photo.flag) };
-            p.rect_filled(bar, 0.0, crate::theme::label_background(base, photo.label, selected));
-        }
+        // the strip under the picture: tinted by the label, always there (it covers nothing; filled above)
         if show_badges || photo.label.is_some() {
             paint_badges(p, &t, bar.shrink2(vec2(if square { 8.0 } else { 3.0 }, 1.0)), &photo, false);
         }
@@ -890,12 +887,13 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         } else if m.command {
             "toggle"
         } else {
-            "replace"
+            // inside the selection: this photo becomes the active one and the set stays (note 19c)
+            "click"
         };
         let _ = app.run("library.select", json!({"ids": [id.0], "mode": mode}));
     }
     if resp.double_clicked() {
-        let _ = app.run("library.select", json!({"ids": [id.0]}));
+        let _ = app.run("library.select", json!({"ids": [id.0], "mode": "click"}));
         let _ = app.run("view.detail", json!({}));
     }
     // drag the selection (this photo joins it, or replaces it when it wasn't selected)
@@ -916,11 +914,25 @@ pub const BADGE_STRIP: f32 = 16.0;
 /// run of marked cells reads as separate cells rather than one border between rows.
 pub const FLAG_GLOW_INSET: f32 = 3.0;
 
-/// A cell's background with its flag in it: a pick slightly lighter, a reject darker (the
-/// selection keeps its own outline, so the two never read alike).
+/// A thumbnail cell's background (grid and filmstrip, Library and Import): one set of levels, as
+/// in Lightroom (client note 19d): unselected (a pick a touch lighter, a reject darker) < hovered <
+/// selected < the active (most-selected) photo, each step plainly visible, so a selection of picks
+/// still reads as selected. `base` is the unselected cell's colour.
+pub fn cell_fill(t: &Tokens, state: lightcraft_engine::SelectionState, flag: Flag, hovered: bool, base: Color32) -> Color32 {
+    use lightcraft_engine::SelectionState;
+    match state {
+        SelectionState::Active => t.cell_active,
+        SelectionState::Selected => t.cell_selected,
+        SelectionState::NotSelected if hovered => base.lerp_to_gamma(t.cell_selected, 0.4),
+        SelectionState::NotSelected => flag_tint(base, flag),
+    }
+}
+
+/// A cell's background with its flag in it: a pick slightly lighter, a reject darker, both well
+/// short of the selection's level ([`cell_fill`]).
 pub fn flag_tint(base: Color32, flag: Flag) -> Color32 {
     match flag {
-        Flag::Pick => base.lerp_to_gamma(Color32::WHITE, 0.07),
+        Flag::Pick => base.lerp_to_gamma(Color32::WHITE, 0.05),
         Flag::Reject => base.lerp_to_gamma(Color32::BLACK, 0.35),
         Flag::None => base,
     }
@@ -938,11 +950,12 @@ pub fn flag_glow_rect(cell: Rect) -> Option<Rect> {
 /// The flag's mark in `cell`: a glow rising from just inside the bottom edge and fading out
 /// upwards, white for a pick and red for a reject, none for an unflagged photo. Inset on every
 /// side but the top, it belongs to its own cell: a run of picks reads as separate cells, never as
-/// a border along the top of the row below.
+/// a border along the top of the row below. Drawn before the thumbnail, so it sits behind it
+/// (note 53), soft enough that the white pick flag over it stays readable.
 pub fn flag_line(p: &egui::Painter, t: &Tokens, cell: Rect, flag: Flag) {
     let (colour, alpha) = match flag {
-        Flag::Pick => (Color32::WHITE, 0.62),
-        Flag::Reject => (t.reject, 0.72),
+        Flag::Pick => (Color32::WHITE, 0.42),
+        Flag::Reject => (t.reject, 0.6),
         Flag::None => return,
     };
     let Some(g) = flag_glow_rect(cell) else { return };
@@ -1470,7 +1483,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let _ = app.run("photo.deletePermanently", json!({}));
         }
     } else {
-        let delete = ui.button(crate::i18n::tr("Delete Photo"));
+        let delete = ui.button(crate::i18n::tr("Remove from Library"));
         register(ui.ctx(), "button:contextDeletePhoto", delete.rect);
         if delete.clicked() {
             let _ = crate::menubar::run_item(app, "photo.delete", json!({}));
@@ -1637,5 +1650,24 @@ mod tests {
         let (pick, reject, none) = (shapes(Icon::FlagPick), shapes(Icon::FlagReject), shapes(Icon::FlagNone));
         assert!(reject > pick, "the reject flag adds its cross");
         assert_ne!(pick, none, "the pick flag is solid, the unflagged one an outline");
+    }
+
+    /// Client note 19d: in every theme the levels are unselected < pick < selected < active (a
+    /// selection of picks still reads as selected), each step plainly visible.
+    #[test]
+    fn cell_levels_keep_picks_below_the_selection_in_every_theme() {
+        use crate::theme::{ThemeKind, Tokens};
+        use lightcraft_engine::SelectionState as S;
+        for kind in ThemeKind::ALL {
+            let t = Tokens::for_kind(kind);
+            // distance from the unselected cell, whichever way the theme brightens
+            let d = |c: Color32| (i32::from(c.r()) - i32::from(t.cell.r())).abs();
+            let pick = d(super::cell_fill(&t, S::NotSelected, Flag::Pick, false, t.cell));
+            let selected = d(super::cell_fill(&t, S::Selected, Flag::Pick, false, t.cell));
+            let active = d(super::cell_fill(&t, S::Active, Flag::None, false, t.cell));
+            assert!(pick < 16, "{kind:?}: a pick is only a touch lighter ({pick})");
+            assert!(selected >= pick + 20, "{kind:?}: selected ({selected}) is well above a pick ({pick})");
+            assert!(active >= selected + 16, "{kind:?}: active ({active}) is above selected ({selected})");
+        }
     }
 }

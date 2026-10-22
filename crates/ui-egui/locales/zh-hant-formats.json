@@ -440,5 +440,9 @@
   "Smooth Skin: {n} photos.": "平滑皮膚：{n} 張相片。",
   "Back up “{library}” before LightCraft quits? The backup keeps the catalog, its settings, your presets and profiles; not the photos.": "結束 LightCraft 前備份「{library}」嗎？備份包含目錄、其設定、你的預設和描述檔；不含相片。",
   "Preset {name} on {n} photos": "預設 {name} 已套用到 {n} 張相片",
-  "Apply to {n} Selected Photos": "套用到 {n} 張所選相片"
+  "Apply to {n} Selected Photos": "套用到 {n} 張所選相片",
+  "Removed {n} photos from the library. The files stay on disk and can be imported again.": "已從圖庫中移除 {n} 張照片。檔案仍在磁碟上，可以再次匯入。",
+  "Remove the {count} selected photos from the library?": "從圖庫中移除所選的 {count} 張照片？",
+  "Photo {i} of {n}": "第 {i} 張，共 {n} 張",
+  "Remove {n} Photos from Library": "從圖庫中移除 {n} 張照片"
 }

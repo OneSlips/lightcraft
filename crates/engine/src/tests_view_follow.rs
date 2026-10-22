@@ -106,7 +106,7 @@ fn edit(s: &mut Session, dice: &mut Dice, ids: &mut Vec<PhotoId>, album: u64) {
         5 | 6 => s.execute("photo.setMeta", &json!({"keywords": []})),
         7 if n.is_multiple_of(2) => s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.1 * (n % 9) as f64})),
         7 => s.execute("stack.group", &json!({})),
-        8 => s.execute("photo.delete", &json!({})),
+        8 => s.execute("photo.delete", &json!({"recentlyDeleted": true})),
         9 => s.execute("album.addPhotos", &json!({"id": album, "ids": chosen})),
         10 => s.execute("album.removePhotos", &json!({"id": album, "ids": chosen})),
         _ => s.undo_step().map(|_| Value::Null),
@@ -277,7 +277,7 @@ fn the_albums_counts_followed_through_edits_are_the_counts_made_from_every_photo
     if let Some(id) = in_album {
         let before = tally.counts()[&lightcraft_catalog::AlbumId(album)];
         s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
-        s.execute("photo.delete", &json!({})).unwrap();
+        s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
         assert!(tally.update(&s.catalog), "followed");
         assert_eq!(tally.counts()[&lightcraft_catalog::AlbumId(album)], before - 1);
     }

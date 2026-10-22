@@ -75,7 +75,7 @@ fn a_held_view_still_takes_in_what_starts_matching_and_lets_go_of_what_is_delete
     keyword(&mut s, all[2]);
     assert!(s.visible_cloned().contains(&all[2]));
     s.execute("library.select", &json!({"ids": [all[2].0]})).unwrap();
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert!(!s.visible_cloned().contains(&all[2]), "Recently Deleted is somewhere else");
 }
 
@@ -183,7 +183,7 @@ fn a_source_with_no_filter_over_it_holds_nothing() {
     assert_eq!(s.visible_cloned(), all);
     // a photo deleted from All Photos leaves it, held or not
     s.execute("library.select", &json!({"ids": [all[0].0]})).unwrap();
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert!(!s.visible_cloned().contains(&all[0]));
 }
 

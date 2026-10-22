@@ -370,14 +370,28 @@ pub(crate) fn focus_box(photo: &lightcraft_catalog::Photo) -> Option<lightcraft_
 
 /// Where Toggle Zoom centres the view on the photo's focus point (`app.ui.pan`), if it has one in frame.
 pub(crate) fn focus_pan(app: &LightcraftApp, id: PhotoId) -> Option<(f32, f32)> {
-    if let Some(r) = focus_box(app.session.catalog.photo(id)?) {
-        return Some((((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32));
+    let point = focus_box(app.session.catalog.photo(id)?).map(|r| (((r.x0 + r.x1) / 2.0) as f32, ((r.y0 + r.y1) / 2.0) as f32));
+    // the main subject's sharpest open eye, else the largest face, once the eye finder has looked
+    // at the photo (with the eye strip off too: `wants_eyes`)
+    let eye = app.session.eye_job(id).and_then(|j| app.eye_strip.report(j.key)).and_then(|r| r.zoom_target()).map(|[x, y]| (x, y));
+    space_target(app.ui.settings.space_zoom, point, eye)
+}
+
+/// Where Space zooms to from the camera's focus point and the main subject's eye (either may be
+/// missing), as View ▸ Space Zooms To says; `None`: where the photo was zoomed last.
+pub(crate) fn space_target(mode: crate::state::SpaceZoom, point: Option<(f32, f32)>, eye: Option<(f32, f32)>) -> Option<(f32, f32)> {
+    match mode {
+        crate::state::SpaceZoom::FocusPoint => point.or(eye),
+        crate::state::SpaceZoom::Eye => eye.or(point),
     }
-    // no point recorded: the main subject's sharpest open eye, else the largest face (when the
-    // eye finder has looked at the photo)
-    let key = app.session.eye_job(id)?.key;
-    let [x, y] = app.eye_strip.report(key)?.zoom_target()?;
-    Some((x, y))
+}
+
+/// Whether Toggle Zoom on photo `id` may want its eyes found ([`focus_pan`]): Zoom to Focus Point
+/// on, and the eyes asked for first or no focus point recorded. The eyes are then looked for in the
+/// background while the photo is on screen, eye strip or not.
+pub(crate) fn wants_eyes(app: &LightcraftApp, id: PhotoId) -> bool {
+    app.ui.settings.zoom_to_focus
+        && (app.ui.settings.space_zoom == crate::state::SpaceZoom::Eye || app.session.catalog.photo(id).is_some_and(|p| focus_box(p).is_none()))
 }
 
 /// Draw the camera's focus box over a photo drawn in `img` (View ▸ Show Focus Point): green corner
@@ -1024,6 +1038,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let eye_ahead = app.session.prep_settings().eye_ahead(prep_mode(app));
         let upcoming = ids.iter().position(|p| *p == id).map(|i| app.look_ahead.targets_n(&ids, i, eye_ahead, 0)).unwrap_or_default();
         crate::eye_strip::show(app, ui, canvas, id, &upcoming);
+    } else if wants_eyes(app, id) {
+        // Space zooms to the eyes without the strip: they are found quietly for this photo
+        crate::eye_strip::find_quietly(app, id);
     }
     // the line of a wipe over both
     if app.ui.before_after == BeforeAfter::Split {
@@ -3783,7 +3800,7 @@ fn film_label(name: &str) -> String {
     if name.chars().nth(14).is_some() { format!("{}…", name.chars().take(13).collect::<String>()) } else { name.to_string() }
 }
 
-/// Where the filmstrip is in the shoot: "1,234 / 2,233" at its right (with the selection's size).
+/// Where the filmstrip is in the shoot: "Photo 1,234 of 2,233 · 6 selected" at its right.
 fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[PhotoId], active: Option<PhotoId>) {
     let t = Tokens::get(ui.ctx());
     let n = ids.len();
@@ -3792,14 +3809,7 @@ fn film_overview(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect, ids: &[Pho
     }
     let p = ui.painter();
     let at = active.and_then(|a| ids.iter().position(|x| *x == a));
-    let mut text = match at {
-        Some(i) => format!("{} / {}", crate::i18n::group_digits(i + 1), crate::i18n::group_digits(n)),
-        None => crate::i18n::group_digits(n),
-    };
-    let sel = app.session.selection.ids.len();
-    if sel > 1 {
-        text.push_str(&crate::i18n::tr_format!(" · {n} selected", n = crate::i18n::group_digits(sel)));
-    }
+    let text = super::bottombar::position_text(at, n, app.session.selection.ids.len());
     let g = p.layout_no_wrap(text, t.semibold(11.5), Color32::WHITE);
     let pill = Rect::from_min_size(pos2(r.right() - g.size().x - 22.0, r.top() + 7.0), g.size() + vec2(14.0, 4.0));
     p.rect_filled(pill, 4.0, Color32::from_black_alpha(190));
@@ -3910,14 +3920,10 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let label = app.session.catalog.photo(*id).and_then(|ph| ph.label);
             let selected = state != lightcraft_engine::SelectionState::NotSelected;
             let flag = app.session.catalog.photo(*id).map(|ph| ph.flag).unwrap_or_default();
-            let base = if selected {
-                t.cell_selected
-            } else if resp.hovered() {
-                t.cell_selected.gamma_multiply(0.6)
-            } else {
-                super::grid::flag_tint(t.canvas, flag)
-            };
+            let base = super::grid::cell_fill(&t, state, flag, resp.hovered(), t.canvas);
             p.rect_filled(cr, 0.0, crate::theme::label_background(base, label, selected));
+            // the flag's glow behind the picture, never over it (note 53)
+            super::grid::flag_line(p, &t, cr, flag);
             let names = app.ui.settings.film_names;
             if let Some(ph) = app.session.catalog.photo(*id).filter(|_| names) {
                 let name = ph.file_name.rsplit_once('.').map(|(n, _)| n).unwrap_or(&ph.file_name);
@@ -3960,8 +3966,6 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     p.galley(pos2(br.min.x + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
                 }
             }
-            // the flag's glow over the picture's bottom, under the marks (a white pick flag stays readable)
-            super::grid::flag_line(p, &t, Rect::from_min_max(cr.min, pos2(cr.right(), cr.bottom() - strip)), flag);
             if under && let Some(ph) = app.session.catalog.photo(*id) {
                 let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
                 super::grid::paint_badges(p, &t, bar, ph, false);
@@ -3981,7 +3985,8 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     } else if m.shift {
                         "range"
                     } else {
-                        "replace"
+                        // inside the selection: the active photo changes, the set stays (note 19c)
+                        "click"
                     };
                     app.run("library.select", json!({"ids": [id.0], "mode": mode}))
                 };
@@ -4012,6 +4017,18 @@ fn film_badges(p: &egui::Painter, t: &Tokens, fr: Rect, ph: &lightcraft_catalog:
 #[cfg(test)]
 mod preview_geometry_tests {
     use super::{fit_rect, fit_texture_rect, label_badge_rect};
+
+    /// Space without a camera focus point zooms to the eyes; "eyes first" prefers them to the point.
+    #[test]
+    fn space_zooms_to_the_focus_point_or_the_eyes_as_chosen() {
+        use crate::state::SpaceZoom;
+        let (point, eye) = (Some((0.2, 0.3)), Some((0.6, 0.4)));
+        assert_eq!(super::space_target(SpaceZoom::FocusPoint, point, eye), point);
+        assert_eq!(super::space_target(SpaceZoom::FocusPoint, None, eye), eye, "no focus point: the eyes");
+        assert_eq!(super::space_target(SpaceZoom::Eye, point, eye), eye);
+        assert_eq!(super::space_target(SpaceZoom::Eye, point, None), point, "no face: the focus point");
+        assert_eq!(super::space_target(SpaceZoom::Eye, None, None), None);
+    }
     use crate::state::Zoom;
     use egui::{Rect, pos2, vec2};
 

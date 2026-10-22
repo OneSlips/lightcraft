@@ -313,6 +313,21 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, id: PhotoI
     }
 }
 
+/// Find the eyes of photo `id` in the background with the strip off (Space zooms to them:
+/// `panels::detail::focus_pan`). Nothing without the face model; never waited for.
+pub fn find_quietly(app: &mut LightcraftApp, id: PhotoId) {
+    let Some(model) = app.session.eye_model_dir() else { return };
+    let Some(job) = app.session.eye_job(id) else { return };
+    let key = job.key;
+    app.eye_strip.update(model, vec![job]);
+    // (a frame now and then picks up the result)
+    if app.eye_strip.shown(key) == Shown::Pending
+        && let Some(ctx) = app.tasks.repaint.as_ref()
+    {
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+}
+
 /// The "needs the model" strip, with its button.
 fn needs_model(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
     let t = Tokens::get(ui.ctx());

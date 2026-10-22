@@ -1077,10 +1077,23 @@ pub fn specs() -> Vec<CommandSpec> {
             "Auto Sync",
             ["Edit"],
             Some("Cmd+Alt+Shift+A"),
-            "{on?: bool} (toggles when omitted) — edits to the active photo also change the other selected photos (only the settings that changed; not spot removal / red eye) → {on}",
+            "{on?: bool} (toggles when omitted) — edits to the active photo also change the other selected photos (only the settings that changed; not spot removal / red eye). Remembered app-wide (the install's store), whichever library is open → {on}",
             always,
             |s, p| {
-                s.auto_sync = p.get("on").and_then(Value::as_bool).unwrap_or(!s.auto_sync);
+                let on = match p.get("on") {
+                    None | Some(Value::Null) => !s.auto_sync,
+                    Some(Value::Bool(on)) => *on,
+                    Some(_) => return Err(bad("develop.autoSync", "on must be true or false")),
+                };
+                if on != s.auto_sync {
+                    let was = s.auto_sync;
+                    s.auto_sync = on;
+                    if let Err(e) = s.save_prefs() {
+                        // not kept: not changed either, so asking again does what was asked
+                        s.auto_sync = was;
+                        return Err(e);
+                    }
+                }
                 Ok(json!({"on": s.auto_sync}))
             }
         ),

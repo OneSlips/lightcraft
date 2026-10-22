@@ -106,13 +106,37 @@ pub fn toast(app: &mut LightcraftApp, ctx: &egui::Context) {
     let wrap = (canvas.width() - 80.0).clamp(200.0, 720.0);
     let (background, foreground) = label.map(crate::theme::label_toast_colors).unwrap_or((egui::Color32::from_black_alpha(200), t.text));
     let foreground = foreground.gamma_multiply(fade);
+    // a button on the toast (Undo after a delete) while the history is as it was then
+    let action = app.ui.toast_action.clone().filter(|a| a.text == text && a.undo_len == app.session.undo.len());
+    let button = action.as_ref().map(|a| painter.layout_no_wrap(crate::i18n::tr(&a.label).to_string(), t.semibold(13.0), egui::Color32::WHITE));
+    let button_w = button.as_ref().map_or(0.0, |g| g.size().x + 28.0 + 12.0);
     let galley = painter.layout(text, t.font(14.0), foreground, wrap);
-    let size = vec2(galley.size().x + 40.0, (galley.size().y + 22.0).max(40.0));
+    let size = vec2(galley.size().x + 40.0 + button_w, (galley.size().y + 22.0).max(40.0));
     // a slideshow's playback controls sit at the bottom: the toast goes to the top there, clear of them
     let y = if app.ui.slideshow.is_some() { canvas.top() + 60.0 } else { canvas.bottom() - 60.0 };
     let r = Rect::from_center_size(pos2(canvas.center().x, y), size);
     painter.rect_filled(r, 6.0, background.gamma_multiply(fade));
-    painter.galley(r.center() - galley.size() / 2.0, galley, foreground);
+    let text_at = pos2(r.left() + 20.0, r.center().y - galley.size().y / 2.0);
+    painter.galley(text_at, galley, foreground);
+    if let (Some(a), Some(g)) = (action, button) {
+        let br = Rect::from_min_size(pos2(r.right() - button_w + 2.0, r.center().y - 14.0), vec2(button_w - 12.0, 28.0));
+        crate::widgets::register(ctx, "button:toastAction", br);
+        let resp = egui::Area::new(egui::Id::new("toast-action"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(br.min)
+            .show(ctx, |ui| ui.allocate_response(br.size(), egui::Sense::click()))
+            .inner;
+        let fill = if resp.hovered() { t.accent.gamma_multiply(1.15) } else { t.accent };
+        painter.rect_filled(br, 4.0, fill.gamma_multiply(fade));
+        painter.galley(br.center() - g.size() / 2.0, g, egui::Color32::WHITE);
+        if resp.clicked() {
+            app.ui.toast = None;
+            app.ui.toast_action = None;
+            if let Err(e) = app.run(&a.command, serde_json::json!({})) {
+                app.toast_error(ctx, e);
+            }
+        }
+    }
     ctx.request_repaint_after(std::time::Duration::from_millis(30));
 }
 
