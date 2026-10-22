@@ -447,5 +447,11 @@
   "Remove {n} Photos from Library": "{n} 枚の写真をライブラリから削除",
   "Profile: {} (lens database)": "プロファイル: {}（レンズデータベース）",
   "No lens profile found for {}.": "{} のレンズプロファイルが見つかりません。",
-  "{n} photos got their lens profile": "{n} 枚の写真にレンズプロファイルが適用されました"
+  "{n} photos got their lens profile": "{n} 枚の写真にレンズプロファイルが適用されました",
+  "about {n} min left": "残り約{n}分",
+  "about {h} h {m} min left": "残り約{h}時間{m}分",
+  "{n} done": "{n}件完了",
+  ", {n} failed": "、{n}件失敗",
+  "{n} failed": "{n}件失敗",
+  "Show each photo ({n})": "各写真を表示（{n}）"
 }

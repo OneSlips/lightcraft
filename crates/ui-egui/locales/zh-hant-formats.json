@@ -447,5 +447,11 @@
   "Remove {n} Photos from Library": "從圖庫中移除 {n} 張照片",
   "Profile: {} (lens database)": "設定檔：{}（鏡頭資料庫）",
   "No lens profile found for {}.": "找不到 {} 的鏡頭設定檔。",
-  "{n} photos got their lens profile": "{n} 張照片取得了鏡頭設定檔"
+  "{n} photos got their lens profile": "{n} 張照片取得了鏡頭設定檔",
+  "about {n} min left": "約剩 {n} 分鐘",
+  "about {h} h {m} min left": "約剩 {h} 小時 {m} 分鐘",
+  "{n} done": "完成 {n} 張",
+  ", {n} failed": "，失敗 {n} 張",
+  "{n} failed": "失敗 {n} 張",
+  "Show each photo ({n})": "顯示各張照片（{n}）"
 }

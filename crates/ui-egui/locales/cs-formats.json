@@ -447,5 +447,11 @@
   "Remove {n} Photos from Library": "Odebrat z knihovny fotografie: {n}",
   "Profile: {} (lens database)": "Profil: {} (databáze objektivů)",
   "No lens profile found for {}.": "Pro {} nebyl nalezen profil objektivu.",
-  "{n} photos got their lens profile": "Profil objektivu získaly fotky: {n}"
+  "{n} photos got their lens profile": "Profil objektivu získaly fotky: {n}",
+  "about {n} min left": "zbývá asi {n} min",
+  "about {h} h {m} min left": "zbývá asi {h} h {m} min",
+  "{n} done": "hotovo: {n}",
+  ", {n} failed": ", selhalo: {n}",
+  "{n} failed": "selhalo: {n}",
+  "Show each photo ({n})": "Zobrazit jednotlivé fotografie ({n})"
 }

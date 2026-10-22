@@ -405,7 +405,9 @@ impl Session {
             notes.insert(format!("Some masks are approximate until the {m} model is installed (Masking panel: Get the AI Model)"));
         }
         if background && !submitted.is_empty() {
-            let guard = self.activity.start("ai", "Updating AI masks", crate::activity::Cancel::Yes);
+            // one batch row (client note 34): masks done and failed, the time left; each photo the worker analyzes
+            // shows under it
+            let guard = self.activity.start_batch("ai", "Updating AI masks", crate::activity::Cancel::Yes);
             guard.progress(0, submitted.len() as u64);
             self.segmenter
                 .smart
@@ -599,6 +601,10 @@ impl Session {
                     SegMask::from_logits(1, &[if part == Part::Anchor { 8.0 } else { -8.0 }])
                 }
                 Err(e) => {
+                    if let Some(g) = self.segmenter.smart.batches.get(&batch).and_then(|b| b.guard.as_ref()) {
+                        let name = self.catalog.photo(photo).map_or("", |p| p.file_name.as_str());
+                        g.count_failed(&format!("{name}: {e}"));
+                    }
                     self.batch_note(batch, e, polled);
                     return false;
                 }
@@ -623,6 +629,12 @@ impl Session {
             self.close_batch(batch, polled);
         }
         changed
+    }
+
+    /// The activity row of recipe batch `batch`, if it has one (the worker's per-photo rows go under it).
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
+    pub(crate) fn smart_batch_row(&self, batch: u64) -> Option<u64> {
+        self.segmenter.smart.batches.get(&batch).and_then(|b| b.guard.as_ref()).map(|g| g.id())
     }
 
     /// Count a job of `batch` done; true when it was the last.

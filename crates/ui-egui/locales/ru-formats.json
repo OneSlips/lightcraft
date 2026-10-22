@@ -447,5 +447,11 @@
   "Remove {n} Photos from Library": "Удалить из библиотеки фото: {n}",
   "Profile: {} (lens database)": "Профиль: {} (база объективов)",
   "No lens profile found for {}.": "Профиль объектива для {} не найден.",
-  "{n} photos got their lens profile": "Профиль объектива получили фото: {n}"
+  "{n} photos got their lens profile": "Профиль объектива получили фото: {n}",
+  "about {n} min left": "осталось около {n} мин",
+  "about {h} h {m} min left": "осталось около {h} ч {m} мин",
+  "{n} done": "готово: {n}",
+  ", {n} failed": ", с ошибкой: {n}",
+  "{n} failed": "с ошибкой: {n}",
+  "Show each photo ({n})": "Показать отдельные фото ({n})"
 }

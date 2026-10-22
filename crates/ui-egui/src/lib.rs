@@ -623,6 +623,10 @@ pub struct LightcraftApp {
     pub library_problem: Option<panels::library_problem::LibraryProblem>,
     /// The activity stack shows every task, not just the first few ("+N more" was clicked).
     pub activity_expanded: bool,
+    /// Batches in the activity stack whose per-photo rows are shown (client note 34).
+    pub activity_open: std::collections::HashSet<u64>,
+    /// The last batch summary said (`Activity::finished` → `seq`): each is said once.
+    pub activity_seen_seq: u64,
     /// Control surfaces: their engine, pairing and subscribers (`surface`).
     pub surface: surface::SurfaceHost,
 }
@@ -721,6 +725,8 @@ impl LightcraftApp {
             screen_profile_read: None,
             library_problem: None,
             activity_expanded: false,
+            activity_open: Default::default(),
+            activity_seen_seq: 0,
             surface: Default::default(),
             model_setup: Default::default(),
         }

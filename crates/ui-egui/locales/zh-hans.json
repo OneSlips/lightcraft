@@ -3083,5 +3083,12 @@
   "Upgrade Library": "升级图库",
   "Open the Upgraded Copy": "打开升级后的副本",
   "Make Upgraded Copy and Open": "创建升级副本并打开",
-  "Your library needs an upgrade": "您的图库需要升级"
+  "Your library needs an upgrade": "您的图库需要升级",
+  "less than a minute left": "剩余不到一分钟",
+  "cancelled": "已取消",
+  "Hide each photo": "隐藏各张照片",
+  "AI Denoise from": "AI 降噪起始 ISO",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "以此 ISO 或更高拍摄的新 RAW 照片会开启 AI 降噪，导入后在后台生成降噪后的图像。需要降噪模型（设置，AI 降噪）。",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "照片和预览保存在内存中，返回查看的照片可立即显示。自动使用本机内存的四分之一，最多 16 GB。大型拍摄可选择更多，但请为其他应用留出空间。",
+  "Finding skin and faces to retouch": "正在查找要修饰的皮肤和面部"
 }

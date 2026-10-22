@@ -330,6 +330,13 @@ pub struct Segmenter {
     /// Photos whose retouch waits for the face models, which it is downloading by itself (zero setup: the user's
     /// decision, 2026-10-17); asked again once they are installed.
     pub(crate) retouch_waiting: Vec<PhotoId>,
+    /// Smooth Skin, Find Blemishes and Retouch requests in flight share one batch row in the
+    /// activity stack (client note 34): photos done and failed, the time left, each photo's
+    /// analysis under it. Gone when none is left.
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
+    pub(crate) retouch_row: Option<crate::activity::TaskGuard>,
+    #[cfg_attr(not(feature = "sam"), allow(dead_code))]
+    pub(crate) retouch_inflight: usize,
     /// The face model's companions (the small-face detector) were looked for this session.
     #[cfg_attr(not(feature = "sam"), allow(dead_code))]
     pub(crate) face_checked: bool,
@@ -365,6 +372,8 @@ impl Default for Segmenter {
             retouch_pending: Vec::new(),
             retouch_failed: Vec::new(),
             retouch_waiting: Vec::new(),
+            retouch_row: None,
+            retouch_inflight: 0,
             face_checked: false,
             #[cfg(feature = "sam")]
             worker: worker::Worker::default(),
@@ -852,6 +861,7 @@ impl Session {
             reply,
             activity: Some(self.activity.clone()),
             batch: None,
+            parent: None,
         })
     }
 
@@ -867,6 +877,7 @@ impl Session {
         let reply = self.segmenter.results.0.clone();
         let mut job = self.segment_job(id, kind, tag, reply, None)?;
         job.batch = Some((batch, self.segmenter.smart.cancelled.clone()));
+        job.parent = self.smart_batch_row(batch);
         self.segmenter.worker.submit(job)
     }
 
@@ -911,8 +922,47 @@ impl Session {
     #[cfg(feature = "sam")]
     fn segment_queue(&mut self, id: PhotoId, kind: worker::Kind, tag: Tag, region: Option<[f64; 4]>) -> Result<(), String> {
         let reply = self.segmenter.results.0.clone();
-        let job = self.segment_job(id, kind, tag, reply, region)?;
-        self.segmenter.worker.submit(job)
+        let retouch = matches!(tag, Tag::Skin { .. } | Tag::Retouch { .. });
+        let mut job = self.segment_job(id, kind, tag, reply, region)?;
+        if retouch {
+            let row = self
+                .segmenter
+                .retouch_row
+                .get_or_insert_with(|| self.activity.start_batch("retouch", "Finding skin and faces to retouch", crate::activity::Cancel::No));
+            job.parent = Some(row.id());
+        }
+        self.segmenter.worker.submit(job)?;
+        if retouch {
+            self.segmenter.retouch_inflight += 1;
+            self.retouch_row_progress();
+        }
+        Ok(())
+    }
+
+    /// The retouch batch row's count: photos done, and those still in flight.
+    #[cfg(feature = "sam")]
+    fn retouch_row_progress(&mut self) {
+        let left = self.segmenter.retouch_inflight as u64;
+        match &self.segmenter.retouch_row {
+            Some(row) if left > 0 => row.progress(row.done(), row.done().saturating_add(left)),
+            _ => self.segmenter.retouch_row = None,
+        }
+    }
+
+    /// A Smooth Skin, Find Blemishes or Retouch request came back (`failed`: why it failed).
+    #[cfg(feature = "sam")]
+    fn retouch_row_finished(&mut self, photo: PhotoId, failed: Option<&str>) {
+        self.segmenter.retouch_inflight = self.segmenter.retouch_inflight.saturating_sub(1);
+        if let Some(row) = &self.segmenter.retouch_row {
+            match failed {
+                Some(why) => {
+                    let name = self.catalog.photo(photo).map_or("", |p| p.file_name.as_str());
+                    row.item_failed(&format!("{name}: {why}"));
+                }
+                None => row.item_done(),
+            }
+        }
+        self.retouch_row_progress();
     }
 
     /// Start preparing photo `id` for AI masks (load the model, encode the image), so the first
@@ -1116,9 +1166,12 @@ impl Session {
             for o in done {
                 self.apply_outcome(o, &mut polled);
             }
-            // clicks whose request was lost (the worker restarted) aren't pending forever
+            // clicks whose request was lost (the worker restarted) aren't pending forever, nor is the
+            // retouch batch row
             if idle {
                 self.segmenter.pending = None;
+                self.segmenter.retouch_inflight = 0;
+                self.segmenter.retouch_row = None;
             }
             self.poll_face_models(&mut polled);
         }
@@ -1158,6 +1211,11 @@ impl Session {
 
     #[cfg(feature = "sam")]
     fn apply_outcome(&mut self, o: worker::Outcome, polled: &mut Polled) {
+        match &o.tag {
+            Tag::Skin { key, .. } => self.retouch_row_finished(key.photo, o.result.as_ref().err().map(String::as_str)),
+            Tag::Retouch { key } => self.retouch_row_finished(key.photo, o.result.as_ref().err().map(String::as_str)),
+            _ => {}
+        }
         if matches!(o.tag, Tag::Recipe { .. }) {
             self.apply_recipe_outcome(o, polled);
             return;

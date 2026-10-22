@@ -3234,5 +3234,12 @@
   "Upgrade Library": "Обновить библиотеку",
   "Open the Upgraded Copy": "Открыть обновлённую копию",
   "Make Upgraded Copy and Open": "Создать обновлённую копию и открыть",
-  "Your library needs an upgrade": "Библиотеку нужно обновить"
+  "Your library needs an upgrade": "Библиотеку нужно обновить",
+  "less than a minute left": "осталось меньше минуты",
+  "cancelled": "отменено",
+  "Hide each photo": "Скрыть отдельные фото",
+  "AI Denoise from": "ИИ-шумоподавление от",
+  "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Новые raw-фото, снятые с этим ISO или выше, получают включённое ИИ-шумоподавление, а их очищенные изображения создаются в фоне после импорта. Нужна модель шумоподавления (Настройки, ИИ-шумоподавление).",
+  "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Фото и превью хранятся в памяти, чтобы фото, к которым вы возвращаетесь, появлялись сразу. «Автоматически» использует четверть памяти этого компьютера, до 16 ГБ. Для больших съёмок выберите больше, но оставьте немного другим приложениям.",
+  "Finding skin and faces to retouch": "Поиск кожи и лиц для ретуши"
 }

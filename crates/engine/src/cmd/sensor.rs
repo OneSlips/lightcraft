@@ -57,11 +57,14 @@ impl SensorJob {
         })
     }
 
-    fn fail(&self, id: PhotoId, why: impl Into<String>) {
+    /// Photo `id` failed: kept for `camera.pixelMap.status` and counted on the batch row (its `step` follows).
+    fn fail(&self, task: &TaskGuard, id: PhotoId, why: impl Into<String>) {
+        let why = why.into();
         self.failed.fetch_add(1, Ordering::Relaxed);
+        task.count_failed(&why);
         let mut e = self.errors.lock().unwrap_or_else(PoisonError::into_inner);
         if e.len() < 200 {
-            e.push(json!([id.0, why.into()]));
+            e.push(json!([id.0, why]));
         }
     }
 
@@ -181,7 +184,8 @@ fn start(
         return Err(bad(c, "a camera sensor map build or Remove Dust is already running"));
     }
     s.sensor_job = Some(job.clone());
-    let task = s.activity.start("sensorMaps", label, Cancel::Flag(job.cancel.clone()));
+    // one batch row (client note 34): photos done and failed, the time left, a summary at the end
+    let task = s.activity.start_batch("sensorMaps", label, Cancel::Flag(job.cancel.clone()));
     task.progress(0, job.total as u64);
     let body = move |job: Arc<SensorJob>, task: TaskGuard| {
         let r = crate::guard::catch("camera sensor maps", || run(&job, &task));
@@ -238,7 +242,7 @@ fn pixel_build(s: &mut Session, p: &Value, rebuild: bool) -> Result<Value> {
                     job.bodies.lock().unwrap_or_else(PoisonError::into_inner).insert(body);
                 }
                 Ok(None) => {}
-                Err(e) => job.fail(id, e),
+                Err(e) => job.fail(task, id, e),
             }
             job.step(task);
         });
@@ -347,7 +351,7 @@ fn remove_dust_batch(s: &mut Session, p: &Value, ids: Vec<PhotoId>) -> Result<Va
                     }
                     job.pending.lock().unwrap_or_else(PoisonError::into_inner).push((id, dust));
                 }
-                Err(e) => job.fail(id, e),
+                Err(e) => job.fail(task, id, e),
             }
             job.step(task);
         }
@@ -684,7 +688,7 @@ fn dust_rebuild(s: &mut Session, p: &Value, rebuild: bool) -> Result<Value> {
                     }
                 }
                 Ok(_) => {}
-                Err(e) => job.fail(id, e),
+                Err(e) => job.fail(task, id, e),
             }
             job.step(task);
         }

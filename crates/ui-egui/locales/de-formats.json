@@ -447,5 +447,11 @@
   "Remove {n} Photos from Library": "{n} Fotos aus der Bibliothek entfernen",
   "Profile: {} (lens database)": "Profil: {} (Objektivdatenbank)",
   "No lens profile found for {}.": "Kein Objektivprofil für {} gefunden.",
-  "{n} photos got their lens profile": "{n} Fotos haben ihr Objektivprofil erhalten"
+  "{n} photos got their lens profile": "{n} Fotos haben ihr Objektivprofil erhalten",
+  "about {n} min left": "noch etwa {n} Min.",
+  "about {h} h {m} min left": "noch etwa {h} Std. {m} Min.",
+  "{n} done": "{n} fertig",
+  ", {n} failed": ", {n} fehlgeschlagen",
+  "{n} failed": "{n} fehlgeschlagen",
+  "Show each photo ({n})": "Einzelne Fotos zeigen ({n})"
 }
