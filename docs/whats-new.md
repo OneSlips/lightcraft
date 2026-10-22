@@ -2,6 +2,10 @@
 
 ## 2026-10-22
 
+### Export
+- **A name typed in Save preset is saved when you press Export**, with a note saying so; the small Save button
+  is no longer needed.
+
 ### Masking
 - **Remembered objects ("Wedding dress") work in every library**, like presets: they are kept with LightCraft's
   settings instead of one library. Objects a library remembered before are added once, the first time it is open.
@@ -45,6 +49,7 @@
   Nothing about them changed but the name; agents keep using the `album.*` commands.
 
 ### Presets
+- **Create Camera Profile from Color Chart remembers each photo's light and the look** you chose last time.
 - **New Preset, Copy Settings, Paste Selected and Sync Settings pick single settings**, as in Lightroom: open a group
   with its arrow to tick Exposure but not Contrast, Sharpening but not Noise Reduction, the camera profile but not the
   Calibration sliders. A group with only some settings ticked shows a dash.

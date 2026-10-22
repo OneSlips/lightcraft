@@ -1155,9 +1155,14 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                                     Err(e) => app.toast(ui.ctx(), e),
                                 }
                             }
-                            crate::widgets::named(ui.add(egui::TextEdit::singleline(preset_name).hint_text(crate::i18n::tr("Preset name")).desired_width(ui.available_width())), crate::i18n::tr("Preset name"));
+                            let w = ui.available_width();
+                            crate::text_field::TextField::singleline("field:exportPresetName", preset_name).hint(crate::i18n::tr("Preset name")).label(crate::i18n::tr("Preset name")).width(w).show(ui);
                         });
                     });
+                    if !preset_name.trim().is_empty() {
+                        // (client note 42: the small Save button was easy to miss)
+                        ui.label(egui::RichText::new(crate::i18n::tr("Export saves this preset too.")).small().color(t.text_dim));
+                    }
                 }
                 Dialog::Merge { opts } => crate::merge::body(app, ui, opts),
                 Dialog::ChartProfile { opts } => crate::chart_profile::body(app, ui, opts),
@@ -2184,7 +2189,18 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::Print => app.run("app.print", json!({})),
         Dialog::CopySettings { groups } => app.run("develop.copy", pick_params(groups)),
         Dialog::PasteSettings { groups } => app.run("develop.paste", pick_params(groups)),
-        Dialog::Export { opts, full_size, resize, limit_kb, dir, .. } => {
+        Dialog::Export { opts, full_size, resize, limit_kb, dir, preset_name } => {
+            // a name typed in "Save preset" is saved by Export too (client note 42)
+            if !preset_name.trim().is_empty() {
+                let params = export_dialog_params(opts, *full_size, resize, *limit_kb);
+                let saved = app.run("export.savePreset", json!({"name": preset_name.trim(), "params": params}));
+                if let Some(ctx) = app.tasks.repaint.clone() {
+                    match saved {
+                        Ok(_) => app.toast(&ctx, crate::i18n::tr_format!("Saved export preset “{}”", preset_name.trim())),
+                        Err(e) => app.toast(&ctx, e),
+                    }
+                }
+            }
             let mut p = export_dialog_params(opts, *full_size, resize, *limit_kb);
             p["dir"] = json!(dir);
             p["background"] = json!(true);
