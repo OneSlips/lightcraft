@@ -531,6 +531,10 @@ pub struct LightcraftApp {
     pub recent_checks: panels::library_problem::RecentChecks,
     /// The activity stack shows every task, not just the first few ("+N more" was clicked).
     pub activity_expanded: bool,
+    /// Batches in the activity stack whose per-photo rows are shown.
+    pub activity_open: std::collections::HashSet<u64>,
+    /// The last batch summary said (`Activity::finished` → `seq`): each is said once.
+    pub activity_seen_seq: u64,
 }
 
 impl LightcraftApp {
@@ -614,6 +618,8 @@ impl LightcraftApp {
             alt_asks_for_library: false,
             recent_checks: Default::default(),
             activity_expanded: false,
+            activity_open: Default::default(),
+            activity_seen_seq: 0,
             model_setup: Default::default(),
         }
     }

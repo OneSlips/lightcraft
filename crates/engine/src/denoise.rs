@@ -1082,8 +1082,14 @@ pub(crate) struct State {
     pub generation: u64,
     /// Photos made since the session started.
     made: u64,
-    /// AI Denoise's row in the activity stack, while a photo is being made or waits its turn.
+    /// AI Denoise's batch row in the activity stack, while a photo is being made or waits its
+    /// turn: the photos done and failed since the queue was last idle, and the time left.
     task: Option<crate::activity::TaskGuard>,
+    /// The running photo's row under it (its tiles).
+    photo_task: Option<crate::activity::TaskGuard>,
+    /// Photos whose batch was cancelled (the row's cancel): looking at them doesn't queue them again; asking for them
+    /// does (the switch, `denoise.queue`, an export).
+    held: HashSet<PhotoId>,
 }
 
 impl Default for State {
@@ -1104,6 +1110,8 @@ impl Default for State {
             generation: 0,
             made: 0,
             task: None,
+            photo_task: None,
+            held: HashSet::new(),
         }
     }
 }
@@ -1125,6 +1133,7 @@ impl State {
         }
         self.queue.clear();
         self.failed.clear();
+        self.held.clear();
         self.dirty = true;
         self.generation += 1;
     }
@@ -1330,6 +1339,13 @@ impl Session {
         added
     }
 
+    /// Photos asked for again (the switch, `denoise.queue`): a cancelled batch no longer holds them back.
+    pub(crate) fn denoise_release(&mut self, ids: &[PhotoId]) {
+        for id in ids {
+            self.denoise.held.remove(id);
+        }
+    }
+
     /// Stop the job that is running, and with `all` forget everything that waits.
     pub(crate) fn denoise_cancel(&mut self, photo: Option<PhotoId>, all: bool) -> usize {
         let mut n = 0;
@@ -1423,13 +1439,21 @@ impl Session {
         let Some(r) = &self.denoise.running else { return };
         let Some(outcome) = r.outcome.lock().unwrap_or_else(PoisonError::into_inner).take() else { return };
         let Some(r) = self.denoise.running.take() else { return };
+        self.denoise.photo_task = None;
         match outcome {
             Outcome::Done => {
                 self.denoise.made += 1;
+                if let Some(t) = &self.denoise.task {
+                    t.item_done();
+                }
                 self.denoise_check_photo(r.photo);
                 self.denoise_evict(Some(&r.product));
             }
             Outcome::Failed(why, unsupported) => {
+                if let Some(t) = &self.denoise.task {
+                    let name = self.catalog.photo(r.photo).map_or("", |p| p.file_name.as_str());
+                    t.item_failed(&format!("{name}: {why}"));
+                }
                 self.denoise.failed.insert(r.photo, Failure { key: r.key, why, unsupported });
             }
             Outcome::Cancelled => {}
@@ -1526,8 +1550,9 @@ impl Session {
             self.denoise_check_photo(*id);
         }
         if auto {
-            // the photo being edited goes first
-            let (open, others): (Vec<PhotoId>, Vec<PhotoId>) = wanted.into_iter().partition(|id| self.selection.active == Some(*id));
+            // the photo being edited goes first; photos whose batch was cancelled wait until asked for
+            let (open, others): (Vec<PhotoId>, Vec<PhotoId>) =
+                wanted.into_iter().filter(|id| !self.denoise.held.contains(id)).partition(|id| self.selection.active == Some(*id));
             self.denoise_enqueue(&others, false, false);
             self.denoise_enqueue(&open, true, false);
         }
@@ -1558,26 +1583,44 @@ impl Session {
         self.denoise.running.is_some() || (!self.denoise.queue.is_empty() && self.denoise.active.is_some())
     }
 
-    /// Keep AI Denoise's row in the activity stack up to date (each `denoise.pump`): there while a photo is being made or
-    /// waits its turn, with the running photo's tiles and its file name; gone when the queue is idle. It has no ✕: what is
-    /// made follows the photos' Denoise amounts and Settings ▸ AI Denoise.
+    /// Keep AI Denoise's rows in the activity stack up to date (each `denoise.pump`). One batch row while a photo is
+    /// being made or waits its turn: "AI Denoise: 37 of 200 · about 6 min left", the photos counted
+    /// since the queue was last idle, failures counted and named in its summary. Under it, the running photo's row with
+    /// its tiles. Gone when the queue is idle. ✕ forgets the photos waiting and stops the one being made (they are made
+    /// again when wanted: shown, exported, or queued by hand).
     pub(crate) fn denoise_track(&mut self) {
         if !self.denoise_busy() {
+            self.denoise.photo_task = None;
             self.denoise.task = None;
             return;
         }
-        let task = self.denoise.task.get_or_insert_with(|| {
-            let t = self.activity.start("denoise", "AI Denoise", crate::activity::Cancel::No);
-            t.set_unit(crate::activity::Unit::Percent);
-            t
-        });
+        if self.denoise.task.as_ref().is_some_and(|t| t.is_cancelled()) {
+            // what was waiting stays put until asked for again (not re-queued by looking at it)
+            let held: Vec<PhotoId> = self.denoise.queue.iter().copied().chain(self.denoise.running.as_ref().map(|r| r.photo)).collect();
+            self.denoise.held.extend(held);
+            self.denoise_cancel(None, true);
+            self.denoise.photo_task = None;
+            self.denoise.task = None;
+            return;
+        }
+        let task = self.denoise.task.get_or_insert_with(|| self.activity.start_batch("denoise", "AI Denoise", crate::activity::Cancel::Yes));
+        let left = self.denoise.queue.len() as u64 + u64::from(self.denoise.running.is_some());
+        let done = task.done();
+        task.progress(done, done.saturating_add(left));
         match &self.denoise.running {
             Some(r) => {
-                task.progress(r.progress.done.load(Ordering::Relaxed) as u64, r.progress.total.load(Ordering::Relaxed) as u64);
-                task.detail(self.catalog.photo(r.photo).map_or("", |p| p.file_name.as_str()));
+                let name = self.catalog.photo(r.photo).map_or("", |p| p.file_name.as_str());
+                task.detail(name);
+                let child = self.denoise.photo_task.get_or_insert_with(|| {
+                    let t = task.child("denoise", "AI Denoise");
+                    t.set_unit(crate::activity::Unit::Percent);
+                    t
+                });
+                child.progress(r.progress.done.load(Ordering::Relaxed) as u64, r.progress.total.load(Ordering::Relaxed) as u64);
+                child.detail(name);
             }
             None => {
-                task.progress(0, 0);
+                self.denoise.photo_task = None;
                 task.detail("");
             }
         }

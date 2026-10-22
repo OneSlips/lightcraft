@@ -2,9 +2,17 @@
 
 Edit ▸ Detail ▸ **AI Denoise** is a per-photo switch above **Amount** (0–100).
 Turning it on starts at 50, or preserves an already positive Amount. Turning it off
-preserves Amount and mixes none of the cleaned picture. It affects only the requesting
-photo, independently of Auto Sync, and is undoable. Manual luminance and colour noise
-reduction remain separate controls.
+preserves Amount and mixes none of the cleaned picture. Like the sliders, it follows
+Auto Sync: with Auto Sync on, every selected raw photo switches with
+the active one, in one undo step, and their pictures are made in the background under
+one row in the activity stack ("AI Denoise · 37 of 200 · about 6 min left"; ✕ stops the
+batch, and its photos wait until they are asked for again). Agents pass `ids` to switch
+exactly those photos. Manual luminance and colour noise reduction remain separate
+controls.
+
+**At import:** Settings ▸ Import ▸ **AI Denoise from** (Off, ISO 800 … 12800;
+`library.preferences {import: {denoiseAboveIso}}`) switches AI Denoise on for new raw
+photos shot at that ISO or above, and queues their pictures after the import.
 
 If no model is selected, turning it on opens **Settings ▸ AI Denoise** without changing
 the photo. After installation, the pending request enables the original photo even if
