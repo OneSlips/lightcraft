@@ -27,6 +27,8 @@ pub struct GenfillUi {
     pub preview: Option<(u64, egui::TextureHandle, [usize; 2])>,
     /// `genfill.providers`, and when it was read ([`providers`]).
     pub providers: Option<(std::time::Instant, Vec<Value>)>,
+    /// `genfill.results` of a photo, when it was read and for what ([`not_on_photo`]).
+    pub results: Option<(std::time::Instant, u64, Vec<Value>)>,
 }
 
 // (no derived Debug: a key being typed must never end up in a debug dump)
@@ -48,6 +50,78 @@ fn providers(app: &mut LightcraftApp) -> Vec<Value> {
         app.session.execute("genfill.providers", &json!({})).ok().and_then(|v| v["providers"].as_array().cloned()).unwrap_or_default();
     app.ui.genfill.providers = Some((std::time::Instant::now(), list.clone()));
     list
+}
+
+/// The generated fills in the library for `photo` that no spot keeps (each one paid for). Reading them lists a
+/// folder, so the panel keeps the answer for a couple of seconds.
+fn not_on_photo(app: &mut LightcraftApp, photo: lightcraft_catalog::PhotoId) -> Vec<Value> {
+    let fresh = |at: &std::time::Instant| at.elapsed() < std::time::Duration::from_secs(2);
+    // read again at once when the photo or its spots' fills change
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        photo.0.hash(&mut h);
+        for sp in app.session.develop_of(photo).map(|d| d.spots.clone()).unwrap_or_default() {
+            sp.generated.map(|g| g.generations().into_iter().map(|g| g.id).collect::<Vec<_>>()).hash(&mut h);
+        }
+        h.finish()
+    };
+    let list = match &app.ui.genfill.results {
+        Some((at, k, list)) if *k == key && fresh(at) => list.clone(),
+        _ => {
+            let list: Vec<Value> =
+                app.session.execute("genfill.results", &json!({})).ok().and_then(|v| v["results"].as_array().cloned()).unwrap_or_default();
+            app.ui.genfill.results = Some((std::time::Instant::now(), key, list.clone()));
+            list
+        }
+    };
+    list.into_iter().filter(|r| r["spot"].is_null()).collect()
+}
+
+/// "5 min ago", "3 h ago", "2 days ago" for a time in seconds since 1970.
+fn ago(made: u64) -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let s = now.saturating_sub(made);
+    match s {
+        0..120 => crate::i18n::tr("just now").to_string(),
+        120..7200 => format!("{} {}", s / 60, crate::i18n::tr("min ago")),
+        7200..172_800 => format!("{} {}", s / 3600, crate::i18n::tr("h ago")),
+        _ => format!("{} {}", s / 86_400, crate::i18n::tr("days ago")),
+    }
+}
+
+/// Fills generated for this photo that are not on it any more (their spot was deleted, or they were made before
+/// spots kept every generation): each one can be put back. Paid results are never thrown away.
+fn earlier_fills(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
+    let Some(photo) = app.session.active() else { return };
+    let list = not_on_photo(app, photo);
+    if list.is_empty() {
+        return;
+    }
+    ui.add_space(4.0);
+    ui.label(
+        RichText::new(format!("{} {}", crate::i18n::tr("Fills made earlier for this photo, not on it now:"), list.len()))
+            .size(11.0)
+            .color(t.text_label),
+    );
+    for r in list.iter().take(6) {
+        let id = r["id"].as_str().unwrap_or_default().to_string();
+        let what = match r["prompt"].as_str().filter(|p| !p.is_empty()) {
+            Some(p) => p.chars().take(28).collect::<String>(),
+            None => crate::i18n::tr("Remove").to_string(),
+        };
+        let service = providers(app).iter().find(|p| p["id"] == r["provider"]).map(short_name).unwrap_or_default();
+        let line = [ago(r["made"].as_u64().unwrap_or(0)), what, service].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · ");
+        ui.horizontal(|ui| {
+            if text_button(ui, &format!("genfillRestore-{id}"), crate::i18n::tr("Restore"), false).clicked() {
+                match app.run("spot.restoreGenerated", json!({"id": id})) {
+                    Ok(_) => app.ui.genfill.results = None,
+                    Err(e) => app.toast_error(ui.ctx(), e.to_string()),
+                }
+            }
+            ui.add(egui::Label::new(RichText::new(line).size(11.0).color(t.text_dim)).truncate());
+        });
+    }
 }
 
 /// The provider's short name ("OpenAI" of "OpenAI (GPT Image)").
@@ -138,6 +212,7 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
             .color(t.text_dim),
         );
         error_box(app, ui, &t, None);
+        earlier_fills(app, ui, &t);
         return;
     };
     let Some(photo) = app.session.active() else { return };
@@ -225,12 +300,14 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
     }
     // the variations of a generated spot, and what to know about it
     if let Some(g) = &sp.generated {
-        if g.variants > 1 {
+        // every result of every generation (Generate Again keeps the earlier, paid ones)
+        let (results, result) = g.results();
+        if results > 1 {
             ui.horizontal(|ui| {
                 if text_button(ui, "genfillPrev", "‹", false).clicked() {
                     let _ = app.run("spot.variation", json!({"index": index, "delta": -1}));
                 }
-                ui.label(RichText::new(crate::i18n::tr_format!("Variation {} of {}", g.variant + 1, g.variants)).color(t.text_label));
+                ui.label(RichText::new(crate::i18n::tr_format!("Variation {} of {}", result + 1, results)).color(t.text_label));
                 if text_button(ui, "genfillNext", "›", false).clicked() {
                     let _ = app.run("spot.variation", json!({"index": index, "delta": 1}));
                 }
@@ -239,11 +316,16 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
         if sp.shown_gen().is_none() {
             ui.label(
                 RichText::new(crate::i18n::tr(
-                    "The spot was moved or resized since it was generated: the photo shows through until you generate it again.",
+                    "The spot was moved or resized since it was generated, so its fill is hidden. Put Back shows it again.",
                 ))
                 .size(11.0)
                 .color(t.caution),
             );
+            if text_button(ui, "genfillPutBack", crate::i18n::tr("Put Back"), false).clicked()
+                && let Err(e) = app.run("spot.putBack", json!({"index": index}))
+            {
+                app.toast_error(ui.ctx(), e.to_string());
+            }
         } else if app.session.genfill_missing(photo, index) {
             ui.label(
                 RichText::new(crate::i18n::tr(
@@ -263,6 +345,7 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
             );
         }
     }
+    earlier_fills(app, ui, &t);
 }
 
 /// A failed generation: what went wrong, Retry (for spot `retry`) and Dismiss. It stays until
