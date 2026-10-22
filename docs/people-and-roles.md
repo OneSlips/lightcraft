@@ -139,10 +139,14 @@ Commands: `concepts.list`, `concepts.teach {name, id?, mask?}`, `concepts.rename
 
 ## Where the data is kept, and deleting it (privacy, GDPR)
 
-All of it stays in your library folder, on your computer:
+All of it stays on your computer:
 
-- `people.json` holds roles and appearance signatures (up to 64 faces per person);
-- `concepts.json` holds remembered objects;
+- `people.json` in the library folder holds roles and appearance signatures (up to 64 faces per person);
+- `concepts.json` in LightCraft's settings folder (`Library Store`) holds remembered objects: they
+  are yours, like presets, so "Wedding dress" works in every library. A library's own
+  `concepts.json` from an older build is added to it once, the first time the library is open, and
+  left as it was; a library that keeps its own presets ("Store with this library") keeps its own
+  remembered objects too;
 - face names stay on the photos' Face regions.
 
 Nothing is uploaded, nothing is written into sidecars, XMP or exported files, and nothing is

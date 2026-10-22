@@ -161,3 +161,41 @@ fn the_shared_preset_picker_searches_and_picks() {
     let p = h.app.session.presets.iter().find(|p| p.id == "user.m1").unwrap().clone();
     assert!(h.app.session.preset_for_import(&p));
 }
+
+fn wrect(h: &mut Headless, id: &str) -> egui::Rect {
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("no widget {id}"))
+}
+
+/// Client note 9: Ctrl-click two presets and drag them onto another group's header: they move into
+/// it; drag a preset onto another's lower half: it goes after it.
+#[test]
+fn presets_are_dragged_into_groups_and_places() {
+    let mut h = app(42);
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "presets".into() });
+    h.step();
+    h.step();
+    // Collection 0 holds m0 and m400 after the fold opens; Collection 1 holds m1 and m41
+    click(&mut h, "icon:presetGroupFold:Collection 0");
+    click(&mut h, "icon:presetGroupFold:Collection 1");
+    let a = wrect(&mut h, "presetRow:user.m0").center();
+    h.request("ui.click", json!({"x": a.x, "y": a.y}), T);
+    h.step();
+    let b = wrect(&mut h, "presetRow:user.m40").center();
+    h.request("ui.click", json!({"x": b.x, "y": b.y, "cmd": true}), T);
+    h.step();
+    let to = wrect(&mut h, "presetGroupHead:Collection 10").center();
+    let r = h.request("ui.drag", json!({"x": a.x, "y": a.y, "toX": to.x, "toY": to.y, "steps": 12}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    let group = |h: &Headless, id: &str| h.app.session.presets.iter().find(|p| p.id == id).unwrap().group.clone();
+    assert_eq!(group(&h, "user.m0"), "Collection 10");
+    assert_eq!(group(&h, "user.m40"), "Collection 10");
+    // m41 dropped on m1's lower half: after it, in Collection 1
+    let from = wrect(&mut h, "presetRow:user.m41").center();
+    let m1 = wrect(&mut h, "presetRow:user.m1");
+    h.request("ui.drag", json!({"x": from.x, "y": from.y, "toX": m1.center().x, "toY": m1.bottom() - 4.0, "steps": 12}), T);
+    h.step();
+    let order: Vec<&str> = h.app.session.presets.iter().filter(|p| p.group == "Collection 1").map(|p| p.id.as_str()).collect();
+    assert_eq!(order, vec!["user.m1", "user.m41"]);
+}

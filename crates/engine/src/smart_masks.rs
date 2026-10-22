@@ -62,8 +62,9 @@ pub struct SmartState {
     batches: HashMap<u64, Batch>,
     /// Batches cancelled (the worker skips their queued jobs).
     pub(crate) cancelled: Arc<Mutex<HashSet<u64>>>,
-    /// The library the stores were loaded from (`Some(None)`: none, in memory).
-    loaded_for: Option<Option<std::path::PathBuf>>,
+    /// The library the stores were loaded from (`None` inside: no library, in memory), and whether
+    /// the remembered objects came from the app store.
+    loaded_for: Option<(Option<std::path::PathBuf>, bool)>,
     people: PeopleStore,
     concepts: ConceptStore,
     /// Faces found per photo (`people.faces`): the photo's segment key and the faces.
@@ -164,19 +165,36 @@ impl Session {
         PhotoContext { id: id.0, folder, albums: self.catalog.albums_of(id).into_iter().map(|a| a.0).collect(), date: p.date().to_string() }
     }
 
-    /// Load the stores for the open library (once per library).
+    /// Load the stores for the open library (once per library). People stay with the library; the
+    /// remembered objects live in the app store when there is one (they are the photographer's,
+    /// like presets: "Wedding dress" in every library), the library's own `concepts.json` merged into
+    /// it once (`merge_library_concepts`).
     fn smart_load(&mut self) {
         let dir = self.library.as_ref().map(|l| l.dir.clone());
-        if self.segmenter.smart.loaded_for.as_ref() == Some(&dir) {
+        let shared = self.uses_app_store();
+        let key = (dir, shared);
+        if self.segmenter.smart.loaded_for.as_ref() == Some(&key) {
             return;
         }
         let st = &mut self.segmenter.smart;
-        st.loaded_for = Some(dir);
+        st.loaded_for = Some(key);
         st.people = PeopleStore::default();
         st.concepts = ConceptStore::default();
         st.blocked.clear();
+        if shared {
+            match self.app_store.as_mut().map(|a| a.read_raw(crate::app_store::CONCEPTS)) {
+                Some(Ok(Some(bytes))) => match ConceptStore::from_bytes(&bytes) {
+                    Ok(c) => self.segmenter.smart.concepts = c,
+                    Err(e) => self.smart_unreadable(crate::concepts_store::FILE, &e),
+                },
+                Some(Err(e)) => self.smart_unreadable(crate::concepts_store::FILE, &e),
+                _ => {}
+            }
+        }
         let Some(lib) = self.library.as_mut() else { return };
-        for file in [crate::people_store::FILE, crate::concepts_store::FILE] {
+        let files: &[&'static str] = if shared { &[crate::people_store::FILE] } else { &[crate::people_store::FILE, crate::concepts_store::FILE] };
+        let mut unreadable = Vec::new();
+        for &file in files {
             match lib.read_file(file) {
                 Ok(None) => {}
                 Ok(Some(bytes)) => {
@@ -186,13 +204,64 @@ impl Session {
                         ConceptStore::from_bytes(&bytes).map(|s| self.segmenter.smart.concepts = s)
                     };
                     if let Err(e) = parsed {
-                        log::error!("{e}");
-                        self.segmenter.smart.messages.push(format!("{e}. It was left as it is; LightCraft starts with an empty list."));
-                        self.segmenter.smart.blocked.insert(file);
+                        unreadable.push((file, e));
                     }
                 }
                 Err(e) => log::error!("{file}: {e}"),
             }
+        }
+        for (file, e) in unreadable {
+            self.smart_unreadable(file, &e);
+        }
+        if shared {
+            self.merge_library_concepts();
+        }
+    }
+
+    /// `file` couldn't be read: it is left as it is and never overwritten this session.
+    fn smart_unreadable(&mut self, file: &'static str, e: &str) {
+        log::error!("{e}");
+        self.segmenter.smart.messages.push(format!("{e}. It was left as it is; LightCraft starts with an empty list."));
+        self.segmenter.smart.blocked.insert(file);
+    }
+
+    /// The open library's own remembered objects (`concepts.json`, from before they moved to the app
+    /// store) join the store's once: the same name is one object (its examples added, the newest
+    /// kept); the library's file is only read. Recorded in the library's `app_store::Merged`.
+    fn merge_library_concepts(&mut self) {
+        let Some(dir) = self.library.as_ref().map(|l| l.dir.clone()) else { return };
+        let same = |m: &crate::app_store::Merged| crate::app_store::same_path(std::path::Path::new(&m.library), &dir);
+        let pending = self.app_store.as_ref().and_then(|a| a.merged.iter().find(|m| same(m))).is_some_and(|m| !m.concepts);
+        if !pending || self.segmenter.smart.blocked.contains(crate::concepts_store::FILE) {
+            return;
+        }
+        let theirs = match self.library.as_mut().map(|l| l.read_file(crate::concepts_store::FILE)) {
+            Some(Ok(Some(bytes))) => match ConceptStore::from_bytes(&bytes) {
+                Ok(c) => c,
+                Err(e) => {
+                    // (the library's file stays as it is; tried again next time)
+                    log::warn!("store: the library's remembered objects can't be read: {e}");
+                    return;
+                }
+            },
+            Some(Ok(None)) | None => ConceptStore::default(),
+            Some(Err(e)) => {
+                log::warn!("store: the library's remembered objects: {e}");
+                return;
+            }
+        };
+        let added = self.segmenter.smart.concepts.merge(theirs);
+        if added > 0
+            && let Err(e) = self.smart_save(crate::concepts_store::FILE)
+        {
+            log::error!("store: remembered objects: {e}");
+            return;
+        }
+        if let Some(rec) = self.app_store.as_mut().and_then(|a| a.merged.iter_mut().find(|m| same(m))) {
+            rec.concepts = true;
+        }
+        if let Err(e) = self.save_app_store() {
+            log::error!("store: {e}");
         }
     }
 
@@ -229,6 +298,12 @@ impl Session {
             return Err(format!("{file} couldn't be read, so it isn't overwritten; move it aside to start a new one"));
         }
         let bytes = if file == crate::people_store::FILE { self.segmenter.smart.people.to_bytes() } else { self.segmenter.smart.concepts.to_bytes() };
+        if file == crate::concepts_store::FILE && self.uses_app_store() {
+            return match self.app_store.as_mut() {
+                Some(st) => st.write_raw(crate::app_store::CONCEPTS, &bytes).map_err(|e| format!("couldn't save the remembered objects: {e}")),
+                None => Ok(()),
+            };
+        }
         match self.library.as_mut() {
             Some(lib) => lib.write_file(file, &bytes).map_err(|e| format!("couldn't save {file}: {e}")),
             None => Ok(()),

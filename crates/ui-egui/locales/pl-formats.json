@@ -453,5 +453,12 @@
   "{n} done": "gotowe: {n}",
   ", {n} failed": ", nieudane: {n}",
   "{n} failed": "nieudane: {n}",
-  "Show each photo ({n})": "Pokaż poszczególne zdjęcia ({n})"
+  "Show each photo ({n})": "Pokaż poszczególne zdjęcia ({n})",
+  "Goes into the group “{group}” that exists already.": "Trafi do istniejącej grupy „{group}”.",
+  "Preset saved in {group}": "Ustawienie zapisane w grupie {group}",
+  "From the active photo to {n} other selected photos": "Ze zdjęcia aktywnego na {n} pozostałych zaznaczonych zdjęć",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}” przejmie ustawienia aktywnego zdjęcia. Nazwa, grupa, miejsce i oznaczenia zostaną.",
+  "Saved naming preset “{name}”": "Zapisano ustawienie nazw „{name}”",
+  "{n} items": "{n} elementów",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ta akcja nie używa: {keys}. Aby przypisać ustawienie do klawisza, wybierz Ustawienie powyżej."
 }

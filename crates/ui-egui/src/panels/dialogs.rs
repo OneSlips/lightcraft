@@ -1,6 +1,6 @@
 //! Modal dialogs (new album, rename, create preset, choose settings to copy, export, about, shortcuts).
 
-use lightcraft_develop::{ControlSpec, Section, SettingsGroup, Track};
+use lightcraft_develop::{ControlSpec, Section, SettingsGroup, SettingsPick, Track};
 use serde_json::json;
 
 use crate::LightcraftApp;
@@ -22,7 +22,9 @@ pub(crate) fn rename_preview(
 ) -> (Option<Vec<lightcraft_engine::rename::RenamePlan>>, usize) {
     use std::hash::{Hash, Hasher};
     type Rows = std::sync::Arc<std::sync::Mutex<Option<Vec<lightcraft_engine::rename::RenamePlan>>>>;
-    let ids = app.session.selected();
+    // numbered in the order on screen, as the rename itself (client note 38)
+    let selected = app.session.selected();
+    let ids = app.session.in_view_order(&selected);
     let photos = lightcraft_engine::rename::rename_photos(&app.session.catalog, &ids);
     let total = photos.len();
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -250,6 +252,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::SmartRules { .. } => "Edit Smart Collection",
         Dialog::AutoStack { .. } => "Auto-Stack by Capture Time",
         Dialog::CreatePreset { .. } => "Create Preset",
+        Dialog::UpdatePreset { .. } => "Update Preset with Current Settings",
+        Dialog::SyncSettings { .. } => "Synchronize Settings",
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
         Dialog::PasteSettings { .. } => "Paste Selected Settings",
         Dialog::Export { .. } => "Export",
@@ -316,6 +320,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
             Dialog::FaceModel { .. } => 460.0,
             Dialog::LightroomCatalog { .. } | Dialog::LibraryUpgrade { .. } => 440.0,
             Dialog::ManageEffects { .. } => 560.0,
+            Dialog::Rename { .. }
+            | Dialog::CreatePreset { .. }
+            | Dialog::UpdatePreset { .. }
+            | Dialog::CopySettings { .. }
+            | Dialog::PasteSettings { .. }
+            | Dialog::SyncSettings { .. } => 480.0,
             _ => 380.0,
         });
     window = if settings {
@@ -609,37 +619,35 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                             .color(t.text_dim),
                     );
                 }
-                Dialog::Rename { template, start } => {
+                Dialog::Rename { template, start, texts } => {
                     let n = app.session.selected().len();
                     ui.label(egui::RichText::new(crate::i18n::tr_format!("{n} photo{}", if n == 1 { "" } else { "s" }, n = n)).color(t.text_dim));
                     let template_id = egui::Id::new("rename-template");
-                    let tags_open = field(ui, "Template", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let w = crate::import::tag_field_width(ui);
-                        let r = crate::widgets::named(ui.add(egui::TextEdit::singleline(template).id(template_id).hint_text("{name}").desired_width(w)), crate::i18n::tr("Template"));
-                        crate::widgets::register(ui.ctx(), "field:renameTemplate", r.rect);
-                        crate::import::tag_toggle(ui, "renameTemplate")
+                    let mut tags_open = false;
+                    field(ui, "Template", |ui| {
+                        trailing_button_row(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            tags_open = crate::import::tag_toggle(ui, "renameTemplate");
+                            number_chip(ui, "renameTemplate", template);
+                            let w = ui.available_width();
+                            let r = crate::widgets::named(ui.add(egui::TextEdit::singleline(template).id(template_id).hint_text("{name}").desired_width(w)), crate::i18n::tr("Template"));
+                            crate::widgets::register(ui.ctx(), "field:renameTemplate", r.rect);
+                        });
                     });
                     if tags_open {
                         crate::import::tag_help(ui, "renameTemplate", template, template_id);
                     }
                     crate::import::unknown_tags_warning(ui, template);
-                    field(ui, "Presets", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        for (i, (label, tpl)) in
-                            [("Name", "{name}"), ("Date–Name", "{date}_{name}"), ("Title–Seq", "{title}-{seq:3}"), ("Custom–Seq", "Photo-{seq:3}")].iter().enumerate()
-                        {
-                            if crate::widgets::text_button(ui, &format!("renamePreset-{i}"), label, template == tpl).clicked() {
-                                *template = tpl.to_string();
-                            }
-                        }
-                    });
+                    naming_preset_row(app, ui, "rename", template, true);
+                    text_tag_fields(ui, "rename", template, texts);
+                    same_name_warning(app, ui, template, texts);
                     field(ui, "Start at", |ui| ui.add(egui::DragValue::new(start).range(0..=999_999)));
                     ui.label(
                         egui::RichText::new(crate::i18n::tr("Tags: see Tags beside the template. Files are renamed on disk (with their XMP sidecars); existing names get -1, -2…"))
                             .color(t.text_dim),
                     );
-                    let (preview, total) = rename_preview(app, ui.ctx(), template, *start as usize);
+                    let filled = lightcraft_engine::rename::fill_texts(template, &|l| texts.get(l).cloned());
+                    let (preview, total) = rename_preview(app, ui.ctx(), &filled, *start as usize);
                     match &preview {
                         Some(rows) => {
                             egui::Grid::new("rename-preview").num_columns(3).spacing([8.0, 2.0]).show(ui, |ui| {
@@ -746,19 +754,48 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     }
                 }
                 Dialog::CreatePreset { name, group, groups } => {
-                    crate::widgets::named(ui.add(egui::TextEdit::singleline(name).hint_text(crate::i18n::tr("Preset name")).desired_width(f32::INFINITY)), crate::i18n::tr("Preset name"));
-                    crate::widgets::named(ui.add(egui::TextEdit::singleline(group).hint_text(crate::i18n::tr("Group")).desired_width(f32::INFINITY)), crate::i18n::tr("Group"));
+                    let first = just_opened(ui, "createPreset");
+                    let r = crate::text_field::TextField::singleline("field:presetName", name).hint(crate::i18n::tr("Preset name")).label(crate::i18n::tr("Preset name")).width(f32::INFINITY).show(ui);
+                    if first {
+                        r.response.request_focus();
+                    }
+                    if r.ending == Some(crate::text_field::Ending::Return) {
+                        confirm = true;
+                    }
+                    ui.add_space(4.0);
+                    if first {
+                        ui.data_mut(|d| d.remove_temp::<bool>(egui::Id::new("preset-group-typing")));
+                    }
+                    preset_group_picker(app, ui, group);
+                    ui.add_space(6.0);
                     ui.label(egui::RichText::new(crate::i18n::tr("Settings to include")).color(t.text_dim));
-                    group_checklist(ui, "presetInclude", groups);
+                    settings_tree(ui, "presetInclude", groups, None);
                 }
-                Dialog::CopySettings { groups } => group_checklist(ui, "copyGroup", groups),
+                Dialog::UpdatePreset { name, groups, .. } => {
+                    ui.label(crate::i18n::tr_format!("“{name}” takes the active photo's settings. Its name, group, place and marks stay.", name = name));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Ticked: what the preset holds now. Undo is on the message after the update.")).color(t.text_dim));
+                    ui.add_space(4.0);
+                    settings_tree(ui, "presetUpdate", groups, None);
+                }
+                Dialog::CopySettings { groups } => settings_tree(ui, "copyGroup", groups, None),
+                Dialog::SyncSettings { groups } => {
+                    let n = app.session.selected().len().saturating_sub(1);
+                    let text = if n == 1 {
+                        crate::i18n::tr("From the active photo to 1 other selected photo").to_string()
+                    } else {
+                        crate::i18n::tr_format!("From the active photo to {n} other selected photos", n = n)
+                    };
+                    ui.label(egui::RichText::new(text).color(t.text_dim));
+                    settings_tree(ui, "syncGroup", groups, None);
+                }
                 Dialog::PasteSettings { groups } => {
                     let n = app.session.selected().len();
                     ui.label(
                         egui::RichText::new(crate::i18n::tr_format!("Paste into {n} photo{} — only settings that were copied are pasted", if n == 1 { "" } else { "s" }, n = n))
                             .color(t.text_dim),
                     );
-                    group_checklist(ui, "pasteGroup", groups);
+                    let copied = app.session.dialogs.copy.clone();
+                    settings_tree(ui, "pasteGroup", groups, Some(&copied));
                 }
                 Dialog::SlideshowExport { settings } => slideshow_export_body(app, ui, settings),
                 Dialog::ContactSheet { options } => {
@@ -1032,16 +1069,25 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         choices(ui, "Compression", "exportDngCompression", &[(Z::Lossless, "Lossless"), (Z::Deflate, "ZIP"), (Z::Uncompressed, "None"), (Z::Lossy, "Lossy")], &mut opts.dng_compression);
                     }
                     let naming_id = egui::Id::new("export-naming");
-                    let tags_open = field(ui, "File name", |ui| {
-                        ui.spacing_mut().item_spacing.x = 4.0;
-                        let w = crate::import::tag_field_width(ui);
-                        crate::widgets::named(ui.add(egui::TextEdit::singleline(&mut opts.naming).id(naming_id).hint_text("{name}-{seq}  ·  {date}  ·  {title}  ·  {folder}").desired_width(w)), crate::i18n::tr("File name"));
-                        crate::import::tag_toggle(ui, "exportNaming")
+                    let mut tags_open = false;
+                    field(ui, "File name", |ui| {
+                        trailing_button_row(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            tags_open = crate::import::tag_toggle(ui, "exportNaming");
+                            number_chip(ui, "exportNaming", &mut opts.naming);
+                            let w = ui.available_width();
+                            crate::widgets::named(
+                                ui.add(egui::TextEdit::singleline(&mut opts.naming).id(naming_id).hint_text("{name}-{seq}  ·  {date}  ·  {title}  ·  {folder}").desired_width(w)),
+                                crate::i18n::tr("File name"),
+                            );
+                        });
                     });
                     if tags_open {
                         crate::import::tag_help(ui, "exportNaming", &mut opts.naming, naming_id);
                     }
                     crate::import::unknown_tags_warning(ui, &opts.naming);
+                    naming_preset_row(app, ui, "export", &mut opts.naming, true);
+                    text_tag_fields(ui, "export", &opts.naming.clone(), &mut opts.texts);
                     if opts.naming.contains("{seq") {
                         let mut v = opts.start_number as f64;
                         if num(ui, &START_NUMBER, &mut v) {
@@ -1120,9 +1166,14 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                                     Err(e) => app.toast(ui.ctx(), e),
                                 }
                             }
-                            crate::widgets::named(ui.add(egui::TextEdit::singleline(preset_name).hint_text(crate::i18n::tr("Preset name")).desired_width(ui.available_width())), crate::i18n::tr("Preset name"));
+                            let w = ui.available_width();
+                            crate::text_field::TextField::singleline("field:exportPresetName", preset_name).hint(crate::i18n::tr("Preset name")).label(crate::i18n::tr("Preset name")).width(w).show(ui);
                         });
                     });
+                    if !preset_name.trim().is_empty() {
+                        // (client note 42: the small Save button was easy to miss)
+                        ui.label(egui::RichText::new(crate::i18n::tr("Export saves this preset too.")).small().color(t.text_dim));
+                    }
                 }
                 Dialog::Merge { opts } => crate::merge::body(app, ui, opts),
                 Dialog::ChartProfile { opts } => crate::chart_profile::body(app, ui, opts),
@@ -2005,7 +2056,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             }
             r
         }
-        Dialog::Rename { template, start } => app.run("photo.rename", json!({"template": template, "start": start})),
+        Dialog::Rename { template, start, texts } => app.run("photo.rename", json!({"template": template, "start": start, "texts": texts})),
         Dialog::RenameKeyword { from, to } => app.run("keyword.rename", json!({"from": from, "to": to})),
         Dialog::RenamePerson { from, to, merge } => app.run("faces.renamePerson", json!({"from": from, "to": to.trim(), "merge": merge})),
         Dialog::KeywordTag {
@@ -2119,20 +2170,53 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::NewSmartAlbum { name, parent } => {
             created_in(app, "album.createSmart", json!({"name": if name.trim().is_empty() { "Smart Collection" } else { name }, "parent": parent}))
         }
-        Dialog::CreatePreset { name, group, groups } => app.run(
-            "preset.create",
-            json!({
-                "name": if name.trim().is_empty() { "My Preset" } else { name },
-                "group": if group.trim().is_empty() { "User Presets" } else { group },
-                "groups": groups,
-            }),
-        ),
+        Dialog::CreatePreset { name, group, groups } => {
+            let mut p = pick_params(groups);
+            p["name"] = json!(if name.trim().is_empty() { "My Preset" } else { name.trim() });
+            p["group"] = json!(if group.trim().is_empty() { "User Presets" } else { group.trim() });
+            let r = app.run("preset.create", p);
+            if let (Ok(v), Some(ctx)) = (&r, app.tasks.repaint.clone()) {
+                let group = v["group"].as_str().unwrap_or_default().to_string();
+                app.toast(&ctx, crate::i18n::tr_format!("Preset saved in {group}", group = group));
+            }
+            r
+        }
+        Dialog::UpdatePreset { id, name, groups } => {
+            let mut p = pick_params(groups);
+            p["id"] = json!(id);
+            let r = app.run("preset.update", p);
+            if r.is_ok() {
+                let text = crate::i18n::tr_format!("Updated “{name}”", name = name).to_string();
+                app.ui.toast_action = Some(crate::state::ToastAction {
+                    text: text.clone(),
+                    label: "Undo".into(),
+                    command: "preset.undoUpdate".into(),
+                    undo_len: app.session.undo.len(),
+                });
+                if let Some(ctx) = app.tasks.repaint.clone() {
+                    app.toast_for(&ctx, text, 10.0);
+                }
+            }
+            r
+        }
+        Dialog::SyncSettings { groups } => app.run("develop.sync", pick_params(groups)),
         Dialog::ContactSheet { options } => app.run("app.contactSheet", json!(options)),
         Dialog::SlideshowExport { settings } => app.run("app.slideshowExport", json!(settings)),
         Dialog::Print => app.run("app.print", json!({})),
-        Dialog::CopySettings { groups } => app.run("develop.copy", json!({"groups": groups})),
-        Dialog::PasteSettings { groups } => app.run("develop.paste", json!({"groups": groups})),
-        Dialog::Export { opts, full_size, resize, limit_kb, dir, .. } => {
+        Dialog::CopySettings { groups } => app.run("develop.copy", pick_params(groups)),
+        Dialog::PasteSettings { groups } => app.run("develop.paste", pick_params(groups)),
+        Dialog::Export { opts, full_size, resize, limit_kb, dir, preset_name } => {
+            // a name typed in "Save preset" is saved by Export too (client note 42)
+            if !preset_name.trim().is_empty() {
+                let params = export_dialog_params(opts, *full_size, resize, *limit_kb);
+                let saved = app.run("export.savePreset", json!({"name": preset_name.trim(), "params": params}));
+                if let Some(ctx) = app.tasks.repaint.clone() {
+                    match saved {
+                        Ok(_) => app.toast(&ctx, crate::i18n::tr_format!("Saved export preset “{}”", preset_name.trim())),
+                        Err(e) => app.toast(&ctx, e),
+                    }
+                }
+            }
             let mut p = export_dialog_params(opts, *full_size, resize, *limit_kb);
             p["dir"] = json!(dir);
             p["background"] = json!(true);
@@ -2214,36 +2298,303 @@ fn export_dialog_params(
 
 // ------------------------------------------------------------------------------------------ dialog widgets
 
-/// Two columns of settings-group checkboxes (Copy Settings, Create Preset) plus All / None.
-fn group_checklist(ui: &mut egui::Ui, tag: &str, groups: &mut Vec<String>) {
-    let key_of = |g: &SettingsGroup| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+/// The per-setting tree of Copy Settings, Paste Selected, Sync, New Preset and Update Preset (client
+/// notes 8a, 11, 13; Lightroom's checklist): a box per settings group that ticks the whole group and
+/// shows a partial state when only some of its settings are ticked, and under it (opened with the
+/// arrow) a box per setting. `ids` holds the ticked leaves ([`SettingsPick::to_ids`]); `offered`
+/// limits the boxes that can be ticked (Paste Selected: what was copied). Widget ids: `<tag>:<group>`,
+/// `<tag>:<setting>`, `<tag>:open:<group>`, `<tag>:all`, `<tag>:none`.
+fn settings_tree(ui: &mut egui::Ui, tag: &str, ids: &mut Vec<String>, offered: Option<&SettingsPick>) {
+    let t = Tokens::get(ui.ctx());
+    let can = |id: &str| offered.is_none_or(|o| o.has(id));
+    let leaves =
+        |g: SettingsGroup| -> Vec<&'static str> { if g.items().is_empty() { vec![g.id()] } else { g.items().iter().map(|i| i.id).collect() } };
+    ui.horizontal(|ui| {
+        let all = ui.small_button(crate::i18n::tr("Check All"));
+        crate::widgets::register(ui.ctx(), format!("{tag}:all"), all.rect);
+        if all.clicked() {
+            *ids = SettingsGroup::ALL.into_iter().flat_map(leaves).filter(|id| can(id)).map(str::to_string).collect();
+        }
+        let none = ui.small_button(crate::i18n::tr("Check None"));
+        crate::widgets::register(ui.ctx(), format!("{tag}:none"), none.rect);
+        if none.clicked() {
+            ids.clear();
+        }
+        ui.label(egui::RichText::new(crate::i18n::tr("Open a group with its arrow to pick single settings.")).small().color(t.text_dim));
+    });
+    ui.add_space(4.0);
+    let set = |ids: &mut Vec<String>, id: &str, on: bool| {
+        if on {
+            if !ids.iter().any(|x| x == id) {
+                ids.push(id.to_string());
+            }
+        } else {
+            ids.retain(|x| x != id);
+        }
+    };
     ui.columns(2, |cols| {
-        for (i, g) in SettingsGroup::ALL.iter().enumerate() {
-            let key = key_of(g);
-            let mut on = groups.contains(&key);
-            let r = cols[i % 2].checkbox(&mut on, crate::i18n::tr(g.label()));
-            crate::widgets::register(&r.ctx, format!("{tag}:{key}"), r.rect);
-            if r.changed() {
-                if on {
-                    groups.push(key);
+        // top to bottom, then the second column, in the panels' order
+        let half = SettingsGroup::ALL.len().div_ceil(2);
+        for (i, g) in SettingsGroup::ALL.into_iter().enumerate() {
+            let Some(ui) = cols.get_mut(usize::from(i >= half)) else { continue };
+            let mine: Vec<&str> = leaves(g).into_iter().filter(|id| can(id)).collect();
+            let ticked = mine.iter().filter(|id| ids.iter().any(|x| x == *id)).count();
+            let open_id = egui::Id::new(("settings-tree-open", tag, g.id()));
+            let mut open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                if g.items().is_empty() {
+                    ui.add_space(18.0);
                 } else {
-                    groups.retain(|x| *x != key);
+                    let (rect, arrow) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::click());
+                    let c = rect.center();
+                    let colour = if arrow.hovered() { t.text } else { t.text_dim };
+                    let icon = if open { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronRight };
+                    crate::icons::paint(ui.painter(), egui::Rect::from_center_size(c, egui::vec2(14.0, 14.0)), icon, colour);
+                    let tip = crate::i18n::tr(if open { "Hide the single settings" } else { "Show the single settings" }).to_string();
+                    arrow.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip.clone()));
+                    let arrow = arrow.on_hover_text(tip.clone());
+                    crate::widgets::register(ui.ctx(), format!("{tag}:open:{}", g.id()), arrow.rect);
+                    if arrow.clicked() {
+                        open = !open;
+                        ui.data_mut(|d| d.insert_temp(open_id, open));
+                    }
+                }
+                let mut on = !mine.is_empty() && ticked == mine.len();
+                let partial = ticked > 0 && ticked < mine.len();
+                let r = ui.add_enabled(!mine.is_empty(), egui::Checkbox::new(&mut on, crate::i18n::tr(g.label())).indeterminate(partial));
+                crate::widgets::register(ui.ctx(), format!("{tag}:{}", g.id()), r.rect);
+                if r.changed() {
+                    // a partly ticked group ticks all of it, as in Lightroom
+                    let on = partial || on;
+                    for id in &mine {
+                        set(ids, id, on);
+                    }
+                }
+            });
+            if open {
+                for it in g.items() {
+                    ui.horizontal(|ui| {
+                        ui.add_space(38.0);
+                        let mut on = ids.iter().any(|x| x == it.id);
+                        let r = ui.add_enabled(can(it.id), egui::Checkbox::new(&mut on, crate::i18n::tr(it.label)));
+                        crate::widgets::register(ui.ctx(), format!("{tag}:{}", it.id), r.rect);
+                        if r.changed() {
+                            set(ids, it.id, on);
+                        }
+                    });
                 }
             }
         }
     });
-    ui.horizontal(|ui| {
-        let all = ui.small_button(crate::i18n::tr("All"));
-        crate::widgets::register(ui.ctx(), format!("{tag}:all"), all.rect);
-        if all.clicked() {
-            *groups = SettingsGroup::ALL.iter().map(key_of).collect();
+}
+
+/// New Preset's group (client note 8c): a list of the groups there are, with "New Group…" for a name
+/// of its own; a typed name that matches a group (any case, spaces trimmed) goes into that group, and
+/// the dialog says so.
+fn preset_group_picker(app: &LightcraftApp, ui: &mut egui::Ui, group: &mut String) {
+    let t = Tokens::get(ui.ctx());
+    let mut groups: Vec<String> = Vec::new();
+    for g in app.session.preset_groups() {
+        if !groups.iter().any(|x| x.trim().eq_ignore_ascii_case(g.trim())) {
+            groups.push(g);
         }
-        let none = ui.small_button(crate::i18n::tr("None"));
-        crate::widgets::register(ui.ctx(), format!("{tag}:none"), none.rect);
-        if none.clicked() {
-            groups.clear();
+    }
+    let typing_id = egui::Id::new("preset-group-typing");
+    let known = |g: &str| groups.iter().find(|x| x.trim().eq_ignore_ascii_case(g.trim())).cloned();
+    let mut typing = ui.data(|d| d.get_temp::<bool>(typing_id)).unwrap_or(false) || (known(group).is_none() && !group.trim().is_empty());
+    field(ui, "Group", |ui| {
+        let shown = if typing { crate::i18n::tr("New Group…").to_string() } else { group.clone() };
+        let r = crate::widgets::combo_box("presetGroup").selected_text(shown).width(ui.available_width()).show_ui(ui, |ui| {
+            for g in &groups {
+                if ui.selectable_label(!typing && g == group, g).clicked() {
+                    *group = g.clone();
+                    typing = false;
+                }
+            }
+            ui.separator();
+            if ui.selectable_label(typing, crate::i18n::tr("New Group…")).clicked() {
+                typing = true;
+                group.clear();
+            }
+        });
+        crate::widgets::register(ui.ctx(), "combo:presetGroup", r.response.rect);
+    });
+    ui.data_mut(|d| d.insert_temp(typing_id, typing));
+    if typing {
+        crate::text_field::TextField::singleline("field:presetGroup", group)
+            .hint(crate::i18n::tr("New group name"))
+            .label(crate::i18n::tr("New group name"))
+            .width(f32::INFINITY)
+            .show(ui);
+        if let Some(same) = known(group) {
+            ui.label(
+                egui::RichText::new(crate::i18n::tr_format!("Goes into the group “{group}” that exists already.", group = same))
+                    .small()
+                    .color(t.text_dim),
+            );
+        }
+    }
+}
+
+/// The ticked leaves of the tree as the command parameters (`groups`, `settings`).
+fn pick_params(ids: &[String]) -> serde_json::Value {
+    let pick = SettingsPick::from_ids(ids);
+    json!({"groups": pick.groups, "settings": pick.settings})
+}
+
+/// "+ Number": puts `{seq}` at the end of a file-name template (client note 38: the sequence tag
+/// must be easy to find; a plain "1" typed instead gave every file the same name).
+fn number_chip(ui: &mut egui::Ui, tag: &str, template: &mut String) {
+    let has = template.contains("{seq") || template.contains("{n}") || template.contains("{n:");
+    let r = ui
+        .add_enabled(!has, egui::Button::new(crate::i18n::tr("+ Number")).small())
+        .on_hover_text(crate::i18n::tr("Add {seq}: 1, 2, 3… in the order the photos are shown"))
+        .on_disabled_hover_text(crate::i18n::tr("The template numbers the photos already"));
+    crate::widgets::register(ui.ctx(), format!("button:{tag}Number"), r.rect);
+    if r.clicked() {
+        let t = template.trim_end();
+        let sep = if t.is_empty() || t.ends_with(['_', '-', ' ', '.']) { "" } else { "_" };
+        *template = format!("{t}{sep}{{seq}}");
+    }
+}
+
+/// Naming presets (client note 35): a list of the saved templates (LightCraft's, then the user's;
+/// right-click a user's to delete it) that sets `template`, and Save as… with a name. `with_text`:
+/// presets with `{text:…}` tags are offered (not at import, where nothing asks for the text).
+fn naming_preset_row(app: &mut LightcraftApp, ui: &mut egui::Ui, tag: &str, template: &mut String, with_text: bool) {
+    let presets: Vec<(String, String, bool)> = lightcraft_engine::cmd::manage::builtin_naming_presets()
+        .into_iter()
+        .map(|p| (p.name, p.template, true))
+        .chain(app.session.naming_presets.iter().map(|p| (p.name.clone(), p.template.clone(), false)))
+        .filter(|(_, t, _)| with_text || lightcraft_engine::rename::text_labels(t).is_empty())
+        .collect();
+    let save_id = egui::Id::new(("naming-save-as", tag));
+    let mut save_as: Option<String> = ui.data(|d| d.get_temp(save_id));
+    let mut delete: Option<String> = None;
+    field(ui, "Preset", |ui| {
+        trailing_button_row(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 4.0;
+            if crate::widgets::text_button(ui, &format!("{tag}NamingSaveAs"), crate::i18n::tr("Save as…"), save_as.is_some()).clicked() {
+                save_as = if save_as.is_some() { None } else { Some(String::new()) };
+            }
+            let current = presets.iter().find(|(_, t, _)| t == template).map(|(n, _, _)| n.clone());
+            let shown = current.unwrap_or_else(|| crate::i18n::tr("Custom").to_string());
+            let w = ui.available_width();
+            let r = crate::widgets::combo_box(("naming-preset", tag)).selected_text(shown).width(w).show_ui(ui, |ui| {
+                for (name, tpl, builtin) in &presets {
+                    let item = ui.selectable_label(tpl == template, name).on_hover_text(tpl.as_str());
+                    if item.clicked() {
+                        *template = tpl.clone();
+                    }
+                    if !builtin {
+                        item.context_menu(|ui| {
+                            if ui.button(crate::i18n::tr("Delete Preset")).clicked() {
+                                delete = Some(name.clone());
+                                ui.close();
+                            }
+                        });
+                    }
+                }
+            });
+            crate::widgets::register(ui.ctx(), format!("combo:{tag}NamingPreset"), r.response.rect);
+        });
+    });
+    if let Some(name) = delete
+        && let Err(e) = app.run("naming.deletePreset", json!({"name": name}))
+    {
+        app.toast(ui.ctx(), e);
+    }
+    if let Some(name) = save_as.as_mut() {
+        let mut save = false;
+        field(ui, "Preset name", |ui| {
+            trailing_button_row(ui, |ui| {
+                let named = !name.trim().is_empty() && !template.trim().is_empty();
+                if crate::widgets::text_button(ui, &format!("{tag}NamingSave"), crate::i18n::tr("Save"), false).clicked() && named {
+                    save = true;
+                }
+                let w = ui.available_width();
+                let r = crate::text_field::TextField::singleline(&format!("field:{tag}NamingPresetName"), name)
+                    .hint(crate::i18n::tr("Preset name"))
+                    .label(crate::i18n::tr("Preset name"))
+                    .width(w)
+                    .show(ui);
+                if r.ending == Some(crate::text_field::Ending::Return) && named {
+                    save = true;
+                }
+            });
+        });
+        if save {
+            match app.run("naming.savePreset", json!({"name": name.trim(), "template": template.trim()})) {
+                Ok(_) => {
+                    app.toast(ui.ctx(), crate::i18n::tr_format!("Saved naming preset “{name}”", name = name.trim()));
+                    save_as = None;
+                }
+                Err(e) => app.toast(ui.ctx(), e),
+            }
+        }
+    }
+    ui.data_mut(|d| match save_as {
+        Some(v) => {
+            d.insert_temp(save_id, v);
+        }
+        None => {
+            d.remove_temp::<String>(save_id);
         }
     });
+}
+
+/// A text field for each `{text:Label}` of `template`, asked each time (client note 35): the
+/// couple's initials for a delivery, while the preset stays as it is.
+fn text_tag_fields(ui: &mut egui::Ui, tag: &str, template: &str, texts: &mut std::collections::BTreeMap<String, String>) {
+    let labels = lightcraft_engine::rename::text_labels(template);
+    texts.retain(|k, _| labels.contains(k));
+    for (i, label) in labels.iter().enumerate() {
+        let text = texts.entry(label.clone()).or_default();
+        let shown = if label.is_empty() { crate::i18n::tr("Text").to_string() } else { label.clone() };
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, 18.0), egui::Sense::hover());
+            ui.painter().text(
+                rect.left_center(),
+                egui::Align2::LEFT_CENTER,
+                &shown,
+                egui::FontId::proportional(12.0),
+                Tokens::get(ui.ctx()).text_label,
+            );
+            let w = ui.available_width();
+            crate::text_field::TextField::singleline(&format!("field:{tag}Text{i}"), text)
+                .hint(crate::i18n::tr("Type it for this batch"))
+                .label(shown.clone())
+                .width(w)
+                .show(ui);
+        });
+    }
+}
+
+/// Every photo would get the same name (no `{seq}` and nothing that differs between them), so
+/// the rename adds -1, -2… (client note 38: a template with a plain "1" renamed 570 photos
+/// `1_…-1` to `1_…-570`).
+fn same_name_warning(app: &mut LightcraftApp, ui: &mut egui::Ui, template: &str, texts: &std::collections::BTreeMap<String, String>) {
+    let selected = app.session.selected();
+    if selected.len() < 2 || template.contains("{seq") || template.contains("{n}") || template.contains("{n:") {
+        return;
+    }
+    let filled = lightcraft_engine::rename::fill_texts(template, &|l| texts.get(l).cloned());
+    let names: Vec<String> = selected
+        .iter()
+        .take(5)
+        .filter_map(|id| app.session.catalog.photo(*id))
+        .map(|p| lightcraft_engine::rename::expand(&filled, p, 1).to_lowercase())
+        .collect();
+    if names.len() > 1 && names.windows(2).all(|w| w.first() == w.get(1)) {
+        let t = Tokens::get(ui.ctx());
+        ui.label(
+            egui::RichText::new(crate::i18n::tr(
+                "Every photo gets the same name, so LightCraft adds -1, -2… Add a number with + Number to count them in the order shown.",
+            ))
+            .color(t.caution),
+        );
+    }
 }
 
 /// Width of the label column in dialogs.
@@ -2439,7 +2790,7 @@ fn choices<V: PartialEq + Copy>(ui: &mut egui::Ui, label: &str, id: &str, option
 /// Dialogs that Return confirms with nothing focused (those with text fields confirm from the
 /// field: `dialog_field`).
 fn return_confirms(dlg: &Dialog) -> bool {
-    matches!(dlg, Dialog::CopySettings { .. } | Dialog::PasteSettings { .. })
+    matches!(dlg, Dialog::CopySettings { .. } | Dialog::PasteSettings { .. } | Dialog::SyncSettings { .. } | Dialog::UpdatePreset { .. })
 }
 
 struct PersonRenamePlan {

@@ -150,6 +150,8 @@ fn drawn_icon(b: &Binding) -> Option<&'static str> {
         "photo.rotateLeft" => "rotate-photo-left",
         "photo.rotateRight" => "rotate-photo-right",
         "develop.reset" => "reset-develop",
+        // a preset on a key (client note 21; an AI-mask preset's "AI" mark is the host's: Host::icon)
+        "preset.apply" => "preset-apply",
         _ => return None,
     })
 }
@@ -335,6 +337,8 @@ mod tests {
         assert_eq!(icon_for(&Binding::command_with("photo.rate", json!({"rating": 5}))), Some("rate-5-stars"));
         assert_eq!(icon_for(&Binding::command("edit.undo")), Some("undo"));
         assert_eq!(icon_for(&Binding::ApplyToSelected), Some("auto-sync"));
+        assert_eq!(icon_for(&Binding::command_with("preset.apply", json!({"id": "x"}))), Some("preset-apply"));
+        assert!(svg("preset-apply-ai").is_some());
         // every built-in key either has an icon or a label
         for p in crate::defaults::profiles() {
             for b in p.pages.iter().flat_map(|pg| pg.bindings.values()) {

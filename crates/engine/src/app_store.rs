@@ -9,6 +9,7 @@
 //!                   filter, curve, colour-label and keyword-set presets, slideshow settings,
 //!                   the last export, the grid's sort: [`Habits`])
 //!   presets.json   (develop presets + favourites, profile favourites and recents: as a library's)
+//!   concepts.json  (remembered objects: "Wedding dress"; a library's own merged in once)
 //!   Profiles/      (the profile files: .dcp, .cube)
 //! ```
 //!
@@ -51,6 +52,8 @@ pub const SHARED: &str = "shared.json";
 pub const PRESETS: &str = "presets.json";
 /// The profile files.
 pub const PROFILES_DIR: &str = "Profiles";
+/// Remembered objects ("Wedding dress": `crate::concepts_store`), shared by every library.
+pub const CONCEPTS: &str = "concepts.json";
 /// Largest `presets.json` read when a library is merged (a 11 000-preset collection is ~40 MB).
 const MAX_PRESETS_FILE: u64 = 512 << 20;
 /// Largest `prefs.json` / `shared.json` read.
@@ -186,6 +189,9 @@ pub struct Merged {
     /// build are merged again for them, once.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub habits: bool,
+    /// Its remembered objects (`concepts.json`) were merged (done when the library is next open).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub concepts: bool,
 }
 
 /// The user's way of working beyond develop presets and profiles: the same in every library
@@ -194,7 +200,8 @@ pub struct Merged {
 ///
 /// What stays with a library is what belongs to its photos and its disk: XMP sidecar writing, the
 /// thumbnail cache size, the smart-preview folder, forgetting Local records, recent keywords,
-/// auto-import, the background queue (`import-finishing.json`), people and concepts. A library's
+/// auto-import, the background queue (`import-finishing.json`) and people (remembered objects
+/// moved to the store's `concepts.json`). A library's
 /// own override of an app-wide setting (e.g. background preparation) goes in its `prefs.json` too
 /// and wins over the app's while that library is open.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -213,6 +220,8 @@ pub struct Habits {
     pub label_sets: Vec<crate::cmd::manage::LabelSet>,
     pub keyword_sets: Vec<crate::cmd::keywords::KeywordSet>,
     pub keyword_set: Option<String>,
+    /// File-name templates saved by name, shared by Rename, Export and Import (client note 35).
+    pub naming_presets: Vec<crate::cmd::manage::NamingPreset>,
     pub slideshow: crate::slideshow::PlaybackSettings,
     pub slide_layout: crate::slide::SlideSettings,
     pub slide_overlays: crate::slide_overlay::OverlaySettings,
@@ -222,6 +231,10 @@ pub struct Habits {
     /// Auto Sync (`develop.autoSync`) stays as the user left it, whichever library is open (client
     /// note 20; the user's decision: app-wide, not per library).
     pub auto_sync: bool,
+    /// The choices every dialog remembers (client note 13): what Copy Settings, Sync and New Preset
+    /// tick, and the others' last answers.
+    #[serde(skip_serializing_if = "DialogMemory::is_default", deserialize_with = "lenient_dialogs")]
+    pub dialogs: DialogMemory,
     /// The grid's sort (a library's `view.json` keeps one too, for older builds). Not in
     /// `prefs.json`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,7 +242,7 @@ pub struct Habits {
 }
 
 /// The `prefs.json` keys of [`Habits`] (kept in the library as read while the store holds them).
-pub(crate) const HABITS_PREFS_KEYS: [&str; 16] = [
+pub(crate) const HABITS_PREFS_KEYS: [&str; 18] = [
     "exportPresets",
     "lastExport",
     "lastMerge",
@@ -240,13 +253,107 @@ pub(crate) const HABITS_PREFS_KEYS: [&str; 16] = [
     "labelSets",
     "keywordSets",
     "keywordSet",
+    "namingPresets",
     "slideshow",
     "slideLayout",
     "slideOverlays",
     "slideTitles",
     "holdView",
     "autoSync",
+    "dialogs",
 ];
+
+/// What the dialogs with choices remember, across uses, restarts and libraries (client note 13): the
+/// settings Copy Settings, Sync Settings and New Preset tick, New Preset's group, and the last answers
+/// of the other dialogs (the camera profile creator, the Export dialog…) by dialog.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct DialogMemory {
+    /// Copy Settings (Paste Selected offers what was copied).
+    pub copy: lightcraft_develop::SettingsPick,
+    /// Sync Settings.
+    pub sync: lightcraft_develop::SettingsPick,
+    /// New Preset's ticks (White Balance left out until it is ticked: note 8b).
+    pub new_preset: lightcraft_develop::SettingsPick,
+    /// The group New Preset put the last preset in.
+    pub preset_group: String,
+    /// The other dialogs' last choices by dialog id, as the app keeps them (`app.rememberChoices`).
+    pub other: BTreeMap<String, serde_json::Value>,
+}
+
+impl Default for DialogMemory {
+    fn default() -> Self {
+        use lightcraft_develop::{SettingsGroup, SettingsPick};
+        DialogMemory {
+            copy: SettingsPick::of_groups(SettingsGroup::default_copy()),
+            sync: SettingsPick::of_groups(SettingsGroup::default_copy()),
+            new_preset: SettingsPick::of_groups(SettingsGroup::default_preset()),
+            preset_group: DEFAULT_PRESET_GROUP.into(),
+            other: BTreeMap::new(),
+        }
+    }
+}
+
+/// A [`DialogMemory`] that can't be read (a hand-edited file) is the defaults, never a damaged store.
+fn lenient_dialogs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<DialogMemory, D::Error> {
+    let v = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(v).unwrap_or_else(|e| {
+        log::warn!("store: the remembered dialog choices can't be read ({e}); the defaults are used");
+        DialogMemory::default()
+    }))
+}
+
+/// The group a new preset goes in unless another is chosen.
+pub const DEFAULT_PRESET_GROUP: &str = "User Presets";
+
+/// Most dialogs remembered in [`DialogMemory::other`] (a hand-edited file can't grow it without end).
+pub const MAX_REMEMBERED_DIALOGS: usize = 64;
+/// Largest remembered answer of one dialog (bytes of JSON).
+pub const MAX_REMEMBERED_BYTES: usize = 64 << 10;
+
+impl DialogMemory {
+    pub fn is_default(&self) -> bool {
+        *self == DialogMemory::default()
+    }
+
+    /// Checked after reading a file: picks normalized, the map and its answers capped.
+    pub(crate) fn sanitized(mut self) -> DialogMemory {
+        self.copy = self.copy.normalized();
+        self.sync = self.sync.normalized();
+        self.new_preset = self.new_preset.normalized();
+        if self.preset_group.trim().is_empty() {
+            self.preset_group = DEFAULT_PRESET_GROUP.into();
+        }
+        self.other.retain(|_, v| serde_json::to_vec(v).is_ok_and(|b| b.len() <= MAX_REMEMBERED_BYTES));
+        while self.other.len() > MAX_REMEMBERED_DIALOGS {
+            let Some(k) = self.other.keys().next_back().cloned() else { break };
+            self.other.remove(&k);
+        }
+        self
+    }
+
+    /// Take `other`'s choices where this has only the defaults (a library merged into the store).
+    fn merge(&mut self, other: DialogMemory) {
+        let d = DialogMemory::default();
+        if self.copy == d.copy {
+            self.copy = other.copy;
+        }
+        if self.sync == d.sync {
+            self.sync = other.sync;
+        }
+        if self.new_preset == d.new_preset {
+            self.new_preset = other.new_preset;
+        }
+        if self.preset_group == d.preset_group {
+            self.preset_group = other.preset_group;
+        }
+        for (k, v) in other.other {
+            if self.other.len() < MAX_REMEMBERED_DIALOGS {
+                self.other.entry(k).or_insert(v);
+            }
+        }
+    }
+}
 
 /// Add `theirs` to `mine` by name: the same item twice is kept once; the same name with other
 /// content is kept as "name 2" (nothing lost). → how many were added.
@@ -283,6 +390,7 @@ impl Habits {
         n += merge_named(&mut self.curve_presets, other.curve_presets, |p| p.name.clone(), |p, v| p.name = v);
         n += merge_named(&mut self.label_sets, other.label_sets, |p| p.name.clone(), |p, v| p.name = v);
         n += merge_named(&mut self.keyword_sets, other.keyword_sets, |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.naming_presets, other.naming_presets, |p| p.name.clone(), |p, v| p.name = v);
         if self.last_export.is_none() {
             self.last_export = other.last_export;
         }
@@ -307,6 +415,7 @@ impl Habits {
         }
         self.hold_view |= other.hold_view;
         self.auto_sync |= other.auto_sync;
+        self.dialogs.merge(other.dialogs);
         if self.sort.is_none() {
             self.sort = other.sort;
         }
@@ -461,6 +570,16 @@ impl AppStore {
     /// The store's files (a background save takes a handle of its own from it).
     pub(crate) fn store(&self) -> &dyn Store {
         self.files.as_ref()
+    }
+
+    /// A store file as it is (`None`: missing).
+    pub(crate) fn read_raw(&mut self, name: &'static str) -> std::result::Result<Option<Vec<u8>>, String> {
+        self.files.read(name).map_err(|e| format!("the shared {name} couldn't be read ({e})"))
+    }
+
+    /// Write a store file (not one that couldn't be read when the store was loaded).
+    pub(crate) fn write_raw(&mut self, name: &'static str, bytes: &[u8]) -> Result<()> {
+        self.write(name, bytes)
     }
 
     pub(crate) fn write_presets(&mut self, bytes: &[u8]) -> Result<()> {
@@ -889,6 +1008,7 @@ impl Session {
                 remap,
                 remapped: false,
                 habits: true,
+                concepts: false,
             });
             for p in &report.problems {
                 log::warn!("store: merging {}: {p}", dir.display());
@@ -910,12 +1030,14 @@ impl Session {
             label_sets: self.label_sets.clone(),
             keyword_sets: self.keyword_sets.clone(),
             keyword_set: self.keyword_set.clone(),
+            naming_presets: self.naming_presets.clone(),
             slideshow: self.slideshow.clone(),
             slide_layout: self.slide_layout.clone(),
             slide_overlays: self.slide_overlays.clone(),
             slide_titles: self.slide_titles.clone(),
             hold_view: self.hold_view,
             auto_sync: self.auto_sync,
+            dialogs: self.dialogs.clone(),
             sort: Some(self.sort),
         }
     }
@@ -933,12 +1055,15 @@ impl Session {
         self.label_sets = h.label_sets;
         self.keyword_sets = h.keyword_sets;
         self.keyword_set = h.keyword_set;
+        self.naming_presets =
+            h.naming_presets.into_iter().filter(|p| !p.name.trim().is_empty()).take(crate::cmd::manage::MAX_NAMING_PRESETS).collect();
         self.slideshow = h.slideshow.sanitized();
         self.slide_layout = h.slide_layout.sanitized();
         self.slide_overlays = h.slide_overlays.sanitized();
         self.slide_titles = h.slide_titles.sanitized();
         self.hold_view = h.hold_view;
         self.auto_sync = h.auto_sync;
+        self.dialogs = h.dialogs.sanitized();
         if let Some(sort) = h.sort {
             self.sort = sort;
         }

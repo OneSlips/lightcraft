@@ -216,6 +216,9 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
+    ("dialog.syncSettings", "Sync Settings…", None, "Edit"),
+    // {id}: Update Preset with Current Settings, pre-ticked with what the preset holds (note 11)
+    ("dialog.updatePreset", "Update Preset with Current Settings…", None, ""),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
     ("dialog.export", "Export…", None, "File"),
     ("dialog.print", "Print…", Some("Cmd+P"), "File"),
@@ -515,6 +518,19 @@ fn theme_command(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
 }
 
 /// Handle UI commands; `None` means "not a UI command — send it to the engine".
+/// Update Preset with Current Settings for preset `p.id`, pre-ticked with what it holds (note 11).
+fn open_update_preset(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> {
+    let id = p.get("id").and_then(Value::as_str).ok_or("missing `id`")?.to_string();
+    let preset = app.session.presets.iter().find(|x| x.id == id).ok_or_else(|| format!("unknown preset `{id}`"))?;
+    if preset.builtin {
+        return Err("built-in presets can't be changed".into());
+    }
+    let name = preset.name.clone();
+    let groups = lightcraft_develop::SettingsPick::of_partial(&preset.settings).to_ids();
+    app.ui.dialog = Some(Dialog::UpdatePreset { id, name, groups });
+    Ok(Value::Null)
+}
+
 pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Result<Value, String>> {
     if matches!(id, "ui.dock" | "ui.dock.reset") {
         return Some(crate::docking::command(app, id == "ui.dock.reset", p));
@@ -1540,28 +1556,30 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "dialog.rename" => {
             let template = p.get("template").and_then(Value::as_str).unwrap_or("{name}").to_string();
-            app.ui.dialog = Some(Dialog::Rename { template, start: p.get("start").and_then(Value::as_u64).unwrap_or(1) as u32 });
+            app.ui.dialog =
+                Some(Dialog::Rename { template, start: p.get("start").and_then(Value::as_u64).unwrap_or(1) as u32, texts: Default::default() });
             Ok(Value::Null)
         }
         "dialog.createPreset" => {
-            app.ui.dialog = Some(Dialog::create_preset());
+            app.ui.dialog = Some(Dialog::create_preset(&app.session));
             Ok(Value::Null)
         }
         "dialog.pasteSettings" => {
-            let groups =
-                app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
-            app.ui.dialog = Some(Dialog::PasteSettings { groups });
+            app.ui.dialog = Some(Dialog::PasteSettings { groups: app.session.dialogs.copy.to_ids() });
             Ok(Value::Null)
         }
+        "dialog.syncSettings" => {
+            app.ui.dialog = Some(Dialog::SyncSettings { groups: app.session.dialogs.sync.to_ids() });
+            Ok(Value::Null)
+        }
+        "dialog.updatePreset" => open_update_preset(app, p),
         "view.focusSearch" => {
             // the search field lives in the top bar of the library and detail views alike
             app.ui.focus_search = true;
             Ok(Value::Null)
         }
         "dialog.copySettings" => {
-            let groups =
-                app.session.copy_groups.iter().filter_map(|g| serde_json::to_value(g).ok().and_then(|v| v.as_str().map(str::to_string))).collect();
-            app.ui.dialog = Some(Dialog::CopySettings { groups });
+            app.ui.dialog = Some(Dialog::CopySettings { groups: app.session.dialogs.copy.to_ids() });
             Ok(Value::Null)
         }
         "dialog.slideshowExport" => {
@@ -2381,6 +2399,8 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "photo.editInPhotoCraft" | "photo.editInExternal" => app.session.active().is_some() && app.services.open_with.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),
+        "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
+        "dialog.updatePreset" => app.session.active().is_some(),
         "photo.openOriginalInExternal" => {
             // only a file type LightCraft reads can be handed over (#2135); the extension alone
             // decides, so no disk or share is touched while a menu is drawn

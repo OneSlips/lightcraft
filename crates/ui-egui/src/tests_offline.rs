@@ -147,7 +147,7 @@ fn offline_originals_never_block_a_frame() {
     h.app.ui.view = ViewMode::PhotoGrid;
     h.app.ui.right = RightPanel::None;
     h.app.session.execute("library.select", &json!({"ids": [1, 2, 3]})).unwrap();
-    h.app.ui.dialog = Some(crate::state::Dialog::Rename { template: "Trip-{seq:3}".into(), start: 1 });
+    h.app.ui.dialog = Some(crate::state::Dialog::Rename { template: "Trip-{seq:3}".into(), start: 1, texts: Default::default() });
     frames_while_asleep(&mut h, &nas, 20, "Rename dialog");
     h.app.ui.dialog = None;
 

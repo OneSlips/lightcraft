@@ -1518,11 +1518,14 @@ fn develop_sync_validates_groups_and_rejects_malformed_with_zero_mutations() {
     // Reselect Photo A (active) and Photo B
     s.execute("library.select", &json!({"ids": [photo_a.0, photo_b.0], "active": photo_a.0})).unwrap();
 
-    // 4. Omitted groups preserves default behavior (all default copy groups synced)
+    // 4. Omitted groups sync what Sync ticked last (remembered app-wide, client note 13): light only
     s.execute("develop.sync", &json!({})).unwrap();
     let dev_after_omitted = (*s.develop_of(photo_b).unwrap()).clone();
     assert_eq!(dev_after_omitted.light.exposure, 1.0);
-    assert_eq!(dev_after_omitted.color.vibrance, 30.0);
+    assert_eq!(dev_after_omitted.color.vibrance, initial_b_dev.color.vibrance);
+    // ticked again with the default groups, it syncs colour too
+    s.execute("develop.sync", &json!({"groups": lightcraft_develop::SettingsGroup::default_copy()})).unwrap();
+    assert_eq!(s.develop_of(photo_b).unwrap().color.vibrance, 30.0);
 
     // Reset photo B
     s.execute("library.select", &json!({"ids": [photo_b.0]})).unwrap();
@@ -1591,12 +1594,12 @@ fn presets_validate_groups_on_create_and_update() {
     assert!(p.settings.get("light").is_some());
     assert!(p.settings.get("color").is_none());
 
-    // 3. preset.create with omitted groups uses default copy groups
+    // 3. preset.create with omitted groups uses what was ticked last (remembered, client note 13)
     let res_omitted = s.execute("preset.create", &json!({"name": "DefaultPreset"})).unwrap();
     let pid_omitted = res_omitted["id"].as_str().unwrap().to_string();
     let p_omitted = s.presets.iter().find(|p| p.id == pid_omitted).unwrap();
     assert!(p_omitted.settings.get("light").is_some());
-    assert!(p_omitted.settings.get("color").is_some());
+    assert!(p_omitted.settings.get("color").is_none());
 
     // Change develop settings
     s.execute("develop.set", &json!({"values": {"light.exposure": 2.0, "color.vibrance": 50}})).unwrap();

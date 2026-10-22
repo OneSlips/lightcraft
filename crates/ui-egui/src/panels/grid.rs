@@ -903,7 +903,39 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         }
         app.ui.dragging_photos = Some(app.session.selection.ids.iter().map(|p| p.0).collect());
     }
+    reorder_drop(app, ui, id, r);
     resp.context_menu(|ui| context_menu(app, ui, id));
+}
+
+/// In a collection, photos dragged in the grid and dropped on a photo go before it (its left half)
+/// or after it (its right half), Lightroom's custom order (client note 38); a line shows where.
+fn reorder_drop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect) {
+    let Some(dragged) = app.ui.dragging_photos.clone() else { return };
+    let lightcraft_engine::LibrarySource::Album(album) = app.session.source else { return };
+    if app.session.catalog.album(album).is_none_or(|a| a.is_smart() || a.folder) || dragged.contains(&id.0) {
+        return;
+    }
+    let Some(pos) = ui.input(|i| i.pointer.latest_pos()) else { return };
+    if !r.contains(pos) || !ui.clip_rect().contains(pos) {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let after = pos.x > r.center().x;
+    let x = if after { r.right() - 1.0 } else { r.left() + 1.0 };
+    ui.painter().line_segment([pos2(x, r.top() + 2.0), pos2(x, r.bottom() - 2.0)], egui::Stroke::new(3.0, t.accent));
+    drag_hint(ui.ctx(), crate::i18n::tr("Put them here (custom order)").to_string());
+    if ui.input(|i| i.pointer.any_released()) {
+        let before = if after {
+            let vis = app.session.visible();
+            vis.iter().position(|x| *x == id).and_then(|i| vis.get(i + 1)).map(|x| x.0)
+        } else {
+            Some(id.0)
+        };
+        if let Err(e) = app.run("album.movePhotos", json!({"id": album.0, "ids": dragged, "before": before})) {
+            app.toast(ui.ctx(), e);
+        }
+        app.ui.dragging_photos = None;
+    }
 }
 
 /// Height (points) of the strip under each thumbnail that holds its rating, flag and label when

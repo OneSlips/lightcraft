@@ -73,6 +73,20 @@ impl Session {
         out
     }
 
+    /// A preset group named like `name` (trimmed, any case) that exists already, else `name`
+    /// trimmed: typing "wedding " never makes a second "Wedding" group (client note 8c).
+    pub(crate) fn existing_preset_group(&self, name: &str) -> String {
+        let name = name.trim();
+        let same = |g: &str| g.trim().eq_ignore_ascii_case(name);
+        self.presets
+            .iter()
+            .map(|p| p.group.as_str())
+            .chain(self.preset_state.group_order.iter().map(String::as_str))
+            .find(|g| same(g))
+            .map(|g| g.trim().to_string())
+            .unwrap_or_else(|| name.to_string())
+    }
+
     /// The place of group `g` in [`Session::preset_groups`] order (for sorting).
     pub fn preset_group_rank(&self) -> BTreeMap<String, usize> {
         self.preset_groups().into_iter().enumerate().map(|(i, g)| (g, i)).collect()
@@ -286,6 +300,84 @@ fn reorder(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"id": id}))
 }
 
+/// Drag and drop in the Presets Manager (client note 9): presets (several at once) go into a group
+/// and to a place in it. Built-in presets change group but keep their place in the list.
+fn place(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "preset.place";
+    let ids: Vec<String> = match p.get("ids") {
+        Some(Value::Array(a)) => {
+            a.iter().map(|v| v.as_str().map(str::to_string).ok_or_else(|| bad(C, "`ids` must be preset ids"))).collect::<Result<_>>()?
+        }
+        _ => return Err(bad(C, "missing `ids`")),
+    };
+    if ids.is_empty() {
+        return Err(bad(C, "no presets to move"));
+    }
+    if let Some(unknown) = ids.iter().find(|id| !s.presets.iter().any(|x| &x.id == *id)) {
+        return Err(bad(C, format!("no preset `{unknown}`")));
+    }
+    let before = str_param(p, "before").map(str::to_string);
+    let after = str_param(p, "after").map(str::to_string);
+    let position = str_param(p, "position");
+    if let Some(pos) = position
+        && !matches!(pos, "top" | "bottom")
+    {
+        return Err(bad(C, "`position` must be top or bottom"));
+    }
+    for other in before.iter().chain(after.iter()) {
+        if !s.presets.iter().any(|x| &x.id == other) {
+            return Err(bad(C, format!("no preset `{other}`")));
+        }
+    }
+    // the group: given, else the one of the preset they go next to, else the first one's
+    let next_to = before.as_ref().or(after.as_ref());
+    let group = match p.get("group") {
+        Some(Value::Null) | None => next_to
+            .and_then(|o| s.presets.iter().find(|x| &x.id == o))
+            .or_else(|| ids.first().and_then(|f| s.presets.iter().find(|x| &x.id == f)))
+            .map(|x| x.group.clone())
+            .unwrap_or_default(),
+        Some(_) => name_param(p, "group", C)?,
+    };
+    let group = s.existing_preset_group(&group);
+    for id in &ids {
+        let builtin = s.presets.iter().find(|x| &x.id == id).is_some_and(|x| x.builtin);
+        set_group(s, id, builtin, &group);
+    }
+    s.reapply_builtin_overrides();
+    // the user's presets among them, in the list's order, go to their place
+    let moving: Vec<String> = s.presets.iter().filter(|x| !x.builtin && ids.contains(&x.id)).map(|x| x.id.clone()).collect();
+    if !moving.is_empty() {
+        let mut taken: Vec<Preset> = Vec::with_capacity(moving.len());
+        let mut kept: Vec<Preset> = Vec::with_capacity(s.presets.len());
+        for x in s.presets.iter() {
+            if moving.contains(&x.id) {
+                taken.push(x.clone());
+            } else {
+                kept.push(x.clone());
+            }
+        }
+        let in_group = |x: &Preset| x.group == group;
+        let at = if let Some(b) = before.as_ref().filter(|b| !moving.contains(b)) {
+            kept.iter().position(|x| &x.id == b)
+        } else if let Some(a) = after.as_ref().filter(|a| !moving.contains(a)) {
+            kept.iter().position(|x| &x.id == a).map(|i| i + 1)
+        } else if position == Some("top") {
+            kept.iter().position(in_group)
+        } else {
+            kept.iter().rposition(in_group).map(|i| i + 1)
+        }
+        .unwrap_or(kept.len());
+        let tail = kept.split_off(at.min(kept.len()));
+        kept.extend(taken);
+        kept.extend(tail);
+        // (one change of the list: one generation, one save)
+        s.presets = crate::presets::PresetList::new(kept);
+    }
+    s.preset_state_changed()?;
+    Ok(json!({"moved": ids.len(), "group": group}))
+}
+
 fn group_hide(s: &mut Session, p: &Value) -> Result<Value> {
     let g = group_param(s, p, "preset.groupHide")?;
     let ids: Vec<String> = s.presets.iter().filter(|x| x.group == g && s.preset_listed(x)).map(|x| x.id.clone()).collect();
@@ -465,6 +557,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{id, before | after: id} — the place of a preset of your own in the list",
             always,
             reorder
+        ),
+        cmd!(
+            "preset.place",
+            "Move Presets",
+            [],
+            None,
+            "{ids: [presetId], group?: name (default: the group of the preset they go next to), before? | after?: presetId, position?: top|bottom (of the group; default bottom)} — the Presets Manager's drag and drop and Move to Top / Bottom: into a group and to a place in it, several at once; built-in presets change group and keep their place → {moved, group}",
+            always,
+            place
         ),
         cmd!(
             "preset.groupHide",

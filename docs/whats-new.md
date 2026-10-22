@@ -2,6 +2,29 @@
 
 ## 2026-10-22
 
+### Control surfaces
+- **Put a preset on a console key the easy way**: Settings ▸ Controls, pick a key, then Preset opens the same
+  preset picker as Import (search, Favorites, groups). The key shows the preset's name and a preset icon, with an
+  "AI" mark for presets with AI masks, and follows the preset when it is renamed or moved.
+- **Parameters an action doesn't use are flagged** in the key editor (a preset id pasted on another action).
+
+### Export
+- **Naming presets** in Rename Photos and Export: pick a saved file-name template, or save the one you typed
+  (Save as…). They are kept with LightCraft's settings, in every library.
+- **{text:Couple initials} asks for a text each time**: a delivery preset such as
+  `{seq:1}_{text:Couple initials}_Studio` stays the same, and the dialog asks for "R+A" for this wedding.
+- **Numbers follow the order on screen** in Rename Photos and Export (the sort, or a collection's own order),
+  not the order the photos were clicked. **+ Number** beside the template adds the number, and Rename warns when
+  every photo would get the same name.
+- **Collections keep your own order**: drag photos in a collection's grid to put them where you want (a line
+  shows where); the view switches to Custom Order and Undo puts the old order back.
+- **A name typed in Save preset is saved when you press Export**, with a note saying so; the small Save button
+  is no longer needed.
+
+### Masking
+- **Remembered objects ("Wedding dress") work in every library**, like presets: they are kept with LightCraft's
+  settings instead of one library. Objects a library remembered before are added once, the first time it is open.
+
 ### Develop
 - **A mask's Whites and Blacks adapt to what is under the mask**, as in Lightroom: Whites works up to the
   brightest tones of that mask and Blacks down to its darkest, so Whites on a white dress pushes the dress's own
@@ -41,6 +64,21 @@
   Nothing about them changed but the name; agents keep using the `album.*` commands.
 
 ### Presets
+- **Drag to reorder in the Presets and Profile Managers**: drag presets before or after another, or onto a
+  group to move them there; Ctrl-click or Shift-click picks several, and right-click offers Move to Top or
+  Bottom of the group. Drag a group by its header to move the whole group.
+- **Create Camera Profile from Color Chart remembers each photo's light and the look** you chose last time.
+- **New Preset, Copy Settings, Paste Selected and Sync Settings pick single settings**, as in Lightroom: open a group
+  with its arrow to tick Exposure but not Contrast, Sharpening but not Noise Reduction, the camera profile but not the
+  Calibration sliders. A group with only some settings ticked shows a dash.
+- **White Balance is no longer saved in a new preset unless you tick it**, so a look applied to a whole wedding
+  keeps each photo's own white balance.
+- **New Preset offers the groups you have** in a list, with New Group… for another; typing a name that exists
+  already (in any case) puts the preset in that group instead of making a second one.
+- **Update with Current Settings…** (right-click a preset) shows what the preset holds, ticked, so you can see and
+  change what is saved. The preset keeps its name, group, place and marks, and the message after it has **Undo**.
+- **Copy Settings, Sync Settings and New Preset remember their ticks** (and New Preset its group) in every library
+  and after a restart. Edit ▸ Sync Settings… opens Lightroom's Synchronize Settings choice.
 - **A preset clicked in the Presets panel follows Auto Sync, like a slider**: with Auto Sync off it goes on the
   active photo only; with it on, on every selected photo (one undo). Right-click ▸ **Apply to N Selected Photos**
   and Quick Develop's Saved Preset still put it on the whole selection.

@@ -453,5 +453,12 @@
   "{n} done": "готово: {n}",
   ", {n} failed": ", з помилкою: {n}",
   "{n} failed": "з помилкою: {n}",
-  "Show each photo ({n})": "Показати окремі фото ({n})"
+  "Show each photo ({n})": "Показати окремі фото ({n})",
+  "Goes into the group “{group}” that exists already.": "Потрапить до наявної групи «{group}».",
+  "Preset saved in {group}": "Пресет збережено в групі {group}",
+  "From the active photo to {n} other selected photos": "З активного фото на {n} інших вибраних фото",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "«{name}» отримає налаштування активного фото. Назва, група, місце й позначки залишаться.",
+  "Saved naming preset “{name}”": "Шаблон імен «{name}» збережено",
+  "{n} items": "{n} елем.",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ця дія не використовує: {keys}. Щоб призначити пресет на клавішу, виберіть «Пресет» вище."
 }

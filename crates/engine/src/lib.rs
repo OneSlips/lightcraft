@@ -344,8 +344,14 @@ pub struct Session {
     pub meta_clipboard: Option<Value>,
     /// The photo that was active before the current one (Paste Settings from Previous).
     pub previous_active: Option<PhotoId>,
-    /// Groups last used for Copy (Lightroom remembers them).
-    pub copy_groups: Vec<lightcraft_develop::SettingsGroup>,
+    /// File-name templates saved by name (Rename, Export, Import; client note 35), kept with the
+    /// app store.
+    pub naming_presets: Vec<cmd::manage::NamingPreset>,
+    /// What the dialogs with choices remember (Copy Settings' ticks, Sync's, New Preset's…), kept
+    /// app-wide with the store (client note 13).
+    pub dialogs: app_store::DialogMemory,
+    /// The last preset Update with Current Settings changed, and its settings before (Undo).
+    pub preset_undo: Option<(String, Value)>,
     /// Built-in then user presets; its generation tells savers and caches when it changed.
     pub presets: presets::PresetList,
     /// Favourite profile ids (persisted with the library, like preset favourites).
@@ -587,7 +593,9 @@ impl Session {
             browse: None,
             library_folder: None,
             previous_active: None,
-            copy_groups: lightcraft_develop::SettingsGroup::default_copy(),
+            naming_presets: Vec::new(),
+            dialogs: app_store::DialogMemory::default(),
+            preset_undo: None,
             presets: presets::PresetList::new(presets::builtin()),
             profile_favorites: Vec::new(),
             profile_recent: Vec::new(),
@@ -1667,6 +1675,17 @@ impl Session {
         }
     }
 
+    /// `ids` in the order the view shows them (the sort, or a collection's own order); photos not in
+    /// the view follow in the order given.
+    pub fn in_view_order(&mut self, ids: &[PhotoId]) -> Vec<PhotoId> {
+        let wanted: std::collections::HashSet<PhotoId> = ids.iter().copied().collect();
+        let mut out: Vec<PhotoId> = self.visible().iter().copied().filter(|id| wanted.contains(id)).collect();
+        let shown: std::collections::HashSet<PhotoId> = out.iter().copied().collect();
+        let mut seen = std::collections::HashSet::new();
+        out.extend(ids.iter().copied().filter(|id| !shown.contains(id) && seen.insert(*id)));
+        out
+    }
+
     /// The photos commands act on when a call names none: the selection, else the active photo.
     pub fn selected(&self) -> Vec<PhotoId> {
         if self.selection.ids.is_empty() { self.selection.active.into_iter().collect() } else { self.selection.ids.clone() }
@@ -1776,6 +1795,8 @@ mod tests_merge;
 #[cfg(test)]
 mod tests_move_to_share;
 #[cfg(test)]
+mod tests_naming;
+#[cfg(test)]
 mod tests_organize;
 #[cfg(all(test, feature = "sam"))]
 mod tests_people_persist;
@@ -1783,6 +1804,8 @@ mod tests_people_persist;
 mod tests_persist;
 #[cfg(test)]
 mod tests_prefs;
+#[cfg(test)]
+mod tests_preset_picks;
 #[cfg(test)]
 mod tests_presets_scale;
 #[cfg(test)]

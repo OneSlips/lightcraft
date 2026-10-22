@@ -96,8 +96,9 @@ fn export_dialog_is_unchanged_in_a_tall_window() {
     // (846 tall as before #781: the whole dialog, nothing scrolled away, plus the Export to row
     // since #956; 615 wide since the format row gained JPEG XL, #780. On macOS the dialog has one
     // more row, "Add to Apple Photos" (#236), so it is 30 taller there. 8 more since its footer's
-    // buttons are the button component's medium size, 30 points, as the welcome's and every dialog's)
-    let height = if cfg!(target_os = "macos") { 916.0 } else { 886.0 };
+    // buttons are the button component's medium size, 30 points, as the welcome's and every dialog's;
+    // 32 more for the naming presets row, client note 35)
+    let height = if cfg!(target_os = "macos") { 948.0 } else { 918.0 };
     assert!((dialog.height() - height).abs() <= 1.0, "{dialog:?}");
     assert!((dialog.width() - 615.2).abs() <= 1.0, "{dialog:?}");
 }
@@ -157,4 +158,23 @@ fn gpu_status_never_moves_the_performance_controls() {
     }
     let first = seen[0].1;
     assert!(seen.iter().all(|(_, r, _)| *r == first), "the memory buttons moved: {seen:?}");
+}
+
+// Scenario (client note 42): a name typed in "Save preset" is saved by Export itself, with a note
+#[test]
+fn export_saves_the_typed_preset_name() {
+    let mut h = export_dialog([1400.0, 1000.0]);
+    if let Some(crate::state::Dialog::Export { preset_name, .. }) = &mut h.app.ui.dialog {
+        *preset_name = "Client Web".into();
+    }
+    h.settle(T);
+    let r = h.request("ui.clickWidget", json!({"id": "button:dialogOk"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(h.app.ui.dialog.is_none());
+    assert!(h.app.session.export_presets.iter().any(|p| p.name == "Client Web"), "saved without pressing Save");
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+    assert!(toast.contains("Client Web"), "{toast}");
+    assert!(h.step_until(Duration::from_secs(60), |h| h.app.export.is_none()));
 }

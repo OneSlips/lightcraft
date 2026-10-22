@@ -3,7 +3,9 @@
 //! presets, each in one searchable list.
 //!
 //! Per preset: favourite, rename, move to a group, move up / down (presets of your own), hide and
-//! delete. Per group: collapse, rename, move up / down, hide, delete (or move its presets elsewhere),
+//! delete. Drag and drop (client note 9): click, Ctrl/⌘-click and Shift-click select presets; drag
+//! them before or after a preset, or onto a group's header to put them in that group; drag a
+//! group's header to move the group; right-click for Move to Top / Bottom of the group. Per group: collapse, rename, move up / down, hide, delete (or move its presets elsewhere),
 //! and New Group…. Import presets (files, folders, Lightroom preset folders, .zip; dropping them on
 //! the window too) and export them (LightCraft `.lcpreset`, Lightroom `.xmp`). Search by name and
 //! group, and "with AI masks only". Drawn as the managers' table ([`super::manager_table`]); a
@@ -47,7 +49,13 @@ struct State {
     /// A group whose Delete asks first, and where its own presets would go.
     group_confirm: Option<String>,
     group_move_to: Option<String>,
+    /// Presets selected for a drag (ids) and the one a Shift-click counts from.
+    selected: Vec<String>,
+    anchor: Option<String>,
 }
+
+/// The develop presets' list key (its group headers' widgets, and its drag and drop).
+const DEVELOP_KEY: &str = "presetGroup";
 
 fn state_id() -> egui::Id {
     egui::Id::new("presetsManager")
@@ -204,6 +212,11 @@ fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
         t,
         "Lightroom .xmp and .lrtemplate presets, .lcpreset files, folders (Lightroom's preset folders keep their groups) and .zip packs. You can also drop them on this window.",
     );
+    hint(
+        ui,
+        t,
+        "Drag presets to put them in order, or onto a group to move them there (Ctrl-click or Shift-click picks several; right-click for Move to Top or Bottom). Drag a group by its header.",
+    );
     search_row(ui, st, true);
     new_group_row(ui, t, "presetGroupNew", &mut st.group_new, |name| action = Some(("preset.groupNew", json!({"name": name}))));
     let rows = develop_rows(ui, app, st);
@@ -229,6 +242,11 @@ fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
                     default_open: false,
                 };
                 match group_header(ui, t, &DEVELOP_COLS, &head, &mut st.group_rename).1 {
+                    Some(GroupAction::DropItems(ids)) => action = Some(("preset.place", json!({"ids": ids, "group": name}))),
+                    Some(GroupAction::DropGroup { group, before }) => {
+                        let key = if before { "before" } else { "after" };
+                        action = Some(("preset.groupMove", json!({"group": group, key: name})));
+                    }
                     Some(GroupAction::Hide(h)) => action = Some(("preset.groupHide", json!({"group": name, "hidden": h}))),
                     Some(GroupAction::Rename(n)) => action = Some(("preset.groupRename", json!({"group": name, "name": n}))),
                     Some(GroupAction::Move { before, other }) => {
@@ -260,6 +278,7 @@ fn develop(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, st: &mut Stat
             }
         }
     });
+    table::drag_tick(ui.ctx(), t, DEVELOP_KEY);
     if let Some((command, params)) = action
         && let Err(e) = app.run(command, params)
     {
@@ -311,6 +330,39 @@ fn develop_row(
     }
     let (rect, resp, rid) = table::row(ui, table::ROW_H, ("preset", &id));
     table::paint_item(ui, t, rect, n, resp.contains_pointer());
+    // selecting, dragging and dropping (client note 9)
+    let selected = st.selected.contains(&id);
+    if selected {
+        table::paint_selected(ui, t, rect);
+    }
+    if resp.clicked() {
+        let order: Vec<String> =
+            rows.iter().filter_map(|r| if let Row::Item(k, _) = r { app.session.presets.get(*k).map(|q| q.id.clone()) } else { None }).collect();
+        let m = ui.input(|i| i.modifiers);
+        table::select_click(&mut st.selected, &mut st.anchor, &id, &order, m);
+    }
+    if resp.drag_started() && st.rename.is_none() {
+        let ids = if selected { st.selected.clone() } else { vec![id.clone()] };
+        table::drag_start(ui.ctx(), DEVELOP_KEY, table::Dragged::Items(ids));
+    }
+    if let Some((table::Dragged::Items(ids), at, true)) = table::drop_target(ui, t, DEVELOP_KEY, rect, false)
+        && !ids.contains(&id)
+    {
+        let key = if at == table::DropAt::Before { "before" } else { "after" };
+        out = Some(("preset.place", json!({"ids": ids, "group": p.group, key: id})));
+    }
+    let group = p.group.clone();
+    resp.context_menu(|ui| {
+        let ids = if selected { st.selected.clone() } else { vec![id.clone()] };
+        if ui.button(tr("Move to Top of Group")).clicked() {
+            out = Some(("preset.place", json!({"ids": ids, "group": group, "position": "top"})));
+            ui.close();
+        }
+        if ui.button(tr("Move to Bottom of Group")).clicked() {
+            out = Some(("preset.place", json!({"ids": ids, "group": group, "position": "bottom"})));
+            ui.close();
+        }
+    });
     let rr = table::RowRects::new(rect, rid, &DEVELOP_COLS, table::ITEM_NAME_LEFT);
     let fav = rr.in_lead(ui, table::item_star(rect), |ui| {
         icon_button(ui, &format!("presetFav:{id}"), if p.favorite { Icon::StarFilled } else { Icon::Star }, sz, p.favorite, true, "Favorite")

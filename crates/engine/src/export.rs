@@ -644,9 +644,13 @@ pub struct ExportOptions {
     /// File name template with the batch-rename tokens ([`crate::rename::expand_tokens`]): `{name}`
     /// (original stem), `{seq}` (zero-padded to 3, counting from `start_number`; `{seq:N}` for N
     /// digits), `{date}` (capture date, YYYYMMDD; `{date:%Y-%m-%d}`…), `{num}`, `{folder}`,
-    /// `{camera}`, `{lens}`, `{iso}`, `{rating}`, `{title}`, `{creator}`, `{ext}`; the output
-    /// extension is appended.
+    /// `{camera}`, `{lens}`, `{iso}`, `{rating}`, `{title}`, `{creator}`, `{ext}`, `{text:Label}`
+    /// (from [`ExportOptions::texts`]); the output extension is appended.
     pub naming: String,
+    /// What the naming's `{text:Label}` tags become, by label: typed at export, so a naming preset
+    /// stays fixed (client note 35: the couple's initials). Never kept in an export preset.
+    #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub texts: std::collections::BTreeMap<String, String>,
     /// First `{seq}` value.
     pub start_number: u32,
     /// A specific folder for the whole batch, or each photo's own folder.
@@ -702,6 +706,7 @@ impl Default for ExportOptions {
             sharpen: SharpenFor::None,
             sharpen_amount: SharpenAmount::Standard,
             naming: "{name}".into(),
+            texts: std::collections::BTreeMap::new(),
             start_number: 1,
             destination_mode: DestinationMode::SpecificFolder,
             subfolder: String::new(),
@@ -745,6 +750,7 @@ pub const OPTION_PARAMS: &[&str] = &[
     "sharpen",
     "sharpenAmount",
     "naming",
+    "texts",
     "startNumber",
     "destinationMode",
     "subfolder",
@@ -880,7 +886,10 @@ impl ExportOptions {
     pub fn from_params_or(p: &serde_json::Value, fallback: ExportFormat) -> crate::Result<Self> {
         let format = Self::export_format(p, fallback);
         Self::validate_as("app.export", p, Some(format))?;
-        Ok(Self { format, ..Self::from_json(p) })
+        let o = Self { format, ..Self::from_json(p) };
+        // every `{text:…}` of the naming needs its text (asked in the dialog)
+        crate::rename::texts_param(&o.naming, p.get("texts")).map_err(|e| crate::EngineError::BadParams { cmd: "app.export".into(), msg: e })?;
+        Ok(o)
     }
 
     /// The format `app.export` writes: `format` (`null`: the default), else the one the extension of
@@ -982,6 +991,12 @@ impl ExportOptions {
                 }
                 "naming" | "subfolder" | "path" | "dir" | "preset" => {
                     string(cmd, k, v)?;
+                }
+                "texts" => {
+                    let Some(o) = v.as_object() else { return Err(bad(format!("`{k}` must be an object of label: text"))) };
+                    if o.values().any(|t| !t.is_string()) {
+                        return Err(bad(format!("`{k}`: each text must be a string")));
+                    }
                 }
                 "sharpen" => parses(k, v, |s| SharpenFor::parse(s).is_some(), &["none", "screen", "matte", "glossy"])?,
                 "sharpenAmount" => parses(k, v, |s| SharpenAmount::parse(s).is_some(), &["low", "standard", "high"])?,
@@ -1111,6 +1126,11 @@ impl ExportOptions {
             sharpen: s("sharpen").and_then(SharpenFor::parse).unwrap_or(d.sharpen),
             sharpen_amount: s("sharpenAmount").and_then(SharpenAmount::parse).unwrap_or(d.sharpen_amount),
             naming: s("naming").map_or(d.naming, str::to_string),
+            texts: p
+                .get("texts")
+                .and_then(Value::as_object)
+                .map(|o| o.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).take(64).collect())
+                .unwrap_or_default(),
             start_number: u("startNumber").map_or(d.start_number, |v| v.min(999_999) as u32),
             destination_mode: s("destinationMode").and_then(DestinationMode::parse).unwrap_or(d.destination_mode),
             subfolder: s("subfolder").map_or(d.subfolder, |v| v.trim().replace(['\\', ':', '\0'], "_")),
@@ -1277,8 +1297,9 @@ impl ExportOptions {
     /// extension is kept for [`ExportFormat::Original`]).
     pub fn file_name_for(&self, p: &lightcraft_catalog::Photo, seq: usize) -> String {
         let base = if self.naming.trim().is_empty() { "{name}" } else { self.naming.as_str() };
+        let base = crate::rename::fill_texts(base, &|l| self.texts.get(l).cloned());
         let n = seq + self.start_number.max(1) as usize - 1;
-        let name = crate::rename::expand_tokens(base, p, n, 3);
+        let name = crate::rename::expand_tokens(&base, p, n, 3);
         let mut name: String = name.chars().map(|c| if matches!(c, '/' | '\\' | ':' | '\0') { '_' } else { c }).collect();
         let (stem, ext) = p.file_name.rsplit_once('.').unwrap_or((&p.file_name, ""));
         if name.trim().is_empty() {

@@ -165,6 +165,8 @@ mod tests_masking_layout;
 #[cfg(test)]
 mod tests_menubar;
 #[cfg(test)]
+mod tests_naming_dialogs;
+#[cfg(test)]
 mod tests_offline;
 #[cfg(test)]
 mod tests_open_lightroom;
@@ -200,6 +202,8 @@ mod tests_render_storms;
 mod tests_sam_setup;
 #[cfg(test)]
 mod tests_scroll;
+#[cfg(test)]
+mod tests_settings_tree;
 #[cfg(test)]
 mod tests_slider_reset;
 #[cfg(test)]

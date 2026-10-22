@@ -1137,16 +1137,16 @@ pub struct UiState {
     pub print: crate::print_view::PrintUi,
 }
 
-/// Settings group ids (`SettingsGroup` serde names) a new preset includes by default: everything
-/// but crop, masks, spots and red eye.
+/// The ticks a new preset starts with when nothing is remembered: everything but White Balance (note
+/// 8b), crop, masks, spots and red eye, one id per box of the settings tree.
 pub fn default_preset_groups() -> Vec<String> {
-    lightcraft_develop::SettingsGroup::default_copy().iter().filter_map(|g| serde_json::to_value(g).ok()?.as_str().map(str::to_string)).collect()
+    lightcraft_develop::SettingsPick::of_groups(lightcraft_develop::SettingsGroup::default_preset()).to_ids()
 }
 
 impl Dialog {
-    /// A fresh Create Preset dialog.
-    pub fn create_preset() -> Dialog {
-        Dialog::CreatePreset { name: String::new(), group: "User Presets".into(), groups: default_preset_groups() }
+    /// A fresh Create Preset dialog, ticked and grouped as the last one was (client note 13).
+    pub fn create_preset(s: &lightcraft_engine::Session) -> Dialog {
+        Dialog::CreatePreset { name: String::new(), group: s.dialogs.preset_group.clone(), groups: s.dialogs.new_preset.to_ids() }
     }
 }
 
@@ -1228,6 +1228,9 @@ pub enum Dialog {
     Rename {
         template: String,
         start: u32,
+        /// What each `{text:Label}` of the template becomes, typed in the dialog (client note 35).
+        #[serde(default)]
+        texts: std::collections::BTreeMap<String, String>,
     },
     /// Rename a keyword on every photo (children included).
     RenameKeyword {
@@ -1353,7 +1356,20 @@ pub enum Dialog {
         #[serde(default = "default_preset_groups")]
         groups: Vec<String>,
     },
+    /// `groups`: the ticked boxes of the settings tree (group ids, or single settings such as
+    /// `light.exposure`: `SettingsPick::to_ids`), here and in the dialogs below.
     CopySettings {
+        groups: Vec<String>,
+    },
+    /// Update Preset with Current Settings: which settings preset `id` keeps (pre-ticked with what it
+    /// holds; client note 11).
+    UpdatePreset {
+        id: String,
+        name: String,
+        groups: Vec<String>,
+    },
+    /// Sync Settings: what goes from the active photo to the other selected ones.
+    SyncSettings {
         groups: Vec<String>,
     },
     /// Paste Selected Settings: which of the copied groups to paste.

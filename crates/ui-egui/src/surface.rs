@@ -435,6 +435,30 @@ pub fn registry_label(app: &LightcraftApp, command: &str) -> Option<String> {
         .map(|l| crate::i18n::tr(&l).to_string())
 }
 
+/// A key that applies a preset (`preset.apply {id}`; client note 21) is labelled with the preset's
+/// name, found by its id, so a rename or a move to another group shows at once.
+pub fn preset_key_label(app: &LightcraftApp, b: &Binding) -> Option<String> {
+    let Binding::Command { command, params } = b else { return None };
+    let id = params.get("id").and_then(serde_json::Value::as_str).filter(|_| command == "preset.apply")?;
+    Some(crate::preset_picker::preset_label(app, id))
+}
+
+/// A preset key's icon: the preset icon, with an "AI" mark when the preset has AI masks (as in the
+/// Presets panel); `None` for other bindings.
+pub fn preset_key_icon(app: &LightcraftApp, b: &Binding) -> Option<&'static str> {
+    let Binding::Command { command, params } = b else { return None };
+    if command != "preset.apply" {
+        return None;
+    }
+    let ai = params
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|id| app.session.presets.iter().find(|p| p.id == id))
+        .is_some_and(|p| p.has_ai_masks());
+    let name = if ai { "preset-apply-ai" } else { "preset-apply" };
+    ls::icons::svg(name).map(|_| name)
+}
+
 // ------------------------------------------------------------------------------------- layout
 
 struct AppHost<'a>(&'a LightcraftApp);
@@ -445,6 +469,9 @@ impl Host for AppHost<'_> {
     }
 
     fn label(&self, b: &Binding) -> String {
+        if let Some(name) = preset_key_label(self.0, b) {
+            return name;
+        }
         match b {
             Binding::Command { command, params } => {
                 let short = ls::icons::command_label(command, params);
@@ -461,6 +488,10 @@ impl Host for AppHost<'_> {
             }
             other => crate::i18n::tr(&other.describe()).to_string(),
         }
+    }
+
+    fn icon(&self, b: &Binding) -> Option<&'static str> {
+        preset_key_icon(self.0, b).or_else(|| ls::icons::icon_for(b))
     }
 
     fn state(&self, b: &Binding) -> Option<bool> {

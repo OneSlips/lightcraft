@@ -453,5 +453,12 @@
   "{n} done": "{n}件完了",
   ", {n} failed": "、{n}件失敗",
   "{n} failed": "{n}件失敗",
-  "Show each photo ({n})": "各写真を表示（{n}）"
+  "Show each photo ({n})": "各写真を表示（{n}）",
+  "Goes into the group “{group}” that exists already.": "既存のグループ「{group}」に入ります。",
+  "Preset saved in {group}": "プリセットを {group} に保存しました",
+  "From the active photo to {n} other selected photos": "アクティブな写真から、選択中の他の {n} 枚へ",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "「{name}」にアクティブな写真の設定を取り込みます。名前・グループ・位置・マークはそのままです。",
+  "Saved naming preset “{name}”": "名前のプリセット「{name}」を保存しました",
+  "{n} items": "{n} 件",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "この操作は {keys} を使いません。キーにプリセットを割り当てるには上の「プリセット」を選んでください。"
 }

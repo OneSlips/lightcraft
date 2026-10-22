@@ -453,5 +453,12 @@
   "{n} done": "{n} terminées",
   ", {n} failed": ", {n} en échec",
   "{n} failed": "{n} en échec",
-  "Show each photo ({n})": "Afficher chaque photo ({n})"
+  "Show each photo ({n})": "Afficher chaque photo ({n})",
+  "Goes into the group “{group}” that exists already.": "Va dans le groupe existant « {group} ».",
+  "Preset saved in {group}": "Paramètre prédéfini enregistré dans {group}",
+  "From the active photo to {n} other selected photos": "De la photo active vers {n} autres photos sélectionnées",
+  "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "« {name} » reprend les réglages de la photo active. Son nom, son groupe, sa place et ses marques restent.",
+  "Saved naming preset “{name}”": "Modèle de nom « {name} » enregistré",
+  "{n} items": "{n} éléments",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Cette action n’utilise pas : {keys}. Choisissez Paramètre prédéfini ci-dessus pour mettre un paramètre sur cette touche."
 }

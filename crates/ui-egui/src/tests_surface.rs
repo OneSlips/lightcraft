@@ -742,3 +742,45 @@ fn a_dial_refuses_a_one_press_action_dropped_on_it() {
     assert_eq!(*h.app.surface.settings(), before, "nothing changed");
     assert!(h.app.surface.editor.message.as_deref().is_some_and(|m| m.contains("dial")), "{:?}", h.app.surface.editor.message);
 }
+
+/// Client note 21: a preset on a key through the shared picker, labelled with the preset's name and
+/// drawn with the preset icon (with the AI mark for an AI-mask preset); parameters an action
+/// doesn't take are flagged.
+#[test]
+fn a_preset_goes_on_a_key_through_the_picker() {
+    use lightcraft_surface::Binding;
+    let mut h = demo();
+    open_photo(&mut h);
+    assert_eq!(h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "controls"}}), T)["ok"], true);
+    let click = |h: &mut Headless, id: &str| {
+        let r = h.request("ui.clickWidget", json!({"id": id}), T);
+        assert_eq!(r["ok"], true, "{id}: {r}");
+        h.settle(T);
+    };
+    h.settle(T);
+    click(&mut h, "button:surfaceControl-key.1");
+    click(&mut h, "presetPicker:surfacePreset");
+    let id = h.app.session.presets.iter().find(|p| p.builtin && !p.has_ai_masks()).unwrap().id.clone();
+    let row = format!("presetPickerRow:surfacePreset:{id}");
+    if !h.app.widgets.iter().any(|(w, _)| *w == row) {
+        // folded groups: search it
+        let name = h.app.session.presets.iter().find(|p| p.id == id).unwrap().name.clone();
+        h.request("ui.text", json!({"text": name}), T);
+        h.settle(T);
+    }
+    click(&mut h, &row);
+    let page = h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).cloned().unwrap();
+    let bound = h.app.surface.settings().active_profile().and_then(|p| p.page(&page).and_then(|q| q.bindings.get("key.1").cloned()));
+    assert_eq!(bound, Some(Binding::command_with("preset.apply", json!({"id": id}))));
+    let b = bound.unwrap();
+    let name = crate::preset_picker::preset_label(&h.app, &id);
+    assert_eq!(crate::surface::preset_key_label(&h.app, &b), Some(name));
+    assert_eq!(crate::surface::preset_key_icon(&h.app, &b), Some("preset-apply"));
+    let ai = h.app.session.presets.iter().find(|p| p.has_ai_masks()).unwrap().id.clone();
+    assert_eq!(crate::surface::preset_key_icon(&h.app, &Binding::command_with("preset.apply", json!({"id": ai}))), Some("preset-apply-ai"));
+    // a preset id pasted on another action is flagged
+    bind_key(&mut h, "key.1", Binding::command_with("develop.autoSync", json!({"id": id})));
+    h.settle(T);
+    assert!(crate::panels::controls::unused_params_for_test("develop.autoSync", &json!({"id": "x"})) == vec!["id".to_string()]);
+    assert!(crate::panels::controls::unused_params_for_test("preset.apply", &json!({"id": "x", "amount": 50})).is_empty());
+}
