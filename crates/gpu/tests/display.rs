@@ -29,6 +29,11 @@ fn window_device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)> {
 
 #[test]
 fn display_renders_match_readback_renders() {
+    // `LIGHTCRAFT_GPU=0` (or the preference) turns GPU rendering off: adopting a device is refused
+    if !lightcraft_gpu::enabled() {
+        lightcraft_testkit::skip!(Gpu, "GPU rendering is off");
+        return;
+    }
     let Some((device, queue, info)) = window_device() else {
         lightcraft_testkit::skip!(Gpu, "no GPU adapter");
         return;
