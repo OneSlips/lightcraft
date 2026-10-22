@@ -224,9 +224,64 @@ fn new_masks_carry_the_last_settings_unless_reset_is_on() {
     assert!(!h.app.session.mask_reset_new);
 }
 
+/// Note 5 (the repeat offender): moving or reshaping a mask that has settings never flashes the
+/// overlay, not even with the pointer on the pin being dragged; the effect shows instead. Once the
+/// drag ends, hovering the pin shows it again. A mask without settings shows its overlay while it
+/// is dragged (nothing else to see yet). A local curve counts as a setting.
+#[test]
+fn dragging_a_mask_with_settings_never_shows_the_overlay() {
+    let mut h = masking();
+    click(&mut h, "maskNew:radial");
+    drag(&mut h, (0.3, 0.3), (0.4, 0.4));
+    let mid = h.app.session.active_mask.expect("selected");
+    let press = |h: &mut Headless, at: (f64, f64), to: (f64, f64)| {
+        let r = h.request(
+            "ui.pointer",
+            json!({"events": [{"kind": "down", "x": at.0, "y": at.1}, {"kind": "drag", "x": (at.0 + to.0) / 2.0, "y": (at.1 + to.1) / 2.0}, {"kind": "drag", "x": to.0, "y": to.1}]}),
+            T,
+        );
+        assert_eq!(r["ok"], true, "{r}");
+        h.step();
+    };
+    let release = |h: &mut Headless, at: (f64, f64)| {
+        let r = h.request("ui.pointer", json!({"events": [{"kind": "up", "x": at.0, "y": at.1}]}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.step();
+    };
+    // no settings: dragging it shows what it selects
+    let centre = radial_centres(&h)[0];
+    let to = (centre.0 + 0.05, centre.1 + 0.05);
+    press(&mut h, centre, to);
+    assert!(crate::panels::detail::mask_gesture(&h.app), "the pin is being dragged: {:?}", h.app.gesture);
+    assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }), "no settings: shown while dragged");
+    release(&mut h, to);
+    // with settings: never while dragged, even with the pointer on the pin
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1}}));
+    let centre = radial_centres(&h)[0];
+    let to = (centre.0 - 0.05, centre.1);
+    press(&mut h, centre, to);
+    assert!(crate::panels::detail::mask_gesture(&h.app), "the pin is being dragged: {:?}", h.app.gesture);
+    h.app.ui.mask_hover = Some(mid);
+    assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None, "settings: no overlay while dragged, even over the pin");
+    release(&mut h, to);
+    assert!(!crate::panels::detail::mask_gesture(&h.app));
+    assert!(!near(radial_centres(&h)[0], centre), "the drag moved it");
+    h.app.ui.mask_hover = Some(mid);
+    assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }), "hovering the pin after the drag shows it");
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None);
+    // a local curve alone is a setting too
+    let mut m = develop(&h).masks[0].clone();
+    m.adjust = lightcraft_develop::LocalAdjustments::default();
+    assert!(!crate::panels::detail::mask_has_settings(&m));
+    m.curve.master = vec![lightcraft_geom::Point::new(0.0, 0.0), lightcraft_geom::Point::new(0.5, 0.6), lightcraft_geom::Point::new(1.0, 1.0)];
+    assert!(crate::panels::detail::mask_has_settings(&m), "a local curve is a setting");
+}
+
 /// When the overlay shows: a fresh mask (no settings) shows what it selects; a mask with settings
-/// (carried over or a preset) doesn't by itself, only while it is drawn or its row is under the
-/// pointer; O shows it whatever the settings.
+/// (carried over or a preset) doesn't by itself, only while its row or pin is under the pointer
+/// (and nothing is being adjusted); O shows it whatever the settings.
 #[test]
 fn the_overlay_shows_by_itself_only_for_a_mask_without_settings() {
     let mut h = masking();

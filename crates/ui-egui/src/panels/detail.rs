@@ -1876,19 +1876,27 @@ fn shapes_graphics(id: &str) -> bool {
         || id.starts_with("crop.")
 }
 
-/// The mask the overlay shows, if any (as Lightroom Classic): the one whose row or pin the pointer
-/// is on; else the selected mask when the overlay is on (O), when it is fresh (no adjustment yet,
-/// unless O hid it) or while a mask tool is in use. A preset's or an adjusted mask never shows by
-/// itself, so the effect can be judged.
+/// The mask the overlay shows, if any. One rule (the user's, note 5):
+/// overlay = O / Always, OR (the pointer on the mask's pin or row AND not adjusting), OR (Auto AND
+/// the mask has no settings). "Adjusting" is a slider or dial at work ([`adjusting`], which hides
+/// every overlay in [`view_overlay`]) or a mask gesture (a handle, the gradient or the pin dragged,
+/// a brush stroke, a range area or pin): hovering never shows the overlay while one runs, even
+/// with the pointer over the pin being dragged. A mask with settings (its own, the last mask's
+/// carried over, an effect preset, a preset's) never shows by itself, so its effect can be judged
+/// while it is placed; a mask without settings shows what it selects, also while it is drawn
+/// (there is no effect to see yet).
 pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> Option<&'a lightcraft_develop::Mask> {
-    if let Some(m) = app.ui.mask_hover.or(app.ui.mask_hover_prev).and_then(|id| d.masks.iter().find(|m| m.id == id)) {
+    if !mask_gesture(app)
+        && let Some(m) = app.ui.mask_hover.or(app.ui.mask_hover_prev).and_then(|id| d.masks.iter().find(|m| m.id == id))
+    {
         return Some(m);
     }
     let m = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))?;
     overlay_shown(app, m).then_some(m)
 }
 
-/// Whether the selected mask `m`'s overlay shows (without hovering).
+/// Whether the selected mask `m`'s overlay shows (without hovering): O / Always, or Auto and `m`
+/// has no settings ([`overlay_mask`] has the whole rule).
 pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
     if app.ui.mask_overlay {
         return true;
@@ -1896,21 +1904,20 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
     if app.ui.mask_overlay_hidden == Some(m.id) {
         return false;
     }
-    // a mask without settings yet shows what it selects; one with settings (its own, the last
-    // mask's carried over, a preset's) shows its effect, and its overlay only while it is being
-    // drawn (or the pointer is on its row or pin, see `overlay_mask`)
-    let fresh = m.adjust == lightcraft_develop::LocalAdjustments::default() && m.preset.is_none();
-    fresh || drawing(app, m.id)
+    !mask_has_settings(m)
 }
 
-/// Whether mask `id` is being drawn right now: a handle or the gradient dragged, a brush stroke or
-/// a colour or tone area on its way.
-fn drawing(app: &LightcraftApp, id: u32) -> bool {
-    match &app.gesture {
-        Some(Gesture::MaskHandle { mask, .. }) => *mask == id,
-        Some(Gesture::Brush { .. } | Gesture::RangeArea { .. } | Gesture::ColorPin { .. }) => app.session.active_mask == Some(id),
-        _ => false,
-    }
+/// Whether mask `m` changes the photo by itself: any adjustment slider off its default, a local
+/// curve or Point Color, or an effect preset's mark. (Its shape, Refine Edges included, is not a
+/// setting: it is what the overlay is for.)
+pub(crate) fn mask_has_settings(m: &lightcraft_develop::Mask) -> bool {
+    m.adjust != lightcraft_develop::LocalAdjustments::default() || m.preset.is_some() || !m.curve.is_default() || !m.point_colors.is_empty()
+}
+
+/// Whether a mask is being shaped on the photo right now: a handle, the gradient or the pin
+/// dragged, a brush stroke, a colour or tone area or a colour pin on its way.
+pub(crate) fn mask_gesture(app: &LightcraftApp) -> bool {
+    matches!(app.gesture, Some(Gesture::MaskHandle { .. } | Gesture::Brush { .. } | Gesture::RangeArea { .. } | Gesture::ColorPin { .. }))
 }
 
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
