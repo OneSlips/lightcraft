@@ -890,12 +890,13 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         } else if m.command {
             "toggle"
         } else {
-            "replace"
+            // inside the selection: this photo becomes the active one and the set stays (note 19c)
+            "click"
         };
         let _ = app.run("library.select", json!({"ids": [id.0], "mode": mode}));
     }
     if resp.double_clicked() {
-        let _ = app.run("library.select", json!({"ids": [id.0]}));
+        let _ = app.run("library.select", json!({"ids": [id.0], "mode": "click"}));
         let _ = app.run("view.detail", json!({}));
     }
     // drag the selection (this photo joins it, or replaces it when it wasn't selected)

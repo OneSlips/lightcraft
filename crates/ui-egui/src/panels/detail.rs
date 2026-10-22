@@ -3909,7 +3909,8 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     } else if m.shift {
                         "range"
                     } else {
-                        "replace"
+                        // inside the selection: the active photo changes, the set stays (note 19c)
+                        "click"
                     };
                     app.run("library.select", json!({"ids": [id.0], "mode": mode}))
                 };
