@@ -125,7 +125,123 @@ impl RowRects {
 pub fn row(ui: &mut Ui, h: f32, key: impl std::hash::Hash + std::fmt::Debug) -> (Rect, egui::Response, egui::Id) {
     let (_, rect) = ui.allocate_space(vec2(ui.available_width(), h));
     let id = egui::Id::new(("managerRow", key));
-    (rect, ui.interact(rect, id, Sense::click()), id)
+    // (dragged to reorder: client note 9)
+    (rect, ui.interact(rect, id, Sense::click_and_drag()), id)
+}
+
+/// Click, Ctrl/⌘-click (add or take out) and Shift-click (a run of the list) on row `id` of a
+/// manager (client note 9); `order` is the rows as listed.
+pub fn select_click(selected: &mut Vec<String>, anchor: &mut Option<String>, id: &str, order: &[String], m: egui::Modifiers) {
+    if m.shift
+        && let Some(a) = anchor.as_ref()
+        && let (Some(i), Some(j)) = (order.iter().position(|x| x == a), order.iter().position(|x| x == id))
+    {
+        let (lo, hi) = if i <= j { (i, j) } else { (j, i) };
+        *selected = order.get(lo..=hi).map(<[String]>::to_vec).unwrap_or_default();
+        return;
+    }
+    if m.command || m.ctrl {
+        if let Some(k) = selected.iter().position(|x| x == id) {
+            selected.remove(k);
+        } else {
+            selected.push(id.to_string());
+        }
+    } else {
+        *selected = vec![id.to_string()];
+    }
+    *anchor = Some(id.to_string());
+}
+
+/// A selected row's highlight.
+pub fn paint_selected(ui: &Ui, t: &Tokens, rect: Rect) {
+    ui.painter().rect_filled(rect.shrink2(vec2(0.0, 1.0)), 3.0, t.accent.gamma_multiply(0.22));
+}
+
+/// What is dragged in a manager's list (client note 9): rows (several at once) or a group.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Dragged {
+    Items(Vec<String>),
+    Group(String),
+}
+
+/// Where a drop on a row goes: before or after it (its upper or lower half), or into a group.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropAt {
+    Before,
+    After,
+    Into,
+}
+
+fn drag_id(key: &str) -> egui::Id {
+    egui::Id::new(("managerDrag", key))
+}
+
+/// Start dragging `d` in the list `key`.
+pub fn drag_start(ctx: &egui::Context, key: &str, d: Dragged) {
+    ctx.data_mut(|m| m.insert_temp(drag_id(key), Some(d)));
+}
+
+/// What is being dragged in the list `key`.
+pub fn dragged(ctx: &egui::Context, key: &str) -> Option<Dragged> {
+    ctx.data(|m| m.get_temp::<Option<Dragged>>(drag_id(key))).flatten()
+}
+
+/// While something is dragged in the list `key` over row `rect`: where it would go (a line above or
+/// below the row, or the row outlined for `into`), and whether it was dropped this frame.
+pub fn drop_target(ui: &Ui, t: &Tokens, key: &str, rect: Rect, into: bool) -> Option<(Dragged, DropAt, bool)> {
+    let d = dragged(ui.ctx(), key)?;
+    let pos = ui.input(|i| i.pointer.latest_pos())?;
+    if !rect.contains(pos) || !ui.clip_rect().contains(pos) {
+        return None;
+    }
+    let at = if into {
+        DropAt::Into
+    } else if pos.y < rect.center().y {
+        DropAt::Before
+    } else {
+        DropAt::After
+    };
+    let stroke = egui::Stroke::new(2.0, t.accent);
+    match at {
+        DropAt::Into => {
+            ui.painter().rect_stroke(rect.shrink(1.0), 3.0, stroke, egui::StrokeKind::Inside);
+        }
+        DropAt::Before => {
+            ui.painter().line_segment([pos2(rect.left() + INDENT, rect.top() + 1.0), pos2(rect.right(), rect.top() + 1.0)], stroke);
+        }
+        DropAt::After => {
+            ui.painter().line_segment([pos2(rect.left() + INDENT, rect.bottom() - 1.0), pos2(rect.right(), rect.bottom() - 1.0)], stroke);
+        }
+    }
+    let released = ui.input(|i| i.pointer.any_released());
+    Some((d, at, released))
+}
+
+/// Once a frame after the list `key` is drawn: the label following the pointer while something is
+/// dragged, and the end of the drag when the button is up (the rows act on the release first).
+pub fn drag_tick(ctx: &egui::Context, t: &Tokens, key: &str) {
+    let Some(d) = dragged(ctx, key) else { return };
+    let (released, down, pos) = ctx.input(|i| (i.pointer.any_released(), i.pointer.any_down(), i.pointer.latest_pos()));
+    if released || !down {
+        ctx.data_mut(|m| m.insert_temp::<Option<Dragged>>(drag_id(key), None));
+        return;
+    }
+    let Some(pos) = pos else { return };
+    ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+    let text = match &d {
+        Dragged::Items(ids) if ids.len() == 1 => tr("1 item").to_string(),
+        Dragged::Items(ids) => crate::i18n::tr_format!("{n} items", n = ids.len()),
+        Dragged::Group(g) => g.clone(),
+    };
+    egui::Area::new(egui::Id::new(("managerDragLabel", key))).order(egui::Order::Tooltip).interactable(false).fixed_pos(pos + vec2(14.0, 10.0)).show(
+        ctx,
+        |ui| {
+            egui::Frame::NONE.fill(t.accent).corner_radius(10.0).inner_margin(egui::Margin::symmetric(9, 3)).show(ui, |ui| {
+                let label = ui.add(egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE).font(t.semibold(12.0))).extend());
+                register(ui.ctx(), format!("drag:{key}"), label.rect);
+            });
+        },
+    );
 }
 
 /// Paint a group header's band.
@@ -181,8 +297,18 @@ pub struct GroupHead<'a> {
 pub enum GroupAction {
     Hide(bool),
     Rename(String),
-    Move { before: bool, other: String },
+    Move {
+        before: bool,
+        other: String,
+    },
     Delete,
+    /// Rows dropped on the header: into this group (client note 9).
+    DropItems(Vec<String>),
+    /// Group `group` dropped on this header: before or after this one.
+    DropGroup {
+        group: String,
+        before: bool,
+    },
 }
 
 /// Whether group `name` (widgets keyed `key`) is open.
@@ -200,6 +326,18 @@ pub fn group_header(ui: &mut Ui, t: &Tokens, c: &Columns, h: &GroupHead, renamin
     let sz = vec2(24.0, 24.0);
     let (rect, resp, id) = row(ui, ROW_H, (h.key, "group", h.name));
     paint_group(ui, t, rect, resp.contains_pointer());
+    // drag the header to move the group; drop rows on it to put them in the group (client note 9)
+    if resp.drag_started() && renaming.is_none() {
+        drag_start(ui.ctx(), h.key, Dragged::Group(h.name.to_string()));
+    }
+    let into = matches!(dragged(ui.ctx(), h.key), Some(Dragged::Items(_)));
+    if let Some((d, at, true)) = drop_target(ui, t, h.key, rect, into) {
+        out = match d {
+            Dragged::Items(ids) => Some(GroupAction::DropItems(ids)),
+            Dragged::Group(g) if g != h.name => Some(GroupAction::DropGroup { group: g, before: at == DropAt::Before }),
+            Dragged::Group(_) => None,
+        };
+    }
     let rr = RowRects::new(rect, id, c, 30.0);
     let fold = Rect::from_min_size(pos2(rect.left() + 3.0, rect.center().y - 12.0), sz);
     let fold_r = rr.in_lead(ui, fold, |ui| {

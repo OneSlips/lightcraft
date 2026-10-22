@@ -289,6 +289,78 @@ fn reorder(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"order": s.all_profiles().into_iter().map(|x| x.id).collect::<Vec<_>>()}))
 }
 
+/// Drag and drop in the Profile Manager (client note 9): profiles (several at once) go into a group
+/// and to a place in it.
+fn place(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "profile.place";
+    let ids: Vec<String> = match p.get("ids") {
+        Some(Value::Array(a)) => {
+            a.iter().map(|v| v.as_str().map(str::to_string).ok_or_else(|| bad(C, "`ids` must be profile ids"))).collect::<Result<_>>()?
+        }
+        _ => return Err(bad(C, "missing `ids`")),
+    };
+    let all: Vec<ProfileItem> = s.all_profiles();
+    let known = |id: &str| all.iter().any(|x| x.id == id);
+    if ids.is_empty() {
+        return Err(bad(C, "no profiles to move"));
+    }
+    if let Some(unknown) = ids.iter().find(|id| !known(id)) {
+        return Err(bad(C, format!("no profile `{unknown}`")));
+    }
+    let before = str_param(p, "before").map(str::to_string);
+    let after = str_param(p, "after").map(str::to_string);
+    for other in before.iter().chain(after.iter()) {
+        if !known(other) {
+            return Err(bad(C, format!("no profile `{other}`")));
+        }
+    }
+    let position = str_param(p, "position");
+    if let Some(pos) = position
+        && !matches!(pos, "top" | "bottom")
+    {
+        return Err(bad(C, "`position` must be top or bottom"));
+    }
+    let next_to = before.as_ref().or(after.as_ref());
+    let group = match p.get("group") {
+        None | Some(Value::Null) => {
+            next_to.or(ids.first()).and_then(|o| all.iter().find(|x| &x.id == o)).map(|x| x.group.clone()).unwrap_or_default()
+        }
+        Some(_) => str_param(p, "group")
+            .map(str::trim)
+            .filter(|g| !g.is_empty() && g.chars().count() <= 120)
+            .ok_or_else(|| bad(C, "`group` must be a name"))?
+            .to_string(),
+    };
+    // a group named like one there is (any case) is that one
+    let group = s.profile_groups_all().into_iter().find(|g| g.trim().eq_ignore_ascii_case(&group)).unwrap_or(group);
+    for id in &ids {
+        if all.iter().find(|x| &x.id == id).is_some_and(|x| x.group != group) {
+            s.profile_state.groups.insert(id.clone(), group.clone());
+        }
+    }
+    // the whole order, the moved ones taken out and put at their place (in the order listed)
+    let listed: Vec<ProfileItem> = s.all_profiles();
+    let moving: Vec<String> = listed.iter().filter(|x| ids.contains(&x.id)).map(|x| x.id.clone()).collect();
+    let mut rest: Vec<&ProfileItem> = listed.iter().filter(|x| !moving.contains(&x.id)).collect();
+    let at = if let Some(b) = before.as_ref().filter(|b| !moving.contains(b)) {
+        rest.iter().position(|x| &x.id == b)
+    } else if let Some(a) = after.as_ref().filter(|a| !moving.contains(a)) {
+        rest.iter().position(|x| &x.id == a).map(|i| i + 1)
+    } else if position == Some("top") {
+        rest.iter().position(|x| x.group == group)
+    } else {
+        rest.iter().rposition(|x| x.group == group).map(|i| i + 1)
+    }
+    .unwrap_or(rest.len());
+    let tail = rest.split_off(at.min(rest.len()));
+    let mut order: Vec<String> = rest.iter().map(|x| x.id.clone()).collect();
+    order.extend(moving.iter().cloned());
+    order.extend(tail.iter().map(|x| x.id.clone()));
+    s.profile_state.order = order;
+    save(s)?;
+    Ok(json!({"moved": moving.len(), "group": group}))
+}
+
 fn group_param(s: &Session, p: &Value, c: &str) -> Result<String> {
     let g = str_param(p, "group").map(str::trim).filter(|g| !g.is_empty()).ok_or_else(|| bad(c, "missing `group`"))?.to_string();
     if !s.profile_groups_all().contains(&g) {
@@ -544,6 +616,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{id, group} — the group it is listed under in the menus and browser (\"\" = its own group again)",
             always,
             set_group
+        ),
+        cmd!(
+            "profile.place",
+            "Move Profiles",
+            [],
+            None,
+            "{ids: [profileId], group?: name (default: the group of the profile they go next to), before? | after?: profileId, position?: top|bottom (of the group; default bottom)} — the Profile Manager's drag and drop and Move to Top / Bottom, several at once → {moved, group}",
+            always,
+            place
         ),
         cmd!(
             "profile.reorder",

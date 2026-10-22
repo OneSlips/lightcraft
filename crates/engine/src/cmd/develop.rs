@@ -86,20 +86,6 @@ fn pick_param(p: &Value, c: &str) -> Result<Option<SettingsPick>> {
     Ok(Some(SettingsPick { groups: groups.unwrap_or_default(), settings }.normalized()))
 }
 
-/// A preset group named like `name` (trimmed, any case) that exists already, else `name` trimmed:
-/// typing "wedding " never makes a second "Wedding" group (client note 8c).
-pub(crate) fn existing_preset_group(s: &Session, name: &str) -> String {
-    let name = name.trim();
-    let same = |g: &str| g.trim().eq_ignore_ascii_case(name);
-    s.presets
-        .iter()
-        .map(|p| p.group.as_str())
-        .chain(s.preset_state.group_order.iter().map(String::as_str))
-        .find(|g| same(g))
-        .map(|g| g.trim().to_string())
-        .unwrap_or_else(|| name.to_string())
-}
-
 /// Remember the dialogs' choices app-wide (saved with the store; a failed save is logged, the
 /// command itself went through).
 fn remember_dialogs(s: &mut Session) {
@@ -1222,7 +1208,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let id = active(s, c)?;
                 let name = str_param(p, "name").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(c, "missing name"))?.to_string();
                 let typed = str_param(p, "group").map(str::trim).filter(|g| !g.is_empty()).unwrap_or(crate::app_store::DEFAULT_PRESET_GROUP);
-                let group = existing_preset_group(s, typed);
+                let group = s.existing_preset_group(typed);
                 let pick = match pick_param(p, c)? {
                     Some(pick) => pick,
                     None => s.dialogs.new_preset.clone(),
@@ -1275,7 +1261,7 @@ pub fn specs() -> Vec<CommandSpec> {
             let c = "preset.move";
             let group = str_param(p, "group").map(str::trim).filter(|n| !n.is_empty()).ok_or_else(|| bad(c, "missing group"))?;
             // (a group named like one there is is that group: never two "Wedding" groups)
-            let group = existing_preset_group(s, group);
+            let group = s.existing_preset_group(group);
             user_preset(s, p, c)?.group = group;
             ok()
         }),

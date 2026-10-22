@@ -29,7 +29,13 @@ struct Editing {
     /// A group whose Delete asks first, and where its own profiles would go instead.
     group_confirm: Option<String>,
     group_move_to: Option<String>,
+    /// Profiles selected for a drag (ids) and the one a Shift-click counts from (client note 9).
+    selected: Vec<String>,
+    anchor: Option<String>,
 }
+
+/// The profile list's key (its group headers' widgets, and its drag and drop).
+const KEY: &str = "profileGroup";
 
 fn editing_id() -> egui::Id {
     egui::Id::new("profileManagerEditing")
@@ -72,11 +78,22 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     hint(ui, t, "DNG camera profiles (.dcp) and 3D LUTs (.cube), single files, folders or .zip packs. You can also drop them on this window.");
+    hint(
+        ui,
+        t,
+        "Drag profiles to put them in order, or onto a group to move them there (Ctrl-click or Shift-click picks several; right-click for Move to Top or Bottom). Drag a group by its header.",
+    );
     ui.add_space(4.0);
 
     let profiles: Vec<Value> = list["profiles"].as_array().cloned().unwrap_or_default();
     let groups: Vec<String> = list["groups"].as_array().into_iter().flatten().filter_map(Value::as_str).map(str::to_string).collect();
     let mut action: Option<(&'static str, Value)> = None;
+    // the rows as listed (open groups), for Shift-click
+    let order: Vec<String> = groups
+        .iter()
+        .filter(|g| table::group_open(ui.ctx(), KEY, g, true))
+        .flat_map(|g| profiles.iter().filter(move |p| p["group"].as_str() == Some(g.as_str())).filter_map(|p| p["id"].as_str().map(str::to_string)))
+        .collect();
     new_group_row(ui, t, "profileGroupNew", &mut ed.group_new, |name| action = Some(("profile.groupNew", json!({"name": name}))));
     let before = ui.spacing().item_spacing.y;
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -97,6 +114,11 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.add_space(4.0);
         let (open, asked) = group_header(ui, t, &PROFILE_COLS, &head, &mut ed.group_rename);
         match asked {
+            Some(GroupAction::DropItems(ids)) => action = Some(("profile.place", json!({"ids": ids, "group": g}))),
+            Some(GroupAction::DropGroup { group, before }) => {
+                let key = if before { "before" } else { "after" };
+                action = Some(("profile.groupMove", json!({"group": group, key: g})));
+            }
             Some(GroupAction::Hide(hidden)) => action = Some(("profile.groupHide", json!({"group": g, "hidden": hidden}))),
             Some(GroupAction::Rename(name)) => action = Some(("profile.groupRename", json!({"group": g, "name": name}))),
             Some(GroupAction::Move { before, other }) => {
@@ -122,9 +144,10 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         for (i, p) in members.iter().enumerate() {
             let prev = i.checked_sub(1).and_then(|j| members.get(j)).and_then(|q| q["id"].as_str());
             let next = members.get(i + 1).and_then(|q| q["id"].as_str());
-            profile_row(ui, t, p, i, &groups, prev, next, &mut ed, &mut action);
+            profile_row(ui, t, p, i, &groups, (prev, next), &order, &mut ed, &mut action);
         }
     }
+    table::drag_tick(ui.ctx(), t, KEY);
     ui.spacing_mut().item_spacing.y = before;
     ui.data_mut(|m| m.insert_temp(editing_id(), ed));
     if let Some((command, params)) = action
@@ -164,8 +187,8 @@ fn profile_row(
     p: &Value,
     n: usize,
     groups: &[String],
-    prev: Option<&str>,
-    next: Option<&str>,
+    (prev, next): (Option<&str>, Option<&str>),
+    order: &[String],
     ed: &mut Editing,
     action: &mut Option<(&'static str, Value)>,
 ) {
@@ -180,6 +203,37 @@ fn profile_row(
     let sz = egui::vec2(24.0, 24.0);
     let (rect, resp, rid) = table::row(ui, table::ROW_H, ("profile", &id));
     table::paint_item(ui, t, rect, n, resp.contains_pointer());
+    // selecting, dragging and dropping (client note 9)
+    let selected = ed.selected.contains(&id);
+    if selected {
+        table::paint_selected(ui, t, rect);
+    }
+    if resp.clicked() {
+        let m = ui.input(|i| i.modifiers);
+        table::select_click(&mut ed.selected, &mut ed.anchor, &id, order, m);
+    }
+    if resp.drag_started() && ed.rename.is_none() {
+        let ids = if selected { ed.selected.clone() } else { vec![id.clone()] };
+        table::drag_start(ui.ctx(), KEY, table::Dragged::Items(ids));
+    }
+    let group = p["group"].as_str().unwrap_or_default().to_string();
+    if let Some((table::Dragged::Items(ids), at, true)) = table::drop_target(ui, t, KEY, rect, false)
+        && !ids.contains(&id)
+    {
+        let key = if at == table::DropAt::Before { "before" } else { "after" };
+        *action = Some(("profile.place", json!({"ids": ids, "group": group, key: id})));
+    }
+    resp.context_menu(|ui| {
+        let ids = if selected { ed.selected.clone() } else { vec![id.clone()] };
+        if ui.button(tr("Move to Top of Group")).clicked() {
+            *action = Some(("profile.place", json!({"ids": ids, "group": group, "position": "top"})));
+            ui.close();
+        }
+        if ui.button(tr("Move to Bottom of Group")).clicked() {
+            *action = Some(("profile.place", json!({"ids": ids, "group": group, "position": "bottom"})));
+            ui.close();
+        }
+    });
     let rr = table::RowRects::new(rect, rid, &PROFILE_COLS, table::ITEM_NAME_LEFT);
     let fav = rr.in_lead(ui, table::item_star(rect), |ui| {
         icon_button(ui, &format!("profileFav:{id}"), if favorite { Icon::StarFilled } else { Icon::Star }, sz, favorite, true, "Favorite")

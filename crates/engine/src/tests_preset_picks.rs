@@ -189,3 +189,75 @@ fn dialog_choices_are_remembered_app_wide() {
     assert!(!s.dialogs.preset_group.trim().is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Client note 9: the Presets Manager's drag and drop: several presets into another group, before a
+/// preset there, to the top or bottom of a group; built-in ones change group but keep their place.
+#[test]
+fn presets_are_placed_by_drag_and_drop() {
+    let mut s = Session::with_demo();
+    let mk = |s: &mut Session, name: &str, group: &str| {
+        s.execute("preset.create", &json!({"name": name, "group": group, "groups": ["light"]})).unwrap()["id"].as_str().unwrap().to_string()
+    };
+    let a1 = mk(&mut s, "A1", "Alpha");
+    let a2 = mk(&mut s, "A2", "Alpha");
+    let a3 = mk(&mut s, "A3", "Alpha");
+    let b1 = mk(&mut s, "B1", "Beta");
+    let b2 = mk(&mut s, "B2", "Beta");
+    let order = |s: &Session, g: &str| s.presets.iter().filter(|p| p.group == g).map(|p| p.name.clone()).collect::<Vec<_>>();
+    // A3 and A1 dropped before B2: into Beta, in the list's order
+    let r = s.execute("preset.place", &json!({"ids": [a3, a1], "before": b2})).unwrap();
+    assert_eq!(r["group"], "Beta");
+    assert_eq!(order(&s, "Beta"), vec!["B1", "A1", "A3", "B2"]);
+    assert_eq!(order(&s, "Alpha"), vec!["A2"]);
+    // to the top of a group, by name in any case
+    s.execute("preset.place", &json!({"ids": [b2], "group": "alpha", "position": "top"})).unwrap();
+    assert_eq!(order(&s, "Alpha"), vec!["B2", "A2"]);
+    // to the bottom (the default) of a new group
+    s.execute("preset.place", &json!({"ids": [b1], "group": "Gamma"})).unwrap();
+    assert_eq!(order(&s, "Gamma"), vec!["B1"]);
+    // after a preset
+    s.execute("preset.place", &json!({"ids": [a1], "after": a2})).unwrap();
+    assert_eq!(order(&s, "Alpha"), vec!["B2", "A2", "A1"]);
+    // a built-in preset changes group only
+    let builtin = s.presets.iter().find(|p| p.builtin).unwrap().id.clone();
+    let at = s.presets.iter().position(|p| p.id == builtin);
+    s.execute("preset.place", &json!({"ids": [builtin.clone()], "group": "Alpha"})).unwrap();
+    assert_eq!(s.presets.iter().position(|p| p.id == builtin), at);
+    assert_eq!(s.presets.iter().find(|p| p.id == builtin).unwrap().group, "Alpha");
+    // hostile params
+    for bad in [
+        json!({}),
+        json!({"ids": []}),
+        json!({"ids": ["nope"]}),
+        json!({"ids": [a1], "before": "nope"}),
+        json!({"ids": [a1], "position": "middle"}),
+        json!({"ids": [1]}),
+    ] {
+        assert!(s.execute("preset.place", &bad).is_err(), "{bad}");
+    }
+}
+
+/// Client note 9: profiles too: several into a group and to a place, or to the top of a group.
+#[test]
+fn profiles_are_placed_by_drag_and_drop() {
+    let mut s = Session::with_demo();
+    let all = s.all_profiles();
+    let g = all.first().unwrap().group.clone();
+    let in_g: Vec<String> = all.iter().filter(|p| p.group == g).map(|p| p.id.clone()).collect();
+    let other: Vec<String> = all.iter().filter(|p| p.group != g).map(|p| p.id.clone()).take(2).collect();
+    assert!(in_g.len() >= 2 && other.len() == 2);
+    s.execute("profile.place", &json!({"ids": other, "before": in_g[1]})).unwrap();
+    let now: Vec<String> = s.all_profiles().iter().filter(|p| p.group == g).map(|p| p.id.clone()).collect();
+    assert_eq!(now.get(1..3).unwrap(), other.as_slice(), "{now:?}");
+    s.execute("profile.place", &json!({"ids": [other[1].clone()], "group": g, "position": "top"})).unwrap();
+    let now: Vec<String> = s.all_profiles().iter().filter(|p| p.group == g).map(|p| p.id.clone()).collect();
+    assert_eq!(now[0], other[1]);
+    for bad in [
+        json!({}),
+        json!({"ids": ["nope"]}),
+        json!({"ids": [other[0].clone()], "position": "x"}),
+        json!({"ids": [other[0].clone()], "after": "nope"}),
+    ] {
+        assert!(s.execute("profile.place", &bad).is_err(), "{bad}");
+    }
+}

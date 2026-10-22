@@ -58,6 +58,9 @@
   Nothing about them changed but the name; agents keep using the `album.*` commands.
 
 ### Presets
+- **Drag to reorder in the Presets and Profile Managers**: drag presets before or after another, or onto a
+  group to move them there; Ctrl-click or Shift-click picks several, and right-click offers Move to Top or
+  Bottom of the group. Drag a group by its header to move the whole group.
 - **Create Camera Profile from Color Chart remembers each photo's light and the look** you chose last time.
 - **New Preset, Copy Settings, Paste Selected and Sync Settings pick single settings**, as in Lightroom: open a group
   with its arrow to tick Exposure but not Contrast, Sharpening but not Noise Reduction, the camera profile but not the
