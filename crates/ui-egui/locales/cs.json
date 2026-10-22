@@ -2408,5 +2408,11 @@
   "Import dropped files without review": "Importovat přetažené soubory bez kontroly",
   "An import is running": "Import už běží",
   "An import is running. Drop photos when it has finished": "Import už běží. Fotky přetáhněte, až skončí",
-  "Finish Lightroom catalog import before adding photos": "Dokončete import katalogu Lightroom, než přidáte fotky"
+  "Finish Lightroom catalog import before adding photos": "Dokončete import katalogu Lightroom, než přidáte fotky",
+  "Profile: from the file (the camera's own correction)": "Profil: ze souboru (vlastní korekce fotoaparátu)",
+  "Downloading the lens database…": "Stahuje se databáze objektivů…",
+  "This file names no lens.": "Tento soubor neuvádí žádný objektiv.",
+  "1 photo got its lens profile": "1 fotka získala profil objektivu",
+  "Looking up lens profiles": "Hledání profilů objektivů",
+  "Downloading the lens database": "Stahování databáze objektivů"
 }

@@ -2200,5 +2200,11 @@
   "Import dropped files without review": "不经检查直接导入拖入的文件",
   "An import is running": "正在导入",
   "An import is running. Drop photos when it has finished": "正在导入。导入完成后再拖放照片",
-  "Finish Lightroom catalog import before adding photos": "添加照片前，请先完成 Lightroom 目录的导入"
+  "Finish Lightroom catalog import before adding photos": "添加照片前，请先完成 Lightroom 目录的导入",
+  "Profile: from the file (the camera's own correction)": "配置文件：来自文件（相机自身的校正）",
+  "Downloading the lens database…": "正在下载镜头数据库…",
+  "This file names no lens.": "此文件未注明镜头。",
+  "1 photo got its lens profile": "1 张照片获得了镜头配置文件",
+  "Looking up lens profiles": "正在查找镜头配置文件",
+  "Downloading the lens database": "正在下载镜头数据库"
 }

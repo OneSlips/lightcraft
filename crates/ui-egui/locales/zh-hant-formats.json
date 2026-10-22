@@ -305,5 +305,8 @@
   "Could not read {name}: {e}": "無法讀取 {name}：{e}",
   "Added {n} photo{}": "已加入 {n} 張照片{:.0}",
   "Where should the Lightroom catalog “{catalog}” go?": "Lightroom 目錄「{catalog}」要匯入到哪裡？",
-  "Merge into the open library “{library}” ({count} photo{})": "合併到目前開啟的照片庫「{library}」（{count} 張照片）{:.0}"
+  "Merge into the open library “{library}” ({count} photo{})": "合併到目前開啟的照片庫「{library}」（{count} 張照片）{:.0}",
+  "Profile: {} (lens database)": "設定檔：{}（鏡頭資料庫）",
+  "No lens profile found for {}.": "找不到 {} 的鏡頭設定檔。",
+  "{n} photos got their lens profile": "{n} 張照片取得了鏡頭設定檔"
 }

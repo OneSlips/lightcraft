@@ -146,6 +146,14 @@ impl Session {
         self
     }
 
+    /// Read lens profiles from the app's own copy of the lens database ([`crate::lensfun_download::default_dir`],
+    /// unless `LIGHTCRAFT_LENSFUN_DIR` names another), and let the host fetch it by itself when it is missing.
+    pub fn with_default_lens_database(mut self) -> Self {
+        crate::lens_profiles::use_dir(crate::lensfun_download::default_dir());
+        self.lens_auto_download = true;
+        self
+    }
+
     /// Keep denoise models in the shared default folder ([`default_denoise_models_dir`]).
     pub fn with_default_denoise_models(mut self) -> Self {
         self.set_denoise_models_dir(default_denoise_models_dir());

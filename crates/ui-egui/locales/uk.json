@@ -2354,5 +2354,11 @@
   "Import dropped files without review": "Імпортувати перетягнуті файли без перегляду",
   "An import is running": "Імпорт уже виконується",
   "An import is running. Drop photos when it has finished": "Імпорт уже виконується. Перетягніть фото, коли він завершиться",
-  "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото"
+  "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото",
+  "Profile: from the file (the camera's own correction)": "Профіль: з файлу (корекція самої камери)",
+  "Downloading the lens database…": "Завантажується база об'єктивів…",
+  "This file names no lens.": "У цьому файлі не вказано об'єктив.",
+  "1 photo got its lens profile": "1 фото отримало профіль об'єктива",
+  "Looking up lens profiles": "Пошук профілів об'єктивів",
+  "Downloading the lens database": "Завантаження бази об'єктивів"
 }

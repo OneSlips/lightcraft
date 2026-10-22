@@ -2358,5 +2358,11 @@
   "Import dropped files without review": "Importar los archivos soltados sin revisión",
   "An import is running": "Hay una importación en curso",
   "An import is running. Drop photos when it has finished": "Hay una importación en curso. Suelta las fotos cuando termine",
-  "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos"
+  "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos",
+  "Profile: from the file (the camera's own correction)": "Perfil: del archivo (corrección de la propia cámara)",
+  "Downloading the lens database…": "Descargando la base de datos de objetivos…",
+  "This file names no lens.": "Este archivo no indica ningún objetivo.",
+  "1 photo got its lens profile": "1 foto recibió su perfil de objetivo",
+  "Looking up lens profiles": "Buscando perfiles de objetivo",
+  "Downloading the lens database": "Descargando la base de datos de objetivos"
 }

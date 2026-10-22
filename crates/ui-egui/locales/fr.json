@@ -2390,5 +2390,11 @@
   "Checking recent libraries": "Vérification des bibliothèques récentes",
   "The photos are imported once a library is open": "Les photos seront importées dès qu'une bibliothèque sera ouverte",
   "Open a library first, then drop the presets again": "Ouvrez d'abord une bibliothèque, puis déposez à nouveau les préréglages",
-  "This library couldn't be checked:": "Impossible de vérifier cette bibliothèque :"
+  "This library couldn't be checked:": "Impossible de vérifier cette bibliothèque :",
+  "Profile: from the file (the camera's own correction)": "Profil : du fichier (correction de l'appareil)",
+  "Downloading the lens database…": "Téléchargement de la base de données d'objectifs…",
+  "This file names no lens.": "Ce fichier n'indique aucun objectif.",
+  "1 photo got its lens profile": "1 photo a reçu son profil d'objectif",
+  "Looking up lens profiles": "Recherche des profils d'objectif",
+  "Downloading the lens database": "Téléchargement de la base de données d'objectifs"
 }

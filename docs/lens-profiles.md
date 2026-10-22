@@ -1,18 +1,33 @@
 # Lens profiles from a lens database
 
 Raws that carry no lens correction of their own (DNG `OpcodeList3`, or a camera correction a raw reader converts,
-see [sony-lens-corrections.md](sony-lens-corrections.md) and [nikon-lens-corrections.md](nikon-lens-corrections.md)) can be corrected from a **lens database in the lensfun
-XML format** that you supply. The app does not ship any lens database: lensfun's data is licensed CC-BY-SA 3.0 and
-stays a separate download. Adobe LCP profiles are never used.
+see [sony-lens-corrections.md](sony-lens-corrections.md) and [nikon-lens-corrections.md](nikon-lens-corrections.md)) are corrected from a **lens database in the lensfun
+XML format**. The app does not ship any lens database: lensfun's data is licensed CC BY-SA 3.0 and is downloaded at
+run time, never bundled and never committed. Adobe LCP profiles are never used.
 
-## Setup
+## Setup: none
 
-1. Get the lensfun database (the `data/db/*.xml` files of <https://github.com/lensfun/lensfun>, or the copy a Linux
-   distribution installs under `/usr/share/lensfun/version_1/`).
-2. Point `LIGHTCRAFT_LENSFUN_DIR` at that directory and start the app (or the CLI).
+1. On first run the desktop app downloads lensfun's `data/db` (56 XML files, about 5 MB) into its data folder
+   (`<config dir>/lensfun`, beside the face and denoise models; see `crates/engine/src/config.rs`), with a row in
+   the activity stack (its ✕ stops it; the next start resumes). The files are pinned to one lensfun commit by name,
+   size and SHA-256 (`crates/engine/src/lensfun_download.rs`); a file that differs is thrown away. A later build with
+   a newer pin replaces them once. `SOURCE.txt` in the folder names the commit and the licence.
+2. By default the files come from lensfun's GitHub repository at the pinned commit. `LIGHTCRAFT_LENSFUN_URL` lists
+   other places serving the same files (base URLs, tried first), e.g. a copy on LightCraft's own server.
+3. `LIGHTCRAFT_LENSFUN_DIR` points at a database of your own instead (lensfun's `data/db`, or a Linux
+   distribution's `/usr/share/lensfun/version_1/`); then nothing is downloaded.
 
-Files are read once per process. Invalid files are skipped with a warning in the log. Without the variable nothing
-changes.
+When the database arrives (or changes), every library raw without a profile whose lens it knows is read again in the
+background and gets its profile; a photo still as imported gets the correction switched on, as import would, and an
+edited one keeps its settings. Ticking **Enable Lens Corrections** on a photo without a profile looks it up again
+too. `library.refreshLensProfiles`, `lens.downloadDatabase` and `lens.databaseStatus` do the same for agents.
+
+The Optics panel says which profile is loaded: "Profile: from the file", "Profile: <lens> (lens database)", or
+"No lens profile found for <lens>". A profile is never copied between photos: presets, Copy / Paste, Sync and Auto
+Sync carry Enable Lens Corrections and its amounts, and each photo keeps the profile of its own lens
+(`crates/engine/src/tests_lens_refresh.rs`).
+
+Files are read once per folder and again after a download. Invalid files are skipped with a warning in the log.
 
 ## What is applied
 
@@ -50,5 +65,6 @@ the image centre (lensfun's `<center>` offsets are not read).
 
 - Only raws: rendered images (JPEG, HEIF, TIFF) are often already corrected in camera.
 - The focus distance is not read from maker notes yet: vignetting uses the farthest calibrated distance.
-- No manual make / model picker yet; matching is automatic.
+- No manual make / model picker and no choice between sources (in the file, lens database, an own calibration)
+  yet; matching is automatic, the file's own correction wins.
 - Not yet validated against real photos and another renderer; the tests use synthetic profiles and grids.

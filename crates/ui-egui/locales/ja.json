@@ -2356,5 +2356,11 @@
   "Import dropped files without review": "ドロップしたファイルを確認せずに読み込む",
   "An import is running": "読み込み中です",
   "An import is running. Drop photos when it has finished": "読み込み中です。完了してから写真をドロップしてください",
-  "Finish Lightroom catalog import before adding photos": "写真を追加する前に Lightroom カタログの読み込みを完了してください"
+  "Finish Lightroom catalog import before adding photos": "写真を追加する前に Lightroom カタログの読み込みを完了してください",
+  "Profile: from the file (the camera's own correction)": "プロファイル: ファイル内（カメラ自身の補正）",
+  "Downloading the lens database…": "レンズデータベースをダウンロード中…",
+  "This file names no lens.": "このファイルにはレンズ名がありません。",
+  "1 photo got its lens profile": "1 枚の写真にレンズプロファイルが適用されました",
+  "Looking up lens profiles": "レンズプロファイルを検索中",
+  "Downloading the lens database": "レンズデータベースをダウンロード中"
 }

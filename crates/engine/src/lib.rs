@@ -46,6 +46,7 @@ pub mod guard;
 pub mod import;
 mod import_move;
 pub mod lens_profiles;
+pub mod lensfun_download;
 pub mod library;
 mod lightroom_archive;
 pub mod lightroom_catalog;
@@ -284,6 +285,10 @@ pub struct Session {
     pub face_models_dir: Option<std::path::PathBuf>,
     /// Face model downloads started this session (the staged files wait in `<face_models_dir>/.downloads`).
     pub face_downloads: face_download::Downloads,
+    /// The lens database download ([`lensfun_download`]).
+    pub lensfun: lensfun_download::Download,
+    /// The host fetches the lens database by itself when it is missing ([`Session::with_default_lens_database`]).
+    pub lens_auto_download: bool,
     /// Reverse geocoding: the parsed place names and their download (`metadata.*PlaceNames`).
     pub place_names: cmd::geocode::PlaceNames,
     /// The user's own list of models to download (`catalog.json` in the models folder), as last read.
@@ -476,6 +481,8 @@ impl Session {
             denoise: Default::default(),
             face_models_dir: None,
             face_downloads: Default::default(),
+            lensfun: Default::default(),
+            lens_auto_download: false,
             place_names: Default::default(),
             face_catalog: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -1405,6 +1412,8 @@ mod tests_import;
 mod tests_import_move;
 #[cfg(test)]
 mod tests_keyword_list;
+#[cfg(test)]
+mod tests_lens_refresh;
 #[cfg(test)]
 mod tests_libops;
 #[cfg(test)]
