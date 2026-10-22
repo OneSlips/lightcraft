@@ -1953,7 +1953,7 @@
   "Show Mask": "ნიღბის ჩვენება",
   "Show Mask Overlay": "ნიღბის ზედდების ჩვენება",
   "Show Mask Pins": "ნიღბის მარკერების ჩვენება",
-  "Show Original": "ორიგინალის ჩვენება",
+  "Show Before": "მანამდე ჩვენება",
   "Show Person": "ადამიანის ჩვენება",
   "Show Photo Counts": "ფოტოების რაოდენობის ჩვენება",
   "Show Photos with Keyword": "საკვანძო სიტყვის მქონე ფოტოების ჩვენება",
@@ -2783,5 +2783,15 @@
   "Pick the object on this photo: click it with the Object tool.": "აირჩიეთ ობიექტი ამ ფოტოზე: დააწკაპუნეთ მასზე ობიექტის ხელსაწყოთი.",
   "This mask's AI selection wasn't computed for this photo yet.": "ამ ნიღბის AI მონიშვნა ამ ფოტოსთვის ჯერ არ გამოთვლილა.",
   "Click to update it.": "დააწკაპუნეთ განსაახლებლად.",
-  "Compute this mask's AI selection again from this photo": "ამ ნიღბის AI მონიშვნის ხელახლა გამოთვლა ამ ფოტოდან"
+  "Compute this mask's AI selection again from this photo": "ამ ნიღბის AI მონიშვნის ხელახლა გამოთვლა ამ ფოტოდან",
+  "Profile: from the file (the camera's own correction)": "პროფილი: ფაილიდან (კამერის საკუთარი კორექცია)",
+  "Downloading the lens database…": "ობიექტივების ბაზა იტვირთება…",
+  "This file names no lens.": "ამ ფაილში ობიექტივი არ არის მითითებული.",
+  "1 photo got its lens profile": "1 ფოტომ მიიღო ობიექტივის პროფილი",
+  "Looking up lens profiles": "ობიექტივის პროფილების ძიება",
+  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა",
+  "Upgrade Library": "ბიბლიოთეკის განახლება",
+  "Open the Upgraded Copy": "განახლებული ასლის გახსნა",
+  "Make Upgraded Copy and Open": "განახლებული ასლის შექმნა და გახსნა",
+  "Your library needs an upgrade": "თქვენს ბიბლიოთეკას განახლება სჭირდება"
 }

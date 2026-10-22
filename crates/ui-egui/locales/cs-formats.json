@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Z knihovny odebráno fotografií: {n}. Soubory zůstávají na disku a lze je znovu importovat.",
   "Remove the {count} selected photos from the library?": "Odebrat z knihovny vybrané fotografie ({count})?",
   "Photo {i} of {n}": "Fotografie {i} z {n}",
-  "Remove {n} Photos from Library": "Odebrat z knihovny fotografie: {n}"
+  "Remove {n} Photos from Library": "Odebrat z knihovny fotografie: {n}",
+  "Profile: {} (lens database)": "Profil: {} (databáze objektivů)",
+  "No lens profile found for {}.": "Pro {} nebyl nalezen profil objektivu.",
+  "{n} photos got their lens profile": "Profil objektivu získaly fotky: {n}"
 }

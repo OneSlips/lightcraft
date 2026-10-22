@@ -25,6 +25,7 @@ pub mod i18n;
 pub mod icons;
 pub mod import;
 pub mod import_tab;
+pub mod lens_db;
 pub mod lightroom_import;
 pub mod links;
 pub mod loupe_timing;
@@ -522,6 +523,10 @@ pub struct LightcraftApp {
     /// What the loupe drew last frame: photo and source ("render", "cached", "embedded", "small",
     /// "thumb", "none").
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
+    /// Renders made for the crop tool (the whole photo, uncropped), by photo and render key: once
+    /// the tool closes they stay on screen until the cropped render arrives, drawn cropped
+    /// (client note 3b: Done showed the uncropped photo for seconds). The last few only.
+    pub(crate) crop_tool_renders: Vec<(lightcraft_catalog::PhotoId, u64)>,
     /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
     pub loupe_timing: loupe_timing::LoupeTiming,
     /// The eye focus strip's results and its eye finder (`view.eyeFocus`).
@@ -670,6 +675,7 @@ impl LightcraftApp {
             gesture: None,
             brush_live: None,
             loupe_shown: None,
+            crop_tool_renders: Vec::new(),
             loupe_timing: Default::default(),
             eye_strip: Default::default(),
             thumb_first: Default::default(),
@@ -783,6 +789,8 @@ impl LightcraftApp {
             && self.session.active().and_then(|id| self.session.develop_of(id)).is_some_and(|d| d.crop == lightcraft_develop::Crop::default())
         {
             serde_json::json!({"aspect": "free"})
+        } else if id == "crop.rotateAspect" && params.get("lock").is_none() {
+            self.rotate_aspect_params(params)
         } else {
             params
         };
@@ -921,6 +929,22 @@ impl LightcraftApp {
                 Some((number(0)?, number(1)?))
             }
             _ => None,
+        }
+    }
+
+    /// `crop.rotateAspect` from anywhere (X, the menu, the panel button, the console): on a photo
+    /// whose crop is untouched, the tool shows it locked to a ratio the crop itself doesn't carry
+    /// yet; the swap is told that ratio so it keeps the lock (client note 3c).
+    fn rotate_aspect_params(&self, params: Value) -> Value {
+        let untouched =
+            self.session.active().and_then(|id| self.session.develop_of(id)).is_some_and(|d| d.crop == lightcraft_develop::Crop::default());
+        match (untouched, self.crop_tool_aspect(), params) {
+            (true, Some((w, h)), Value::Object(mut m)) => {
+                m.insert("lock".into(), serde_json::json!([f64::from(w) / 100.0, f64::from(h) / 100.0]));
+                Value::Object(m)
+            }
+            (true, Some((w, h)), Value::Null) => serde_json::json!({"lock": [f64::from(w) / 100.0, f64::from(h) / 100.0]}),
+            (_, _, params) => params,
         }
     }
 
@@ -1446,6 +1470,7 @@ impl LightcraftApp {
         import::tick(self, ctx);
         lightroom_import::tick(self, ctx);
         recheck::tick(self);
+        lens_db::tick(self);
         tasks::poll(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);

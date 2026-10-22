@@ -1587,7 +1587,7 @@
   "Show All Mask Overlays": "Mostrar todas las superposiciones de máscara",
   "Show all overlays": "Mostrar todas las superposiciones",
   "Show Mask Pins": "Mostrar chinchetas de máscara",
-  "Show Original": "Mostrar original",
+  "Show Before": "Mostrar antes",
   "Show Person": "Mostrar persona",
   "Slideshow, second window, All Metadata, System Info.": "Presentación, segunda ventana, Todos los metadatos, Información del sistema.",
   "Smaller, faster catalogs: photos you only looked at in Local (never added, rated or edited) are forgotten once": "Catálogos más pequeños y rápidos: las fotos que solo se vieron en Local (nunca añadidas, valoradas ni editadas) se olvidan cuando",
@@ -3231,5 +3231,15 @@
   "Pick the object on this photo: click it with the Object tool.": "Elija el objeto en esta foto: haga clic en él con la herramienta Objeto.",
   "This mask's AI selection wasn't computed for this photo yet.": "La selección de IA de esta máscara aún no se ha calculado para esta foto.",
   "Click to update it.": "Haga clic para actualizarla.",
-  "Compute this mask's AI selection again from this photo": "Volver a calcular la selección de IA de esta máscara a partir de esta foto"
+  "Compute this mask's AI selection again from this photo": "Volver a calcular la selección de IA de esta máscara a partir de esta foto",
+  "Profile: from the file (the camera's own correction)": "Perfil: del archivo (corrección de la propia cámara)",
+  "Downloading the lens database…": "Descargando la base de datos de objetivos…",
+  "This file names no lens.": "Este archivo no indica ningún objetivo.",
+  "1 photo got its lens profile": "1 foto recibió su perfil de objetivo",
+  "Looking up lens profiles": "Buscando perfiles de objetivo",
+  "Downloading the lens database": "Descargando la base de datos de objetivos",
+  "Upgrade Library": "Actualizar biblioteca",
+  "Open the Upgraded Copy": "Abrir la copia actualizada",
+  "Make Upgraded Copy and Open": "Crear copia actualizada y abrir",
+  "Your library needs an upgrade": "Tu biblioteca necesita una actualización"
 }

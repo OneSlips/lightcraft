@@ -1523,21 +1523,50 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
         app.ui.settings.recent_libraries.retain(|r| r != &path);
         return Err(format!("{path}: the library is no longer there (moved, renamed or on a disconnected drive); removed from Open Recent Library"));
     }
-    switch_library(app, &path)
+    switch_library(app, &path, p.get("upgrade").and_then(Value::as_bool).unwrap_or(false))
 }
 
 /// Close the current library and open the one at `path`. If it can't be opened (locked by
 /// another program, unreadable, a file), the error is returned and the current library stays open:
 /// the target is checked before anything is closed, and if opening it still fails the previous
 /// library is opened again (both errors are reported if that fails too).
-fn switch_library(app: &mut LightcraftApp, path: &str) -> Result<Value, String> {
+fn switch_library(app: &mut LightcraftApp, path: &str, upgrade: bool) -> Result<Value, String> {
     let dir = app.session.check_library(std::path::Path::new(path)).map_err(|e| format!("{path}: {e}"))?;
     let path = dir.to_string_lossy().into_owned();
+    // made by an earlier LightCraft: only through an upgraded copy, and only once the person (or agent, with
+    // `upgrade: true`) agreed; nothing is closed or changed until then
+    if !upgrade && let Some(up) = lightcraft_engine::library_upgrade::needed(&dir) {
+        let copy = up.copy.to_string_lossy().into_owned();
+        let message =
+            lightcraft_engine::EngineError::LibraryNeedsUpgrade { path: dir.clone(), copy: up.copy.clone(), copy_exists: up.copy_exists }.to_string();
+        match app.library_problem.as_mut() {
+            // the launch window offers it (no library is open behind it)
+            Some(problem) => {
+                problem.path = path.clone();
+                problem.error = message.clone();
+                problem.upgrade = true;
+                problem.dismissed = false;
+            }
+            None => {
+                app.ui.dialog = Some(crate::state::Dialog::LibraryUpgrade {
+                    path: path.clone(),
+                    copy: copy.clone(),
+                    copy_exists: up.copy_exists,
+                    message: message.clone(),
+                })
+            }
+        }
+        return Ok(json!({"opened": false, "needsUpgrade": true, "path": path, "copy": copy, "copyExists": up.copy_exists, "message": message}));
+    }
     // the library being left goes in the list too (also when it was opened at launch)
     let previous_dir = app.session.library.as_ref().filter(|l| l.on_disk).map(|l| l.dir.clone());
     let previous = previous_dir.as_ref().map(|d| d.to_string_lossy().into_owned());
     app.session.close_library().map_err(|e| e.to_string())?;
-    let opened = app.session.open_library(&dir, false).map(|_| ()).map_err(|e| format!("{path}: {e}"));
+    let opened = if upgrade {
+        app.session.open_library_upgraded(&dir, false).map(|(d, _)| d).map_err(|e| format!("{path}: {e}"))
+    } else {
+        app.session.open_library(&dir, false).map(|_| dir.clone()).map_err(|e| format!("{path}: {e}"))
+    };
     app.lightroom_last = None;
     app.lightroom_result = None;
     if matches!(app.ui.dialog.as_ref(), Some(crate::state::Dialog::LightroomResult { .. })) {
@@ -1545,13 +1574,22 @@ fn switch_library(app: &mut LightcraftApp, path: &str) -> Result<Value, String> 
     }
     app.renderer.forget_all();
     app.ui.compare = None;
-    if let Err(err) = opened {
-        let Some(prev) = previous_dir else { return Err(err) };
-        return match app.session.open_library(&prev, false) {
-            Ok(_) => Err(err),
-            Err(e) => Err(format!("{err}; reopening the previous library {} failed too: {e}", prev.display())),
-        };
+    let opened = match opened {
+        Ok(d) => d,
+        Err(err) => {
+            let Some(prev) = previous_dir else { return Err(err) };
+            return match app.session.open_library(&prev, false) {
+                Ok(_) => Err(err),
+                Err(e) => Err(format!("{err}; reopening the previous library {} failed too: {e}", prev.display())),
+            };
+        }
+    };
+    // an upgraded copy takes the original's place in the list: that is the library worked in from now on
+    if opened != dir {
+        app.ui.settings.recent_libraries.retain(|r| r != &path);
     }
+    let dir = opened;
+    let path = dir.to_string_lossy().into_owned();
     app.ui.settings.library_path = path.clone();
     if let Some(prev) = previous.filter(|p| p != &path && !app.ui.settings.recent_libraries.contains(p)) {
         remember_library(&mut app.ui.settings.recent_libraries, &prev);
@@ -1631,7 +1669,7 @@ pub fn new_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String> 
         return Err(format!("{}: the folder isn't empty; choose an empty folder or a new name", dir.display()));
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: can't create the library folder: {e}", dir.display()))?;
-    switch_library(app, &dir.to_string_lossy())
+    switch_library(app, &dir.to_string_lossy(), false)
 }
 
 /// Characters a folder name can't hold on Windows (and `/`, which no system allows).
@@ -1777,6 +1815,71 @@ mod tests {
         assert_eq!(step_tab("general", -1), "controls");
         assert_eq!(step_tab("controls", 1), "general");
         assert_eq!(step_tab("nonsense", 1), "import");
+    }
+
+    /// A library in the previous catalog format (9), as an earlier LightCraft left it.
+    fn older_library(root: &std::path::Path) -> std::path::PathBuf {
+        let lib = root.join("Old Library");
+        let mut s = lightcraft_engine::Session::new().with_fs();
+        s.open_library(&lib, true).unwrap();
+        s.close_library().unwrap();
+        drop(s);
+        let snap = lib.join(lightcraft_catalog::journal::SNAPSHOT);
+        let text = std::fs::read_to_string(&snap).unwrap();
+        let v = format!("\"version\":{}", lightcraft_catalog::journal::VERSION);
+        std::fs::write(&snap, text.replacen(&v, "\"version\":9", 1)).unwrap();
+        lib
+    }
+
+    /// Opening an older library (Open Library, the recent list, an agent) first asks; the copy is made and opened
+    /// only once agreed, and the recent list then points at the copy.
+    #[test]
+    fn an_older_library_asks_then_opens_its_upgraded_copy() {
+        let root = std::env::temp_dir().join(format!("lc-ui-upgrade-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let lib = older_library(&root);
+        let snap = lib.join(lightcraft_catalog::journal::SNAPSHOT);
+        let before = std::fs::read(&snap).unwrap();
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new().with_fs(), crate::Services::default());
+        let path = lib.to_string_lossy().into_owned();
+        app.ui.settings.recent_libraries = vec![path.clone()];
+        let r = open_library(&mut app, &json!({"path": path})).unwrap();
+        assert_eq!(r["needsUpgrade"], true, "{r}");
+        assert!(matches!(app.ui.dialog, Some(crate::state::Dialog::LibraryUpgrade { copy_exists: false, .. })));
+        assert!(app.session.library.is_none(), "nothing opened yet");
+        assert_eq!(std::fs::read(&snap).unwrap(), before);
+        // agreed (the dialog's button runs this)
+        app.ui.dialog = None;
+        let r = open_library(&mut app, &json!({"path": path, "upgrade": true})).unwrap();
+        let copy = root.join(format!("Old Library_V{}", lightcraft_catalog::journal::VERSION));
+        assert_eq!(std::path::PathBuf::from(r["path"].as_str().unwrap()), copy);
+        assert_eq!(app.session.library.as_ref().map(|l| l.dir.clone()), Some(copy.clone()));
+        assert_eq!(app.ui.settings.recent_libraries, vec![copy.to_string_lossy().into_owned()], "the copy replaces the original in the list");
+        assert_eq!(app.ui.settings.library_path, copy.to_string_lossy());
+        assert_eq!(std::fs::read(&snap).unwrap(), before, "the original is untouched");
+        app.session.close_library().unwrap();
+        drop(app);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// At launch (no library open behind it) the problem window offers the upgrade instead of a dialog.
+    #[test]
+    fn at_launch_the_problem_window_offers_the_upgrade() {
+        let root = std::env::temp_dir().join(format!("lc-ui-upgrade-launch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let lib = older_library(&root);
+        let path = lib.to_string_lossy().into_owned();
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new().with_fs(), crate::Services::default());
+        app.library_problem = Some(crate::panels::library_problem::LibraryProblem::new(path.clone(), "x"));
+        let r = open_library(&mut app, &json!({"path": path})).unwrap();
+        assert_eq!(r["needsUpgrade"], true);
+        let p = app.library_problem.clone().unwrap();
+        assert!(p.upgrade && p.error.contains("upgraded copy") && p.error.contains("untouched"), "{p:?}");
+        assert!(app.ui.dialog.is_none());
+        drop(app);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     fn app_with_import() -> LightcraftApp {

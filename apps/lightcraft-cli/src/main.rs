@@ -43,6 +43,7 @@ USAGE:
       Options:
         --demo            headless, the procedural demo library
         --library DIR     headless, open (or create) a LightCraft library; edits are saved
+        --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --import PATH     headless, import a file or folder first (repeatable)
         --connect [ADDR]  drive the running app (`lightcraft --control 7980`; default 127.0.0.1:7980)
         --script FILE|-   also run JSON lines {\"command\": id, \"params\": {…}} (or {\"method\": …})
@@ -53,6 +54,7 @@ USAGE:
         --connect [ADDR]  drive a running app instead (`lightcraft --control 7980`; default 127.0.0.1:7980)
         --demo            headless: start with the procedurally generated demo library
         --library DIR     headless: open (or create) a persistent LightCraft library; edits are saved
+        --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --compact         list only the helper tools (every command stays reachable via run_command)
   lightcraft-cli render <IN> -o <OUT> [OPTIONS]
       Develop one file and export it (.jpg, .png, .tif, .webp, .avif, .jxl, .psd or .dng by extension) with the
@@ -74,6 +76,7 @@ USAGE:
       Options:
         --demo            the procedural demo library (default unless --library or FILES)
         --library DIR     open (or create) a LightCraft library
+        --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --script FILE     JSON-lines control-protocol requests (docs/control-protocol.md), one
                           per line: {\"method\": \"ui.set\", \"params\": {\"view\": \"detail\"}}.
                           Replies go to stdout. `ui.screenshot` without a path writes -o (then
@@ -140,11 +143,31 @@ fn library_warnings(session: &mut Session, who: &str) {
     }
 }
 
+/// Open `--library DIR`; with `--upgrade`, a library made by an earlier LightCraft opens through its upgraded copy
+/// (`DIR_V10`, the original untouched). Returns the folder opened.
+fn open_cli_library(s: &mut Session, dir: &str, demo: bool, upgrade: bool) -> Result<String, String> {
+    if upgrade {
+        let (opened, _) = s.open_library_upgraded(dir, demo).map_err(|e| library_error(dir, e))?;
+        if opened != std::path::Path::new(dir) {
+            eprintln!("lightcraft-cli: {dir} was made by an earlier LightCraft; working in its upgraded copy {}", opened.display());
+        }
+        return Ok(opened.to_string_lossy().into_owned());
+    }
+    s.open_library(dir, demo).map_err(|e| library_error(dir, e))?;
+    Ok(dir.to_string())
+}
+
 fn library_error(dir: &str, e: lightcraft_engine::EngineError) -> String {
     match e {
         lightcraft_engine::EngineError::LibraryInUse(why) => format!(
             "{dir}: {why}\nTo work with the library while the app has it open, start the app with `--control PORT` and use `lightcraft-cli mcp --connect 127.0.0.1:PORT`."
         ),
+        e @ lightcraft_engine::EngineError::LibraryNeedsUpgrade { .. } => {
+            format!(
+                "{e}
+Run again with `--upgrade` to make the upgraded copy (or open the existing one) and work in it."
+            )
+        }
         e @ lightcraft_engine::EngineError::LightroomCatalog { .. } => format!(
             "{e}\nOpen a LightCraft library with `--library DIR` (an empty folder makes a new one) and run `library.importLightroom` with the catalog's path."
         ),
@@ -317,6 +340,7 @@ fn mcp(args: &[String]) -> Result<(), String> {
     let mut connect: Option<String> = None;
     let mut demo = false;
     let mut library: Option<String> = None;
+    let mut upgrade = false;
     let mut compact = false;
     let mut files = Vec::new();
     let mut i = 0;
@@ -341,6 +365,7 @@ fn mcp(args: &[String]) -> Result<(), String> {
             "--demo" => demo = true,
             "--compact" => compact = true,
             "--library" => library = Some(take_value(args, &mut i, "--library")?.to_string()),
+            "--upgrade" => upgrade = true,
             a if a.starts_with("--") => return Err(format!("unknown option `{a}`")),
             f => files.push(f.to_string()),
         }
@@ -368,8 +393,8 @@ fn mcp(args: &[String]) -> Result<(), String> {
                     let mut h = Headless::default();
                     // the presets and profiles every library shares (the settings folder's Library Store)
                     h.session.use_default_app_store();
-                    let r = h.session.open_library(dir, demo).map_err(|e| library_error(dir, e))?;
-                    eprintln!("lightcraft-cli mcp: opened library {dir} ({r:?})");
+                    let dir = open_cli_library(&mut h.session, dir, demo, upgrade)?;
+                    eprintln!("lightcraft-cli mcp: opened library {dir}");
                     library_warnings(&mut h.session, "lightcraft-cli mcp");
                     h
                 }
@@ -541,6 +566,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut connect: Option<String> = None;
     let mut demo = false;
     let mut library: Option<String> = None;
+    let mut upgrade = false;
     let mut imports = Vec::new();
     let mut script: Option<String> = None;
     let mut keep_going = false;
@@ -561,6 +587,7 @@ fn run(args: &[String]) -> Result<(), String> {
             a if a.starts_with("--connect=") => connect = Some(a["--connect=".len()..].to_string()),
             "--demo" => demo = true,
             "--library" => library = Some(take_value(args, &mut i, "--library")?.to_string()),
+            "--upgrade" => upgrade = true,
             "--import" => imports.push(take_value(args, &mut i, "--import")?.to_string()),
             "--script" => script = Some(take_value(args, &mut i, "--script")?.to_string()),
             "--keep-going" => keep_going = true,
@@ -607,7 +634,7 @@ fn run(args: &[String]) -> Result<(), String> {
                     Some(dir) => {
                         let mut h = Headless::default();
                         h.session.use_default_app_store();
-                        h.session.open_library(dir, demo).map_err(|e| library_error(dir, e))?;
+                        open_cli_library(&mut h.session, dir, demo, upgrade)?;
                         library_warnings(&mut h.session, "lightcraft-cli");
                         h
                     }
@@ -789,6 +816,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
     use lightcraft_ui_egui::headless::Headless;
     use std::time::{Duration, Instant};
     let mut library: Option<String> = None;
+    let mut upgrade = false;
     let mut script: Option<String> = None;
     let mut output: Option<String> = None;
     let mut size = [1600.0f32, 1000.0];
@@ -799,6 +827,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
         match args[i].as_str() {
             "--demo" => {}
             "--library" => library = Some(take_value(args, &mut i, "--library")?.to_string()),
+            "--upgrade" => upgrade = true,
             "--script" => script = Some(take_value(args, &mut i, "--script")?.to_string()),
             "-o" | "--output" => output = Some(take_value(args, &mut i, "-o")?.to_string()),
             "--size" => {
@@ -825,9 +854,10 @@ fn snapshot(args: &[String]) -> Result<(), String> {
                 .with_default_genfill()
                 .with_system_clock()
                 .with_default_face_models()
+                .with_default_lens_database()
                 .with_default_slide_templates()
                 .with_default_app_store();
-            s.open_library(dir, false).map_err(|e| library_error(dir, e))?;
+            open_cli_library(&mut s, dir, false, upgrade)?;
             s
         }
         None if files.is_empty() => Session::with_demo()
@@ -836,6 +866,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
             .with_default_genfill()
             .with_system_clock()
             .with_default_face_models()
+            .with_default_lens_database()
             .with_default_slide_templates(),
         None => Session::new()
             .with_fs()
@@ -843,6 +874,7 @@ fn snapshot(args: &[String]) -> Result<(), String> {
             .with_default_genfill()
             .with_system_clock()
             .with_default_face_models()
+            .with_default_lens_database()
             .with_default_slide_templates(),
     };
     // Apply compute policy before imports or the first scripted query can discover an adapter.

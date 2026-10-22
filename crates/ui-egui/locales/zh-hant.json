@@ -1523,7 +1523,7 @@
   "Show All Mask Overlays": "顯示所有蒙版疊加",
   "Show all overlays": "顯示所有疊加",
   "Show Mask Pins": "顯示遮色片控制點",
-  "Show Original": "顯示原始照片",
+  "Show Before": "顯示編輯前",
   "Show Photo Counts": "顯示照片數量",
   "Show Photos with Keyword": "顯示含此關鍵字的照片",
   "Show Pins": "顯示控制點",
@@ -3028,5 +3028,15 @@
   "Pick the object on this photo: click it with the Object tool.": "請在這張相片上選取物件：用「物件」工具點按它。",
   "This mask's AI selection wasn't computed for this photo yet.": "此遮色片的 AI 選取範圍尚未針對這張相片計算。",
   "Click to update it.": "點按以更新。",
-  "Compute this mask's AI selection again from this photo": "根據這張相片重新計算此遮色片的 AI 選取範圍"
+  "Compute this mask's AI selection again from this photo": "根據這張相片重新計算此遮色片的 AI 選取範圍",
+  "Profile: from the file (the camera's own correction)": "設定檔：來自檔案（相機本身的校正）",
+  "Downloading the lens database…": "正在下載鏡頭資料庫…",
+  "This file names no lens.": "此檔案未註明鏡頭。",
+  "1 photo got its lens profile": "1 張照片取得了鏡頭設定檔",
+  "Looking up lens profiles": "正在查找鏡頭設定檔",
+  "Downloading the lens database": "正在下載鏡頭資料庫",
+  "Upgrade Library": "升級圖庫",
+  "Open the Upgraded Copy": "開啟升級後的副本",
+  "Make Upgraded Copy and Open": "建立升級副本並開啟",
+  "Your library needs an upgrade": "您的圖庫需要升級"
 }

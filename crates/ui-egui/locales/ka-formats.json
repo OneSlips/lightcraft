@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Removed {n} photos from the library. The files stay on disk and can be imported again.",
   "Remove the {count} selected photos from the library?": "Remove the {count} selected photos from the library?",
   "Photo {i} of {n}": "Photo {i} of {n}",
-  "Remove {n} Photos from Library": "Remove {n} Photos from Library"
+  "Remove {n} Photos from Library": "Remove {n} Photos from Library",
+  "Profile: {} (lens database)": "პროფილი: {} (ობიექტივების ბაზა)",
+  "No lens profile found for {}.": "{}-ისთვის ობიექტივის პროფილი ვერ მოიძებნა.",
+  "{n} photos got their lens profile": "ობიექტივის პროფილი მიიღო {n} ფოტომ"
 }

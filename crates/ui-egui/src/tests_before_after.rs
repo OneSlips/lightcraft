@@ -350,7 +350,7 @@ fn zoomed_in_the_after_side_shows_the_edits() {
     }
 }
 
-/// Show Original (`\`) is not one of the Before / After layouts, so the bottom bar's
+/// Show Before (`\`) is not one of the Before / After layouts, so the bottom bar's
 /// Before/After (Y) button stays dark for it; clicking the button then lays out Before and After
 /// side by side, as it does from the plain view. It used to light up for `\` too, so the same
 /// lit button stood for two different views (#1497).

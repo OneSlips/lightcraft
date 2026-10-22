@@ -881,6 +881,7 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
         Session::new()
             .with_fs()
             .with_default_denoise_models()
+            .with_default_lens_database()
             .with_default_genfill()
             .with_system_clock()
             .with_default_app_store()
@@ -903,6 +904,11 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
                 t0.elapsed().as_secs_f64() * 1000.0
             );
             (s, None)
+        }
+        // made by an earlier LightCraft: the launch window offers the upgraded copy (the original stays as it is)
+        Err(e @ lightcraft_engine::EngineError::LibraryNeedsUpgrade { .. }) => {
+            log::info!("library {}: {e}", dir.display());
+            (unopened(), Some(LibraryProblem { upgrade: true, ..LibraryProblem::new(dir.to_string_lossy(), e.to_string()) }))
         }
         Err(e) => {
             log::error!("can't open library {}: {e}", dir.display());

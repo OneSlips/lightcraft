@@ -1432,7 +1432,7 @@
   "Show All Mask Overlays": "すべてのマスクオーバーレイを表示",
   "Show all overlays": "すべてのオーバーレイを表示",
   "Show Mask Pins": "マスクのピンを表示",
-  "Show Original": "元の写真を表示",
+  "Show Before": "編集前を表示",
   "Show Photo Counts": "写真の枚数を表示",
   "Show Photos with Keyword": "このキーワードの写真を表示",
   "Show Pins": "ピンを表示",
@@ -3231,5 +3231,15 @@
   "Pick the object on this photo: click it with the Object tool.": "この写真でオブジェクトを選んでください：オブジェクトツールでクリックします。",
   "This mask's AI selection wasn't computed for this photo yet.": "このマスクの AI 選択範囲はこの写真ではまだ計算されていません。",
   "Click to update it.": "クリックして更新します。",
-  "Compute this mask's AI selection again from this photo": "このマスクの AI 選択範囲をこの写真から再計算します"
+  "Compute this mask's AI selection again from this photo": "このマスクの AI 選択範囲をこの写真から再計算します",
+  "Profile: from the file (the camera's own correction)": "プロファイル: ファイル内（カメラ自身の補正）",
+  "Downloading the lens database…": "レンズデータベースをダウンロード中…",
+  "This file names no lens.": "このファイルにはレンズ名がありません。",
+  "1 photo got its lens profile": "1 枚の写真にレンズプロファイルが適用されました",
+  "Looking up lens profiles": "レンズプロファイルを検索中",
+  "Downloading the lens database": "レンズデータベースをダウンロード中",
+  "Upgrade Library": "ライブラリをアップグレード",
+  "Open the Upgraded Copy": "アップグレードしたコピーを開く",
+  "Make Upgraded Copy and Open": "アップグレードしたコピーを作成して開く",
+  "Your library needs an upgrade": "ライブラリのアップグレードが必要です"
 }

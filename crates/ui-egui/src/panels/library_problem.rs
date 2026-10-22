@@ -24,6 +24,8 @@ pub struct LibraryProblem {
     /// Try Again reopens `path` as a library folder (`false` in the browser, whose storage isn't
     /// a folder: reloading the page tries again).
     pub can_retry: bool,
+    /// The library was made by an earlier LightCraft: the window offers its upgraded copy.
+    pub upgrade: bool,
 }
 
 impl LibraryProblem {
@@ -33,13 +35,14 @@ impl LibraryProblem {
 
     /// `ui.inspect` → `libraryProblem`.
     pub fn to_json(&self) -> serde_json::Value {
-        json!({"path": self.path, "error": self.error, "temporarySession": self.dismissed, "pendingImport": self.pending_import.len()})
+        json!({"path": self.path, "error": self.error, "temporarySession": self.dismissed, "pendingImport": self.pending_import.len(), "upgrade": self.upgrade})
     }
 }
 
 /// What the user chose.
 enum Choice {
     Retry,
+    Upgrade,
     Choose,
     Temporary,
     Quit,
@@ -47,13 +50,15 @@ enum Choice {
 
 /// Open `path` (`None`: ask for a folder) through `app.openLibrary`; on success the problem is
 /// over (and command-line files are imported), else it shows the new error.
-fn open(app: &mut LightcraftApp, path: Option<String>) {
+fn open(app: &mut LightcraftApp, path: Option<String>, upgrade: bool) {
     let params = match &path {
-        Some(p) => json!({"path": p}),
+        Some(p) => json!({"path": p, "upgrade": upgrade}),
         None => json!({}),
     };
     match app.run("app.openLibrary", params) {
         Ok(serde_json::Value::Null) => {} // folder dialog cancelled
+        // an older library: the window now offers its upgraded copy (set by `app.openLibrary`)
+        Ok(v) if v.get("needsUpgrade").and_then(serde_json::Value::as_bool) == Some(true) => {}
         Ok(_) => {
             let files = app.library_problem.take().map(|p| p.pending_import).unwrap_or_default();
             // in the background, like files dropped on the window (issue #374)
@@ -70,6 +75,7 @@ fn open(app: &mut LightcraftApp, path: Option<String>) {
                 }
                 p.error = e;
                 p.dismissed = false;
+                p.upgrade = false;
             }
         }
     }
@@ -97,7 +103,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     });
     let mut choice = None;
     let frame = egui::Frame::window(&ctx.global_style()).inner_margin(egui::Margin::symmetric(18, 14));
-    egui::Window::new(crate::i18n::tr("Your library couldn't be opened"))
+    let title = if problem.upgrade { "Your library needs an upgrade" } else { "Your library couldn't be opened" };
+    egui::Window::new(crate::i18n::tr(title))
         .id(egui::Id::new("library-problem"))
         .order(egui::Order::Foreground)
         .collapsible(false)
@@ -115,15 +122,18 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 ui.label(RichText::new(crate::i18n::tr("LightCraft couldn't open the library at")).color(t.text_label));
                 ui.label(RichText::new(&problem.path).font(t.semibold(12.5)).color(t.text));
             }
-            ui.add(egui::Label::new(RichText::new(&problem.error).color(t.caution)).wrap());
-            ui.label(
-                RichText::new(
-                    "Your photos and edits in it are untouched. You can try again (e.g. after closing another program that has it open \
+            let colour = if problem.upgrade { t.text } else { t.caution };
+            ui.add(egui::Label::new(RichText::new(&problem.error).color(colour)).wrap());
+            if !problem.upgrade {
+                ui.label(
+                    RichText::new(
+                        "Your photos and edits in it are untouched. You can try again (e.g. after closing another program that has it open \
                      or reconnecting its drive), open a different library or create a new one, or continue without a library — \
                      then nothing you do is saved.",
-                )
-                .color(t.text_dim),
-            );
+                    )
+                    .color(t.text_dim),
+                );
+            }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
                 let mut button = |ui: &mut egui::Ui, id: &str, label: &str, enabled: bool, c: Choice| {
@@ -133,15 +143,21 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                         choice = Some(c);
                     }
                 };
-                button(ui, "libraryRetry", "Try Again", problem.can_retry && !problem.path.is_empty(), Choice::Retry);
+                if problem.upgrade {
+                    let label = if problem.error.contains("already exists") { "Open the Upgraded Copy" } else { "Make Upgraded Copy and Open" };
+                    button(ui, "libraryUpgrade", label, true, Choice::Upgrade);
+                } else {
+                    button(ui, "libraryRetry", "Try Again", problem.can_retry && !problem.path.is_empty(), Choice::Retry);
+                }
                 button(ui, "libraryChoose", "Choose Another Library…", app.services.pick_folder.is_some(), Choice::Choose);
                 button(ui, "libraryTemporary", "Continue Without Saving", true, Choice::Temporary);
                 button(ui, "libraryQuit", "Quit", true, Choice::Quit);
             });
         });
     match choice {
-        Some(Choice::Retry) => open(app, Some(problem.path)),
-        Some(Choice::Choose) => open(app, None),
+        Some(Choice::Retry) => open(app, Some(problem.path), false),
+        Some(Choice::Upgrade) => open(app, Some(problem.path), true),
+        Some(Choice::Choose) => open(app, None, false),
         Some(Choice::Temporary) => {
             if let Some(p) = app.library_problem.as_mut() {
                 p.dismissed = true;

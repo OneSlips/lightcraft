@@ -300,6 +300,15 @@ pub struct Photo {
     /// Assisted culling scores (`None` until analysed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub analysis: Option<Analysis>,
+    /// The settings the photo came into the library with, where the import changed them from
+    /// [`Photo::import_defaults`] (the import's camera profile, look or presets): where editing
+    /// started, so the Before view's default. Format version 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import_state: Option<Arc<DevelopSettings>>,
+    /// What the Before view shows when the user set it (Set Before: After's settings, a history
+    /// step, a snapshot); `None`: the import state ([`Photo::before_base`]). Format version 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<Arc<DevelopSettings>>,
     /// A raw file whose sensor data can't be decoded yet (an unsupported raw variant): why (the
     /// raw decoder's reason, e.g. "Nikon Huffman-compressed NEF …"). The photo is shown and
     /// edited from the camera's embedded JPEG preview — a rendered image with the camera's
@@ -398,6 +407,8 @@ impl Photo {
             copy_of: None,
             copy_name: None,
             import_look: None,
+            import_state: None,
+            before: None,
             analysis: None,
             preview_only: None,
             preview_checked: String::new(),
@@ -434,6 +445,14 @@ impl Photo {
     /// The develop settings import gave this photo: [`Photo::camera_defaults`], or the user's
     /// default preset applied on top of them ([`Photo::import_look`]). Like the camera defaults,
     /// in the photo's own rendering process.
+    /// The settings the Before view starts from: the one set by the user, else the photo as it
+    /// came into the library (its import state), else its import defaults.
+    pub fn before_base(&self) -> DevelopSettings {
+        match self.before.as_ref().or(self.import_state.as_ref()) {
+            Some(b) => (**b).clone(),
+            None => self.import_defaults(),
+        }
+    }
     pub fn import_defaults(&self) -> DevelopSettings {
         match &self.import_look {
             Some(l) => DevelopSettings { process: self.develop.process, ..(**l).clone() },

@@ -1607,6 +1607,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                 // the camera profile chosen for its body (a sidecar's settings win)
                 let decided = sidecar.as_ref().is_some_and(crate::import_profiles::sidecar_sets);
                 apply_settings(s, &mut p, opts, &now, &path, decided, &mut report);
+                p.import_state = import_state(&p);
                 report.imported.push(id.0);
                 p.local = opts.local;
                 if opts.local {
@@ -1708,6 +1709,12 @@ fn apply_settings(s: &Session, p: &mut Photo, opts: &ImportOptions, now: &str, p
     }
 }
 
+/// The photo as the import leaves it, where that is not simply its import defaults: the Before
+/// view's default ([`Photo::before_base`]).
+fn import_state(p: &Photo) -> Option<std::sync::Arc<lightcraft_develop::DevelopSettings>> {
+    (*p.develop != p.import_defaults()).then(|| p.develop.clone())
+}
+
 /// After a preset: the camera profile `cal` the photo had stays, and so does the profile's own
 /// look (`look`) where the preset only put LightCraft's standard colour in its place (what a
 /// Lightroom preset's "Adobe Color" becomes). A preset's other looks stay on top of the profile.
@@ -1748,6 +1755,10 @@ fn promote_ops(s: &Session, id: PhotoId, opts: &ImportOptions, now: &str, stored
             ops.push(Op::PushHistory { id, step: step.clone() });
         }
         ops.push(Op::SetDevelop { id, settings: p.develop.clone(), label, edited: p.edited.clone() });
+    }
+    let state = import_state(&p);
+    if state != old.import_state {
+        ops.push(Op::SetImportState { id, state });
     }
     if p.meta != old.meta {
         ops.push(Op::SetMeta { id, meta: Box::new(p.meta) });

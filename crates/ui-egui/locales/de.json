@@ -1580,7 +1580,7 @@
   "Show All Mask Overlays": "Alle Maskenüberlagerungen anzeigen",
   "Show all overlays": "Alle Überlagerungen anzeigen",
   "Show Mask Pins": "Maskenpins anzeigen",
-  "Show Original": "Original anzeigen",
+  "Show Before": "Vorher anzeigen",
   "Show Photo Counts": "Fotoanzahl anzeigen",
   "Show Photos with Keyword": "Fotos mit Stichwort anzeigen",
   "Show Pins": "Pins anzeigen",
@@ -3232,5 +3232,15 @@
   "Pick the object on this photo: click it with the Object tool.": "Wählen Sie das Objekt auf diesem Foto: Klicken Sie es mit dem Objekt-Werkzeug an.",
   "This mask's AI selection wasn't computed for this photo yet.": "Die KI-Auswahl dieser Maske wurde für dieses Foto noch nicht berechnet.",
   "Click to update it.": "Klicken, um sie zu aktualisieren.",
-  "Compute this mask's AI selection again from this photo": "Die KI-Auswahl dieser Maske aus diesem Foto neu berechnen"
+  "Compute this mask's AI selection again from this photo": "Die KI-Auswahl dieser Maske aus diesem Foto neu berechnen",
+  "Profile: from the file (the camera's own correction)": "Profil: aus der Datei (Korrektur der Kamera)",
+  "Downloading the lens database…": "Objektivdatenbank wird geladen…",
+  "This file names no lens.": "Diese Datei nennt kein Objektiv.",
+  "1 photo got its lens profile": "1 Foto hat sein Objektivprofil erhalten",
+  "Looking up lens profiles": "Objektivprofile werden gesucht",
+  "Downloading the lens database": "Objektivdatenbank wird geladen",
+  "Upgrade Library": "Bibliothek aktualisieren",
+  "Open the Upgraded Copy": "Aktualisierte Kopie öffnen",
+  "Make Upgraded Copy and Open": "Aktualisierte Kopie anlegen und öffnen",
+  "Your library needs an upgrade": "Ihre Bibliothek muss aktualisiert werden"
 }

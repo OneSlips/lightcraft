@@ -1304,7 +1304,7 @@
   "Show All Mask Overlays": "Показать все наложения масок",
   "Show all overlays": "Показать все наложения",
   "Show Mask Pins": "Показать булавки масок",
-  "Show Original": "Показать оригинал",
+  "Show Before": "Показать «До»",
   "Show Photo Counts": "Показывать количество фото",
   "Show Photos with Keyword": "Показать фото с ключевым словом",
   "Show Pins": "Показать булавки",
@@ -3224,5 +3224,15 @@
   "Pick the object on this photo: click it with the Object tool.": "Выберите объект на этом фото: щёлкните по нему инструментом «Объект».",
   "This mask's AI selection wasn't computed for this photo yet.": "Выделение ИИ этой маски ещё не вычислено для этого фото.",
   "Click to update it.": "Щёлкните, чтобы обновить его.",
-  "Compute this mask's AI selection again from this photo": "Заново вычислить выделение ИИ этой маски по этому фото"
+  "Compute this mask's AI selection again from this photo": "Заново вычислить выделение ИИ этой маски по этому фото",
+  "Profile: from the file (the camera's own correction)": "Профиль: из файла (коррекция самой камеры)",
+  "Downloading the lens database…": "Загружается база объективов…",
+  "This file names no lens.": "В этом файле не указан объектив.",
+  "1 photo got its lens profile": "1 фото получило профиль объектива",
+  "Looking up lens profiles": "Поиск профилей объективов",
+  "Downloading the lens database": "Загрузка базы объективов",
+  "Upgrade Library": "Обновить библиотеку",
+  "Open the Upgraded Copy": "Открыть обновлённую копию",
+  "Make Upgraded Copy and Open": "Создать обновлённую копию и открыть",
+  "Your library needs an upgrade": "Библиотеку нужно обновить"
 }

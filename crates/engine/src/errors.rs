@@ -24,6 +24,8 @@ pub enum ErrorKind {
     Catalog,
     NotSaved,
     LibraryInUse,
+    /// An older library: open it through its upgraded copy (`upgrade: true`).
+    LibraryNeedsUpgrade,
     LightroomCatalog,
     /// The work was cancelled: not a failure.
     Cancelled,
@@ -42,6 +44,7 @@ impl EngineError {
             Self::Catalog(_) => ErrorKind::Catalog,
             Self::NotSaved(_) => ErrorKind::NotSaved,
             Self::LibraryInUse(_) => ErrorKind::LibraryInUse,
+            Self::LibraryNeedsUpgrade { .. } => ErrorKind::LibraryNeedsUpgrade,
             Self::LightroomCatalog { .. } => ErrorKind::LightroomCatalog,
             Self::Cancelled(_) => ErrorKind::Cancelled,
             Self::ModelMissing { model, .. } => ErrorKind::ModelMissing(*model),

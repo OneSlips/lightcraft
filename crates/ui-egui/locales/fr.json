@@ -1515,7 +1515,7 @@
   "Show All Mask Overlays": "Afficher toutes les superpositions de masque",
   "Show all overlays": "Afficher toutes les superpositions",
   "Show Mask Pins": "Afficher les épingles de masque",
-  "Show Original": "Afficher l'original",
+  "Show Before": "Afficher l'avant",
   "Show Photo Counts": "Afficher le nombre de photos",
   "Show Photos with Keyword": "Afficher les photos avec le mot-clé",
   "Show Pins": "Afficher les épingles",
@@ -3229,5 +3229,15 @@
   "Pick the object on this photo: click it with the Object tool.": "Choisissez l’objet sur cette photo : cliquez dessus avec l’outil Objet.",
   "This mask's AI selection wasn't computed for this photo yet.": "La sélection IA de ce masque n’a pas encore été calculée pour cette photo.",
   "Click to update it.": "Cliquez pour la mettre à jour.",
-  "Compute this mask's AI selection again from this photo": "Recalculer la sélection IA de ce masque à partir de cette photo"
+  "Compute this mask's AI selection again from this photo": "Recalculer la sélection IA de ce masque à partir de cette photo",
+  "Profile: from the file (the camera's own correction)": "Profil : du fichier (correction de l'appareil)",
+  "Downloading the lens database…": "Téléchargement de la base de données d'objectifs…",
+  "This file names no lens.": "Ce fichier n'indique aucun objectif.",
+  "1 photo got its lens profile": "1 photo a reçu son profil d'objectif",
+  "Looking up lens profiles": "Recherche des profils d'objectif",
+  "Downloading the lens database": "Téléchargement de la base de données d'objectifs",
+  "Upgrade Library": "Mettre à niveau la bibliothèque",
+  "Open the Upgraded Copy": "Ouvrir la copie mise à niveau",
+  "Make Upgraded Copy and Open": "Créer une copie mise à niveau et l'ouvrir",
+  "Your library needs an upgrade": "Votre bibliothèque doit être mise à niveau"
 }

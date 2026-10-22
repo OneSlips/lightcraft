@@ -84,3 +84,29 @@ fn a_bad_orientation_is_refused_before_anything_is_locked() {
     aspect(&mut s, json!({"aspect": "current", "orientation": "crop"}));
     assert!(s.develop_of(s.selection.active.unwrap()).unwrap().crop.aspect.is_some());
 }
+
+/// Client note 3c: swapping the orientation ten times keeps the lock and the ratio (3:2 ↔ 2:3),
+/// never turning the crop free / Custom; on an untouched photo `lock` carries the ratio the crop
+/// tool shows locked.
+#[test]
+fn ten_swaps_keep_the_lock_and_the_ratio() {
+    let mut s = landscape_photo();
+    aspect(&mut s, json!({"aspect": "3x2"}));
+    for i in 0..10 {
+        s.execute("crop.rotateAspect", &json!({})).unwrap();
+        let p = s.catalog.photo(s.active().unwrap()).unwrap();
+        let (w, h) = p.develop.crop.aspect.expect("still locked");
+        let want = if i % 2 == 0 { 2.0 / 3.0 } else { 1.5 };
+        assert!((w as f64 / h as f64 - want).abs() < 0.01, "swap {i}: lock {w}:{h}");
+        assert!((ratio(&s) - want).abs() < 0.01, "swap {i}: crop {}", ratio(&s));
+    }
+    // an untouched photo: the lock asked for is taken, then swapped
+    let mut s = landscape_photo();
+    s.execute("crop.rotateAspect", &json!({"lock": [3, 2]})).unwrap();
+    let p = s.catalog.photo(s.active().unwrap()).unwrap();
+    assert!(p.develop.crop.aspect.is_some(), "locked after the first swap");
+    assert!((ratio(&s) - 2.0 / 3.0).abs() < 0.01, "{}", ratio(&s));
+    for bad in [json!({"lock": [3]}), json!({"lock": "3x2"}), json!({"lock": [0, 2]}), json!({"lock": [f64::MAX, 1]})] {
+        assert!(s.execute("crop.rotateAspect", &bad).is_err(), "{bad}");
+    }
+}

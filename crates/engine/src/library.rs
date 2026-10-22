@@ -445,11 +445,21 @@ impl Session {
     /// created ([`crate::lightroom_folder`]); a LightCraft library always opens, whatever else
     /// its folder holds.
     pub fn open_library(&mut self, dir: impl AsRef<Path>, seed_demo: bool) -> Result<&LoadReport> {
-        let dir = dir.as_ref().to_path_buf();
+        self.open_library_checked(dir.as_ref(), seed_demo, true)
+    }
+
+    /// [`Session::open_library`]; `refuse_older`: a library in an earlier catalog format is refused
+    /// (the upgraded copy itself is opened with `false`, which upgrades it in place).
+    pub(crate) fn open_library_checked(&mut self, dir: &Path, seed_demo: bool, refuse_older: bool) -> Result<&LoadReport> {
+        let dir = dir.to_path_buf();
         if let Some(place) = crate::lightroom_folder::lightroom_catalog_at(&dir) {
             return Err(EngineError::LightroomCatalog { path: dir, catalog: place.catalog });
         }
         let dir = resolve_dir(&dir)?;
+        // made by an earlier LightCraft: only ever opened through an upgraded copy (`library_upgrade`)
+        if refuse_older && let Some(up) = crate::library_upgrade::needed(&dir) {
+            return Err(EngineError::LibraryNeedsUpgrade { path: dir, copy: up.copy, copy_exists: up.copy_exists });
+        }
         let open = || FsStore::open(&dir).map_err(|e| EngineError::Other(format!("can't open library {}: {e}", dir.display())));
         let stores = LibraryStores { catalog: Box::new(open()?), files: Box::new(open()?), on_disk: true, dir: dir.clone() };
         // the library open in this session (same directory): hand its lock over

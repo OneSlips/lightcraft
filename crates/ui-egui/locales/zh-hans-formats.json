@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "已从图库中移除 {n} 张照片。文件仍在磁盘上，可以再次导入。",
   "Remove the {count} selected photos from the library?": "从图库中移除所选的 {count} 张照片？",
   "Photo {i} of {n}": "第 {i} 张，共 {n} 张",
-  "Remove {n} Photos from Library": "从图库中移除 {n} 张照片"
+  "Remove {n} Photos from Library": "从图库中移除 {n} 张照片",
+  "Profile: {} (lens database)": "配置文件：{}（镜头数据库）",
+  "No lens profile found for {}.": "未找到 {} 的镜头配置文件。",
+  "{n} photos got their lens profile": "{n} 张照片获得了镜头配置文件"
 }

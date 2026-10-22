@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "{n} 枚の写真をライブラリから削除しました。ファイルはディスクに残り、再度読み込めます。",
   "Remove the {count} selected photos from the library?": "選択した {count} 枚の写真をライブラリから削除しますか？",
   "Photo {i} of {n}": "写真 {i} / {n}",
-  "Remove {n} Photos from Library": "{n} 枚の写真をライブラリから削除"
+  "Remove {n} Photos from Library": "{n} 枚の写真をライブラリから削除",
+  "Profile: {} (lens database)": "プロファイル: {}（レンズデータベース）",
+  "No lens profile found for {}.": "{} のレンズプロファイルが見つかりません。",
+  "{n} photos got their lens profile": "{n} 枚の写真にレンズプロファイルが適用されました"
 }

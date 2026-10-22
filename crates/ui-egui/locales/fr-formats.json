@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "{n} photos retirées de la bibliothèque. Les fichiers restent sur le disque et peuvent être importés à nouveau.",
   "Remove the {count} selected photos from the library?": "Retirer les {count} photos sélectionnées de la bibliothèque ?",
   "Photo {i} of {n}": "Photo {i} sur {n}",
-  "Remove {n} Photos from Library": "Retirer {n} photos de la bibliothèque"
+  "Remove {n} Photos from Library": "Retirer {n} photos de la bibliothèque",
+  "Profile: {} (lens database)": "Profil : {} (base de données d'objectifs)",
+  "No lens profile found for {}.": "Aucun profil d'objectif trouvé pour {}.",
+  "{n} photos got their lens profile": "{n} photos ont reçu leur profil d'objectif"
 }

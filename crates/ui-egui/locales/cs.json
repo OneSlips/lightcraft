@@ -1633,7 +1633,7 @@
   "Show All Mask Overlays": "Zobrazit všechna překrytí masek",
   "Show all overlays": "Zobrazit všechna překrytí",
   "Show Mask Pins": "Zobrazit body masek",
-  "Show Original": "Zobrazit originál",
+  "Show Before": "Zobrazit stav Před",
   "Show Person": "Zobrazit osobu",
   "Show Photo Counts": "Zobrazit počty fotografií",
   "Show Photos with Keyword": "Zobrazit fotografie s klíčovým slovem",
@@ -2802,5 +2802,15 @@
   "Pick the object on this photo: click it with the Object tool.": "Vyberte objekt na této fotografii: klikněte na něj nástrojem Objekt.",
   "This mask's AI selection wasn't computed for this photo yet.": "Výběr AI této masky ještě nebyl pro tuto fotografii vypočten.",
   "Click to update it.": "Kliknutím ho aktualizujete.",
-  "Compute this mask's AI selection again from this photo": "Znovu vypočítat výběr AI této masky z této fotografie"
+  "Compute this mask's AI selection again from this photo": "Znovu vypočítat výběr AI této masky z této fotografie",
+  "Profile: from the file (the camera's own correction)": "Profil: ze souboru (vlastní korekce fotoaparátu)",
+  "Downloading the lens database…": "Stahuje se databáze objektivů…",
+  "This file names no lens.": "Tento soubor neuvádí žádný objektiv.",
+  "1 photo got its lens profile": "1 fotka získala profil objektivu",
+  "Looking up lens profiles": "Hledání profilů objektivů",
+  "Downloading the lens database": "Stahování databáze objektivů",
+  "Upgrade Library": "Upgradovat knihovnu",
+  "Open the Upgraded Copy": "Otevřít upgradovanou kopii",
+  "Make Upgraded Copy and Open": "Vytvořit upgradovanou kopii a otevřít",
+  "Your library needs an upgrade": "Vaše knihovna potřebuje upgrade"
 }

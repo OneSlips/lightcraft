@@ -444,5 +444,8 @@
   "Removed {n} photos from the library. The files stay on disk and can be imported again.": "Удалено из библиотеки фото: {n}. Файлы остаются на диске, их можно импортировать снова.",
   "Remove the {count} selected photos from the library?": "Удалить из библиотеки выбранные фото ({count})?",
   "Photo {i} of {n}": "Фото {i} из {n}",
-  "Remove {n} Photos from Library": "Удалить из библиотеки фото: {n}"
+  "Remove {n} Photos from Library": "Удалить из библиотеки фото: {n}",
+  "Profile: {} (lens database)": "Профиль: {} (база объективов)",
+  "No lens profile found for {}.": "Профиль объектива для {} не найден.",
+  "{n} photos got their lens profile": "Профиль объектива получили фото: {n}"
 }

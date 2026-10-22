@@ -58,7 +58,9 @@ pub mod import;
 mod import_move;
 pub mod import_profiles;
 pub mod lens_profiles;
+pub mod lensfun_download;
 pub mod library;
+pub mod library_upgrade;
 mod lightroom_archive;
 pub mod lightroom_catalog;
 pub mod lightroom_folder;
@@ -135,6 +137,10 @@ pub enum EngineError {
     /// Another process (the app, `lightcraft-cli`, another computer) has the library open.
     #[error("{0}")]
     LibraryInUse(String),
+    /// The library was made by an earlier LightCraft: it opens through an upgraded copy beside it
+    /// ([`Session::open_library_upgraded`], `app.openLibrary {upgrade: true}`), never changed itself.
+    #[error("{}", library_upgrade_message(path, copy, *copy_exists))]
+    LibraryNeedsUpgrade { path: std::path::PathBuf, copy: std::path::PathBuf, copy_exists: bool },
     /// The folder (or file) asked for is a Lightroom Classic catalog or part of one, not a
     /// LightCraft library (issue #891): nothing was created or opened. `catalog`: the `.lrcat`
     /// to import with `library.importLightroom`, when one was found.
@@ -152,6 +158,24 @@ pub enum EngineError {
 }
 
 pub type Result<T> = std::result::Result<T, EngineError>;
+
+/// [`EngineError::LibraryNeedsUpgrade`] in plain words.
+fn library_upgrade_message(path: &std::path::Path, copy: &std::path::Path, exists: bool) -> String {
+    let name = |p: &std::path::Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+    if exists {
+        format!(
+            "“{}” was made by an earlier version of LightCraft, and an upgraded copy of it, “{}”, already exists next to it. Open that copy instead; the original stays untouched.",
+            name(path),
+            name(copy)
+        )
+    } else {
+        format!(
+            "“{}” was made by an earlier version of LightCraft. To open it, LightCraft makes an upgraded copy next to it, named “{}”, and opens the copy; the original stays untouched.",
+            name(path),
+            name(copy)
+        )
+    }
+}
 
 /// One undo step: the inverse op and a label.
 #[derive(Clone, Debug)]
@@ -295,6 +319,10 @@ pub struct Session {
     pub face_models_dir: Option<std::path::PathBuf>,
     /// Face model downloads started this session (the staged files wait in `<face_models_dir>/.downloads`).
     pub face_downloads: face_download::Downloads,
+    /// The lens database download ([`lensfun_download`]).
+    pub lensfun: lensfun_download::Download,
+    /// The host fetches the lens database by itself when it is missing ([`Session::with_default_lens_database`]).
+    pub lens_auto_download: bool,
     /// Reverse geocoding: the parsed place names and their download (`metadata.*PlaceNames`).
     pub place_names: cmd::geocode::PlaceNames,
     /// The user's own list of models to download (`catalog.json` in the models folder), as last read.
@@ -424,9 +452,6 @@ pub struct Session {
     pub keyword_sets: Vec<cmd::keywords::KeywordSet>,
     pub keyword_set: Option<String>,
     pub recent_keywords: Vec<String>,
-    /// Before/After: the "before" settings chosen per photo (this session; default: the photo's
-    /// import state). See `cmd/before.rs`.
-    pub before: std::collections::HashMap<PhotoId, Arc<DevelopSettings>>,
     /// File probes from the last import review (`library.importPreview`), reused by the import.
     pub import_probes: std::collections::HashMap<String, media::ProbeInfo>,
     /// The last Synchronize Folder scan, which `folder.synchronize` acts on while it is current
@@ -549,6 +574,8 @@ impl Session {
             denoise: Default::default(),
             face_models_dir: None,
             face_downloads: Default::default(),
+            lensfun: Default::default(),
+            lens_auto_download: false,
             place_names: Default::default(),
             face_catalog: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -609,7 +636,6 @@ impl Session {
             keyword_sets: Vec::new(),
             keyword_set: None,
             recent_keywords: Vec::new(),
-            before: Default::default(),
             import_probes: Default::default(),
             folder_changes: None,
             activity: Default::default(),
@@ -1733,6 +1759,8 @@ mod tests_import_profiles;
 mod tests_import_tab;
 #[cfg(test)]
 mod tests_keyword_list;
+#[cfg(test)]
+mod tests_lens_refresh;
 #[cfg(test)]
 mod tests_libops;
 #[cfg(test)]
