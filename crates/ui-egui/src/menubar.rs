@@ -390,7 +390,7 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
         "edit.redo" => {
             app.session.redo.last().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
         }
-        "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
+        "photo.delete" if n > 1 => crate::i18n::tr_format!("Remove {n} Photos from Library", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
         "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
         "app.showInFinder" => crate::i18n::tr(crate::menus::reveal_label()).to_string(),

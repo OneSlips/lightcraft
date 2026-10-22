@@ -251,7 +251,6 @@ fn a_photo_deleted_while_it_plays_does_not_stall_the_slideshow() {
     let next = play(&h).upcoming(1)[0];
     let next = next.photo().unwrap();
     run(&mut h, "photo.delete", json!({"ids": [next.0]}));
-    run(&mut h, "photo.deletePermanently", json!({"ids": [next.0]}));
     assert!(h.app.session.catalog.photo(next).is_none());
     assert!(h.step_until(SETTLE, |h| h.app.ui.slideshow.as_ref().is_some_and(|r| r.play.position().0 >= 3)), "it plays on");
     assert!(photos.len() > 3);

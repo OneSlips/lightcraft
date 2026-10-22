@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use lightcraft_catalog::{Filter, Flag, Op, PhotoId, Source};
+use lightcraft_catalog::{Filter, Flag, PhotoId, Source};
 
 use crate::{EngineError, Result, Session};
 
@@ -56,11 +56,10 @@ impl Session {
         let before = self.visible_cloned();
         match files {
             Files::Keep => {
-                let mut ops: Vec<Op> = ids.iter().map(|id| Op::SetDeleted { id: *id, deleted: true }).collect();
-                ops.extend(self.catalog.remove_from_stacks_ops(&ids));
-                self.commit("Delete Rejected Photos", Op::Batch { ops })?;
+                // out of the library, files and sidecars kept: Import lists them again (client note 7)
+                let n = crate::cmd::library::remove_from_library(self, &ids, "Delete Rejected Photos")?;
                 self.select_after_removal(&before);
-                Ok((ids.len(), Vec::new()))
+                Ok((n, Vec::new()))
             }
             Files::Recycle => {
                 let originals: Vec<PathBuf> = ids

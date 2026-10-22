@@ -259,7 +259,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         Dialog::Merge { opts } => opts.title(),
         Dialog::ChartProfile { .. } => "Create Camera Profile from Color Chart",
         Dialog::Settings { .. } => "Settings",
-        Dialog::ConfirmDelete { .. } => "Delete Photos",
+        Dialog::ConfirmDelete { .. } => "Remove from Library",
         Dialog::DeleteRejectedPhotos { .. } => "Delete Rejected Photos",
         Dialog::DeleteRejected { .. } => "Delete Rejected Files from Disk",
         Dialog::MovePhotos { .. } => "Move Photos",
@@ -1256,7 +1256,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 Dialog::DeleteRejectedPhotos { count, recycle } => {
                     ui.label(crate::i18n::tr_format!("Delete the {n} rejected photos of this view?", n = crate::i18n::group_digits(*count)));
                     ui.add_space(6.0);
-                    let keep = ui.radio_value(recycle, false, crate::i18n::tr("Remove from the library (to Recently Deleted; the files stay on disk)"));
+                    let keep = ui.radio_value(recycle, false, crate::i18n::tr("Remove from the library (the files stay on disk and can be imported again)"));
                     crate::widgets::register(ui.ctx(), "radio:rejectsKeep", keep.rect);
                     let bin = ui.radio_value(recycle, true, crate::i18n::tr(crate::panels::dialogs::recycle_words()));
                     crate::widgets::register(ui.ctx(), "radio:rejectsRecycle", bin.rect);
@@ -1264,7 +1264,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     let note = if *recycle {
                         "The files and their XMP sidecars go to the Recycle Bin, where they can be put back; the photos leave the library (no undo)."
                     } else {
-                        "Edit → Undo brings them back; Recently Deleted keeps them until it is emptied."
+                        "Edit → Undo brings them back; browsing their folder in Import lists the files again."
                     };
                     ui.label(egui::RichText::new(crate::i18n::tr(note)).color(t.text_dim));
                 }
@@ -1286,10 +1286,19 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(crate::i18n::tr_format!("Type {n} to confirm:", n = n));
                     dialog_field(ui, "field:deleteRejectedCount", typed, "");
                 }
-                Dialog::ConfirmDelete { count } => {
-                    let what = if *count == 1 { crate::i18n::tr("this photo").to_string() } else { crate::i18n::tr_format!("these {count} photos", count = count) };
-                    ui.label(crate::i18n::tr_format!("Move {what} to Recently Deleted?", what = what));
-                    ui.label(egui::RichText::new(crate::i18n::tr("They can be restored from Recently Deleted until it is emptied.")).color(t.text_dim));
+                Dialog::ConfirmDelete { count, .. } => {
+                    // client note 7: said plainly, as Lightroom's Remove from Catalog
+                    ui.label(if *count == 1 {
+                        crate::i18n::tr("Remove the selected photo from the library?").to_string()
+                    } else {
+                        crate::i18n::tr_format!("Remove the {count} selected photos from the library?", count = crate::i18n::group_digits(*count))
+                    });
+                    ui.label(
+                        egui::RichText::new(crate::i18n::tr(
+                            "The files stay on disk with their edits in the XMP sidecars: browse their folder in Import to import them again. Undo brings them back at once.",
+                        ))
+                        .color(t.text_dim),
+                    );
                 }
                 Dialog::MovePhotos { ids, name, dont_ask, .. } => {
                     let n = ids.len();
@@ -1430,7 +1439,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     Dialog::DenoiseModel { .. } => "Install",
                     Dialog::FaceModel { info, .. } if !informational && info["download"].is_string() => "Download",
                     Dialog::FaceModel { .. } if !informational => "Install",
-                    Dialog::ConfirmDelete { .. } | Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
+                    Dialog::ConfirmDelete { .. } => "Remove",
+                    Dialog::DeleteKeyword { .. } | Dialog::DeleteEffects { .. } => "Delete",
                     Dialog::DeleteRejectedPhotos { recycle: true, .. } => "Move to Recycle Bin",
                     Dialog::DeleteRejectedPhotos { .. } => "Remove",
                     Dialog::DeleteRejected { .. } => "Move to Recycle Bin",
@@ -2108,6 +2118,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
         Dialog::Merge { opts } => crate::merge::start_final(app, opts),
         Dialog::ChartProfile { opts } => crate::chart_profile::start_build(app, opts),
         Dialog::Import { opts } => crate::import::start(app, opts),
+        Dialog::ConfirmDelete { ids, .. } if !ids.is_empty() => app.run("photo.delete", json!({"ids": ids})),
         Dialog::ConfirmDelete { .. } => app.run("photo.delete", json!({})),
         Dialog::DeleteRejectedPhotos { recycle, .. } => {
             let r = app.run("library.deleteRejected", json!({"files": if *recycle { "recycle" } else { "keep" }}));

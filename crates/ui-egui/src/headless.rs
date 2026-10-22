@@ -3916,7 +3916,7 @@ mod tests {
                 h.request("engine.execute", json!({"command": "library.import", "params": {"paths": [dir.join("img0.png").to_string_lossy()]}}), t);
             let id = r["result"]["imported"][0].as_u64().unwrap();
             h.request("engine.execute", json!({"command": "photo.rate", "params": {"ids": [id], "rating": 3}}), t);
-            h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id]}}), t);
+            h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id], "recentlyDeleted": true}}), t);
             h.request("engine.execute", json!({"command": "file.addPhotos", "params": {"paths": [dir.to_string_lossy()]}}), t);
             h.step_until(SETTLE, |h| matches!(h.app.ui.dialog, Some(crate::state::Dialog::Import { .. })));
             let Some(crate::state::Dialog::Import { opts }) = &mut h.app.ui.dialog else { panic!("no import review") };
@@ -3981,7 +3981,7 @@ mod tests {
         let r = h.request("engine.execute", json!({"command": "library.import", "params": {"paths": [dir.join("img0.png").to_string_lossy()]}}), t);
         let id = r["result"]["imported"][0].as_u64().unwrap();
         h.request("engine.execute", json!({"command": "photo.rate", "params": {"ids": [id], "rating": 3}}), t);
-        h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id]}}), t);
+        h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id], "recentlyDeleted": true}}), t);
         h.request("engine.execute", json!({"command": "file.addPhotos", "params": {"paths": [dir.to_string_lossy()]}}), t);
         h.step_until(SETTLE, |h| matches!(h.app.ui.dialog, Some(crate::state::Dialog::Import { .. })));
         let Some(crate::state::Dialog::Import { opts }) = &mut h.app.ui.dialog else { panic!("no import review") };
@@ -4105,7 +4105,7 @@ mod tests {
         h.settle(SETTLE);
         let id = h.app.session.selection.active.expect("imported photo selected");
         let n0 = h.app.session.catalog.len();
-        h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id.0]}}), t);
+        h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id.0], "recentlyDeleted": true}}), t);
         assert!(h.app.session.catalog.photo(id).unwrap().deleted);
         let photo_items = |app: &LightcraftApp| -> Vec<String> {
             let bar = crate::menubar::menu_bar(app);
@@ -4158,7 +4158,6 @@ mod tests {
 
         // deleted permanently, the file imports afresh as a new photo
         h.request("engine.execute", json!({"command": "photo.delete", "params": {"ids": [id.0]}}), t);
-        h.request("engine.execute", json!({"command": "photo.deletePermanently", "params": {"ids": [id.0]}}), t);
         assert!(h.app.session.catalog.photo(id).is_none());
         crate::import::start_paths(&mut h.app, vec![file.to_string_lossy().to_string()]).unwrap();
         h.settle(SETTLE);
@@ -4654,11 +4653,11 @@ mod tests {
         assert_eq!(h.app.ui.dialog, None);
         let active = h.app.session.active().unwrap();
         h.request("ui.key", json!({"key": "delete"}), t);
-        assert_eq!(h.app.ui.dialog, Some(crate::state::Dialog::ConfirmDelete { count: 1 }));
-        assert!(!h.app.session.catalog.photo(active).unwrap().deleted);
+        assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::ConfirmDelete { count: 1, .. })));
+        assert!(h.app.session.catalog.photo(active).is_some());
         let r = h.request("ui.dialog.confirm", json!({}), t);
         assert_eq!(r["ok"], true, "{r}");
-        assert!(h.app.session.catalog.photo(active).unwrap().deleted);
+        assert!(h.app.session.catalog.photo(active).is_none(), "removed from the library");
         // app settings survive a save/load round trip of the UI state (ui.json)
         let saved = serde_json::to_string(&h.app.ui).unwrap();
         let back = serde_json::from_str::<crate::UiState>(&saved).unwrap().sanitized();

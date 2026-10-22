@@ -458,7 +458,7 @@ fn editing_a_smart_album_made_from_a_folder_view_keeps_the_folder() {
 fn a_shown_folder_that_loses_its_last_photo_gives_way_to_all_photos() {
     let mut s = session();
     source_folder(&mut s, "/pics/home");
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert_eq!(s.visible().len(), 2, "back to everything that is left");
     assert_eq!((s.source, s.library_folder.as_deref()), (LibrarySource::All, None));
     // a folder whose photos are only hidden by the filter bar stays

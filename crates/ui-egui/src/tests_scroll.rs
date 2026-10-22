@@ -116,9 +116,11 @@ fn permanently_deleting_photos_keeps_the_current_view_neighbour_in_sight() {
     for view in ["photoGrid", "squareGrid", "detail"] {
         for count in [1, 3] {
             let mut h = demo(view);
-            for (command, params) in
-                [("library.selectAll", json!({})), ("photo.delete", json!({})), ("library.source", json!({"kind": "recentlyDeleted"}))]
-            {
+            for (command, params) in [
+                ("library.selectAll", json!({})),
+                ("photo.delete", json!({"recentlyDeleted": true})),
+                ("library.source", json!({"kind": "recentlyDeleted"})),
+            ] {
                 let r = h.request("engine.execute", json!({"command": command, "params": params}), T);
                 assert_eq!(r["ok"], true, "{r}");
             }

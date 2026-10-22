@@ -209,7 +209,7 @@ fn filters_and_delete_restore() {
     let n = s.visible().len();
     assert!(n > 0 && n < 24);
     s.execute("library.clearFilter", &json!({})).unwrap();
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert_eq!(s.visible().len(), 23);
     s.execute("library.source", &json!({"kind": "recentlyDeleted"})).unwrap();
     assert_eq!(s.visible().len(), 1);
@@ -230,7 +230,7 @@ fn deleting_photos_selects_a_neighbour_in_the_current_view() {
             let at = if at_end { visible.len() - 2 } else { visible.len() / 2 };
             let deleted = &visible[at..at + 2];
             s.execute("library.select", &json!({"ids": deleted, "active": deleted[0]})).unwrap();
-            s.execute("photo.delete", &json!({})).unwrap();
+            s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
             let expected = if at_end { visible[at - 1] } else { visible[at + 2] };
             assert_eq!(s.selection, Selection::single(expected), "sort {params}, end {at_end}");
             assert!(deleted.iter().all(|id| s.catalog.photo(*id).unwrap().deleted));
@@ -242,7 +242,7 @@ fn deleting_photos_selects_a_neighbour_in_the_current_view() {
     }
     let mut s = demo();
     s.execute("library.selectAll", &json!({})).unwrap();
-    s.execute("photo.delete", &json!({})).unwrap();
+    s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
     assert!(s.visible().is_empty());
     assert_eq!(s.selection, Selection::default());
 }
@@ -253,9 +253,9 @@ fn deleting_explicit_targets_keeps_the_surviving_selection() {
     let visible = s.visible_cloned();
     s.execute("library.select", &json!({"ids": [visible[8], visible[9]], "active": visible[9]})).unwrap();
     let before = s.selection.clone();
-    s.execute("photo.delete", &json!({"ids": [visible[3]]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [visible[3]], "recentlyDeleted": true})).unwrap();
     assert_eq!(s.selection, before, "deleting an unselected photo doesn't change selection");
-    s.execute("photo.delete", &json!({"ids": [visible[9]]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [visible[9]], "recentlyDeleted": true})).unwrap();
     assert_eq!(s.selection, Selection::single(visible[8]), "partial deletion retains a selected survivor");
 }
 
@@ -265,7 +265,7 @@ fn permanently_deleting_photos_selects_a_neighbour_in_recently_deleted() {
         for at_end in [false, true] {
             let mut s = demo();
             s.execute("library.selectAll", &json!({})).unwrap();
-            s.execute("photo.delete", &json!({})).unwrap();
+            s.execute("photo.delete", &json!({"recentlyDeleted": true})).unwrap();
             s.execute("library.source", &json!({"kind": "recentlyDeleted"})).unwrap();
             s.execute("library.sort", &params).unwrap();
             s.execute("library.filter", &json!({"rating": 2})).unwrap();

@@ -773,19 +773,26 @@ impl LightcraftApp {
             params
         };
         let r = self.session.execute(id, &params).map_err(CommandError::from);
-        // a delete says plainly what happened and how to take it back (from the console too,
-        // where a stray press is easy): the file itself is never touched
+        // a delete says plainly what happened and offers Undo (from the console too, where a stray
+        // press is easy): the file itself is never touched
         if id == "photo.delete"
             && let Ok(v) = &r
             && let Some(ctx) = self.tasks.repaint.clone()
         {
-            let n = v.get("changed").and_then(Value::as_u64).unwrap_or(1);
+            let n = v.get("removed").or_else(|| v.get("changed")).and_then(Value::as_u64).unwrap_or(1);
             let text = if n == 1 {
-                crate::i18n::tr("Moved the photo to Recently Deleted. The file stays on disk; Undo brings it back.").to_string()
+                crate::i18n::tr("Removed the photo from the library. The file stays on disk and can be imported again.").to_string()
             } else {
-                crate::i18n::tr_format!("Moved {n} photos to Recently Deleted. The files stay on disk; Undo brings them back.", n = n)
+                crate::i18n::tr_format!("Removed {n} photos from the library. The files stay on disk and can be imported again.", n = n)
             };
-            self.toast_for(&ctx, text, 8.0);
+            // SAFETY 2: Undo right there on the toast (a stray Delete, from the console too)
+            self.ui.toast_action = Some(crate::state::ToastAction {
+                text: text.clone(),
+                label: "Undo".into(),
+                command: "edit.undo".into(),
+                undo_len: self.session.undo.len(),
+            });
+            self.toast_for(&ctx, text, 10.0);
         }
         if r.is_ok() && matches!(id, "crop.aspect" | "crop.rotateAspect") {
             self.ui.crop_default_aspect = if id == "crop.aspect" && params.get("aspect").and_then(Value::as_str) == Some("original") {

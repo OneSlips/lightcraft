@@ -209,6 +209,32 @@ fn mark_deleted(s: &mut Session, ids: &[PhotoId], label: &str) -> Result<usize> 
     Ok(n)
 }
 
+/// Take `ids` (and the virtual copies of them) out of the library as one undo step, the files left
+/// on disk: `photo.delete`. With XMP writing on, each photo's sidecar is written first, so the
+/// edits come back when the file is imported again. → how many photos left.
+pub(crate) fn remove_from_library(s: &mut Session, ids: &[PhotoId], label: &str) -> Result<usize> {
+    let mut gone: Vec<PhotoId> = ids.iter().copied().filter(|id| s.catalog.photo(*id).is_some()).collect();
+    let copies: Vec<PhotoId> =
+        s.catalog.photos().filter(|ph| ph.copy_of.is_some_and(|o| gone.contains(&o)) && !gone.contains(&ph.id)).map(|ph| ph.id).collect();
+    gone.extend(copies);
+    if gone.is_empty() {
+        return Ok(0);
+    }
+    if s.xmp.auto_write {
+        for id in &gone {
+            let has_file =
+                s.catalog.photo(*id).is_some_and(|ph| ph.copy_of.is_none() && matches!(ph.source, lightcraft_catalog::Source::File { .. }));
+            if has_file && let Err(e) = s.save_sidecar(*id) {
+                // the photo still leaves; its sidecar keeps what was last written
+                log::warn!("remove from library: XMP of photo {}: {e}", id.0);
+            }
+        }
+    }
+    let op = s.catalog.delete_photos_permanently_ops(&gone);
+    s.commit(label, op)?;
+    Ok(gone.len())
+}
+
 /// Apply one op per target as a single undo step.
 fn for_targets(s: &mut Session, p: &Value, label: &str, f: impl Fn(PhotoId) -> Option<Op>) -> Result<Value> {
     let targets = s.targets(p)?;
@@ -947,17 +973,21 @@ pub fn specs() -> Vec<CommandSpec> {
         // ---- delete / restore
         cmd!(
             "photo.delete",
-            "Delete Photo",
+            "Remove from Library",
             ["Photo"],
             Some("Delete"),
-            "{ids?} — moves library photos to Recently Deleted (their files stay on disk); browsed photos (Import) are never deleted: reject them instead",
+            "{ids?, recentlyDeleted?: bool} → {changed, removed} — as Lightroom's Remove from Catalog (client note 7): the photos and their virtual copies leave the library in one undo step. Their files and XMP sidecars stay on disk (with XMP writing on, each sidecar is brought up to date first), so browsing their folder in Import lists them as not imported again, and importing them again brings their edits back from the sidecar. Photos already in Recently Deleted leave it the same way. `recentlyDeleted: true` (scripts only; the app never asks for it) moves them to Recently Deleted instead, as builds before did. Browsed photos (Import) are never deleted: reject them instead",
             has_selection,
             |s, p| {
                 let before = s.visible_cloned();
                 let targets = library_only(s, s.targets(p)?, "photo.delete")?;
-                let n = mark_deleted(s, &targets, "Delete")?;
+                let n = if bool_or(p, "recentlyDeleted", false) {
+                    mark_deleted(s, &targets, "Delete")?
+                } else {
+                    remove_from_library(s, &targets, "Remove from Library")?
+                };
                 select_after_deletion(s, &before);
-                Ok(json!({"changed": n}))
+                Ok(json!({"changed": n, "removed": n}))
             }
         ),
         cmd!("photo.restore", "Restore", ["Photo"], None, "{ids?}", has_selection, |s, p| for_targets(s, p, "Restore", |id| Some(Op::SetDeleted {
@@ -987,7 +1017,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Delete Rejected Photos",
             ["Photo"],
             None,
-            "{files?: keep|recycle} → {removed, recycled: [paths]} — the rejected photos of the view (its source and filters, whatever the stars / flags / labels filter shows) leave the library in one go: `keep` (default) moves them to Recently Deleted as one undo step, files untouched; `recycle` moves their files and their own XMP sidecars to the system's Recycle Bin (Trash) and removes the photos (not undoable; the files can be put back from the bin)",
+            "{files?: keep|recycle} → {removed, recycled: [paths]} — the rejected photos of the view (its source and filters, whatever the stars / flags / labels filter shows) leave the library in one go: `keep` (default) removes them from the library as one undo step, files and sidecars untouched (Import lists them again); `recycle` moves their files and their own XMP sidecars to the system's Recycle Bin (Trash) and removes the photos (not undoable; the files can be put back from the bin)",
             always,
             |s, p| {
                 const C: &str = "library.deleteRejected";

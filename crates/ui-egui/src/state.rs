@@ -1043,6 +1043,9 @@ pub struct UiState {
     /// Transient toast text, expiry (seconds of app time), and optional colour-label styling.
     #[serde(skip)]
     pub toast: Option<(String, f64, Option<lightcraft_catalog::ColorLabel>)>,
+    /// A button on the toast showing `text` (SAFETY 2: Undo on the "Removed from the library" toast).
+    #[serde(skip)]
+    pub toast_action: Option<ToastAction>,
     /// The result of the last Find Missing Photos (it searches in the background).
     #[serde(skip)]
     pub last_find_missing: Option<serde_json::Value>,
@@ -1361,9 +1364,13 @@ pub enum Dialog {
         prompt: String,
         variations: u32,
     },
-    /// Confirm moving photos to Recently Deleted.
+    /// Delete in the library: confirm removing photos from the library (client note 7; the shape of
+    /// upstream PR #1851's dialog, whose Remove this is: `photo.delete`, the files stay on disk).
     ConfirmDelete {
         count: usize,
+        /// The photos asked about (fixed when the dialog opened).
+        #[serde(default)]
+        ids: Vec<u64>,
     },
     /// Photo ▸ Delete Rejected Photos…: how many rejects the view has, and whether their files go
     /// to the Recycle Bin too (`library.deleteRejected`).
@@ -1627,6 +1634,7 @@ impl Default for UiState {
             compare: None,
             reference: None,
             toast: None,
+            toast_action: None,
             last_find_missing: None,
             last_find_missing_result: None,
             #[cfg(test)]
@@ -1755,4 +1763,14 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
         }
     }
     Ok(values)
+}
+
+/// A button on a toast: shown while that toast is ([`ToastAction::text`]) and only while the undo
+/// history is as it was then ([`ToastAction::undo_len`]), so Undo never takes back a later step.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToastAction {
+    pub text: String,
+    pub label: String,
+    pub command: String,
+    pub undo_len: usize,
 }

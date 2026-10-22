@@ -162,7 +162,7 @@ fn recently_deleted_is_not_the_empty_library() {
     let mut s = lightcraft_engine::Session::with_demo();
     let ids: Vec<_> = s.catalog.photos().map(|p| p.id).collect();
     s.selection.ids = ids.clone();
-    s.execute("photo.delete", &json!({"ids": ids.iter().map(|i| i.0).collect::<Vec<_>>()})).unwrap();
+    s.execute("photo.delete", &json!({"ids": ids.iter().map(|i| i.0).collect::<Vec<_>>(), "recentlyDeleted": true})).unwrap();
     s.source = lightcraft_engine::LibrarySource::RecentlyDeleted;
     assert!(empty_library::is_empty(&s));
     assert!(!empty_library::shown(&s));

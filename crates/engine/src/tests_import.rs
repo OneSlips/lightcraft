@@ -1029,7 +1029,7 @@ fn trashed_photo(tag: &str) -> (Session, std::path::PathBuf, u64) {
     let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
     let id = r["imported"][0].as_u64().unwrap();
     s.execute("photo.rate", &json!({"ids": [id], "rating": 4})).unwrap();
-    s.execute("photo.delete", &json!({"ids": [id]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [id], "recentlyDeleted": true})).unwrap();
     (s, src, id)
 }
 
@@ -1066,7 +1066,7 @@ fn importing_a_deleted_photo_again_after_reopening_the_library_brings_it_back() 
         let r = s.execute("library.import", &json!({"paths": [src.join("a.png").to_string_lossy()], "albumName": "Trip"})).unwrap();
         let id = r["imported"][0].as_u64().unwrap();
         s.execute("photo.rate", &json!({"ids": [id], "rating": 2})).unwrap();
-        s.execute("photo.delete", &json!({"ids": [id]})).unwrap();
+        s.execute("photo.delete", &json!({"ids": [id], "recentlyDeleted": true})).unwrap();
         s.close_library().unwrap();
         id
     };
@@ -1121,7 +1121,7 @@ fn browsing_and_auto_import_never_restore_a_deleted_photo() {
     s.open_library(&lib, false).unwrap();
     let r = s.execute("library.import", &json!({"paths": [watched.join("w.png").to_string_lossy()], "mode": "copy"})).unwrap();
     let copied = r["imported"][0].as_u64().unwrap();
-    s.execute("photo.delete", &json!({"ids": [copied]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [copied], "recentlyDeleted": true})).unwrap();
     s.execute("library.autoImport", &json!({"folder": watched.to_string_lossy(), "copy": true})).unwrap();
     for _ in 0..3 {
         let r = s.execute("library.autoImportScan", &json!({})).unwrap();
@@ -1225,7 +1225,7 @@ fn two_trashed_in_album_and_stack(tag: &str) -> (Session, std::path::PathBuf, [u
     s.execute("album.addPhotos", &json!({"id": al, "ids": ids})).unwrap();
     s.execute("library.select", &json!({"ids": ids})).unwrap();
     s.execute("stack.group", &json!({"ids": ids})).unwrap();
-    s.execute("photo.delete", &json!({"ids": ids})).unwrap();
+    s.execute("photo.delete", &json!({"ids": ids, "recentlyDeleted": true})).unwrap();
     (s, src, ids, al)
 }
 
@@ -1975,5 +1975,36 @@ fn a_file_arriving_beside_its_raws_stem_reads_its_own_sidecar() {
     assert_eq!((ids(&r, "imported"), ids(&r, "failed")), (1, 0), "{r}");
     assert_eq!(r["sidecars"], 0, "{r}");
     assert_eq!(read(&s, "IMG_3.TIF"), 0, "the catalogued raw owns IMG_3.xmp");
+    let _ = std::fs::remove_dir_all(&src);
+}
+
+/// Client note 7: Delete in the library removes the photo from it, one undo step, and keeps the
+/// file and its XMP sidecar: browsing the folder lists the file as not imported again, and
+/// importing it brings its edits back from the sidecar.
+#[test]
+fn a_photo_removed_from_the_library_shows_in_import_again_and_comes_back_with_its_edits() {
+    let src = temp_dir("remove-reimport");
+    write_png(&src.join("a.png"), 1);
+    let mut s = Session::new().with_fs();
+    s.xmp.auto_write = true;
+    let r = s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
+    let id = r["imported"][0].as_u64().unwrap();
+    s.execute("photo.rate", &json!({"ids": [id], "rating": 4})).unwrap();
+    let r = s.execute("photo.delete", &json!({"ids": [id]})).unwrap();
+    assert_eq!(r["removed"], 1, "{r}");
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).is_none(), "out of the library, not in Recently Deleted");
+    assert!(src.join("a.png").exists(), "the file stays");
+    // one undo step brings it back, and redo takes it out again
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).map(|p| p.rating), Some(4));
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert!(s.catalog.photo(lightcraft_catalog::PhotoId(id)).is_none());
+    // the Import tab lists the file as not imported
+    let r = s.execute("library.browse", &json!({"path": src.to_string_lossy()})).unwrap();
+    assert_eq!(r["new"], 1, "{r}");
+    // importing it brings the rating back from its sidecar
+    let r = s.execute("library.import", &json!({"paths": [src.join("a.png").to_string_lossy()]})).unwrap();
+    let again = r["imported"][0].as_u64().unwrap_or_else(|| panic!("{r}"));
+    assert_eq!(s.catalog.photo(lightcraft_catalog::PhotoId(again)).map(|p| p.rating), Some(4), "the edits came back");
     let _ = std::fs::remove_dir_all(&src);
 }
