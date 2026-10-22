@@ -2344,7 +2344,9 @@ fn settings_tree(ui: &mut egui::Ui, tag: &str, ids: &mut Vec<String>, offered: O
                     let colour = if arrow.hovered() { t.text } else { t.text_dim };
                     let icon = if open { crate::icons::Icon::ChevronDown } else { crate::icons::Icon::ChevronRight };
                     crate::icons::paint(ui.painter(), egui::Rect::from_center_size(c, egui::vec2(14.0, 14.0)), icon, colour);
-                    let arrow = arrow.on_hover_text(crate::i18n::tr(if open { "Hide the single settings" } else { "Show the single settings" }));
+                    let tip = crate::i18n::tr(if open { "Hide the single settings" } else { "Show the single settings" }).to_string();
+                    arrow.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tip.clone()));
+                    let arrow = arrow.on_hover_text(tip.clone());
                     crate::widgets::register(ui.ctx(), format!("{tag}:open:{}", g.id()), arrow.rect);
                     if arrow.clicked() {
                         open = !open;

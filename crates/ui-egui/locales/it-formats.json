@@ -89,7 +89,7 @@
   "Named ({named_n})": "Con nome ({named_n})",
   "Painting “{k}”: click photos to add or remove it · Esc stops": "Pennello “{k}”: fai clic sulle foto per aggiungerla o toglierla · Esc interrompe",
   "Paste into {n} photo{} — only settings that were copied are pasted": "Incolla in {n} foto{:.0}: vengono incollate solo le impostazioni copiate",
-  "Preset: {name}": "Predefinito: {name}",
+  "Preset: {name}": "Preset: {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "Solo anteprima: si modifica il JPEG incorporato dalla fotocamera ({})",
   "Preview only — {}": "Solo anteprima: {}",
   "Previews ready for {done} photo{plural}": "Anteprime pronte per {done} foto{plural:.0}",
