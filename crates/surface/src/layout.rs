@@ -14,6 +14,10 @@ pub trait Host {
     fn value(&self, target: &str) -> Option<f64>;
     /// A short, translated label for a binding.
     fn label(&self, binding: &Binding) -> String;
+    /// The icon a key shows for `binding` (the host may know better: an AI-mask preset's own).
+    fn icon(&self, binding: &Binding) -> Option<&'static str> {
+        crate::icons::icon_for(binding)
+    }
     /// On / off for bindings that toggle something (Auto Sync, Before/After…), if known.
     fn state(&self, binding: &Binding) -> Option<bool>;
     /// Translate an English UI string.
@@ -112,7 +116,7 @@ fn key_view(r: &Runtime, host: &dyn Host, control: &str, binding: Option<Binding
                 Binding::FollowContext => r.settings().follow_context.then_some("on"),
                 _ => host.state(b).unwrap_or(false).then_some("on"),
             };
-            (host.label(b), crate::icons::icon_for(b), value, state)
+            (host.label(b), host.icon(b), value, state)
         }
     };
     KeyView { control: control.to_string(), binding, label, icon, value, active: state.is_some(), state }
@@ -136,9 +140,9 @@ pub fn build(r: &Runtime, device: &DeviceDef, host: &dyn Host) -> DeviceLayout {
                         let spec = target_spec(target);
                         let v = host.value(target);
                         let value = if look.show_values { spec.as_ref().zip(v).map(|(s, v)| s.format(v)) } else { None };
-                        (host.label(bound), crate::icons::icon_for(bound), value, spec.zip(v).map(|(s, v)| s.position(v)))
+                        (host.label(bound), host.icon(bound), value, spec.zip(v).map(|(s, v)| s.position(v)))
                     }
-                    Some(other) => (host.label(other), crate::icons::icon_for(other), None, None),
+                    Some(other) => (host.label(other), host.icon(other), None, None),
                     None => (String::new(), None, None, None),
                 };
                 dials.push(DialView { control: c.id.to_string(), binding: b, label, icon, value, position });

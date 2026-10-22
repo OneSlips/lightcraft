@@ -111,7 +111,7 @@
   "On {have} of {of} selected photos": "Na {have} z {of} vybraných fotografií",
   "Painting “{k}”: click photos to add or remove it · Esc stops": "Nanášení „{k}“: kliknutím na fotografie přidáte nebo odeberete slovo · Esc ukončí režim",
   "Paste into {n} photo{} — only settings that were copied are pasted": "Vložit do fotografií: {n}{:.0} — vloží se pouze zkopírovaná nastavení",
-  "Preset: {name}": "Přednastavení: {name}",
+  "Preset: {name}": "Předvolba: {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "Pouze náhled — úpravy vloženého JPEG z fotoaparátu ({})",
   "Preview only — {}": "Pouze náhled — {}",
   "Previews ready for {done} photo{plural}": "Připravené náhledy pro fotografie: {done}{plural:.0}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "Z aktivní fotografie do {n} dalších vybraných fotografií",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}“ převezme nastavení aktivní fotografie. Název, skupina, pořadí a označení zůstanou.",
   "Saved naming preset “{name}”": "Předvolba názvů „{name}“ uložena",
-  "{n} items": "{n} položek"
+  "{n} items": "{n} položek",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Tato akce nepoužívá: {keys}. Předvolbu na klávesu dáte volbou Předvolba výše."
 }

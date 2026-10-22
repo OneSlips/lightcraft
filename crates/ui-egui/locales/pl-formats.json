@@ -82,7 +82,7 @@
   "Named ({named_n})": "Nazwane ({named_n})",
   "Painting “{k}”: click photos to add or remove it · Esc stops": "Przypisywanie „{k}”: klikaj zdjęcia, aby dodać lub usunąć słowo kluczowe · Esc kończy",
   "Paste into {n} photo{} — only settings that were copied are pasted": "Wklej do zdjęć ({n}){:.0} — wklejone zostaną tylko skopiowane ustawienia",
-  "Preset: {name}": "Ustawienie wstępne: {name}",
+  "Preset: {name}": "Ustawienie: {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "Tylko podgląd — edycja pliku JPEG osadzonego przez aparat ({})",
   "Preview only — {}": "Tylko podgląd — {}",
   "Previews ready for {done} photo{plural}": "Podglądy gotowe — zdjęcia: {done}{plural:.0}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "Ze zdjęcia aktywnego na {n} pozostałych zaznaczonych zdjęć",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}” przejmie ustawienia aktywnego zdjęcia. Nazwa, grupa, miejsce i oznaczenia zostaną.",
   "Saved naming preset “{name}”": "Zapisano ustawienie nazw „{name}”",
-  "{n} items": "{n} elementów"
+  "{n} items": "{n} elementów",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ta akcja nie używa: {keys}. Aby przypisać ustawienie do klawisza, wybierz Ustawienie powyżej."
 }

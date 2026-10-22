@@ -220,6 +220,8 @@ pub(crate) static ICONS: &[(&str, &str)] = &[
     ("pick-shadow-level", include_str!("../../../assets/surface-icons/pick-shadow-level.svg")),
     ("pick-skin-color", include_str!("../../../assets/surface-icons/pick-skin-color.svg")),
     ("pick-variant", include_str!("../../../assets/surface-icons/pick-variant.svg")),
+    ("preset-apply", include_str!("../../../assets/surface-icons/preset-apply.svg")),
+    ("preset-apply-ai", include_str!("../../../assets/surface-icons/preset-apply-ai.svg")),
     ("previous-collection", include_str!("../../../assets/surface-icons/previous-collection.svg")),
     ("previous-group", include_str!("../../../assets/surface-icons/previous-group.svg")),
     ("previous-image", include_str!("../../../assets/surface-icons/previous-image.svg")),

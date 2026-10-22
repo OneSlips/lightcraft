@@ -2,6 +2,12 @@
 
 ## 2026-10-22
 
+### Control surfaces
+- **Put a preset on a console key the easy way**: Settings ▸ Controls, pick a key, then Preset opens the same
+  preset picker as Import (search, Favorites, groups). The key shows the preset's name and a preset icon, with an
+  "AI" mark for presets with AI masks, and follows the preset when it is renamed or moved.
+- **Parameters an action doesn't use are flagged** in the key editor (a preset id pasted on another action).
+
 ### Export
 - **Naming presets** in Rename Photos and Export: pick a saved file-name template, or save the one you typed
   (Save as…). They are kept with LightCraft's settings, in every library.

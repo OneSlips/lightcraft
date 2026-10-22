@@ -70,7 +70,7 @@
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "{n}枚を「{1}」に移動しました。編集 → 取り消す で元に戻せます。{0:.0}",
   "Named ({named_n})": "名前付き（{named_n}）",
   "Paste into {n} photo{} — only settings that were copied are pasted": "{n}枚に貼り付け{:.0}（コピーされた設定だけを適用）",
-  "Preset: {name}": "プリセット：{name}",
+  "Preset: {name}": "プリセット: {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "プレビューのみ：カメラ内蔵のJPEGを編集中（{}）",
   "Preview only — {}": "プレビューのみ：{}",
   "Profile: {}": "プロファイル：{}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "アクティブな写真から、選択中の他の {n} 枚へ",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "「{name}」にアクティブな写真の設定を取り込みます。名前・グループ・位置・マークはそのままです。",
   "Saved naming preset “{name}”": "名前のプリセット「{name}」を保存しました",
-  "{n} items": "{n} 件"
+  "{n} items": "{n} 件",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "この操作は {keys} を使いません。キーにプリセットを割り当てるには上の「プリセット」を選んでください。"
 }

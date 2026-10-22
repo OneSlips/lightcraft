@@ -114,7 +114,7 @@
   "Named ({named_n})": "Nommés ({named_n})",
   "Painting “{k}”: click photos to add or remove it · Esc stops": "Application de « {k} » : cliquez sur les photos pour l’ajouter ou le retirer · Échap pour arrêter",
   "Paste into {n} photo{} — only settings that were copied are pasted": "Coller dans {n} photo{} — seuls les réglages copiés seront collés",
-  "Preset: {name}": "Préréglage : {name}",
+  "Preset: {name}": "Paramètre : {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "Aperçu uniquement — modification du JPEG intégré de l’appareil photo ({})",
   "Preview only — {}": "Aperçu uniquement — {}",
   "Previews ready for {done} photo{plural}": "Aperçus prêts pour {done} photo{plural}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "De la photo active vers {n} autres photos sélectionnées",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "« {name} » reprend les réglages de la photo active. Son nom, son groupe, sa place et ses marques restent.",
   "Saved naming preset “{name}”": "Modèle de nom « {name} » enregistré",
-  "{n} items": "{n} éléments"
+  "{n} items": "{n} éléments",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Cette action n’utilise pas : {keys}. Choisissez Paramètre prédéfini ci-dessus pour mettre un paramètre sur cette touche."
 }

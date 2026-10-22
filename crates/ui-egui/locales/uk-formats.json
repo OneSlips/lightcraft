@@ -114,7 +114,7 @@
   "Named ({named_n})": "З іменами ({named_n})",
   "Painting “{k}”: click photos to add or remove it · Esc stops": "Призначення «{k}»: клацайте фото, щоб додати або вилучити його · Esc завершує",
   "Paste into {n} photo{} — only settings that were copied are pasted": "Вставка у фото: {n}{:.0} — вставляються лише скопійовані налаштування",
-  "Preset: {name}": "Набір налаштувань: {name}",
+  "Preset: {name}": "Пресет: {name}",
   "Preview only — editing the camera's embedded JPEG ({})": "Лише перегляд — редагування вбудованого JPEG камери ({})",
   "Preview only — {}": "Лише перегляд — {}",
   "Previews ready for {done} photo{plural}": "Перегляди готові для фото: {done}{plural:.0}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "З активного фото на {n} інших вибраних фото",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "«{name}» отримає налаштування активного фото. Назва, група, місце й позначки залишаться.",
   "Saved naming preset “{name}”": "Шаблон імен «{name}» збережено",
-  "{n} items": "{n} елем."
+  "{n} items": "{n} елем.",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ця дія не використовує: {keys}. Щоб призначити пресет на клавішу, виберіть «Пресет» вище."
 }

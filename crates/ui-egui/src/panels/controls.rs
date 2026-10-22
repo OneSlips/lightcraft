@@ -884,7 +884,10 @@ fn draw_dialpad(ui: &mut egui::Ui, t: &Tokens, w: f32, controls: &[View], select
     }
 }
 
-fn short_label(_app: &LightcraftApp, b: &Binding) -> String {
+fn short_label(app: &LightcraftApp, b: &Binding) -> String {
+    if let Some(name) = crate::surface::preset_key_label(app, b) {
+        return crate::i18n::tr_format!("Preset: {name}", name = name);
+    }
     match b {
         Binding::Command { command, params } => {
             let s = ls::icons::command_label(command, params);
@@ -999,7 +1002,7 @@ fn editor_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, page: &s
     ui.horizontal(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(36.0, 36.0), Sense::hover());
         ui.painter().rect_filled(r, CornerRadius::same(6), Color32::from_gray(26));
-        if let Some(icon) = current.as_ref().and_then(ls::icons::icon_for) {
+        if let Some(icon) = current.as_ref().and_then(|b| crate::surface::preset_key_icon(app, b).or_else(|| ls::icons::icon_for(b))) {
             crate::surface_icons::paint(ui, icon, r.shrink(4.0), Color32::WHITE);
         }
         ui.vertical(|ui| {
@@ -1033,7 +1036,35 @@ fn editor_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, page: &s
             app.surface.changed();
         }
     }
+    // a preset on a key, the easy way (client note 21): the shared picker, bound by the preset's id
+    if !ls::devices::is_encoder(&control) {
+        let chosen = match &current {
+            Some(Binding::Command { command, params }) if command == "preset.apply" => params.get("id").and_then(Value::as_str).map(str::to_string),
+            _ => None,
+        };
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tr("Preset")).color(t.text_label));
+            let text = chosen.as_deref().map_or_else(|| tr("Choose a preset…").to_string(), |id| crate::preset_picker::preset_label(app, id));
+            if let Some(crate::preset_picker::Picked::Preset(id)) =
+                crate::preset_picker::Picker::new("surfacePreset").selected(chosen.as_deref()).button(app, ui, &text, 220.0)
+            {
+                set_binding(app, page, &control, Some(Binding::command_with("preset.apply", json!({"id": id}))));
+                app.surface.editor.params_text.clear();
+            }
+        });
+    }
     if let Some(Binding::Command { command, params }) = &current {
+        // parameters the action doesn't take do nothing (a preset's id pasted on another action)
+        let unused = unused_params(command, params);
+        if !unused.is_empty() {
+            ui.label(
+                RichText::new(crate::i18n::tr_format!(
+                    "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.",
+                    keys = unused.join(", ")
+                ))
+                .color(warn_color()),
+            );
+        }
         egui::CollapsingHeader::new(tr("Command parameters (advanced)")).id_salt("surfaceParams").show(ui, |ui| {
             if app.surface.editor.params_text.is_empty() {
                 app.surface.editor.params_text = if params.is_null() { "{}".into() } else { params.to_string() };
@@ -1060,6 +1091,25 @@ fn editor_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, page: &s
         set_binding(app, page, &control, Some(b));
         app.surface.editor.params_text.clear();
     }
+}
+
+/// The keys of `params` that `command` doesn't take (its description names the ones it does).
+fn unused_params(command: &str, params: &Value) -> Vec<String> {
+    let Some(o) = params.as_object() else { return Vec::new() };
+    let Some(spec) = lightcraft_engine::find_command(command) else { return Vec::new() };
+    let named = |k: &str| {
+        spec.params.match_indices(k).any(|(i, _)| {
+            let before = spec.params.get(..i).and_then(|s| s.chars().last());
+            let after = spec.params.get(i + k.len()..).and_then(|s| s.chars().next());
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_') && matches!(after, Some(':' | '?' | ',' | '}' | ' ' | '='))
+        })
+    };
+    o.keys().filter(|k| !named(k)).cloned().collect()
+}
+
+#[cfg(test)]
+pub(crate) fn unused_params_for_test(command: &str, params: &Value) -> Vec<String> {
+    unused_params(command, params)
 }
 
 /// Every action in categories, filtered by the search box; the chosen one.

@@ -84,7 +84,7 @@
   "Moved {n} photo{} to “{}”. Edit → Undo moves them back.": "已將 {n} 張照片移到「{1}」{0:.0}。編輯 → 復原 可移回。",
   "Named ({named_n})": "已命名（{named_n}）",
   "Paste into {n} photo{} — only settings that were copied are pasted": "貼上至 {n} 張照片{:.0} — 只貼上已複製的設定",
-  "Preset: {name}": "預設集：{name}",
+  "Preset: {name}": "預設：{name}",
   "Preview only — editing the camera's embedded JPEG ({})": "僅供預覽 — 正在編輯相機內嵌的 JPEG（{}）",
   "Preview only — {}": "僅供預覽 — {}",
   "Profile: {}": "描述檔：{}",
@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "從目前相片到其他 {n} 張所選相片",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "「{name}」將採用目前相片的設定。名稱、群組、位置和標記保持不變。",
   "Saved naming preset “{name}”": "已儲存命名預設「{name}」",
-  "{n} items": "{n} 項"
+  "{n} items": "{n} 項",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "此操作不使用：{keys}。要把預設放到此鍵上，請在上方選擇「預設」。"
 }

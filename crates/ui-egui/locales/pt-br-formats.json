@@ -450,5 +450,6 @@
   "From the active photo to {n} other selected photos": "Da foto ativa para outras {n} fotos selecionadas",
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "“{name}” recebe os ajustes da foto ativa. Nome, grupo, posição e marcas continuam.",
   "Saved naming preset “{name}”": "Predefinição de nomes “{name}” salva",
-  "{n} items": "{n} itens"
+  "{n} items": "{n} itens",
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Esta ação não usa: {keys}. Escolha Predefinição acima para pôr uma predefinição nesta tecla."
 }
