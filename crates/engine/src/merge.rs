@@ -273,10 +273,10 @@ const PANO_BLEND_BYTES: f64 = 68.0;
 
 /// What a merge may use of the computer's memory: three quarters of it (the rest is the system's
 /// and the other apps'), less the app's own memory budget (its caches).
-fn merge_memory(ram: Option<usize>) -> f64 {
+fn merge_memory(ram: Option<usize>, budget: usize) -> f64 {
     // a computer whose memory we can't read (Windows) is taken to have 8 GB
     let ram = ram.unwrap_or(8 << 30) as f64;
-    (ram * 0.75 - crate::memory::budget() as f64).max(0.0)
+    (ram * 0.75 - budget as f64).max(0.0)
 }
 
 /// `pano` with its size held to what fits in memory beside its photos (`frame_px` pixels, 12
@@ -284,7 +284,13 @@ fn merge_memory(ram: Option<usize>) -> f64 {
 /// computer, 355 MP on 32 GB. Never below 40 megapixels, the size every panorama had before it
 /// followed the photos' resolution, and never above what was asked.
 pub(crate) fn fit_in_memory(pano: &PanoOptions, frame_px: f64, ram: Option<usize>) -> PanoOptions {
-    let room = merge_memory(ram);
+    fit_in_memory_beside(pano, frame_px, ram, crate::memory::budget())
+}
+
+/// [`fit_in_memory`] beside an app memory budget of `budget` bytes (tests give their own: the
+/// process's follows the computer and `LIGHTCRAFT_MEMORY_MB`).
+pub(crate) fn fit_in_memory_beside(pano: &PanoOptions, frame_px: f64, ram: Option<usize>, budget: usize) -> PanoOptions {
+    let room = merge_memory(ram, budget);
     let fits = ((room - frame_px * 12.0) / PANO_TILE_BYTES).min(room / PANO_BLEND_BYTES) / 1e6;
     PanoOptions { max_megapixels: pano.max_megapixels.min(fits.max(MIN_FITTED_MEGAPIXELS)), ..pano.clone() }
 }
