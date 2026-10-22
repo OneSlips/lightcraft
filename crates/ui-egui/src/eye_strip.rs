@@ -19,10 +19,9 @@ use crate::widgets::register;
 
 /// Results kept (a few crops each: about 50 kB a photo).
 const KEEP: usize = 64;
-/// The strip's type sizes (points): the verdict under each crop and the notes beside them, read at
-/// a glance from culling distance rather than fine print.
+/// The type size (points) of the verdict under each crop, read at a glance from culling distance
+/// rather than fine print.
 const LABEL_PT: f32 = 13.5;
-const NOTE_PT: f32 = 13.0;
 /// Height of the verdict line under each crop.
 const LABEL_H: f32 = 20.0;
 /// The smallest a crop is drawn (points wide) before the group wraps into another row; a big
@@ -30,8 +29,6 @@ const LABEL_H: f32 = 20.0;
 const MIN_THUMB_W: f32 = 96.0;
 const MIN_THUMB_W_BIG: f32 = 76.0;
 const BIG_GROUP: usize = 24;
-/// Width of the notes column beside the crops (counts, closed eyes, rows), at most.
-const NOTES_W: f32 = 220.0;
 
 /// The order a big group is shown in: the people to look at first (closed, blurry, half closed,
 /// soft), then those whose eyes can't be seen, then the sharp and open ones.
@@ -249,12 +246,6 @@ pub fn strip_grid(n: usize, w: f32, h: f32, gap: f32, label_h: f32, width: f32, 
     StripGrid { cols, w: tw, h: th, shown }
 }
 
-/// Width (points) of the notes column beside the crops in `room` points (none when there are no
-/// notes): kept from the first frame, never more than a third of the room.
-pub fn notes_width(room: f32, has_notes: bool) -> f32 {
-    if !has_notes || !room.is_finite() { 0.0 } else { NOTES_W.min(room / 3.0).max(0.0) }
-}
-
 /// The scroll bar of a band that holds more rows than it shows: along its right edge.
 fn scroll_track(band: Rect) -> Rect {
     Rect::from_min_max(pos2(band.right() - 9.0, band.top() + 6.0), pos2(band.right() - 3.0, band.bottom() - 6.0))
@@ -359,34 +350,13 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     let ppp = ui.ctx().pixels_per_point().max(0.5);
     let n = report.eyes.len();
     let (gap, label_h) = (8.0, LABEL_H);
-    // what the thumbnails don't show, in a column of its own beside them. Its room is kept from the
-    // first frame (a group always has its count there), so nothing reflows or is pushed off screen
-    // when a note comes in, and the band never grows wider than the loupe.
-    let mut notes = Vec::new();
-    let to_look_at = report.eyes.iter().filter(|e| look_first(e.verdict()) < 4).count();
-    if n >= 2 {
-        notes.push(crate::i18n::tr_format!("{n} people, {k} to look at first", n = n, k = to_look_at));
-    }
-    if report.blinks() > 0 {
-        notes.push(crate::i18n::tr_format!("{} with eyes closed", report.blinks()));
-    }
-    if report.no_eyes > 0 {
-        notes.push(crate::i18n::tr_format!("+{} turned away", report.no_eyes));
-    }
+    // no summary text beside the crops: the photographer glances at the band, and each crop's
+    // colour and closed-eye marker already say what matters
     let room = (canvas.width() - 24.0).max(1.0);
-    let notes_w = notes_width(room, !notes.is_empty() || n >= 2);
     let max_h = canvas.height() * 0.45;
     // a big group wraps into rows of smaller crops; past what fits, the people to look at come
     // first and the rest scroll (wheel, drag, or the bar at the band's right edge)
-    let grid = strip_grid(
-        n,
-        lightcraft_engine::eyes::CROP_W as f32 / ppp,
-        lightcraft_engine::eyes::CROP_H as f32 / ppp,
-        gap,
-        label_h,
-        room - notes_w,
-        max_h,
-    );
+    let grid = strip_grid(n, lightcraft_engine::eyes::CROP_W as f32 / ppp, lightcraft_engine::eyes::CROP_H as f32 / ppp, gap, label_h, room, max_h);
     let (w, h) = (grid.w, grid.h);
     let cols = grid.cols.max(1);
     let row_h = h + label_h + gap;
@@ -399,19 +369,10 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
     if scrollable {
         order.sort_by_key(|i| (report.eyes.get(*i).map_or(9, |e| look_first(e.verdict())), *i));
         first_row = if app.eye_strip.scrolled.0 == key { app.eye_strip.scrolled.1.min(max_first) } else { 0 };
-        notes.push(crate::i18n::tr_format!(
-            "Rows {a}–{b} of {c}: scroll for more",
-            a = first_row + 1,
-            b = (first_row + rows_shown).min(rows_all),
-            c = rows_all
-        ));
     }
-    let wrap = (notes_w - gap).max(1.0);
-    let notes: Vec<_> = notes.into_iter().map(|n| ui.painter().layout(n, t.font(NOTE_PT), Color32::from_gray(225), wrap)).collect();
-    let notes_h = notes.iter().map(|g| g.size().y + 4.0).sum::<f32>();
     let thumbs_w = cols.min(n.max(1)) as f32 * (w + gap) + gap;
-    let band_w = (thumbs_w + notes_w).min(canvas.width() - 12.0).max(1.0);
-    let band_h = (rows_shown as f32 * row_h + gap * 0.5).max(notes_h + 2.0 * gap);
+    let band_w = thumbs_w.min(canvas.width() - 12.0).max(1.0);
+    let band_h = rows_shown as f32 * row_h + gap * 0.5;
     let band = Rect::from_min_size(pos2(canvas.center().x - band_w / 2.0, canvas.top() + 6.0), vec2(band_w, band_h));
     if scrollable {
         // the wheel over the band, a drag on it, or a press / drag on its bar move the rows
@@ -458,13 +419,6 @@ fn thumbs(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, key: u64) {
         let b = (a + track.height() * rows_shown as f32 / rows_all as f32).min(track.bottom());
         p.rect_filled(track, 3.0, Color32::from_white_alpha(30));
         p.rect_filled(Rect::from_x_y_ranges(track.x_range(), a..=b), 3.0, Color32::from_white_alpha(170));
-    }
-    let notes_x = band.left() + thumbs_w.min(band_w - notes_w).max(0.0);
-    let mut y = band.top() + gap;
-    for g in notes {
-        let gh = g.size().y;
-        p.galley(pos2(notes_x, y), g, Color32::from_gray(225));
-        y += gh + 4.0;
     }
     for (slot, i) in order.into_iter().enumerate() {
         let (Some(e), Some(tx)) = (report.eyes.get(i), tex.get(i)) else { continue };
@@ -560,20 +514,16 @@ mod tests {
         assert!(narrow.cols >= 1 && narrow.shown >= 1);
     }
 
-    /// A group of 60 (notes item 19): the notes' column is kept from the start, so the crops and the
-    /// notes together fit the loupe at every width, and a bar or a drag scrolls the rows.
+    /// A group of 60 (notes item 19): the crops fit the loupe at every width, and a bar or a drag
+    /// scrolls the rows. No summary text sits beside them (test notes 2026-10-22, note 2).
     #[test]
-    fn a_big_group_and_its_notes_never_spill_off_the_loupe() {
+    fn a_big_group_never_spills_off_the_loupe() {
         for canvas_w in [700.0f32, 1000.0, 1400.0, 2400.0] {
             let room = canvas_w - 24.0;
-            let notes_w = notes_width(room, true);
-            assert!(notes_w > 0.0 && notes_w <= NOTES_W);
-            let g = strip_grid(60, 160.0, 100.0, 8.0, LABEL_H, room - notes_w, 400.0);
+            let g = strip_grid(60, 160.0, 100.0, 8.0, LABEL_H, room, 400.0);
             let thumbs_w = g.cols.min(60) as f32 * (g.w + 8.0) + 8.0;
-            assert!(thumbs_w + notes_w <= room + 0.5, "{canvas_w}: {thumbs_w} + {notes_w} > {room} ({g:?})");
+            assert!(thumbs_w <= room + 0.5, "{canvas_w}: {thumbs_w} > {room} ({g:?})");
         }
-        assert_eq!(notes_width(1000.0, false), 0.0);
-        assert_eq!(notes_width(f32::NAN, true), 0.0);
         // a drag moves whole rows, kept in range
         assert_eq!(rows_after(2, 1.0, 5), 3);
         assert_eq!(rows_after(2, -4.0, 5), 0);
