@@ -46,7 +46,7 @@ fn stage<'a>(stages: &'a [(&str, Tensor)], name: &str) -> &'a Tensor {
 #[test]
 fn scene_matches_reference() {
     let (Some(dir), Some(r)) = (std::env::var_os("LIGHTCRAFT_SCENE_DIR"), reference()) else {
-        eprintln!("skipped: set LIGHTCRAFT_SCENE_DIR and LIGHTCRAFT_SCENE_REF");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_SCENE_DIR and LIGHTCRAFT_SCENE_REF");
         return;
     };
     let t = Instant::now();
@@ -92,7 +92,7 @@ fn scene_matches_reference() {
 #[test]
 fn depth_matches_reference() {
     let (Some(dir), Some(r)) = (std::env::var_os("LIGHTCRAFT_DEPTH_DIR"), reference()) else {
-        eprintln!("skipped: set LIGHTCRAFT_DEPTH_DIR and LIGHTCRAFT_SCENE_REF");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_DEPTH_DIR and LIGHTCRAFT_SCENE_REF");
         return;
     };
     let t = Instant::now();

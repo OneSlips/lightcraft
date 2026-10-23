@@ -8,7 +8,7 @@ use lightcraft_segment::people::{FaceModel, PeopleModel, PeopleRequest, people_m
 #[test]
 fn face_skin_leaves_eyes_and_mouth_out_on_a_real_photo() {
     let (Some(dir), Some(photo)) = (std::env::var_os("LIGHTCRAFT_MEDIAPIPE_MODELS"), std::env::var_os("LIGHTCRAFT_FACESKIN_PHOTO")) else {
-        eprintln!("skipped: set LIGHTCRAFT_MEDIAPIPE_MODELS and LIGHTCRAFT_FACESKIN_PHOTO");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_MEDIAPIPE_MODELS and LIGHTCRAFT_FACESKIN_PHOTO");
         return;
     };
     let dir = std::path::PathBuf::from(dir);

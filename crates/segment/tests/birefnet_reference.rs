@@ -40,7 +40,7 @@ fn mask_disagreement(a: &[f32], b: &[f32]) -> f32 {
 #[test]
 fn matches_reference() {
     let Some((dir, r)) = setup() else {
-        eprintln!("skipped: set LIGHTCRAFT_BIREFNET_DIR and LIGHTCRAFT_BIREFNET_REF");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_BIREFNET_DIR and LIGHTCRAFT_BIREFNET_REF");
         return;
     };
     let t = std::time::Instant::now();

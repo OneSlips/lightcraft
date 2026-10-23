@@ -48,7 +48,7 @@ fn clicks(t: &Tensor) -> Vec<Click> {
 #[test]
 fn matches_reference() {
     let Some((dir, r)) = setup() else {
-        eprintln!("skipped: set LIGHTCRAFT_SAM2_DIR and LIGHTCRAFT_SAM2_REF");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_SAM2_DIR and LIGHTCRAFT_SAM2_REF");
         return;
     };
     let t = std::time::Instant::now();

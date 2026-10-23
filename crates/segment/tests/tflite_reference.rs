@@ -36,7 +36,7 @@ fn vec(t: &Tensor) -> Vec<f32> {
 #[test]
 fn matches_litert() {
     let Some((dir, r)) = setup() else {
-        eprintln!("skipped: set LIGHTCRAFT_MEDIAPIPE_DIR and LIGHTCRAFT_TFLITE_REF");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_MEDIAPIPE_DIR and LIGHTCRAFT_TFLITE_REF");
         return;
     };
     for (name, file) in
@@ -71,7 +71,7 @@ fn matches_litert() {
 #[test]
 fn damaged_real_model_never_panics() {
     let Some(dir) = std::env::var_os("LIGHTCRAFT_MEDIAPIPE_DIR").map(PathBuf::from) else {
-        eprintln!("skipped: set LIGHTCRAFT_MEDIAPIPE_DIR");
+        lightcraft_testkit::skip!(Model, "set LIGHTCRAFT_MEDIAPIPE_DIR");
         return;
     };
     let good = model_bytes(&dir, "face_detector.tflite");
