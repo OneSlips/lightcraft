@@ -167,6 +167,8 @@ pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &Rgb32f,
 /// scaled by its amount.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32, mattes: Option<&Mattes>) -> Plane {
+    // its coordinates on the photo before the warp, or (an old mask) on the corrected frame
+    let frame = &*frame.for_mask(m.on_photo);
     let mut alpha = Plane::new(w, h);
     let mut first = true;
     for comp in &m.components {
@@ -210,7 +212,7 @@ pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, l
 
 /// Per-pixel positions in long-edge units for output pixel centres.
 fn for_each_pos(frame: &Frame, w: usize, h: usize, out: &mut Plane, f: impl Fn(Point, usize) -> f32 + Sync + Send) {
-    let m = frame.out_to_norm(w, h);
+    let m = frame.out_to_mask(w, h);
     let (ow, oh, l) = (frame.ow, frame.oh, frame.ow.max(frame.oh));
     for_rows(&mut out.data, w, |y, row| {
         for (x, v) in row.iter_mut().enumerate() {
@@ -285,7 +287,7 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
         MaskShape::Sky { .. } => {
             // Classical sky heuristic until the segmenter lands (M12): bright, smooth, blue-ish or
             // unsaturated, and connected to the top of the frame.
-            let m = frame.out_to_norm(w, h);
+            let m = frame.out_to_mask(w, h);
             for (i, v) in out.data.iter_mut().enumerate() {
                 let (x, y) = (i % w, i / w);
                 let n = m.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
@@ -312,7 +314,7 @@ pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &R
         MaskShape::Prompt { .. } => {}
         MaskShape::Subject { .. } | MaskShape::Object { .. } | MaskShape::People { .. } => {
             // Saliency heuristic: centre-weighted local contrast (replaced by the segmenter in M12).
-            let m = frame.out_to_norm(w, h);
+            let m = frame.out_to_mask(w, h);
             let blur = lightcraft_raster::blur::gaussian(log_l, 0.03 * frame_px(frame, w));
             for (i, v) in out.data.iter_mut().enumerate() {
                 let (x, y) = (i % w, i / w);
@@ -349,19 +351,19 @@ fn ai_seg(shape: &MaskShape) -> Option<&SegMask> {
 }
 
 /// A decoded [`SegMask`]: its logits and the normalized rectangle they cover.
-pub(crate) struct SegGrid {
+pub struct SegGrid {
     logits: Vec<f32>,
     side: usize,
     r: [f64; 4],
 }
 
 impl SegGrid {
-    pub(crate) fn new(seg: &SegMask) -> Option<SegGrid> {
+    pub fn new(seg: &SegMask) -> Option<SegGrid> {
         Some(SegGrid { logits: seg.logits()?, side: seg.side as usize, r: seg.bounds()? })
     }
 
     /// The normalized box of the cells whose logit is above `min` (`None`: no such cell).
-    pub(crate) fn bounds_above(&self, min: f32) -> Option<[f64; 4]> {
+    pub fn bounds_above(&self, min: f32) -> Option<[f64; 4]> {
         let side = self.side;
         let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
         for (i, l) in self.logits.iter().enumerate() {
@@ -378,13 +380,13 @@ impl SegGrid {
         Some([self.r[0] + x0 as f64 / s * rw, self.r[1] + y0 as f64 / s * rh, self.r[0] + x1 as f64 / s * rw, self.r[1] + y1 as f64 / s * rh])
     }
 
-    pub(crate) fn contains(&self, n: Point) -> bool {
+    pub fn contains(&self, n: Point) -> bool {
         n.x >= self.r[0] && n.x <= self.r[2] && n.y >= self.r[1] && n.y <= self.r[3]
     }
 
     /// The bilinearly sampled logit at normalized image point `n` (cell centres at
     /// `(i + 0.5) / side` of the rectangle).
-    pub(crate) fn logit(&self, n: Point) -> f32 {
+    pub fn logit(&self, n: Point) -> f32 {
         let side = self.side;
         let at = |x: usize, y: usize| self.logits.get(y.min(side - 1) * side + x.min(side - 1)).copied().unwrap_or(-16.0);
         let u = (n.x - self.r[0]) / (self.r[2] - self.r[0]);
@@ -410,7 +412,7 @@ fn sample_seg(seg: Option<&SegMask>, detail: &[SegMask], gain: f32, frame: &Fram
     if coarse.is_none() && patches.is_empty() {
         return;
     }
-    let m = frame.out_to_norm(w, h);
+    let m = frame.out_to_mask(w, h);
     for_rows(&mut out.data, w, |y, row| {
         for (x, v) in row.iter_mut().enumerate() {
             let n = m.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
@@ -578,7 +580,7 @@ pub const MAX_STROKE_DABS: usize = 2_000_000;
 
 /// The dabs of stroke `s` in a `w × h` output.
 pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDabs {
-    let to_out = frame.norm_to_out(w, h);
+    let to_out = frame.mask_to_out(w, h);
     let ppl = frame.px_per_long(w);
     let r = (s.size * ppl).max(0.5);
     let hard = r * (1.0 - (s.feather / 100.0).clamp(0.0, 1.0));
@@ -591,7 +593,7 @@ pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDa
     let mut prev = None;
     let mut prev_p = 1.0;
     for (i, p) in s.points.iter().enumerate() {
-        let q = to_out.apply(*p);
+        let q = to_out(*p);
         let before = dabs.len();
         if push_dabs(&mut dabs, prev, q, r) {
             let pq = s.pressure_at(i);

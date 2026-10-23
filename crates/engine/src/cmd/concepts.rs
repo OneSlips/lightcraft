@@ -103,7 +103,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!(
             "masks.recalculate",
-            "Recalculate All AI Masks",
+            "Update All AI Masks",
             ["Photo"],
             None,
             "{ids?} — compute every AI mask on the photos (default: the selection) again from each photo's own pixels, replacing whatever they hold (a copied, stale or approximate selection); Object masks from their clicks on that photo. In the app in the background (one activity row, cancellable) → {queued, updated, approximate, notes}",

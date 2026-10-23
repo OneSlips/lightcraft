@@ -1207,10 +1207,21 @@ pub struct Mask {
     /// global colour tools. Not written while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub point_colors: Vec<PointColor>,
+    /// Where its coordinates (gradients, brush strokes, AI selections) live: `true`, on the photo as
+    /// shot (user orientation, before lens corrections, Upright and Transform), so the mask stays
+    /// on the same content whatever those do (note 2026-10-22 #3); `false`, a mask from before
+    /// that, on the corrected frame. Read as `false` when absent; [`Mask::default`] (every new
+    /// mask) is `true`, and an edit converts an old one (`lightcraft_pipeline::masks::attach`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub on_photo: bool,
 }
 
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
+}
+
+fn is_false(v: &bool) -> bool {
+    !*v
 }
 
 impl Default for Mask {
@@ -1226,6 +1237,7 @@ impl Default for Mask {
             preset: None,
             curve: ToneCurve::default(),
             point_colors: Vec::new(),
+            on_photo: true,
         }
     }
 }

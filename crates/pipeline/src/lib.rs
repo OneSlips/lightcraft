@@ -35,6 +35,7 @@ pub mod grain;
 pub mod local;
 pub mod local_tone;
 pub mod lut;
+pub mod mask_space;
 pub mod mask_tone;
 pub mod masks;
 pub mod optics;
@@ -946,6 +947,8 @@ mod tests_geometry;
 mod tests_hdr;
 #[cfg(test)]
 mod tests_local;
+#[cfg(test)]
+mod tests_mask_geometry;
 #[cfg(test)]
 mod tests_mask_local;
 #[cfg(test)]

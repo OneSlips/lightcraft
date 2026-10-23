@@ -84,7 +84,7 @@ pub enum Gesture {
 }
 
 /// Screen ↔ normalized-image mapping for the displayed frame.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct CanvasMap {
     rect: Rect,
     to_norm: Affine,
@@ -93,6 +93,11 @@ pub struct CanvasMap {
     /// The photo is drawn turned by this much (radians, clockwise on screen) about the centre of
     /// `rect`: the crop tool turns the photo under a level crop frame.
     turn: f32,
+    /// The frame's lens / perspective warp (with the oriented size it works in), when it moves
+    /// pixels: a mask on the photo (`Mask::on_photo`) has its coordinates before it.
+    warp: Option<std::sync::Arc<(lightcraft_pipeline::optics::Warp, f64, f64)>>,
+    /// Whether `norm` / `screen` speak a mask's coordinates on the photo ([`CanvasMap::for_mask`]).
+    on_photo: bool,
 }
 
 impl CanvasMap {
@@ -100,7 +105,17 @@ impl CanvasMap {
         let k = 8.0f32;
         let (w, h) = ((rect.width() * k).round().max(1.0) as usize, (rect.height() * k).round().max(1.0) as usize);
         let to_norm = frame.out_to_norm(w, h);
-        CanvasMap { rect, to_norm, from_norm: to_norm.inverse().unwrap_or(Affine::IDENTITY), k, turn: 0.0 }
+        let warp = frame.warp.as_ref().filter(|w| w.moves_pixels()).map(|w| std::sync::Arc::new((w.clone(), frame.ow, frame.oh)));
+        CanvasMap { rect, to_norm, from_norm: to_norm.inverse().unwrap_or(Affine::IDENTITY), k, turn: 0.0, warp, on_photo: false }
+    }
+    /// The mapping for a mask's coordinates: on the photo before lens corrections, Upright and
+    /// Transform (`on_photo`, every mask made now), or an old mask's on the corrected frame.
+    pub(crate) fn for_mask(&self, on_photo: bool) -> CanvasMap {
+        CanvasMap { on_photo, ..self.clone() }
+    }
+    /// [`Self::for_mask`] for the mask `id` of `d` (a new mask: on the photo).
+    fn for_mask_id(&self, d: &DevelopSettings, id: Option<u32>) -> CanvasMap {
+        self.for_mask(id.and_then(|id| d.masks.iter().find(|m| m.id == id)).is_none_or(|m| m.on_photo))
     }
     /// The same mapping with the photo drawn turned by `turn` radians about its rectangle's centre.
     fn turned(self, turn: f32) -> CanvasMap {
@@ -117,9 +132,20 @@ impl CanvasMap {
     }
     pub fn norm(&self, p: Pos2) -> Point {
         let p = self.spin(p, -self.turn);
-        self.to_norm.apply(Point::new(((p.x - self.rect.left()) * self.k) as f64, ((p.y - self.rect.top()) * self.k) as f64))
+        let n = self.to_norm.apply(Point::new(((p.x - self.rect.left()) * self.k) as f64, ((p.y - self.rect.top()) * self.k) as f64));
+        match self.warp.as_deref().filter(|_| self.on_photo) {
+            Some((w, ow, oh)) => {
+                let s = w.to_source(Point::new(n.x * ow, n.y * oh), 1);
+                Point::new(s.x / ow, s.y / oh)
+            }
+            None => n,
+        }
     }
     pub fn screen(&self, n: Point) -> Pos2 {
+        let n = match self.warp.as_deref().filter(|_| self.on_photo) {
+            Some((w, ow, oh)) => w.from_source(Point::new(n.x * ow, n.y * oh)).map_or(n, |t| Point::new(t.x / ow, t.y / oh)),
+            None => n,
+        };
         let q = self.from_norm.apply(n);
         self.spin(pos2(self.rect.left() + q.x as f32 / self.k, self.rect.top() + q.y as f32 / self.k), self.turn)
     }
@@ -1222,6 +1248,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         preview_only_pill(ui, canvas, why);
     }
     resp.context_menu(|ui| {
+        // Masking: a pin right-clicked opens its mask's menu; elsewhere the selected AI mask
+        // can be updated from here too (note 2026-10-22 #3)
+        if right == RightPanel::Masking && super::masking::photo_mask_menu(app, ui) {
+            return;
+        }
         crate::widgets::menu_button(ui, crate::i18n::tr("Zoom"), |ui| {
             for (label, cmd) in [("Fit", "view.zoomFit"), ("100%", "view.zoom100"), ("Zoom In", "view.zoomIn"), ("Zoom Out", "view.zoomOut")] {
                 if ui.button(crate::i18n::tr(label)).clicked() {
@@ -3044,6 +3075,8 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     }
     for m in &d.masks {
         let sel = Some(m.id) == active;
+        // (its coordinates on the photo, or an old mask's on the corrected frame)
+        let map = &map.for_mask(m.on_photo);
         for (ci, c) in m.components.iter().enumerate() {
             match &c.shape {
                 MaskShape::Radial { center, rx, ry, angle, feather, .. } if sel => {
@@ -3122,7 +3155,8 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         && (resp.drag_started() || resp.clicked())
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
     {
-        let n0 = map.norm(q);
+        // a new mask is on the photo; a component goes into the selected mask, in its coordinates
+        let n0 = map.for_mask_id(d, if op == "new" { None } else { active }).norm(q);
         let drag = resp.drag_started();
         let params = match kind.as_str() {
             "linear" if drag => Some(json!({"kind": "linear", "start": n0, "end": n0})),
@@ -3185,11 +3219,18 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     {
         app.ui.mask_hover = Some(*mid);
     }
+    // a right-click on a pin: the photo's menu is that mask's (see `masking::photo_mask_menu`)
+    if resp.secondary_clicked() {
+        let at = resp.interact_pointer_pos();
+        app.ui.mask_menu_for =
+            at.and_then(|q| grips.iter().filter(|g| g.3.distance(q) < 10.0).min_by(|a, b| a.3.distance(q).total_cmp(&b.3.distance(q)))).map(|g| g.0);
+    }
     mask_keys(app, ui, map, d, &grips);
     // Object selections (SAM 3) of the selected mask: each click, green to include, red to exclude
     // (clicks still on their way to the model included)
     let pending = app.session.segmenter.pending_clicks().cloned();
     for m in d.masks.iter().filter(|m| Some(m.id) == active) {
+        let map = &map.for_mask(m.on_photo);
         for (k, c) in m.components.iter().enumerate() {
             if let MaskShape::Object { hint, exclude, .. } = &c.shape {
                 let (hint, exclude) = match pending.as_ref().filter(|q| (q.mask, q.comp) == (m.id, k)) {
@@ -3237,11 +3278,18 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if app.ui.tool == "object" {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            // ⌥ / Alt: the click leaves out what's under it — a minus beside the pointer says so
+            if ui.input(|i| i.modifiers.alt)
+                && let Some(h) = resp.hover_pos()
+            {
+                brush_minus(p, h + vec2(14.0, 14.0));
+                register(ui.ctx(), "objectCursor:exclude", Rect::from_center_size(h, vec2(12.0, 12.0)));
+            }
         }
         if resp.clicked()
             && let Some(q) = resp.interact_pointer_pos()
         {
-            let n = map.norm(q);
+            let n = map.for_mask_id(d, active).norm(q);
             let exclude = ui.input(|i| i.modifiers.alt);
             match app.run_typed("mask.objectPoint", json!({"x": n.x, "y": n.y, "exclude": exclude})) {
                 Ok(_) => {
@@ -3266,12 +3314,21 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let _ = app.run("develop.endInteraction", json!({}));
         }
         let r = (app.ui.brush_size as f64 * long) as f32;
+        // the stroke goes into the selected mask (or a new one): in its coordinates
+        let map = &map.for_mask_id(d, active);
         if let Some(h) = resp.hover_pos() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
             p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
             p.circle_stroke(h, r * (1.0 - app.ui.brush_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(120)));
-            // the centre, where Auto Mask samples the colour and texture to follow
-            brush_crosshair(p, h);
+            // the centre, where Auto Mask samples the colour and texture to follow: a minus while a
+            // stroke would erase (Erase on, or ⌥ / Alt held to switch modes), as the stroke will
+            let erasing = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
+            if erasing {
+                brush_minus(p, h);
+            } else {
+                brush_crosshair(p, h);
+            }
+            register(ui.ctx(), if erasing { "brushCursor:erase" } else { "brushCursor:paint" }, Rect::from_center_size(h, vec2(2.0 * r, 2.0 * r)));
         }
         if let Some(q) = resp.interact_pointer_pos()
             && (resp.drag_started() || resp.dragged() || resp.clicked())
@@ -3369,7 +3426,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let grab = |q: Pos2| {
         hit(q).map(|(m, c, h, _)| (m, c, h)).or_else(|| {
             let m = d.masks.iter().find(|m| Some(m.id) == active)?;
-            gradient_grab(m, q, map).map(|(ci, h)| (m.id, ci, h))
+            gradient_grab(m, q, &map.for_mask(m.on_photo)).map(|(ci, h)| (m.id, ci, h))
         })
     };
     // the pointer says what a drag will do: move, resize (the edge, a line, the feather ring) or
@@ -3384,6 +3441,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         && !adjusting(app)
         && app.ui.mask_new.is_none()
     {
+        let map = &map.for_mask_id(d, Some(mid));
         match gradient_cursor(shape, handle, h, map) {
             Some(cursor) => ui.ctx().set_cursor_icon(cursor),
             None => {
@@ -3429,6 +3487,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if resp.dragged()
         && let (Some(Gesture::MaskHandle { mask, comp, handle, original_shape }), Some(q)) = (app.gesture.clone(), resp.interact_pointer_pos())
     {
+        let map = &map.for_mask_id(d, Some(mask));
         let n = map.norm(q);
         let press_origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(q);
         let n0 = map.norm(press_origin);
@@ -3452,6 +3511,13 @@ fn live_due(live: Option<(f64, usize)>, len: usize, now: f64) -> bool {
     match live {
         None => len >= 2,
         Some((at, sent)) => len > sent && (now - at >= LIVE_AUTO_MASK_EVERY || now < at || now.is_nan()),
+    }
+}
+
+/// The erasing brush's centre: a minus (dark under light, so it reads on any photo).
+fn brush_minus(p: &egui::Painter, c: Pos2) {
+    for (w, col) in [(3.5, Color32::from_black_alpha(140)), (1.5, Color32::WHITE)] {
+        p.line_segment([c - vec2(6.0, 0.0), c + vec2(6.0, 0.0)], Stroke::new(w, col));
     }
 }
 
@@ -3490,6 +3556,7 @@ fn mask_keys(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, d: &De
     for &(mid, ci, handle, q) in grips {
         let Some(m) = d.masks.iter().find(|m| m.id == mid) else { continue };
         let Some(shape) = m.components.get(ci).map(|c| &c.shape) else { continue };
+        let map = &map.for_mask(m.on_photo);
         let at = map.norm(q);
         let mask_name = if m.name.trim().is_empty() { format!("{} {mid}", crate::i18n::tr("Mask")) } else { m.name.clone() };
         let name = mask_handle_name(&mask_name, shape, handle);
@@ -3511,7 +3578,9 @@ fn mask_keys(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, d: &De
 
 /// Long-edge units → normalized units for x and y.
 fn frame_long_norm(map: &CanvasMap) -> (f64, f64) {
-    // derive from the mapping: 1 normalized unit in x and y in screen points
+    // derive from the mapping: 1 normalized unit in x and y in screen points (of the frame's
+    // proportions, which a lens or perspective warp doesn't change)
+    let map = map.for_mask(false);
     let o = map.screen(Point::new(0.0, 0.0));
     let x = map.screen(Point::new(1.0, 0.0)).distance(o) as f64;
     let y = map.screen(Point::new(0.0, 1.0)).distance(o) as f64;

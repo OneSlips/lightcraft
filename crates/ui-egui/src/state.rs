@@ -799,6 +799,8 @@ pub struct UiState {
     /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it).
     #[serde(skip)]
     pub mask_hover: Option<u32>,
+    /// The mask whose pin on the photo was right-clicked: the photo's menu is that mask's menu.
+    pub mask_menu_for: Option<u32>,
     #[serde(skip)]
     pub mask_hover_prev: Option<u32>,
     /// O hid the automatic overlay of this mask (until another mask is selected).
@@ -1613,6 +1615,7 @@ impl Default for UiState {
             proof_paper_ink: false,
             mask_overlay: false,
             mask_hover: None,
+            mask_menu_for: None,
             mask_hover_prev: None,
             mask_overlay_hidden: None,
             mask_overlay_mode: "color".into(),

@@ -753,12 +753,29 @@ fn clicks_of(include: &[Point], exclude: &[Point]) -> Vec<Click> {
 }
 
 impl Session {
-    /// The key and settings of photo `id` as the model sees it: its look without masks, uncropped.
+    /// The key and settings of photo `id` as the model sees it: its look without masks, uncropped
+    /// and unflipped (clicks and stored selections are in coordinates before the flips). With
+    /// `on_photo` (every mask selection, the faces and people they use) also without lens
+    /// corrections, Upright and Transform: masks live on the photo before those
+    /// (`Mask::on_photo`), so their selections stay on the content when those change. Smooth
+    /// Skin and the other retouch, which keep their own analysis, see the corrected photo.
     #[cfg_attr(not(feature = "sam"), allow(dead_code))]
-    fn segment_key(&self, id: PhotoId) -> Option<(u64, lightcraft_develop::DevelopSettings)> {
+    fn segment_key(&self, id: PhotoId, on_photo: bool) -> Option<(u64, lightcraft_develop::DevelopSettings)> {
         let p = self.catalog.photo(id)?;
         let mut d = (*p.develop).clone();
         d.masks.clear();
+        d.crop.flip_h = false;
+        d.crop.flip_v = false;
+        if on_photo {
+            // (the crop doesn't show in the uncropped input: it doesn't ask again either)
+            d.crop = Default::default();
+            d.geometry = Default::default();
+            d.optics.lens_profile = false;
+            d.optics.distortion = 0.0;
+            d.optics.remove_ca = false;
+            d.optics.ca_red = 0.0;
+            d.optics.ca_blue = 0.0;
+        }
         // (nor Smooth Skin: the models see the skin as it is, and its sliders don't ask again)
         d.skin = Default::default();
         d.skin_analysis = None;
@@ -821,7 +838,14 @@ impl Session {
         } else {
             INPUT_EDGE
         };
-        let (key, mut d) = self.segment_key(id).ok_or("no such photo")?;
+        // old masks go onto the photo first: the selection that comes back is in its coordinates
+        if let Some(cur) = self.develop_of(id).filter(|d| d.masks.iter().any(|m| !m.on_photo)) {
+            let mut on = (*cur).clone();
+            self.attach_masks(id, &cur, &mut on);
+            self.set_develop_silent(id, on, "Masks").map_err(|e| e.to_string())?;
+        }
+        let on_photo = !matches!(kind, worker::Kind::Skin { .. } | worker::Kind::Retouch { .. });
+        let (key, mut d) = self.segment_key(id, on_photo).ok_or("no such photo")?;
         let key = mix(key, edge as u64);
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
         let missing = match &p.source {
@@ -868,7 +892,7 @@ impl Session {
     /// The key photo `id`'s model input has now (changes with its look; masks don't count).
     #[cfg_attr(not(feature = "sam"), allow(dead_code))]
     pub(crate) fn segment_input_key(&self, id: PhotoId) -> Option<u64> {
-        self.segment_key(id).map(|(k, _)| mix(k, AUTO_EDGE as u64))
+        self.segment_key(id, true).map(|(k, _)| mix(k, AUTO_EDGE as u64))
     }
 
     /// Send a request of recipe batch `batch` (skipped by the worker once the batch is cancelled).

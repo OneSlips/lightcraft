@@ -1305,11 +1305,44 @@ impl Session {
     /// The op that sets a photo's develop settings and appends a History entry (for batches).
     pub fn develop_op(&self, id: PhotoId, settings: DevelopSettings, label: &str) -> Option<Op> {
         self.catalog.photo(id)?;
+        let mut settings = settings;
+        // old masks (on the corrected frame) go onto the photo, from the frame they were drawn on
+        if settings.masks.iter().any(|m| !m.on_photo) {
+            let before = match &self.interaction {
+                Some(i) if i.photo == id => Some(i.original.clone()),
+                Some(i) => i.others.iter().find(|(o, _)| *o == id).map(|(_, d)| d.clone()).or_else(|| self.develop_of(id)),
+                None => self.develop_of(id),
+            };
+            if let Some(b) = before {
+                self.attach_masks(id, &b, &mut settings);
+            }
+        }
         let settings = Arc::new(settings);
         let step = lightcraft_catalog::HistoryStep { label: label.into(), settings: settings.clone() };
         Some(Op::Batch {
             ops: vec![Op::SetDevelop { id, settings, label: label.into(), edited: Some((self.clock)()) }, Op::PushHistory { id, step }],
         })
+    }
+
+    /// Put the old masks of `d` (on the corrected frame, `Mask::on_photo` false) on photo `id`
+    /// before the warp, from the frame of `drawn` (the settings they were drawn under): they
+    /// render where they did and from then on stay on their content when lens corrections,
+    /// Upright or Transform change (note 2026-10-22 #3).
+    pub fn attach_masks(&self, id: PhotoId, drawn: &DevelopSettings, d: &mut DevelopSettings) {
+        if d.masks.iter().all(|m| m.on_photo) {
+            return;
+        }
+        let Some(p) = self.catalog.photo(id) else { return };
+        let frame = lightcraft_pipeline::geometry::Frame::with_lens(
+            p.width.max(1) as usize,
+            p.height.max(1) as usize,
+            &drawn.effective(),
+            false,
+            p.embedded_lens.as_ref(),
+        );
+        for m in &mut d.masks {
+            lightcraft_pipeline::mask_space::attach(m, &frame);
+        }
     }
 
     pub fn begin_interaction(&mut self, label: &str) -> Result<()> {
@@ -1323,6 +1356,13 @@ impl Session {
             self.end_interaction()?;
         }
         let id = self.active().ok_or_else(|| EngineError::Other("no active photo".into()))?;
+        // old masks go onto the photo before a drag moves the frame under them (they then stay on
+        // their content while it does, not only once it ends)
+        if let Some(d) = self.develop_of(id).filter(|d| d.masks.iter().any(|m| !m.on_photo)) {
+            let mut on = (*d).clone();
+            self.attach_masks(id, &d, &mut on);
+            self.apply_silent(Op::SetDevelop { id, settings: Arc::new(on), label: label.into(), edited: None })?;
+        }
         let original = self.develop_of(id).unwrap_or_default();
         let mut seen = std::collections::HashSet::new();
         let others = others.iter().filter(|x| **x != id && seen.insert(**x)).filter_map(|x| self.develop_of(*x).map(|d| (*x, d))).collect();
@@ -1788,6 +1828,8 @@ mod tests_library;
 mod tests_lightroom_folder;
 #[cfg(test)]
 mod tests_mask_effects;
+#[cfg(test)]
+mod tests_mask_geometry;
 #[cfg(test)]
 mod tests_mask_local;
 #[cfg(test)]
