@@ -43,9 +43,21 @@ pub fn missing(cat: &Catalog, db: &lightcraft_lensdb::LensDb, ids: Option<&[Phot
 
 /// Probe each listed photo's file as Reload would. Doesn't touch the session.
 pub fn probe(probe: &FileProbe, list: Vec<Missing>) -> Vec<(Missing, std::result::Result<ProbeInfo, String>)> {
-    let paths: Vec<String> = list.iter().map(|x| x.path.clone()).collect();
-    list.into_iter().zip(crate::import::probe_with(probe, &paths)).collect()
+    // background work: a few files at a time, each batch after the pictures on screen have arrived
+    // (a folder of raws is read whole here; it must not take the disk and the cores from them)
+    let mut out = Vec::with_capacity(list.len());
+    let mut list = list.into_iter().peekable();
+    while list.peek().is_some() {
+        let _ = crate::prep::wait_for_pictures(&|| false, std::time::Duration::from_secs(30));
+        let batch: Vec<Missing> = list.by_ref().take(PROBE_BATCH).collect();
+        let paths: Vec<String> = batch.iter().map(|x| x.path.clone()).collect();
+        out.extend(batch.into_iter().zip(crate::import::probe_with(probe, &paths)));
+    }
+    out
 }
+
+/// Files read between two looks at the screen ([`probe`]).
+const PROBE_BATCH: usize = 8;
 
 /// Apply [`probe`]'s results: each photo and its virtual copies get the lens data their file gives now, in one batch
 /// that is journaled but isn't an undo step. Returns the photos that gained a profile.

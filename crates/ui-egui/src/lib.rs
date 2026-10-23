@@ -95,6 +95,8 @@ mod tests_crop_rotate;
 #[cfg(test)]
 mod tests_crop_tool;
 #[cfg(test)]
+mod tests_cull_tiers;
+#[cfg(test)]
 mod tests_curve;
 #[cfg(test)]
 mod tests_date_picker;
@@ -537,6 +539,9 @@ pub struct LightcraftApp {
     pub(crate) eye_strip: eye_strip::EyeStrip,
     /// How long thumbnails on screen wait for their first pixels (`ui.inspect` → `thumbFirst`).
     pub thumb_first: thumb_first::ThumbFirst,
+    /// The frame ([`render::Renderer::frame`]) in which a cell on screen or the loupe last lacked its first picture
+    /// ([`LightcraftApp::pictures_missing`]).
+    pub pictures_missing_pass: Option<u64>,
     /// The eye finder's key for the photo the strip last showed (for `ui.inspect`).
     pub(crate) eye_key: Option<u64>,
     /// The loupe's look-ahead: the photo it was made for, the direction of travel (+1 / -1), the
@@ -636,6 +641,19 @@ pub struct LightcraftApp {
 }
 
 impl LightcraftApp {
+    /// A cell on screen or the loupe has no picture yet in frame `pass` ([`render::Renderer::frame`]), its first one on its way:
+    /// this window's own background requests (photos ahead, real thumbnails behind stand-ins) wait,
+    /// and so does the engine's background work ([`lightcraft_engine::prep::pictures_missing`]).
+    pub fn pictures_missing(&mut self, pass: u64) {
+        self.pictures_missing_pass = Some(pass);
+        lightcraft_engine::prep::pictures_missing();
+    }
+
+    /// Whether a picture was missing in frame `pass` or the one before.
+    pub fn pictures_busy(&self, pass: u64) -> bool {
+        self.pictures_missing_pass.is_some_and(|p| pass.saturating_sub(p) <= 1)
+    }
+
     pub fn new(mut session: Session, services: Services) -> Self {
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
@@ -687,6 +705,7 @@ impl LightcraftApp {
             loupe_timing: Default::default(),
             eye_strip: Default::default(),
             thumb_first: Default::default(),
+            pictures_missing_pass: None,
             eye_key: None,
             look_ahead: Default::default(),
             region_view: None,

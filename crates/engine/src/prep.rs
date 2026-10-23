@@ -251,9 +251,46 @@ pub fn foreground() {
     FOREGROUND_UNTIL.store(clock_ms().saturating_add(FOREGROUND_HOLD_MS), Ordering::Relaxed);
 }
 
-/// Whether the photo on screen is being made now.
+/// Until when (ms on [`clock_ms`]) something on screen has no picture at all yet.
+static PICTURES_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+/// The frontend says a cell on screen (grid, filmstrip) or the loupe has no picture yet, not even
+/// the cheapest (a raw's embedded JPEG, a cached thumbnail): every background job waits until each
+/// has one (the user's rule, notes 1 and 4 of 2026-10-22: "lowest and fastest resolution preloaded
+/// first, then the next cheap one, then we worry about anything bigger"). Say it every frame it is
+/// so; it holds for a moment.
+pub fn pictures_missing() {
+    PICTURES_UNTIL.store(clock_ms().saturating_add(FOREGROUND_HOLD_MS), Ordering::Relaxed);
+}
+
+/// Whether something on screen still lacks its first picture ([`pictures_missing`]).
+pub fn pictures_busy() -> bool {
+    clock_ms() < PICTURES_UNTIL.load(Ordering::Relaxed)
+}
+
+/// Wait while something on screen lacks its first picture (background work that doesn't render,
+/// e.g. eye finding: it waits for the pictures, not for the full render). `true`: `stop()` said so
+/// meanwhile. Waits at most `max`.
+pub fn wait_for_pictures(stop: &dyn Fn() -> bool, max: std::time::Duration) -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let t0 = web_time::Instant::now();
+        while pictures_busy() && t0.elapsed() < max {
+            if stop() {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = max;
+    stop()
+}
+
+/// Whether the photo on screen is being made now, or something on screen lacks its first picture.
 pub fn foreground_busy() -> bool {
-    clock_ms() < FOREGROUND_UNTIL.load(Ordering::Relaxed)
+    let now = clock_ms();
+    now < FOREGROUND_UNTIL.load(Ordering::Relaxed) || now < PICTURES_UNTIL.load(Ordering::Relaxed)
 }
 
 /// Wait while the photo on screen is being made. `true`: `cancel` was set meanwhile.
@@ -418,5 +455,20 @@ mod tests {
         cancel.store(true, Ordering::Relaxed);
         foreground();
         assert!(wait_for_foreground(&cancel), "a cancel ends the wait");
+    }
+
+    #[test]
+    fn a_picture_missing_on_screen_holds_every_background_job_back() {
+        let cancel = AtomicBool::new(false);
+        pictures_missing();
+        assert!(pictures_busy() && foreground_busy());
+        let t = web_time::Instant::now();
+        assert!(!wait_for_foreground(&cancel), "the background build waits for it");
+        assert!(t.elapsed().as_millis() >= 100);
+        pictures_missing();
+        let t = web_time::Instant::now();
+        assert!(!wait_for_pictures(&|| false, std::time::Duration::from_secs(5)), "eye finding waits for it");
+        assert!(t.elapsed().as_millis() >= 100);
+        assert!(!pictures_busy());
     }
 }

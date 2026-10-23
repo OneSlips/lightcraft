@@ -1292,6 +1292,12 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
                 q = s.cv.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         };
+        // the pictures on screen first: no raw is read for eyes while a cell or the loupe still
+        // waits for its first picture (bounded: the eyes of the photo on screen still come)
+        let closing = || s.queue.lock().map(|q| q.1).unwrap_or(true);
+        if crate::prep::wait_for_pictures(&closing, std::time::Duration::from_secs(5)) {
+            return;
+        }
         let result = crate::guard::catch("finding eyes", || -> Result<Arc<EyeReport>, String> {
             #[cfg(feature = "sam")]
             {
