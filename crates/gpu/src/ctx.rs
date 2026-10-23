@@ -515,24 +515,7 @@ impl Gpu {
     /// second panic while a failed render unwinds aborts the process. A lost device is not polled
     /// again; a poll that panics counts as one and stops the GPU.
     pub(crate) fn poll(&self, t: wgpu::PollType) -> Result<wgpu::PollStatus, String> {
-        if DEVICE_LOST.load(Ordering::Relaxed) {
-            return Err("the device is lost".into());
-        }
-        let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            #[cfg(test)]
-            if SIMULATED_LOST_POLL.with(std::cell::Cell::get) {
-                panic!("Error in Device::poll: Validation Error\n\nCaused by:\n  Parent device is lost (simulated)");
-            }
-            self.device.poll(t)
-        }));
-        match polled {
-            Ok(r) => r.map_err(|e| e.to_string()),
-            Err(_) => {
-                DEVICE_LOST.store(true, Ordering::Relaxed);
-                crate::mark_broken("device lost: Device::poll failed");
-                Err("the device is lost (Device::poll failed)".into())
-            }
-        }
+        poll_device(&self.device, t)
     }
 
     /// Upload 32-bit values.
@@ -687,6 +670,29 @@ fn capped(mut limits: wgpu::Limits, cap: Option<(u64, u64)>) -> wgpu::Limits {
     limits
 }
 
+/// `device.poll` that never panics: see [`Gpu::poll`]. [`read_texture`] uses it too: its device
+/// (the window's, when adopted) shares the device-lost flag.
+fn poll_device(device: &wgpu::Device, t: wgpu::PollType) -> Result<wgpu::PollStatus, String> {
+    if DEVICE_LOST.load(Ordering::Relaxed) {
+        return Err("the device is lost".into());
+    }
+    let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(test)]
+        if SIMULATED_LOST_POLL.with(std::cell::Cell::get) {
+            panic!("Error in Device::poll: Validation Error\n\nCaused by:\n  Parent device is lost (simulated)");
+        }
+        device.poll(t)
+    }));
+    match polled {
+        Ok(r) => r.map_err(|e| e.to_string()),
+        Err(_) => {
+            DEVICE_LOST.store(true, Ordering::Relaxed);
+            crate::mark_broken("device lost: Device::poll failed");
+            Err("the device is lost (Device::poll failed)".into())
+        }
+    }
+}
+
 /// See [`crate::read_texture`].
 pub(crate) fn read_texture(
     device: &wgpu::Device,
@@ -695,6 +701,9 @@ pub(crate) fn read_texture(
     width: usize,
     height: usize,
 ) -> Result<lightcraft_raster::Rgba8, String> {
+    if DEVICE_LOST.load(Ordering::Relaxed) {
+        return Err("the device is lost".into());
+    }
     if width == 0 || height == 0 {
         return Err("an empty texture".into());
     }
@@ -732,7 +741,7 @@ pub(crate) fn read_texture(
         let _ = tx.send(r);
     });
     let wait = std::time::Duration::from_secs(10);
-    device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(wait) }).map_err(|e| format!("{e}"))?;
+    poll_device(device, wgpu::PollType::Wait { submission_index: None, timeout: Some(wait) })?;
     match rx.recv_timeout(wait) {
         Ok(Ok(())) => {}
         Ok(Err(e)) => return Err(format!("{e}")),
@@ -989,6 +998,42 @@ mod tests {
         if run_child("lost_poll_child").is_none() {
             lightcraft_testkit::skip!(Gpu, "no GPU device");
         }
+    }
+
+    /// Review of PR #1065: a view readback (headless screenshot) whose poll finds the device lost
+    /// returns an error instead of panicking, stops the GPU, and doesn't poll the device again.
+    #[test]
+    fn a_view_readback_on_a_lost_device_fails_without_a_panic() {
+        if run_child("lost_readback_child").is_none() {
+            lightcraft_testkit::skip!(Gpu, "no GPU device");
+        }
+    }
+
+    #[test]
+    #[ignore = "run in its own process by a_view_readback_on_a_lost_device_fails_without_a_panic"]
+    fn lost_readback_child() {
+        let Some(g) = crate::device() else {
+            println!("CHILD: no GPU");
+            return;
+        };
+        let texture = g.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("view"),
+            size: wgpu::Extent3d { width: 8, height: 8, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        assert!(super::read_texture(&g.device, &g.queue, &texture, 8, 8).is_ok(), "a live device reads back");
+        super::SIMULATED_LOST_POLL.with(|c| c.set(true));
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| super::read_texture(&g.device, &g.queue, &texture, 8, 8)));
+        assert!(matches!(r, Ok(Err(_))), "the lost device fails the readback without a panic");
+        assert!(!crate::available(), "the GPU is not used again");
+        super::SIMULATED_LOST_POLL.with(|c| c.set(false));
+        assert!(super::read_texture(&g.device, &g.queue, &texture, 8, 8).is_err(), "a lost device is not polled again");
+        println!("CHILD: survived");
     }
 
     /// A Metal device really lost (its command buffers exhausted) is never polled again.

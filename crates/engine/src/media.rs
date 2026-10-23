@@ -1182,7 +1182,8 @@ fn develop_image(
 
 /// What [`develop_on_screen`] made.
 enum OnScreen {
-    /// A texture on the window's device, and the histogram.
+    /// A texture on the window's device, and the histogram (never in the browser build).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     Frame(ScreenFrame, Histogram),
     /// Pixels (GPU or CPU).
     Pixels(Rendered),
