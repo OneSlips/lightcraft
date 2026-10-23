@@ -604,30 +604,269 @@ fn colour_guide(grid: &Grid, rgb: &[u8]) -> Option<Vec<f32>> {
 /// then the garment's own edge pulled onto the photo's and steepened, so the outline is crisp
 /// instead of a halo from a coarse model output stretched over the photo. `on_person`: the
 /// garment is worn (skin and hair are cut only then).
-fn clean_garment(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], map: Option<&PeopleMap>, on_person: bool) {
+fn clean_garment(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], map: Option<&PeopleMap>, on_person: bool, surfaces: Option<&Surfaces>) {
     let side = grid.side;
     let Some(guide) = colour_guide(grid, rgb) else { return };
     // radius about 1/170 of the grid (6 cells at 1024), as for the class mattes
     let r = (side / 170).max(2);
+    let rect = grid.rect;
+    let uv = |c: usize| -> (f32, f32) {
+        (
+            (rect[0] + ((c % side) as f64 + 0.5) / side as f64 * (rect[2] - rect[0])) as f32,
+            (rect[1] + ((c / side) as f64 + 0.5) / side as f64 * (rect[3] - rect[1])) as f32,
+        )
+    };
+    // what the garment keeps of each cell: 1 − its wearer's skin and hair, 1 − the floor, wall or
+    // table around them
+    let mut keep = vec![1f32; side * side];
     if let Some(map) = map.filter(|_| on_person) {
-        let rect = grid.rect;
-        let excl: Vec<f32> = (0..side * side)
-            .map(|c| {
-                let u = (rect[0] + ((c % side) as f64 + 0.5) / side as f64 * (rect[2] - rect[0])) as f32;
-                let v = (rect[1] + ((c / side) as f64 + 0.5) / side as f64 * (rect[3] - rect[1])) as f32;
-                map.at(&NOT_GARMENT, u, v)
-            })
-            .collect();
-        let excl = matte::guided_filter_rgb(&excl, &guide, side, side, r, 1e-3);
-        for (c, e) in cov.iter_mut().zip(&excl) {
-            *c *= 1.0 - matte::smoothstep(0.3, 0.6, *e);
+        let mut excl = Vec::with_capacity(side * side);
+        let (mut skin, mut cloth) = (Vec::with_capacity(side * side), Vec::with_capacity(side * side));
+        for c in 0..side * side {
+            let (u, v) = uv(c);
+            excl.push(map.at(&NOT_GARMENT, u, v));
+            skin.push(map.at(&SKIN, u, v));
+            cloth.push(map.at(&[4], u, v));
         }
+        // and the skin the class map takes for clothes (a bare arm below a tulle sleeve)
+        let grown = skin_in_garment(side, cov, &guide, &skin, &cloth);
+        for (e, g) in excl.iter_mut().zip(&grown) {
+            *e = e.max(*g);
+        }
+        let excl = matte::guided_filter_rgb(&excl, &guide, side, side, r, 1e-3);
+        for (k, e) in keep.iter_mut().zip(&excl) {
+            *k *= 1.0 - matte::smoothstep(0.3, 0.6, *e);
+        }
+    }
+    if let Some(s) = surfaces {
+        let ground: Vec<f32> = (0..side * side).map(uv).map(|(u, v)| s.at(u, v)).collect();
+        // (the scene model's grid is coarser still: onto the photo's edges first)
+        let ground = matte::guided_filter_rgb(&ground, &guide, side, side, r, 1e-3);
+        for (k, g) in keep.iter_mut().zip(&ground) {
+            *k *= 1.0 - matte::smoothstep(SURFACE_CUT.0, SURFACE_CUT.1, *g);
+        }
+    }
+    for (c, k) in cov.iter_mut().zip(&keep) {
+        *c *= k;
     }
     // (a wider window for the garment's own edge, a 64th of the grid — 16 cells, four of SAM's
     // 256 — so it reaches past a halo of that width to the photo's edge)
     let refined = matte::guided_filter_rgb(cov, &guide, side, side, (side / 64).max(r), 1e-3);
-    // steeper: the refined edge's soft tail (the halo) goes, the inside stays whole
-    *cov = refined.into_iter().map(|v| matte::smoothstep(0.25, 0.75, v)).collect();
+    // steeper: the refined edge's soft tail (the halo) goes, the inside stays whole; and the wide
+    // window doesn't carry the garment back onto the skin or the floor next to it (pale skin, a
+    // pale floor and a white dress look alike to it)
+    *cov = refined.into_iter().zip(&keep).map(|(v, k)| matte::smoothstep(0.25, 0.75, v) * k).collect();
+}
+
+/// Where a garment gives way to a surface the scene model is sure of (floor, ground, wall, table:
+/// [`Surfaces`]): fully kept below the first value, gone above the second.
+const SURFACE_CUT: (f32, f32) = (0.45, 0.75);
+
+/// Floors, grounds, walls, tables… (EoMT's COCO-panoptic "stuff" a garment is never part of), where
+/// no person is: the probability, on the scene model's grid over the photo. A dress's hem and a
+/// train touch the floor, and the people model's coarse map spills its "clothes" onto a pale floor
+/// or a table in front of the bride; the scene model tells floor from tulle (it leaves a train on
+/// the grass out of the grass).
+pub struct Surfaces {
+    width: usize,
+    height: usize,
+    probs: Vec<f32>,
+}
+
+/// The scene model's classes that are surfaces around people, never what they wear.
+pub fn is_surface(label: &str) -> bool {
+    const PREFIXES: [&str; 12] = ["floor", "pavement", "grass", "dirt", "road", "wall", "table", "counter", "ceiling", "building", "rug", "window"];
+    const NAMES: [&str; 14] = [
+        "sand",
+        "gravel",
+        "snow",
+        "playingfield",
+        "platform",
+        "railroad",
+        "stairs",
+        "fence-merged",
+        "door-stuff",
+        "sea",
+        "river",
+        "water-other",
+        "house",
+        "roof",
+    ];
+    PREFIXES.iter().any(|p| label.starts_with(p)) || NAMES.contains(&label)
+}
+
+impl Surfaces {
+    /// From a scene segmentation: the surfaces' summed probability where the scene isn't a person.
+    pub fn from_scene(scene: &crate::scene::Scene) -> Surfaces {
+        let surf = scene.class_probability(&crate::scene::class_ids(is_surface));
+        let person = scene.class_probability(&crate::scene::class_ids(|l| l == "person"));
+        let probs = surf.iter().zip(&person).map(|(s, p)| (s * (1.0 - p)).clamp(0.0, 1.0)).collect();
+        Surfaces { width: scene.width, height: scene.height, probs }
+    }
+
+    /// From a `width × height` probability grid over the photo (tests).
+    pub fn from_grid(width: usize, height: usize, probs: Vec<f32>) -> Surfaces {
+        Surfaces { width, height, probs }
+    }
+
+    /// The probability at normalized point `(u, v)` (bilinear; 0 for an empty or malformed grid).
+    pub fn at(&self, u: f32, v: f32) -> f32 {
+        let (w, h) = (self.width, self.height);
+        if w == 0 || h == 0 || self.probs.len() < w.saturating_mul(h) || !(u.is_finite() && v.is_finite()) {
+            return 0.0;
+        }
+        let fx = (u * w as f32 - 0.5).clamp(0.0, (w - 1) as f32);
+        let fy = (v * h as f32 - 0.5).clamp(0.0, (h - 1) as f32);
+        let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
+        let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+        let (tx, ty) = (fx - x0 as f32, fy - y0 as f32);
+        let p = |x: usize, y: usize| self.probs.get(y * w + x).copied().unwrap_or(0.0);
+        ((p(x0, y0) * (1.0 - tx) + p(x1, y0) * tx) * (1.0 - ty) + (p(x0, y1) * (1.0 - tx) + p(x1, y1) * tx) * ty).clamp(0.0, 1.0)
+    }
+}
+
+/// A cell's colour as a feature for telling skin from cloth: its chromaticity (red and green
+/// shares) and a little of its log luminance (shading along an arm changes the brightness, not
+/// the material).
+fn colour_feature(p: &[f32; 3]) -> [f32; 3] {
+    let [r, g, b] = *p;
+    let s = (r + g + b).max(1e-3);
+    [r / s, g / s, 0.03 * (s / 3.0 + 0.03).ln()]
+}
+
+fn feature_distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
+}
+
+/// Each channel's median (`None` for no samples).
+fn median_feature(samples: &mut [[f32; 3]]) -> Option<[f32; 3]> {
+    if samples.is_empty() {
+        return None;
+    }
+    let mid = samples.len() / 2;
+    let mut out = [0f32; 3];
+    for (k, o) in out.iter_mut().enumerate() {
+        samples.select_nth_unstable_by(mid, |a, b| a[k].total_cmp(&b[k]));
+        *o = samples.get(mid).map_or(0.0, |s| s[k]);
+    }
+    Some(out)
+}
+
+/// Blocks per side of the grid [`skin_in_garment`] learns the local colours on.
+const SKIN_BLOCKS: usize = 32;
+/// Skin and the garment around it must differ at least this much (feature distance) for colour to
+/// tell them apart (a cream waistcoat next to a hand, an ivory bodice in tungsten light: no).
+const SKIN_MIN_SEPARATION: f32 = 0.03;
+/// A cell is skin-coloured when its distance to the skin is at most this share of the two
+/// distances (to the skin, to the garment).
+const SKIN_SHARE: f32 = 0.3;
+
+/// The skin the class map calls clothes, on a `side²` grid (1 there, 0 elsewhere): a bare arm
+/// below an off-shoulder tulle sleeve, a shoulder in low light. The skin and the garment's colours
+/// are learnt around each part of the photo from the cells the class map is sure of (`skin`,
+/// `cloth`: its probabilities; medians, so the misread arm itself doesn't count as the garment's
+/// colour), and the class map's skin grows into the garment (`cov`) through the cells much nearer
+/// the skin's colour than the garment's. `guide`: the cells' colours (interleaved RGB). Where skin
+/// and garment look alike, nothing grows.
+fn skin_in_garment(side: usize, cov: &[f32], guide: &[f32], skin: &[f32], cloth: &[f32]) -> Vec<f32> {
+    let n = side.saturating_mul(side);
+    let mut grown = vec![0f32; n];
+    if side < SKIN_BLOCKS || cov.len() < n || guide.len() < n * 3 || skin.len() < n || cloth.len() < n {
+        return grown;
+    }
+    let feats: Vec<[f32; 3]> = guide.as_chunks::<3>().0.iter().map(colour_feature).collect();
+    let bs = side.div_ceil(SKIN_BLOCKS);
+    // samples of each block: every other cell the class map is sure of
+    let mut skin_s: Vec<Vec<[f32; 3]>> = vec![Vec::new(); SKIN_BLOCKS * SKIN_BLOCKS];
+    let mut cloth_s: Vec<Vec<[f32; 3]>> = vec![Vec::new(); SKIN_BLOCKS * SKIN_BLOCKS];
+    for y in (0..side).step_by(2) {
+        for x in (0..side).step_by(2) {
+            let c = y * side + x;
+            let b = (y / bs).min(SKIN_BLOCKS - 1) * SKIN_BLOCKS + (x / bs).min(SKIN_BLOCKS - 1);
+            let (Some(f), Some(sk), Some(cl), Some(cv)) = (feats.get(c), skin.get(c), cloth.get(c), cov.get(c)) else { continue };
+            if *sk >= 0.7 {
+                if let Some(s) = skin_s.get_mut(b) {
+                    s.push(*f);
+                }
+            } else if *cl >= 0.7
+                && *cv >= 0.5
+                && let Some(s) = cloth_s.get_mut(b)
+            {
+                s.push(*f);
+            }
+        }
+    }
+    // each block's skin and garment colour: the medians over the 5 × 5 blocks around it (wider
+    // where that holds too few of either: the middle of a long arm, far from the hand; at the
+    // widest, the whole photo)
+    use rayon::prelude::*;
+    let models: Vec<Option<([f32; 3], [f32; 3])>> = (0..SKIN_BLOCKS * SKIN_BLOCKS)
+        .into_par_iter()
+        .map(|b| {
+            let (bx, by) = (b % SKIN_BLOCKS, b / SKIN_BLOCKS);
+            let gather = |r: usize| {
+                let (mut s, mut g) = (Vec::new(), Vec::new());
+                for y in by.saturating_sub(r)..(by + r + 1).min(SKIN_BLOCKS) {
+                    for x in bx.saturating_sub(r)..(bx + r + 1).min(SKIN_BLOCKS) {
+                        s.extend_from_slice(skin_s.get(y * SKIN_BLOCKS + x).map_or(&[][..], Vec::as_slice));
+                        g.extend_from_slice(cloth_s.get(y * SKIN_BLOCKS + x).map_or(&[][..], Vec::as_slice));
+                    }
+                }
+                (s, g)
+            };
+            let model = |(mut s, mut g): (Vec<[f32; 3]>, Vec<[f32; 3]>)| -> Option<([f32; 3], [f32; 3])> {
+                // a handful of each at least
+                if s.len() < 12 || g.len() < 12 {
+                    return None;
+                }
+                let ms = median_feature(&mut s)?;
+                let mut mg = median_feature(&mut g)?;
+                // the garment's colour without the skin the class map mistook for it (an arm can
+                // be a good part of the "clothes" around it): its samples nearer the garment
+                for _ in 0..2 {
+                    let mut kept: Vec<[f32; 3]> = g.iter().copied().filter(|f| feature_distance(*f, mg) <= feature_distance(*f, ms)).collect();
+                    if kept.len() < 12 {
+                        break;
+                    }
+                    let Some(m) = median_feature(&mut kept) else { break };
+                    mg = m;
+                }
+                (feature_distance(ms, mg) >= SKIN_MIN_SEPARATION).then_some((ms, mg))
+            };
+            // wider while the skin and the garment can't be told apart there (an arm that is most
+            // of the "clothes" near it, the garment itself a little further)
+            [2, 4, 8, SKIN_BLOCKS].into_iter().find_map(|r| model(gather(r)))
+        })
+        .collect();
+    let skin_coloured = |c: usize| -> bool {
+        let (x, y) = (c % side, c / side);
+        let b = (y / bs).min(SKIN_BLOCKS - 1) * SKIN_BLOCKS + (x / bs).min(SKIN_BLOCKS - 1);
+        let (Some(Some((ms, mg))), Some(f)) = (models.get(b), feats.get(c)) else { return false };
+        let (ds, dg) = (feature_distance(*f, *ms), feature_distance(*f, *mg));
+        ds <= SKIN_SHARE * (ds + dg)
+    };
+    // grow from the class map's skin through skin-coloured garment cells
+    let mut seen = vec![false; n];
+    let mut q = std::collections::VecDeque::new();
+    for c in 0..n {
+        if skin.get(c).is_some_and(|s| *s >= 0.5) {
+            seen[c] = true;
+            q.push_back(c);
+        }
+    }
+    while let Some(c) = q.pop_front() {
+        for j in matte::neighbours(c, side) {
+            if seen[j] || cov.get(j).is_none_or(|v| *v < 0.05) {
+                continue;
+            }
+            seen[j] = true;
+            if skin_coloured(j) {
+                grown[j] = 1.0;
+                q.push_back(j);
+            }
+        }
+    }
+    grown
 }
 
 /// Whether a selection (`cov` over `grid`) is mostly on a person: at least half of what it selects
@@ -677,7 +916,7 @@ pub fn garment_mask(logits: &[f32], lside: usize, rgb: &[u8], w: usize, h: usize
         .collect();
     matte::fill_small_holes(&mut cov, side, (side * side / 2000).max(4));
     let on_person = map.is_some_and(|m| worn(&grid, &cov, m));
-    clean_garment(&grid, &mut cov, rgb, map, on_person);
+    clean_garment(&grid, &mut cov, rgb, map, on_person, None);
     if cov.iter().all(|c| *c < 0.5) {
         return None;
     }
@@ -965,11 +1204,14 @@ fn cut_faces(grid: &Grid, cov: &mut [f32], faces: &[Face]) {
 /// the faces (left to right) its parts need. `None`: nothing of it is there (no such person, no
 /// face for face parts).
 pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Option<&PeopleMap>, faces: &[Face]) -> Option<MaskGrid> {
-    people_mask_with(req, rgb, w, h, map, faces, None)
+    people_mask_with(req, rgb, w, h, map, faces, None, None)
 }
 
 /// [`people_mask`] with each person's silhouette (`instances`) deciding whose a pixel is, before
-/// "nearest face" (which gives an arm around someone, or a hand on them, to them).
+/// "nearest face" (which gives an arm around someone, or a hand on them, to them); and, for
+/// Clothes, the floors, walls and tables around them (`surfaces`, from the scene model) never
+/// part of the garment.
+#[allow(clippy::too_many_arguments)]
 pub fn people_mask_with(
     req: &PeopleRequest,
     rgb: &[u8],
@@ -978,6 +1220,7 @@ pub fn people_mask_with(
     map: Option<&PeopleMap>,
     faces: &[Face],
     instances: Option<&Instances>,
+    surfaces: Option<&Surfaces>,
 ) -> Option<MaskGrid> {
     if w == 0 || h == 0 {
         return None;
@@ -1113,7 +1356,7 @@ pub fn people_mask_with(
         }
         if !whole && req.classes == [4] {
             // Clothes alone: the class map's blur leaks onto a neckline, arms and hands
-            clean_garment(&grid, &mut cov, rgb, map, true);
+            clean_garment(&grid, &mut cov, rgb, map, true, surfaces);
             // and never on a face, whoever's (strong Texture or Clarity there ages a face)
             cut_faces(&grid, &mut cov, faces);
         }
@@ -1664,7 +1907,7 @@ mod tests {
         let seeds = [[0.3, 0.2], [0.8, 0.2]];
         let inst = Instances::new(side, vec![claim(15.0, 105.0), claim(135.0, 185.0)], &seeds);
         let req = PeopleRequest::parse(1, &["Clothes".into()]).unwrap();
-        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &faces, Some(&inst)).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &faces, Some(&inst), None).unwrap();
         assert!(logit_at(&m, 90.0, 160.0) > 0.0, "the train is hers: {}", logit_at(&m, 90.0, 160.0));
         assert!(logit_at(&m, 60.0, 120.0) > 2.0);
         assert!(logit_at(&m, 160.0, 120.0) < -2.0, "the other's clothes are not");
@@ -1719,5 +1962,110 @@ mod tests {
         // nothing to paste: the whole map
         let same = paste_crops(&whole, &[], &[], 64);
         assert!(same.at(&[0], 0.5, 0.5) > 0.99);
+    }
+
+    /// A bride on a floor (`w = h = 200`): a white dress (x 60..140, y 60..170) with a bare arm
+    /// beside it (x 40..60, y 60..170, skin-coloured; `arm_rgb`), a pale floor below (y ≥ 170) and
+    /// a grey wall above. The class map (64 cells) makes the people model's mistakes: the upper
+    /// arm (y < 140) and a band of the floor under the hem (y 170..190) are "clothes"; only the
+    /// forearm (y ≥ 140) is skin.
+    fn bride_on_a_floor(arm_rgb: [u8; 3]) -> (Vec<u8>, PeopleMap) {
+        let (w, h) = (200usize, 200usize);
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let p = if y >= 170 && !(60..140).contains(&x) || y >= 175 {
+                    [200, 194, 182]
+                } else if (60..140).contains(&x) && y >= 60 {
+                    [236, 236, 238]
+                } else if (40..60).contains(&x) && y >= 60 {
+                    arm_rgb
+                } else {
+                    [90, 92, 96]
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&p);
+            }
+        }
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i * w + w / 2) / side, (j * h + h / 2) / side);
+                let class = if (40..60).contains(&x) && (140..170).contains(&y) {
+                    2
+                } else if (40..140).contains(&x) && (60..170).contains(&y) || (60..140).contains(&x) && (170..190).contains(&y) {
+                    4
+                } else {
+                    0
+                };
+                probs[(j * side + i) * 6 + class] = 1.0;
+            }
+        }
+        (rgb, PeopleMap { side, probs })
+    }
+
+    /// The Clothes mask at photo pixel `(x, y)` of a 200 × 200 photo.
+    fn clothes_at(m: &MaskGrid, x: usize, y: usize) -> f32 {
+        let c = (y * m.side / 200) * m.side + x * m.side / 200;
+        1.0 / (1.0 + (-m.logits[c]).exp())
+    }
+
+    /// Regression (test notes 2026-10-22, note 6): the people model calls a bare arm below an
+    /// off-shoulder tulle sleeve "clothes"; skin is never in Clothes, so the arm, grown from the
+    /// skin the model does see (the forearm) through the cells coloured like it, is cut out.
+    #[test]
+    fn skin_the_class_map_calls_clothes_is_not_clothes() {
+        let (rgb, map) = bride_on_a_floor([224, 168, 140]);
+        let req = PeopleRequest::parse(0, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &[], None, None).unwrap();
+        for (x, y) in [(50, 70), (50, 100), (45, 130), (55, 150)] {
+            assert!(clothes_at(&m, x, y) < 0.5, "arm skin at {x},{y} is not clothes: {}", clothes_at(&m, x, y));
+        }
+        for (x, y) in [(70, 100), (100, 120), (130, 160)] {
+            assert!(clothes_at(&m, x, y) > 0.5, "the dress at {x},{y} is clothes: {}", clothes_at(&m, x, y));
+        }
+    }
+
+    /// Where skin and the garment look alike (a cream waistcoat, an ivory bodice in tungsten
+    /// light), colour can't tell them apart: nothing of the garment is cut for it.
+    #[test]
+    fn a_garment_coloured_like_skin_is_kept() {
+        let (rgb, map) = bride_on_a_floor([236, 234, 232]);
+        let req = PeopleRequest::parse(0, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &[], None, None).unwrap();
+        for (x, y) in [(50, 80), (50, 110), (100, 120)] {
+            assert!(clothes_at(&m, x, y) > 0.5, "the class map's clothes at {x},{y} stay: {}", clothes_at(&m, x, y));
+        }
+    }
+
+    /// Regression (note 6): the people model spills "clothes" onto a pale floor under the hem; the
+    /// floor the scene model sees there is never clothes, while the dress down to its hem stays.
+    #[test]
+    fn the_floor_below_the_hem_is_not_clothes() {
+        let (rgb, map) = bride_on_a_floor([224, 168, 140]);
+        // the scene model: floor from y 172 (a little below the hem, as its coarse grid puts it)
+        let (sw, sh) = (40, 40);
+        let floor: Vec<f32> = (0..sw * sh).map(|c| if (c / sw) * 200 / sh >= 172 { 0.95 } else { 0.0 }).collect();
+        let surfaces = Surfaces::from_grid(sw, sh, floor);
+        for person in [0, 1] {
+            let req = PeopleRequest::parse(person, &["Clothes".into()]).unwrap();
+            let faces =
+                [Face { detection: Detection { x0: 85.0, y0: 20.0, x1: 115.0, y1: 55.0, score: 1.0, keypoints: [[0.0; 2]; 6] }, landmarks: None }];
+            let faces: &[Face] = if person == 0 { &[] } else { &faces };
+            let without = people_mask_with(&req, &rgb, 200, 200, Some(&map), faces, None, None).unwrap();
+            assert!(clothes_at(&without, 100, 180) > 0.5, "(the class map's spill is there to cut)");
+            let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), faces, None, Some(&surfaces)).unwrap();
+            for (x, y) in [(70, 180), (100, 185), (130, 178)] {
+                assert!(clothes_at(&m, x, y) < 0.5, "floor at {x},{y} is not clothes (person {person}): {}", clothes_at(&m, x, y));
+            }
+            for (x, y) in [(70, 120), (100, 160), (130, 165)] {
+                assert!(clothes_at(&m, x, y) > 0.5, "the dress at {x},{y} is clothes (person {person}): {}", clothes_at(&m, x, y));
+            }
+        }
+        // malformed or empty grids are no surface
+        assert_eq!(Surfaces::from_grid(0, 0, Vec::new()).at(0.5, 0.5), 0.0);
+        assert_eq!(Surfaces::from_grid(4, 4, vec![1.0; 3]).at(0.5, 0.5), 0.0);
+        assert_eq!(Surfaces::from_grid(2, 2, vec![1.0; 4]).at(f32::NAN, 0.5), 0.0);
+        assert!(is_surface("floor-wood") && is_surface("wall-brick") && is_surface("grass-merged") && !is_surface("person"));
     }
 }
