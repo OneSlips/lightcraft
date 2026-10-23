@@ -1046,7 +1046,7 @@ impl RenderJob {
                 // Views and exports use the GPU when there is one (waiting for the device if it is
                 // still being created). Thumbnails (grid, filmstrip, preset and profile previews)
                 // use it once it is ready - ~20-30 % faster than the CPU at 256 px with six jobs
-                // side by side (`crates/gpu/tests/thumbs_bench.rs`), and the cores stay free for
+                // side by side (`crates/gpu/tests/it/thumbs_bench.rs`), and the cores stay free for
                 // decoding - but never wait for it: at startup they render on the CPU.
                 let gpu = self.cache.is_none() || lightcraft_gpu::ready();
                 let pixels_needed =

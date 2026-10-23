@@ -1,4 +1,4 @@
-//! Thumbnail throughput, CPU vs GPU: `cargo test --release -p lightcraft-gpu --test thumbs_bench -- --ignored --nocapture`.
+//! Thumbnail throughput, CPU vs GPU: `cargo test --release -p lightcraft-gpu --test it thumbs_bench -- --ignored --nocapture`.
 //! Six threads (the app's render workers) each render thumbnails of 512 px sources at 256 px with
 //! settings like a typical preset (noise reduction, sharpening, clarity, grading, a gradient mask).
 
