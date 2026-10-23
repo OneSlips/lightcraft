@@ -29,6 +29,11 @@ fn window_device() -> Option<(wgpu::Device, wgpu::Queue, wgpu::AdapterInfo)> {
 
 #[test]
 fn display_renders_match_readback_renders() {
+    // switched off for the process (`LIGHTCRAFT_GPU=0`): there is no device to adopt
+    if let Some(reason) = lightcraft_gpu::env_off_reason() {
+        lightcraft_testkit::skip!(Gpu, "{reason}");
+        return;
+    }
     let Some((device, queue, info)) = window_device() else {
         lightcraft_testkit::skip!(Gpu, "no GPU adapter");
         return;
