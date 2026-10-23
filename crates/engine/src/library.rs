@@ -511,7 +511,7 @@ impl Session {
         self.lut_profiles = prefs.lut_profiles;
         crate::cmd::lut_profiles::register_all(self);
         self.dcp_profiles = prefs.dcp_profiles;
-        crate::cmd::dcp_profiles::register_all(self);
+        crate::cmd::dcp_profiles::register_all(self, on_disk.then(|| dir.join("Profiles")).as_deref());
         self.keyword_sets = prefs.keyword_sets;
         self.keyword_set = prefs.keyword_set;
         self.recent_keywords = prefs.recent_keywords;
@@ -539,7 +539,11 @@ impl Session {
                     self.presets.push(u);
                 }
             }
-            let known = |id: &String| crate::presets::profile(id).is_some() || self.lut_profiles.iter().any(|p| &p.id == id);
+            let known = |id: &String| {
+                crate::presets::profile(id).is_some()
+                    || self.lut_profiles.iter().any(|p| &p.id == id)
+                    || self.dcp_profiles.iter().any(|p| &p.id == id)
+            };
             self.profile_favorites = f.profile_favorites.into_iter().filter(known).collect();
             self.profile_recent = f.profile_recent.into_iter().filter(known).take(crate::presets::RECENT_PROFILES).collect();
         }

@@ -8,12 +8,11 @@
 //! library's prefs and the profiles are parsed again when the library opens.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use lightcraft_raw::dcp::DcpProfile;
 use serde_json::{Value, json};
 
 use super::{CommandSpec, always, bad, cmd, str_param};
+use crate::media::LoadedCameraProfile;
 use crate::{Result, Session};
 
 /// Profile id prefix of imported camera profiles.
@@ -47,13 +46,32 @@ fn profiles_dir(s: &Session) -> Option<PathBuf> {
 
 /// Parse every imported camera profile again and hand them to the decoder (missing or damaged
 /// files are skipped: photos using them develop with the file's own colour).
-pub fn register_all(s: &mut Session) {
-    let loaded: Vec<(String, Arc<DcpProfile>)> = s
+///
+/// A library's own copies are found in `profiles`, the `Profiles/` folder of the library being opened (`None`: not on
+/// disk), wherever the saved path points: a library moved or restored elsewhere keeps its profiles (the saved path is
+/// updated).
+pub fn register_all(s: &mut Session, profiles: Option<&Path>) {
+    if let Some(dir) = profiles {
+        for p in &mut s.dcp_profiles {
+            if let Some(here) = library_copy(dir, &p.file) {
+                p.file = here.to_string_lossy().to_string();
+            }
+        }
+    }
+    let loaded: Vec<(String, LoadedCameraProfile)> = s
         .dcp_profiles
         .iter()
-        .filter_map(|p| std::fs::read(&p.file).ok().and_then(|b| lightcraft_raw::dcp::parse_dcp(&b).ok()).map(|d| (p.id.clone(), Arc::new(d))))
+        .filter_map(|p| std::fs::read(&p.file).ok().and_then(|b| LoadedCameraProfile::parse(&b).ok()).map(|d| (p.id.clone(), d)))
         .collect();
     s.media.camera_profiles = loaded.into_iter().collect();
+}
+
+/// The copy of saved profile file `file` in the open library's profiles folder `dir`, when it is there under the
+/// same name and `file` is not already it.
+fn library_copy(dir: &Path, file: &str) -> Option<PathBuf> {
+    let saved = Path::new(file);
+    let here = dir.join(saved.file_name()?);
+    (here != saved && here.is_file()).then_some(here)
 }
 
 /// `.dcp` files under `paths` (folders searched).
@@ -89,13 +107,14 @@ pub fn import_files(s: &mut Session, paths: &[String]) -> Result<(Vec<Value>, Ve
                 continue;
             }
         };
-        let profile = match lightcraft_raw::dcp::parse_dcp(&bytes) {
+        let loaded = match LoadedCameraProfile::parse(&bytes) {
             Ok(p) => p,
             Err(e) => {
                 failed.push(json!([shown, e.to_string()]));
                 continue;
             }
         };
+        let profile = loaded.profile.clone();
         let stem = f.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Camera Profile".into());
         let name = if profile.name.trim().is_empty() { stem.clone() } else { profile.name.trim().to_string() };
         // the same profile imported again: keep the one there is
@@ -124,7 +143,7 @@ pub fn import_files(s: &mut Session, paths: &[String]) -> Result<(Vec<Value>, Ve
             // no library on disk: remember the original (the in-memory session ends with the app)
             None => f.to_string_lossy().to_string(),
         };
-        s.media.camera_profiles.insert(id.clone(), Arc::new(profile.clone()));
+        s.media.camera_profiles.insert(id.clone(), loaded);
         s.dcp_profiles.push(DcpEntry { id: id.clone(), name: name.clone(), camera_model: profile.camera_model.clone(), file });
         imported.push(json!({"id": id, "name": name, "cameraModel": profile.camera_model}));
     }

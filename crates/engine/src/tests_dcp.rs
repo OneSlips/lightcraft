@@ -115,11 +115,14 @@ fn import_choose_cache_persist_and_delete() {
         s.execute("develop.profile", &json!({"id": dcp_id})).unwrap();
         let job = s.render_job(id, 48, 48, false, true).unwrap();
         match &job.source {
-            SourceRef::File { camera_profile: Some((pid, _)), .. } => assert_eq!(pid, &dcp_id),
+            SourceRef::File { camera_profile: Some((pid, _)), .. } => assert!(pid.starts_with(&format!("{dcp_id}#")), "{pid}"),
             _ => panic!("the photo is decoded again with its camera profile"),
         }
         let after = job.run();
-        assert_eq!(after.loaded.as_ref().and_then(|l| l.camera_profile.clone()).as_deref(), Some(dcp_id.as_str()));
+        assert_eq!(
+            after.loaded.as_ref().and_then(|l| l.camera_profile.clone()),
+            s.media.camera_profile_of(s.catalog.photo(id).unwrap()).map(|c| c.0)
+        );
         assert!(after.rendered.is_ok());
         assert_ne!(mean_rgb(&before.loaded.unwrap().image), mean_rgb(&after.loaded.unwrap().image));
         s.persist().unwrap();
@@ -185,5 +188,111 @@ fn hover_previews_and_browser_thumbnails_decode_with_the_hovered_camera_profile(
     assert!(close(hover, selected), "{hover:?} vs {selected:?}");
     let back = mean(s.preview_job(id, 64, 64, true, &own).unwrap());
     assert!(close(back, builtin), "{back:?} vs {builtin:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A library with one raw photo and the `Swap` profile imported from `files/<sub>/Swap.dcp` and selected for it.
+fn library_with_profile(dir: &std::path::Path) -> (Session, PhotoId, String) {
+    let (lib, files) = (dir.join("lib"), dir.join("files"));
+    std::fs::create_dir_all(files.join("a")).unwrap();
+    let raw = files.join("IMG_0003.dng");
+    std::fs::write(&raw, crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+    std::fs::write(files.join("a").join("Swap.dcp"), write_dcp(&swapping_profile("Swap")).unwrap()).unwrap();
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    let r = s.execute("library.import", &json!({"paths": [raw.to_string_lossy()]})).unwrap();
+    let id = PhotoId(r["imported"][0].as_u64().unwrap());
+    s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+    let r = s.execute("profile.import", &json!({"paths": [files.join("a").join("Swap.dcp").to_string_lossy()]})).unwrap();
+    let dcp_id = r["imported"][0]["id"].as_str().unwrap().to_string();
+    s.execute("develop.profile", &json!({"id": dcp_id})).unwrap();
+    (s, id, dcp_id)
+}
+
+/// The thumbnail, browser-thumbnail and loupe cache keys of photo `id` (as it is now), and its source tag.
+fn render_keys(s: &mut Session, id: PhotoId) -> [lightcraft_preview::Hash128; 3] {
+    let settings = (*s.develop_of(id).unwrap()).clone();
+    [
+        s.thumb_job(id, 256).unwrap().cache.unwrap().1,
+        s.variant_job(id, &settings, 64).unwrap().cache.unwrap().1,
+        s.loupe_job(id, 200, 200, true).unwrap().view_cache.unwrap().1,
+    ]
+}
+
+/// A camera profile deleted, or replaced by a different file under the same id, never has renders or decoded
+/// sources made with the old one stand in: before, the cache keys followed only the profile id, which the photo keeps.
+#[test]
+fn a_deleted_or_replaced_camera_profile_never_reuses_renders_made_with_it() {
+    let dir = temp_dir("replace");
+    let (mut s, id, dcp_id) = library_with_profile(&dir);
+    let with = render_keys(&mut s, id);
+    let level = s.render_job(id, 48, 48, false, true).unwrap().level;
+    let old_tag = s.media.camera_profile_of(s.catalog.photo(id).unwrap()).map(|c| c.0);
+    assert!(old_tag.is_some());
+    // deleted: the photo keeps the id, renders without the profile, under other keys
+    s.execute("profile.deleteImported", &json!({"id": dcp_id})).unwrap();
+    assert_eq!(s.catalog.photo(id).unwrap().develop.profile.id, dcp_id);
+    let without = render_keys(&mut s, id);
+    for (a, b) in with.iter().zip(&without) {
+        assert_ne!(a, b, "a render made with the deleted profile would stand in");
+    }
+    // another profile under the same file name gets the same id back, and other keys again
+    let other_dir = dir.join("files").join("b");
+    std::fs::create_dir_all(&other_dir).unwrap();
+    let mut other = swapping_profile("Swap");
+    other.color.color_matrix = [Some(Mat3([[3.2406, -1.5372, -0.4986], [-0.9689, 1.8758, 0.0415], [0.0557, -0.2040, 1.0570]])), None];
+    std::fs::write(other_dir.join("Swap.dcp"), write_dcp(&other).unwrap()).unwrap();
+    let r = s.execute("profile.import", &json!({"paths": [other_dir.join("Swap.dcp").to_string_lossy()]})).unwrap();
+    assert_eq!(r["imported"][0]["id"], dcp_id.as_str(), "{r}");
+    let replaced = render_keys(&mut s, id);
+    for ((a, b), c) in with.iter().zip(&without).zip(&replaced) {
+        assert_ne!(a, c, "a render made with the replaced profile would stand in");
+        assert_ne!(b, c);
+    }
+    // nor does a source decoded with the old file
+    let img = std::sync::Arc::new(lightcraft_raster::Rgb32f::new(4, 4));
+    s.media.insert_source(id, level, crate::media::DecodedSource { camera_profile: old_tag, ..crate::media::DecodedSource::new(img, None) });
+    assert!(!matches!(s.render_job(id, 48, 48, false, true).unwrap().source, SourceRef::Loaded(_)), "decoded again with the new file");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A grid thumbnail is cut from the photo's decoded preview only when that preview was decoded with the camera profile
+/// the photo uses now; before, one made with another profile (or none) was fitted and cached under the new key.
+#[test]
+fn a_thumbnail_is_not_cut_from_a_preview_decoded_with_another_camera_profile() {
+    let dir = temp_dir("fit");
+    let (mut s, id, _) = library_with_profile(&dir);
+    let p = (**s.catalog.photo(id).unwrap()).clone();
+    let tag = s.media.camera_profile_of(&p).map(|c| c.0);
+    let img = std::sync::Arc::new(lightcraft_raster::Rgb32f::new(1600, 1000));
+    let preview = |camera_profile| crate::media::DecodedSource { camera_profile, ..crate::media::DecodedSource::new(img.clone(), None) };
+    use crate::media::SourceLevel;
+    s.media.insert_source(id, SourceLevel::Preview, preview(None));
+    assert!(!matches!(s.media.source_ref(&p, SourceLevel::Thumb), SourceRef::Fit { .. }), "decoded without the profile");
+    s.media.insert_source(id, SourceLevel::Preview, preview(tag));
+    assert!(matches!(s.media.source_ref(&p, SourceLevel::Thumb), SourceRef::Fit { .. }), "decoded with it: still cut from it");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A library moved (or restored) elsewhere finds its camera profiles in its own `Profiles/` folder, and a camera
+/// profile can be a favourite, which survives reopening like the recent list.
+#[test]
+fn a_moved_library_keeps_its_camera_profiles_and_their_favourites() {
+    let dir = temp_dir("moved");
+    let (mut s, id, dcp_id) = library_with_profile(&dir);
+    assert_eq!(s.execute("profile.favorite", &json!({"id": dcp_id})).unwrap()["favorite"], true);
+    assert!(s.profile_recent.contains(&dcp_id));
+    s.persist().unwrap();
+    s.close_library().unwrap();
+    drop(s);
+    let moved = dir.join("moved");
+    std::fs::rename(dir.join("lib"), &moved).unwrap();
+    let mut s = Session::new().with_fs();
+    s.open_library(&moved, false).unwrap();
+    assert!(s.media.camera_profiles.contains_key(&dcp_id), "the profile is found in the moved library");
+    assert!(std::path::Path::new(&s.dcp_profiles[0].file).starts_with(&moved), "{}", s.dcp_profiles[0].file);
+    assert!(s.media.camera_profile_of(s.catalog.photo(id).unwrap()).is_some());
+    assert!(s.profile_favorites.contains(&dcp_id) && s.profile_recent.contains(&dcp_id));
+    s.close_library().unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
