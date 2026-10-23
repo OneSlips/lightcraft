@@ -625,14 +625,16 @@ impl MediaCache {
     }
 
     /// The facts of photo `id`'s cached sources: the decoder's when one has them, else `header`
-    /// (with a smart preview's stored camera tone curve).
-    fn source_facts(&self, id: PhotoId, header: SourceInfo) -> SourceInfo {
+    /// (with a smart preview's stored camera tone curve). Only sources developed with `profile` (the photo's imported
+    /// camera profile tag, [`Self::camera_profile_of`], or none) count: one made with another profile has its facts.
+    fn source_facts(&self, id: PhotoId, header: SourceInfo, profile: Option<&str>) -> SourceInfo {
         let cached = || {
             self.thumbs
                 .peek(&id)
                 .into_iter()
                 .chain(self.previews.iter().filter(|e| e.0 == id).map(|e| &e.1))
                 .chain(self.full.iter().filter(|e| e.0 == id).map(|e| &e.1))
+                .filter(|s| s.camera_profile.as_deref() == profile)
         };
         match cached().find(|s| s.info.is_some()).or_else(|| cached().next()) {
             Some(s) => s.info_or(header),
@@ -719,16 +721,28 @@ impl MediaCache {
         self.source_ref_with(p, level, false)
     }
 
+    /// [`Self::source_ref`] without the photo's imported camera profile (keeping its denoised picture): a smart
+    /// preview keeps the file's own colour, and a cached source developed with the profile doesn't stand in for it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn source_ref_without_profile(&mut self, p: &Photo, level: SourceLevel) -> SourceRef {
+        self.source_ref_for(p, level, true, None)
+    }
+
     fn source_ref_with(&mut self, p: &Photo, level: SourceLevel, cached: bool) -> SourceRef {
-        let mut r = self.source_ref_plain(p, level, cached);
+        let wanted = self.camera_profile_of(p);
+        self.source_ref_for(p, level, cached, wanted)
+    }
+
+    /// [`Self::source_ref_with`] developed with camera profile `wanted` (none: the file's own colour).
+    fn source_ref_for(&mut self, p: &Photo, level: SourceLevel, cached: bool, wanted: Option<(String, Arc<DcpProfile>)>) -> SourceRef {
+        let mut r = self.source_ref_plain(p, level, cached, wanted);
         if let (SourceRef::File { denoise, .. }, Some((spec, loader))) = (&mut r, self.denoise.get(p.id)) {
             *denoise = Some((spec.clone(), loader.clone()));
         }
         r
     }
 
-    fn source_ref_plain(&mut self, p: &Photo, level: SourceLevel, cached: bool) -> SourceRef {
-        let wanted = self.camera_profile_of(p);
+    fn source_ref_plain(&mut self, p: &Photo, level: SourceLevel, cached: bool, wanted: Option<(String, Arc<DcpProfile>)>) -> SourceRef {
         // (a source developed with another camera profile, or none, doesn't stand in)
         if cached
             && let Some(a) = self.get_source(p.id, level)
@@ -1810,8 +1824,10 @@ impl crate::Session {
 
     /// Prefer decoder facts to header-only metadata for pixel-statistics commands.
     pub fn source_info(&self, id: PhotoId) -> SourceInfo {
-        let header = self.catalog.photo(id).map(|p| source_info(p)).unwrap_or_default();
-        self.media.source_facts(id, header)
+        let photo = self.catalog.photo(id);
+        let header = photo.map(|p| source_info(p)).unwrap_or_default();
+        let profile = photo.and_then(|p| self.media.camera_profile_of(p)).map(|(tag, _)| tag);
+        self.media.source_facts(id, header, profile.as_deref())
     }
 
     /// The source proxy for pixel-statistics commands (auto tone/WB), loading synchronously.

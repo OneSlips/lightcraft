@@ -82,8 +82,10 @@ fn cube_files(paths: &[String]) -> (Vec<(String, String, Option<String>)>, Vec<V
                 Ok(t) => out.push((stem(path), t, None)),
                 Err(e) => failed.push(json!([stem(path), e.to_string()])),
             }
+        } else if !path.extension().is_some_and(|x| x.eq_ignore_ascii_case("dcp")) {
+            // (a .dcp is a camera profile: `dcp_profiles::import_files` takes it)
+            failed.push(json!([stem(path), "not a .cube, .dcp or .zip file"]));
         }
-        // (a .dcp is a camera profile: `dcp_profiles::import_files` takes it)
     }
     (out, failed)
 }

@@ -296,3 +296,73 @@ fn a_moved_library_keeps_its_camera_profiles_and_their_favourites() {
     s.close_library().unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {
+    (0..3).map(|i| (a[i] - b[i]).abs()).sum()
+}
+
+/// A smart preview keeps the file's own colour: Build Smart Previews never develops it with the photo's imported
+/// camera profile, nor takes a cached source decoded with it. Before, only the stale-proxy refresh left the profile out.
+#[test]
+fn smart_previews_are_built_without_the_imported_camera_profile() {
+    use crate::media::{DecodedSource, SourceLevel};
+    let dir = temp_dir("smart");
+    let (mut s, id, _) = library_with_profile(&dir);
+    let p = (**s.catalog.photo(id).unwrap()).clone();
+    s.execute("library.smartPreviews", &json!({"ids": [id.0], "discard": true})).unwrap();
+    // a cached preview decoded with the profile (flat magenta, so it shows if the proxy is cut from it)
+    let tag = s.media.camera_profile_of(&p).map(|c| c.0);
+    let mut magenta = lightcraft_raster::Rgb32f::new(8, 8);
+    magenta.data.iter_mut().for_each(|px| *px = [1.0, 0.0, 1.0]);
+    s.media.insert_source(id, SourceLevel::Preview, DecodedSource { camera_profile: tag, ..DecodedSource::new(std::sync::Arc::new(magenta), None) });
+    let r = s.execute("library.smartPreviews", &json!({"ids": [id.0]})).unwrap();
+    assert_eq!((r["built"].as_u64(), r["repaired"].as_u64()), (Some(1), Some(0)), "{r}");
+    let smart_dir = s.media.smart_dir.clone().unwrap();
+    let proxy = crate::smart::load(&crate::smart::existing_file_path(&smart_dir, crate::smart::sharded_file_path(&smart_dir, &p))).unwrap();
+    let got = mean_rgb(&proxy.image);
+    let dng = std::fs::read(dir.join("files").join("IMG_0003.dng")).unwrap();
+    let edge = SourceLevel::Preview.max_edge();
+    let plain = mean_rgb(&crate::files::load_bytes(&dng, edge).unwrap().0);
+    let with = mean_rgb(&crate::files::load_bytes_with(&dng, edge, Some(&swapping_profile("Swap"))).unwrap().0);
+    assert!(distance(got, plain) < distance(got, with), "the proxy has the file's own colour: {got:?}, plain {plain:?}, profiled {with:?}");
+    // nor from the file developed with the profile
+    s.media.forget(id);
+    s.execute("library.smartPreviews", &json!({"ids": [id.0], "discard": true})).unwrap();
+    s.execute("library.smartPreviews", &json!({"ids": [id.0]})).unwrap();
+    let proxy = crate::smart::load(&crate::smart::existing_file_path(&smart_dir, crate::smart::sharded_file_path(&smart_dir, &p))).unwrap();
+    let got = mean_rgb(&proxy.image);
+    assert!(distance(got, plain) < distance(got, with), "the proxy has the file's own colour: {got:?}, plain {plain:?}, profiled {with:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The decoder facts reported for a photo come from a cached source developed with the camera profile it uses now;
+/// before, a thumbnail decoded with another profile (or none) answered first.
+#[test]
+fn source_facts_come_from_a_source_developed_with_the_current_camera_profile() {
+    use crate::media::{DecodedSource, SourceLevel};
+    let dir = temp_dir("facts");
+    let (mut s, id, _) = library_with_profile(&dir);
+    let tag = s.media.camera_profile_of(s.catalog.photo(id).unwrap()).map(|c| c.0);
+    let img = std::sync::Arc::new(lightcraft_raster::Rgb32f::new(4, 4));
+    let facts = |temp: f64, camera_profile| DecodedSource {
+        camera_profile,
+        ..DecodedSource::new(img.clone(), Some(lightcraft_pipeline::SourceInfo { as_shot_temp: temp, ..Default::default() }))
+    };
+    s.media.insert_source(id, SourceLevel::Thumb, facts(3100.0, None));
+    s.media.insert_source(id, SourceLevel::Preview, facts(6200.0, tag));
+    assert_eq!(s.source_info(id).as_shot_temp, 6200.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file that is neither a `.cube`, a `.dcp` nor a `.zip` is reported as failed instead of being passed over.
+#[test]
+fn importing_an_unsupported_profile_file_reports_it() {
+    let dir = temp_dir("unsupported");
+    let notes = dir.join("notes.txt");
+    std::fs::write(&notes, "not a profile").unwrap();
+    let mut s = Session::new();
+    let r = s.execute("profile.import", &json!({"paths": [notes.to_string_lossy()]})).unwrap();
+    assert_eq!(r["imported"].as_array().map(Vec::len), Some(0), "{r}");
+    assert_eq!(r["failed"], json!([["notes", "not a .cube, .dcp or .zip file"]]), "{r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
