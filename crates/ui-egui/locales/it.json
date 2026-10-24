@@ -2172,6 +2172,7 @@
   "Reject photos with blurry eyes": "Rifiuta le foto con occhi sfocati",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Valuta gli occhi dei soggetti principali come la striscia degli occhi, circa un secondo per foto, in background. Le foto scelte non vengono toccate.",
   "Finding closed and blurry eyes": "Ricerca di occhi chiusi e sfocati",
+  "Finding eyes for culling": "Ricerca degli occhi per la selezione",
   "Show ratings, flags and labels under the thumbnails": "Mostra valutazioni, bandierine ed etichette sotto le miniature",
   "Any": "Tutte",
   "Any rating": "Qualsiasi valutazione",

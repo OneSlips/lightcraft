@@ -2987,6 +2987,7 @@
   "Reject photos with blurry eyes": "Відхиляти фото з розмитими очима",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Перевіряє очі головних героїв так само, як стрічка очей, близько секунди на фото, у фоні. Відібрані фото не змінюються.",
   "Finding closed and blurry eyes": "Пошук заплющених і розмитих очей",
+  "Finding eyes for culling": "Пошук очей для відбору",
   "Show ratings, flags and labels under the thumbnails": "Показувати рейтинг, прапорці й мітки під мініатюрами",
   "Any": "Усі",
   "Any rating": "Будь-який рейтинг",

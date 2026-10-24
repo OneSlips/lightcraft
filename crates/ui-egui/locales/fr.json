@@ -2987,6 +2987,7 @@
   "Reject photos with blurry eyes": "Rejeter les photos aux yeux flous",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Examine les yeux des sujets principaux comme le bandeau des yeux, environ une seconde par photo, en arrière-plan. Les photos retenues ne sont pas touchées.",
   "Finding closed and blurry eyes": "Recherche des yeux fermés et flous",
+  "Finding eyes for culling": "Recherche des yeux pour le tri",
   "Show ratings, flags and labels under the thumbnails": "Afficher notes, drapeaux et étiquettes sous les vignettes",
   "Any": "Toutes",
   "Any rating": "Toute note",

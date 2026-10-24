@@ -43,6 +43,7 @@ USAGE:
       Options:
         --demo            headless, the procedural demo library
         --library DIR     headless, open (or create) a LightCraft library; edits are saved
+                          (`@app`: the library the desktop app opens, so its preview cache is warmed)
         --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --import PATH     headless, import a file or folder first (repeatable)
         --connect [ADDR]  drive the running app (`lightcraft --control 7980`; default 127.0.0.1:7980)
@@ -54,6 +55,7 @@ USAGE:
         --connect [ADDR]  drive a running app instead (`lightcraft --control 7980`; default 127.0.0.1:7980)
         --demo            headless: start with the procedurally generated demo library
         --library DIR     headless: open (or create) a persistent LightCraft library; edits are saved
+                          (`@app`: the library the desktop app opens)
         --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --compact         list only the helper tools (every command stays reachable via run_command)
   lightcraft-cli render <IN> -o <OUT> [OPTIONS]
@@ -76,6 +78,7 @@ USAGE:
       Options:
         --demo            the procedural demo library (default unless --library or FILES)
         --library DIR     open (or create) a LightCraft library
+                          (`@app`: the library the desktop app opens)
         --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
         --script FILE     JSON-lines control-protocol requests (docs/control-protocol.md), one
                           per line: {\"method\": \"ui.set\", \"params\": {\"view\": \"detail\"}}.
@@ -143,9 +146,41 @@ fn library_warnings(session: &mut Session, who: &str) {
     }
 }
 
+/// `--library @app`: the library the desktop app opens — the one last opened with Settings → Open
+/// Library… (its `ui.json`, unless `$LIGHTCRAFT_LIBRARY` is set), else the default location — so a
+/// headless run (a prep run before culling) fills the same preview cache the app reads.
+pub const APP_LIBRARY: &str = "@app";
+
+fn app_library_with(config: Option<std::path::PathBuf>, env_set: bool, default: Option<std::path::PathBuf>) -> Option<String> {
+    let saved = config
+        .filter(|_| !env_set)
+        .and_then(|d| std::fs::read(d.join("ui.json")).ok())
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v.get("settings")?.get("library_path")?.as_str().map(str::to_string))
+        .filter(|p| !p.trim().is_empty());
+    saved.or_else(|| default.map(|d| d.to_string_lossy().into_owned()))
+}
+
+/// The folder `--library` names: `@app` is the desktop app's library ([`APP_LIBRARY`]).
+fn library_arg(dir: &str) -> Result<String, String> {
+    if dir != APP_LIBRARY {
+        return Ok(dir.to_string());
+    }
+    let env_set = std::env::var_os("LIGHTCRAFT_LIBRARY").is_some_and(|v| !v.is_empty());
+    let found = app_library_with(lightcraft_engine::config::config_dir(), env_set, lightcraft_engine::library::default_dir())
+        .ok_or_else(|| "--library @app: no home folder to find the app's library in".to_string())?;
+    eprintln!("lightcraft-cli: the app's library is {found}");
+    Ok(found)
+}
+
 /// Open `--library DIR`; with `--upgrade`, a library made by an earlier LightCraft opens through its upgraded copy
 /// (`DIR_V10`, the original untouched). Returns the folder opened.
 fn open_cli_library(s: &mut Session, dir: &str, demo: bool, upgrade: bool) -> Result<String, String> {
+    let dir = &library_arg(dir)?;
+    // the AI models the app has installed (eye focus, AI masks), from the folder the app keeps them in
+    if s.segmenter.models_root.is_none() {
+        s.segmenter.models_root = lightcraft_engine::config::default_ai_models_dir();
+    }
     if upgrade {
         let (opened, _) = s.open_library_upgraded(dir, demo).map_err(|e| library_error(dir, e))?;
         if opened != std::path::Path::new(dir) {
@@ -1129,4 +1164,31 @@ fn denoise_serve(args: &[String]) -> Result<(), String> {
 #[cfg(not(feature = "denoise"))]
 fn denoise_serve(_: &[String]) -> Result<(), String> {
     Err("denoise-serve: this build has no denoise support (build with the `denoise` feature)".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--library @app` finds the library the desktop app opens: the one saved in its settings,
+    /// else (none saved, unreadable settings, or `$LIGHTCRAFT_LIBRARY` set) the default.
+    #[test]
+    fn app_library_is_the_desktop_apps() {
+        let d = std::env::temp_dir().join(format!("lc-cli-app-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let default = Some(std::path::PathBuf::from("/home/me/Pictures/LightCraft Library"));
+        let def = default.clone().map(|p| p.to_string_lossy().into_owned());
+        assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def, "no settings yet");
+        std::fs::write(d.join("ui.json"), br#"{"settings": {"library_path": "/Volumes/Photos/Lib"}}"#).unwrap();
+        assert_eq!(app_library_with(Some(d.clone()), false, default.clone()).as_deref(), Some("/Volumes/Photos/Lib"));
+        assert_eq!(app_library_with(Some(d.clone()), true, default.clone()), def, "the environment wins, as in the app");
+        std::fs::write(d.join("ui.json"), br#"{"settings": {"library_path": ""}}"#).unwrap();
+        assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def);
+        std::fs::write(d.join("ui.json"), b"{not json").unwrap();
+        assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def);
+        assert_eq!(app_library_with(None, false, None), None);
+        assert_eq!(library_arg("/some/dir").unwrap(), "/some/dir");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }

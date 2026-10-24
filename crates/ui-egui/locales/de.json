@@ -2990,6 +2990,7 @@
   "Reject photos with blurry eyes": "Fotos mit unscharfen Augen ablehnen",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Prüft die Augen der Hauptpersonen wie die Augenleiste, etwa eine Sekunde pro Foto, im Hintergrund. Ausgewählte Fotos bleiben unberührt.",
   "Finding closed and blurry eyes": "Geschlossene und unscharfe Augen werden gesucht",
+  "Finding eyes for culling": "Augen werden für die Auswahl gesucht",
   "Show ratings, flags and labels under the thumbnails": "Bewertungen, Markierungen und Etiketten unter den Miniaturen",
   "Any": "Alle",
   "Any rating": "Jede Bewertung",
