@@ -8,8 +8,6 @@
 //! pasted, another person, the photo turned) get it ([`Session::retouch_follow_up`]): queued in the
 //! desktop app (an activity row while the models work), waited for in the CLI, MCP and tests.
 
-use std::sync::Arc;
-
 use lightcraft_catalog::{Op, PhotoId};
 use lightcraft_develop::{DevelopSettings, PartRequest, RetouchAnalysis, RetouchMask, SkinFace};
 use lightcraft_geom::Orientation;
@@ -66,19 +64,6 @@ fn with(d: &DevelopSettings, a: &RetouchAnalysis) -> Option<DevelopSettings> {
     Some(DevelopSettings { retouch_analysis: Some(merged), ..d.clone() })
 }
 
-/// `op` with analysis `a` given to photo `id`'s settings wherever they want it.
-fn patch_op(op: &mut Op, id: PhotoId, a: &RetouchAnalysis) {
-    match op {
-        Op::SetDevelop { id: pid, settings, .. } if *pid == id => {
-            if let Some(d) = with(settings, a) {
-                *settings = Arc::new(d);
-            }
-        }
-        Op::Batch { ops } => ops.iter_mut().for_each(|o| patch_op(o, id, a)),
-        _ => {}
-    }
-}
-
 /// Photo ids whose settings `op` sets.
 fn developed(op: &Op, out: &mut Vec<PhotoId>) {
     match op {
@@ -131,25 +116,19 @@ impl Session {
         }
     }
 
-    /// Give photo `id` the parts found (`a`): in its settings, and in every undo and redo step
-    /// (and a slider drag's starting point) of the same orientation. Stored and written to the
+    /// Give photo `id` the parts found (`a`): in its settings, and in every undo and redo step, an
+    /// interaction's starting points and the History steps of the same orientation
+    /// ([`Session::merge_background`]: edits made while it ran are kept). Stored and written to the
     /// sidecar like any change, but without an undo step of its own.
     pub(crate) fn store_retouch_analysis(&mut self, id: PhotoId, a: &RetouchAnalysis) {
-        for e in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-            patch_op(&mut e.op, id, a);
-        }
-        if let Some(i) = self.interaction.as_mut().filter(|i| i.photo == id)
-            && let Some(d) = with(&i.original, a)
-        {
-            i.original = Arc::new(d);
-        }
-        let Some(p) = self.catalog.photo(id) else { return };
-        let Some(d) = with(&p.develop, a) else { return };
-        let op = Op::SetDevelop { id, settings: Arc::new(d), label: "Find Retouch Parts".into(), edited: p.edited.clone() };
-        match self.catalog.apply(op.clone()) {
-            Ok(_) => self.pending_log.push(op),
-            Err(e) => log::warn!("Retouch: could not store the parts found on photo {}: {e}", id.0),
-        }
+        let give = |d: &mut DevelopSettings| match with(d, a) {
+            Some(n) => {
+                *d = n;
+                true
+            }
+            None => false,
+        };
+        self.merge_background(id, "Find Retouch Parts", false, &give);
     }
 
     /// The parts photo `id`'s retouch sections want and its settings don't hold (`None`: none).

@@ -10,8 +10,6 @@
 //! on, pasted, synced, another area or person, turned) get one ([`Session::skin_follow_up`]):
 //! queued in the desktop app, waited for in the CLI, MCP and tests.
 
-use std::sync::Arc;
-
 use lightcraft_catalog::{Op, PhotoId};
 use lightcraft_develop::{DevelopSettings, SegMask, SkinAnalysis, SkinArea, SkinFace};
 use lightcraft_geom::Orientation;
@@ -171,19 +169,6 @@ fn wants(d: &DevelopSettings, a: &SkinAnalysis) -> bool {
     a.is_for(&d.skin, d.orientation) && d.skin_analysis.as_ref() != Some(a)
 }
 
-/// `op` with analysis `a` given to photo `id`'s settings wherever they want it.
-fn patch_op(op: &mut Op, id: PhotoId, a: &SkinAnalysis) {
-    match op {
-        Op::SetDevelop { id: pid, settings, .. } if *pid == id && wants(settings, a) => {
-            let mut d = (**settings).clone();
-            d.skin_analysis = Some(a.clone());
-            *settings = Arc::new(d);
-        }
-        Op::Batch { ops } => ops.iter_mut().for_each(|o| patch_op(o, id, a)),
-        _ => {}
-    }
-}
-
 /// Photo ids whose settings `op` sets.
 fn developed(op: &Op, out: &mut Vec<PhotoId>) {
     match op {
@@ -239,28 +224,18 @@ impl Session {
     }
 
     /// Give photo `id` Smooth Skin's analysis `a`: in its settings when they want it, and in every
-    /// undo and redo step (and a slider drag's starting point) that wants it. Stored and written
-    /// to the sidecar like any change, but without an undo step of its own.
+    /// undo and redo step, an interaction's starting points and the History steps that want it
+    /// ([`Session::merge_background`]: edits made while it ran are kept). Stored and written to the
+    /// sidecar like any change, but without an undo step of its own.
     pub(crate) fn store_skin_analysis(&mut self, id: PhotoId, a: &SkinAnalysis) {
-        for e in self.undo.iter_mut().chain(self.redo.iter_mut()) {
-            patch_op(&mut e.op, id, a);
-        }
-        if let Some(i) = self.interaction.as_mut().filter(|i| i.photo == id && wants(&i.original, a)) {
-            let mut d = (*i.original).clone();
+        let give = |d: &mut DevelopSettings| {
+            if !wants(d, a) {
+                return false;
+            }
             d.skin_analysis = Some(a.clone());
-            i.original = Arc::new(d);
-        }
-        let Some(p) = self.catalog.photo(id) else { return };
-        if !wants(&p.develop, a) {
-            return;
-        }
-        let mut d = (*p.develop).clone();
-        d.skin_analysis = Some(a.clone());
-        let op = Op::SetDevelop { id, settings: Arc::new(d), label: "Find Skin".into(), edited: p.edited.clone() };
-        match self.catalog.apply(op.clone()) {
-            Ok(_) => self.pending_log.push(op),
-            Err(e) => log::warn!("Smooth Skin: could not store the skin found on photo {}: {e}", id.0),
-        }
+            true
+        };
+        self.merge_background(id, "Find Skin", false, &give);
     }
 
     /// Whether photo `id`'s Smooth Skin wants an analysis it doesn't have (`Some(key)`).
