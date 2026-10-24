@@ -2245,6 +2245,7 @@
   "Reject photos with blurry eyes": "Odmítnout fotky s rozmazanýma očima",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "Posuzuje oči hlavních osob stejně jako pruh očí, asi sekundu na fotku, na pozadí. Vybrané fotky zůstanou beze změny.",
   "Finding closed and blurry eyes": "Hledání zavřených a rozmazaných očí",
+  "Finding eyes for culling": "Hledání očí pro výběr",
   "Show ratings, flags and labels under the thumbnails": "Hodnocení, příznaky a štítky pod miniaturami",
   "Any": "Vše",
   "Any rating": "Libovolné hodnocení",

@@ -36,7 +36,7 @@ const HIDDEN_EYE: f32 = 0.5;
 #[cfg_attr(not(feature = "sam"), allow(dead_code))]
 const DETECT_EDGE: usize = 1600;
 /// How sharp an eye looks, for a dot in the strip.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Focus {
     Sharp,
@@ -75,7 +75,7 @@ impl Focus {
 }
 
 /// Whether an eye is open, from [`openness`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Lids {
     Open,
@@ -387,6 +387,9 @@ pub struct EyeJob {
     pub key: u64,
     pub photo: PhotoId,
     pub source: EyeSource,
+    /// Where its result is kept on disk ([`crate::eye_store`]): read before the photo is looked
+    /// at, written after. `None`: kept in memory only.
+    pub store: Option<crate::eye_store::Store>,
 }
 
 /// Luminance (0–1, display-referred) of an sRGB pixel.
@@ -587,7 +590,7 @@ pub fn measure_eye_at(img: &Rgba8, c: [f32; 2], ew: f32) -> Option<f32> {
 
 /// How an eye's surroundings look on the photo, around its centre `c` (`ew` pixels wide), against
 /// the cheek below it: what tells an eye behind a dark lens (sunglasses) from an eye.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct EyeLook {
     /// Share of the eye's opening that is white of the eye: lighter than the lid would be and
     /// without skin's warmth.
@@ -1191,7 +1194,8 @@ impl crate::Session {
             (lightcraft_catalog::MediaKind::Image, _) => EyeSource::File(path.clone()),
             _ => return None,
         };
-        Some(EyeJob { key, photo: id, source })
+        let store = Some(crate::eye_store::Store { cache: self.media.rendered.clone(), path: path.clone() });
+        Some(EyeJob { key, photo: id, source, store })
     }
 
     /// Where the eye finder's model lives, when it is installed (`None`: it needs downloading,
@@ -1292,6 +1296,17 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
                 q = s.cv.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         };
+        // looked at before (this session or another, or by a prep run): read from the preview cache,
+        // without waiting for the pictures on screen (a small file, no raw is read)
+        let kept = job.store.as_ref().and_then(|st| Some((st.cache.clone(), st.key(&s.model_dir)?)));
+        if let Some((cache, key)) = &kept
+            && let Some(r) = crate::eye_store::read(cache, *key, job.photo)
+        {
+            if tx.send((job.key, job.photo, Ok(Arc::new(r)))).is_err() {
+                return;
+            }
+            continue;
+        }
         // the pictures on screen first: no raw is read for eyes while a cell or the loupe still
         // waits for its first picture (bounded: the eyes of the photo on screen still come)
         let closing = || s.queue.lock().map(|q| q.1).unwrap_or(true);
@@ -1325,6 +1340,9 @@ fn run(s: &Shared, tx: &std::sync::mpsc::Sender<EyeResult>) {
             }
         })
         .and_then(|r| r);
+        if let (Ok(r), Some((cache, key))) = (&result, &kept) {
+            crate::eye_store::write(cache, *key, r);
+        }
         if tx.send((job.key, job.photo, result)).is_err() {
             return;
         }

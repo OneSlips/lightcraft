@@ -138,6 +138,15 @@ pub fn specs() -> Vec<CommandSpec> {
             crate::eye_cull::pump
         ),
         cmd!(
+            "eyes.analyze",
+            "Find Eyes Ahead",
+            [],
+            None,
+            "{path?: folder (its browsed or library photos), subfolders?: bool (true), ids?, wait?: bool, lanes?: 1..8 (photos side by side: 1 in the background, with wait an eighth of the threads up to 4), status?: bool, cancel?: bool} — find the eyes of many photos ahead of culling (those in folder `path`, else `ids`, else the selection, else all in view) and keep each result in the preview cache, so the eye focus strip shows them at once, also after a restart; photos kept there already are skipped. Runs in the background (activity row, cancellable, waits while the photo on screen is being made); `wait` runs it now; `status` reports the last run; `cancel` stops it → {active, done, photos, kept, analyzed, failed, cancelled, ms?, lanes?}",
+            always,
+            crate::eye_prep::analyze
+        ),
+        cmd!(
             "library.findSimilar",
             "Find Similar Photos",
             ["Photo"],

@@ -2990,6 +2990,7 @@
   "Reject photos with blurry eyes": "目がぼけた写真を却下",
   "Looks at the main subjects' eyes the way the eye strip does, about a second a photo, in the background. Picked photos are left alone.": "アイストリップと同じ方法で主な被写体の目を判定します（1枚約1秒、バックグラウンド）。採用済みの写真はそのままです。",
   "Finding closed and blurry eyes": "閉じた目とぼけた目を検出中",
+  "Finding eyes for culling": "選別用に目を検出中",
   "Show ratings, flags and labels under the thumbnails": "評価・フラグ・ラベルをサムネイルの下に表示",
   "Any": "すべて",
   "Any rating": "すべての評価",

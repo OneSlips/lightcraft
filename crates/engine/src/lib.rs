@@ -41,6 +41,8 @@ pub mod dust_map;
 mod errors;
 pub mod export;
 pub mod eye_cull;
+pub mod eye_prep;
+pub mod eye_store;
 pub mod eyes;
 pub mod face_download;
 pub mod face_tiles;
@@ -452,6 +454,8 @@ pub struct Session {
     /// Reject Closed and Blurry Eyes running in the background, and what it has finished so far.
     pub(crate) eye_cull: Option<Arc<eye_cull::EyeCullRun>>,
     pub(crate) eye_cull_results: Vec<(PhotoId, std::result::Result<Arc<eyes::EyeReport>, String>)>,
+    /// The last `eyes.analyze` run in the background.
+    pub(crate) eye_prep: Option<Arc<eye_prep::EyePrep>>,
     /// Imported `.cube` LUT profiles.
     pub lut_profiles: Vec<cmd::lut_profiles::LutProfile>,
     /// The target album B adds to (`None` = the Quick Collection).
@@ -647,6 +651,7 @@ impl Session {
             signatures: Default::default(),
             eye_cull: None,
             eye_cull_results: Vec::new(),
+            eye_prep: None,
             lut_profiles: Vec::new(),
             target_album: None,
             auto_import_seen: Default::default(),
@@ -1833,6 +1838,8 @@ mod tests_dcp_corpus;
 mod tests_denoise;
 #[cfg(test)]
 mod tests_export;
+#[cfg(test)]
+mod tests_eye_store;
 #[cfg(test)]
 mod tests_face_models;
 #[cfg(test)]

@@ -62,48 +62,77 @@ fn model_dir(s: &mut Session) -> Result<std::path::PathBuf> {
 }
 
 /// Judge `jobs` one after the other, sending each result; stops early when `cancel` is set.
-fn judge(
+pub(crate) fn judge(
     model_dir: &std::path::Path,
     jobs: &[EyeJob],
     cancel: &AtomicBool,
     mut each: impl FnMut(PhotoId, std::result::Result<Arc<EyeReport>, String>),
 ) -> bool {
+    judge_counted(model_dir, jobs, cancel, false, |id, r, _| each(id, r))
+}
+
+/// [`judge`], telling `each` whether the result was read from the preview cache. A photo whose
+/// eyes are kept in the preview cache ([`crate::eye_store`]) is read from there, the others are
+/// looked at and kept. The model is loaded for the first photo that needs it. `polite`: each photo looked at waits while the photo on screen is being made or
+/// something on screen lacks its first picture (a background run beside someone culling).
+pub(crate) fn judge_counted(
+    model_dir: &std::path::Path,
+    jobs: &[EyeJob],
+    cancel: &AtomicBool,
+    polite: bool,
+    mut each: impl FnMut(PhotoId, std::result::Result<Arc<EyeReport>, String>, bool),
+) -> bool {
     #[cfg(feature = "sam")]
-    {
-        let model = match lightcraft_segment::people::FaceModel::load(model_dir) {
-            Ok(m) => m,
-            Err(e) => {
-                for j in jobs {
-                    each(j.photo, Err(e.to_string()));
-                }
-                return false;
-            }
-        };
-        let people = crate::eyes::people_beside(model_dir);
-        for j in jobs {
-            if cancel.load(Ordering::Relaxed) {
+    let mut model: Option<std::result::Result<(lightcraft_segment::people::FaceModel, Option<lightcraft_segment::people::PeopleModel>), String>> =
+        None;
+    for j in jobs {
+        if cancel.load(Ordering::Relaxed) {
+            return true;
+        }
+        let kept = j.store.as_ref().and_then(|st| Some((st.cache.clone(), st.key(model_dir)?)));
+        if let Some((cache, key)) = &kept
+            && let Some(r) = crate::eye_store::read(cache, *key, j.photo)
+        {
+            each(j.photo, Ok(Arc::new(r)), true);
+            continue;
+        }
+        if polite {
+            let stop = || cancel.load(Ordering::Relaxed);
+            if crate::prep::wait_for_foreground(cancel) || crate::prep::wait_for_pictures(&stop, std::time::Duration::from_secs(5)) {
                 return true;
             }
-            let r = crate::guard::catch("finding eyes", || {
-                let img = crate::memory::in_background(|| crate::eyes::load(&j.source)).ok_or_else(|| "the picture could not be read".to_string())?;
-                let r = crate::eyes::analyze(&model, people.as_ref(), &img, j.photo).map(Arc::new);
-                drop(img);
-                crate::memory::release();
-                r
-            })
-            .and_then(|r| r);
-            each(j.photo, r);
         }
-        false
-    }
-    #[cfg(not(feature = "sam"))]
-    {
-        let _ = (model_dir, cancel);
-        for j in jobs {
-            each(j.photo, Err("eye focus needs a build with AI masks".to_string()));
+        #[cfg(feature = "sam")]
+        let r = {
+            let m = model.get_or_insert_with(|| {
+                crate::guard::catch("loading the faces model", || {
+                    lightcraft_segment::people::FaceModel::load(model_dir)
+                        .map(|m| (m, crate::eyes::people_beside(model_dir)))
+                        .map_err(|e| e.to_string())
+                })
+                .and_then(|r| r)
+            });
+            match m {
+                Err(e) => Err(e.clone()),
+                Ok((model, people)) => crate::guard::catch("finding eyes", || {
+                    let img =
+                        crate::memory::in_background(|| crate::eyes::load(&j.source)).ok_or_else(|| "the picture could not be read".to_string())?;
+                    let r = crate::eyes::analyze(model, people.as_ref(), &img, j.photo).map(Arc::new);
+                    drop(img);
+                    crate::memory::release();
+                    r
+                })
+                .and_then(|r| r),
+            }
+        };
+        #[cfg(not(feature = "sam"))]
+        let r: std::result::Result<Arc<EyeReport>, String> = Err("eye focus needs a build with AI masks".to_string());
+        if let (Ok(r), Some((cache, key))) = (&r, &kept) {
+            crate::eye_store::write(cache, *key, r);
         }
-        false
+        each(j.photo, r, false);
     }
+    false
 }
 
 /// Flag the rejects among `reports` in one undo step (a photo the user picked is never rejected,
