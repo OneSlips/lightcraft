@@ -16,7 +16,9 @@ use crate::profile::Profile;
 /// every encoder keeps doing what it did.
 /// 3: the brush's Erase key is the momentary `brush.erase` (format 2 had a subtracting new brush,
 /// `tool.brush {op: subtract}`, from TactileBridge's Erase Mask Tool).
-pub const FORMAT_VERSION: u32 = 3;
+/// 4: the Masks panel has one page, "Masks" (format 3 had "Masking" for no mask selected and "Mask" for a mask
+/// selected); format 3 profiles are merged on load, keeping the user's changes ([`crate::defaults::merge_mask_pages`]).
+pub const FORMAT_VERSION: u32 = 4;
 /// The port surfaces connect to by default.
 pub const DEFAULT_PORT: u16 = 7981;
 
@@ -274,6 +276,9 @@ pub struct SurfaceSettings {
     pub look: DeviceLook,
     pub profiles: Vec<Profile>,
     pub paired: Vec<PairedClient>,
+    /// What loading an older file merged (the Masks pages, format 4), for the app to say once. Not saved.
+    #[serde(skip)]
+    pub merged_mask_pages: Vec<crate::defaults::MaskPagesMerged>,
 }
 
 impl Default for SurfaceSettings {
@@ -294,6 +299,7 @@ impl Default for SurfaceSettings {
             look: DeviceLook::default(),
             profiles: crate::defaults::profiles(),
             paired: Vec::new(),
+            merged_mask_pages: Vec::new(),
         }
     }
 }
@@ -342,6 +348,9 @@ impl SurfaceSettings {
                     }
                 }
             }
+        }
+        if s.version < 4 {
+            s.merged_mask_pages = s.profiles.iter_mut().filter_map(crate::defaults::merge_mask_pages).collect();
         }
         s.sanitize();
         Ok(s)
@@ -433,6 +442,27 @@ fn swap_encoders(map: &mut BTreeMap<String, crate::binding::Binding>) {
 
 #[cfg(test)]
 mod tests {
+    /// Test notes 2026-10-24 note 24: a format 3 file's "Masking" and "Mask" pages load as one "Masks" page, the
+    /// user's changes kept and reported once; the file saved again needs nothing more.
+    #[test]
+    fn format_3_files_merge_the_masks_pages() {
+        let mut s = SurfaceSettings::default();
+        let mut wedding = crate::defaults::tests::format_3("Wedding");
+        wedding.pages.iter_mut().find(|pg| pg.name == "Masking").unwrap().bindings.insert("dial".into(), crate::Binding::value("mask.temp"));
+        s.profiles = vec![wedding, crate::defaults::tests::format_3("Default")];
+        let mut v = serde_json::to_value(&s).unwrap();
+        v["version"] = serde_json::json!(3);
+        let s = SurfaceSettings::from_json(&v.to_string()).unwrap();
+        assert_eq!(s.merged_mask_pages.len(), 2);
+        assert_eq!(s.merged_mask_pages[0].kept, ["dial"]);
+        let w = &s.profiles[0];
+        assert_eq!(w.page("Masks").unwrap().bindings["dial"], crate::Binding::value("mask.temp"));
+        assert!(w.page("Mask").is_none() && !w.contexts.contains_key("masking.mask"));
+        let again = SurfaceSettings::from_json(&s.to_json()).unwrap();
+        assert!(again.merged_mask_pages.is_empty(), "format 4: nothing to merge");
+        assert_eq!(again.profiles, s.profiles);
+    }
+
     #[test]
     fn format_2_files_get_the_momentary_erase() {
         let mut v = serde_json::to_value(SurfaceSettings::default()).unwrap();

@@ -141,7 +141,9 @@ fn a_photo_synced_while_away_shows_its_last_render_not_the_camera_jpeg() {
     seen.clear();
     assert!(frames(&mut h, T, &mut seen, |h| rendered(h, id)), "its render comes");
     let first = seen.iter().find(|(p, _)| *p == id).copied();
-    assert!(matches!(first, Some((_, "last" | "render" | "cached"))), "the first picture of the synced photo: {first:?}");
+    // (its grid thumbnail too, when the background re-render made it first: the loupe draws a
+    // thumbnail only when it shows an edit, never the camera JPEG)
+    assert!(matches!(first, Some((_, "last" | "render" | "cached" | "thumb"))), "the first picture of the synced photo: {first:?}");
     let camera: Vec<_> = seen.iter().filter(|(p, s)| *p == id && *s == "embedded").collect();
     assert!(camera.is_empty(), "the camera JPEG stood in for the edit: {camera:?}");
 }
@@ -227,7 +229,10 @@ fn an_edited_raw_never_rendered_shows_a_draft_of_its_edit_at_once() {
     let r = h.request("ui.set", json!({"view": "detail"}), T);
     assert_eq!(r["ok"], true, "{r}");
     let mut seen = Vec::new();
-    assert!(frames(&mut h, Duration::from_secs(1), &mut seen, |h| h.app.loupe_shown == Some((PhotoId(2), "draft"))), "{seen:?}");
+    // (its draft, or its grid thumbnail when that is made first on a busy machine: the loupe draws a
+    // thumbnail only when it shows the edit, never the camera JPEG)
+    let edit_shown = |h: &Headless| matches!(h.app.loupe_shown, Some((PhotoId(2), "draft" | "thumb")));
+    assert!(frames(&mut h, Duration::from_secs(1), &mut seen, edit_shown), "{seen:?}");
     assert!(!seen.iter().any(|(_, s)| *s == "embedded"), "the camera JPEG: {seen:?}");
     // the filmstrip cells too: drafts, no camera JPEG
     let film = frames(&mut h, Duration::from_secs(2), &mut seen, |h| h.app.thumb_first.summary().empty_now == 0);

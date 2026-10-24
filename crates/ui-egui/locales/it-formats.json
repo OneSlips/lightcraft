@@ -457,5 +457,8 @@
   "Saved naming preset “{name}”": "Predefinito di denominazione “{name}” salvato",
   "{n} items": "{n} elementi",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Questa azione non usa: {keys}. Scegli Predefinito qui sopra per mettere un predefinito su questo tasto.",
-  "{n} presets from your other libraries were added.": "Aggiunti {n} predefiniti dalle altre librerie."
+  "{n} presets from your other libraries were added.": "Aggiunti {n} predefiniti dalle altre librerie.",
+  "Spots on this photo: {n}": "Macchie in questa foto: {n}",
+  "From Remove Dust (outlined in amber): {n}": "Da Rimuovi polvere (contornati in ambra): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Profilo console {profile}: le pagine Masking e Mask ora sono un'unica pagina Masks, mostrata ogni volta che il pannello Maschere è aperto. Senza una maschera selezionata i suoi controlli impostano la prossima maschera. Le tue modifiche sono state mantenute."
 }

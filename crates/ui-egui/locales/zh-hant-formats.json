@@ -457,5 +457,8 @@
   "Saved naming preset “{name}”": "已儲存命名預設「{name}」",
   "{n} items": "{n} 項",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "此操作不使用：{keys}。要把預設放到此鍵上，請在上方選擇「預設」。",
-  "{n} presets from your other libraries were added.": "已從其他圖庫加入 {n} 個預設集。"
+  "{n} presets from your other libraries were added.": "已從其他圖庫加入 {n} 個預設集。",
+  "Spots on this photo: {n}": "此相片的斑點：{n}",
+  "From Remove Dust (outlined in amber): {n}": "來自「去除灰塵」（琥珀色輪廓）：{n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "主控台設定檔 {profile}：Masking 與 Mask 頁面現已合併為一個 Masks 頁面，只要開啟遮色片面板就會顯示。未選取遮色片時，其控制項會設定下一個遮色片。您自己的變更已保留。"
 }

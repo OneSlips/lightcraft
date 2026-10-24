@@ -457,5 +457,8 @@
   "Saved naming preset “{name}”": "Předvolba názvů „{name}“ uložena",
   "{n} items": "{n} položek",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Tato akce nepoužívá: {keys}. Předvolbu na klávesu dáte volbou Předvolba výše.",
-  "{n} presets from your other libraries were added.": "Přidáno {n} předvoleb z vašich dalších knihoven."
+  "{n} presets from your other libraries were added.": "Přidáno {n} předvoleb z vašich dalších knihoven.",
+  "Spots on this photo: {n}": "Retušované oblasti na této fotografii: {n}",
+  "From Remove Dust (outlined in amber): {n}": "Z odstranění prachu (jantarově obtažené): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Profil konzole {profile}: stránky Maskování a Maska jsou nyní jedna stránka Masky, zobrazená vždy, když je otevřený panel Masky. Bez vybrané masky její ovládací prvky nastavují další masku. Vaše vlastní změny zůstaly."
 }

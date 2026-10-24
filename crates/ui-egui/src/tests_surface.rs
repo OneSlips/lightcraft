@@ -561,7 +561,6 @@ fn console_erase_works_while_held_and_delete_needs_a_hold() {
     let mut h = demo();
     open_photo(&mut h);
     bind_key(&mut h, "key.1", Binding::command("brush.erase"));
-    bind_key(&mut h, "key.4", Binding::command_with("tool.brush", json!({"new": true})));
     // Erase: on while the key is down (the brush comes up with it), off when it is let go
     assert_eq!(input(&mut h, json!([{"control": "key.1", "press": true}]))["ok"], true);
     h.settle(T);
@@ -570,7 +569,9 @@ fn console_erase_works_while_held_and_delete_needs_a_hold() {
     assert_eq!(input(&mut h, json!([{"control": "key.1", "press": false}]))["ok"], true);
     h.settle(T);
     assert!(!h.app.ui.brush_erase, "back to painting when let go");
-    // New Brush runs once and is never lit
+    // New Brush runs once and is never lit (on the page the brush brings up: Brush, note 24 of 2026-10-24)
+    assert_eq!(h.app.surface.runtime.context(), "masking.mask.brush");
+    bind_key(&mut h, "key.4", Binding::command_with("tool.brush", json!({"new": true})));
     assert_eq!(input(&mut h, json!([{"control": "key.4", "press": true}, {"control": "key.4", "press": false}]))["ok"], true);
     h.settle(T);
     let layout = serde_json::to_value(crate::surface::layout(&h.app, &lightcraft_surface::devices::MX_CREATIVE_CONSOLE)).unwrap();
@@ -783,4 +784,54 @@ fn a_preset_goes_on_a_key_through_the_picker() {
     h.settle(T);
     assert!(crate::panels::controls::unused_params_for_test("develop.autoSync", &json!({"id": "x"})) == vec!["id".to_string()]);
     assert!(crate::panels::controls::unused_params_for_test("preset.apply", &json!({"id": "x", "amount": 50})).is_empty());
+}
+
+/// Test notes 2026-10-24 note 24: the Masks panel has one console page, a mask selected or not. With no mask
+/// selected its controls set the settings the next mask is made with (the panel's sliders move, the overlay says
+/// "New mask"); with a mask selected they adjust it. The page the editor previews goes when Settings closes.
+#[test]
+fn in_masks_one_page_and_with_no_mask_the_dial_sets_the_next_masks_settings() {
+    let mut h = demo();
+    open_photo(&mut h);
+    let state = |h: &mut Headless| h.request("engine.execute", json!({"command": "surface.state"}), T)["result"].clone();
+    h.app.ui.right = RightPanel::Masking;
+    h.settle(T);
+    assert!(h.app.session.active_mask.is_none());
+    let s = state(&mut h);
+    assert_eq!((s["context"].as_str(), s["keyPage"].as_str(), s["dialPage"].as_str()), (Some("masking"), Some("Masks"), Some("Masks")), "{s}");
+    // no mask: the dial sets the next mask's exposure, and says so
+    let before = h.app.session.mask_next.exposure;
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 30}]))["ok"], true);
+    h.step();
+    let (readout, _) = crate::panels::surface_osd::surface_content(&h.app).expect("the overlay reports it");
+    assert!(readout.title.starts_with("New mask"), "{readout:?}");
+    assert_ne!(readout.value, "—", "with its value: {readout:?}");
+    finish_gesture(&mut h);
+    let next = h.app.session.mask_next.exposure;
+    assert!(next > before, "the next mask's exposure moved: {before} → {next}");
+    // a mask drawn now is made with it
+    let r = h.request(
+        "engine.execute",
+        json!({"command": "mask.add", "params": {"kind": "radial", "center": {"x": 0.5, "y": 0.5}, "rx": 0.2, "ry": 0.2}}),
+        T,
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    let id = h.app.session.active().unwrap();
+    let mask = h.app.session.develop_of(id).unwrap().masks[0].clone();
+    assert_eq!(mask.adjust.exposure, next);
+    // a mask selected: the same page; the dial adjusts that mask
+    assert_eq!(h.app.session.active_mask, Some(mask.id));
+    assert_eq!(state(&mut h)["keyPage"], "Masks");
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 30}]))["ok"], true);
+    finish_gesture(&mut h);
+    assert!(h.app.session.develop_of(id).unwrap().masks[0].adjust.exposure > next);
+    // the editor previews another page on the device, and gives it back on close
+    h.app.ui.dialog = Some(Dialog::Settings { tab: "controls".into() });
+    h.app.surface.editor.page = Some("Crop".into());
+    h.settle(T);
+    assert_eq!(h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).map(String::as_str), Some("Crop"));
+    h.app.ui.dialog = None;
+    h.settle(T);
+    assert_eq!(state(&mut h)["keyPage"], "Masks", "back to the page for the Masks panel");
 }

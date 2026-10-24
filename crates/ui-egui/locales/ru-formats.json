@@ -457,5 +457,8 @@
   "Saved naming preset “{name}”": "Шаблон имён «{name}» сохранён",
   "{n} items": "{n} элем.",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Это действие не использует: {keys}. Чтобы назначить пресет на клавишу, выберите «Пресет» выше.",
-  "{n} presets from your other libraries were added.": "Добавлено пресетов из других библиотек: {n}."
+  "{n} presets from your other libraries were added.": "Добавлено пресетов из других библиотек: {n}.",
+  "Spots on this photo: {n}": "Пятен на этом фото: {n}",
+  "From Remove Dust (outlined in amber): {n}": "От «Удалить пыль» (обведены янтарным): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Профиль консоли {profile}: страницы Masking и Mask теперь одна страница Masks, она показывается всякий раз, когда открыта панель «Маски». Если маска не выбрана, её элементы задают настройки следующей маски. Ваши изменения сохранены."
 }

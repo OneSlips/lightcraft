@@ -3250,5 +3250,10 @@
   "AI Denoise from": "Reducción de ruido con IA desde",
   "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Las fotos raw nuevas tomadas con este ISO o superior empiezan con la reducción de ruido con IA activada, y sus imágenes sin ruido se crean en segundo plano después de la importación. Necesita un modelo de reducción de ruido (Ajustes, Reducción de ruido con IA).",
   "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Fotos y previsualizaciones guardadas en memoria, para que las fotos a las que vuelve se vean al instante. Automático usa una cuarta parte de la memoria de este ordenador, hasta 16 GB. Elija más para sesiones grandes, pero deje algo para otras aplicaciones.",
-  "Finding skin and faces to retouch": "Buscando piel y caras para retocar"
+  "Finding skin and faces to retouch": "Buscando piel y caras para retocar",
+  "No spots on this photo": "No hay manchas en esta foto",
+  "Masks panel": "Panel Máscaras",
+  "Masks panel: painting with the Brush": "Panel Máscaras: pintando con el pincel",
+  "New mask": "Nueva máscara",
+  "The console shows this page while you edit it. When you close Settings it shows the page for what LightCraft shows again.": "La consola muestra esta página mientras la editas. Al cerrar Ajustes vuelve a mostrar la página de lo que LightCraft muestra."
 }

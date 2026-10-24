@@ -69,6 +69,147 @@ fn val(t: &str) -> Binding {
     Binding::value(t)
 }
 
+/// The Masks panel's page: the mask tools on the first keys, the mask's sliders on the rest (press one to put it on
+/// the dial), its exposure on the dial and its amount on the roller.
+pub fn masks_page() -> Page {
+    Page::new(
+        MASKS,
+        &[],
+        [
+            ("key.1", cmdp("tool.brush", json!({"new": true}))),
+            ("key.2", cmd("tool.linear")),
+            ("key.3", cmd("tool.radial")),
+            ("key.4", val("mask.exposure")),
+            ("key.5", val("mask.highlights")),
+            ("key.6", val("mask.shadows")),
+            ("key.7", val("mask.temp")),
+            ("key.8", cmd("surface.maskNext")),
+            ("key.9", cmd("tool.done")),
+            ("dial", val("mask.exposure")),
+            ("roller", val("mask.amount")),
+        ],
+    )
+}
+
+/// The Masks panel's page name.
+pub const MASKS: &str = "Masks";
+
+/// The two pages format 3 had for the Masks panel, as built in: "Masking" (no mask selected) and "Mask" (a mask
+/// selected), to tell a user's own changes from the defaults when they are merged (format 4).
+fn old_mask_pages() -> (Page, Page) {
+    let masking = Page::new(
+        "Masking",
+        &[],
+        [
+            ("key.1", cmdp("tool.brush", json!({"new": true}))),
+            ("key.2", cmd("tool.linear")),
+            ("key.3", cmd("tool.radial")),
+            ("key.4", cmdp("mask.add", json!({"kind": "subject"}))),
+            ("key.5", cmdp("mask.add", json!({"kind": "sky"}))),
+            ("key.6", cmdp("mask.add", json!({"kind": "luminanceRange"}))),
+            ("key.7", cmd("view.maskOverlay")),
+            ("key.8", cmd("edit.undo")),
+            ("key.9", cmd("tool.done")),
+            ("dial", val("ui.zoom")),
+        ],
+    );
+    let mask = Page::new(
+        "Mask",
+        &[],
+        [
+            ("key.1", val("mask.exposure")),
+            ("key.2", val("mask.contrast")),
+            ("key.3", val("mask.highlights")),
+            ("key.4", val("mask.shadows")),
+            ("key.5", val("mask.temp")),
+            ("key.6", val("mask.saturation")),
+            ("key.7", cmd("mask.invert")),
+            ("key.8", cmd("surface.maskPrevious")),
+            ("key.9", cmd("surface.maskNext")),
+            ("dial", val("mask.exposure")),
+            ("roller", val("mask.amount")),
+        ],
+    );
+    (masking, mask)
+}
+
+/// What merging a profile's Masks pages did ([`merge_mask_pages`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MaskPagesMerged {
+    /// The profile's name.
+    pub profile: String,
+    /// The controls whose own (changed) bindings were carried into the Masks page.
+    pub kept: Vec<String>,
+}
+
+/// Format 4 (test notes 2026-10-24 note 24): the Masks panel had two near-identical pages, "Masking" (no mask
+/// selected) and "Mask" (a mask selected), and a change made on one didn't show on the other. They become one
+/// "Masks" page shown whenever the Masks panel is open (Brush keeps its own). Per control, a binding the user
+/// changed on "Mask" is kept, else one changed on "Masking", else the Masks page's own. A page of the user's own
+/// mapped there instead stays in charge ("Mask"'s first). `None` when the profile had nothing to merge.
+pub fn merge_mask_pages(p: &mut Profile) -> Option<MaskPagesMerged> {
+    let first = |p: &Profile, k: &str| p.contexts.get(k).and_then(|l| l.first()).cloned();
+    let masking = first(p, "masking");
+    let mask = first(p, "masking.mask").or_else(|| first(p, "masking.mask.gradient"));
+    if mask.is_none() && masking.as_deref().is_none_or(|n| n == MASKS) {
+        return None;
+    }
+    let (old_masking, old_mask) = old_mask_pages();
+    // a page of the user's own (not one of the built-in mask pages)
+    let own = |name: &Option<String>| name.as_deref().is_some_and(|n| n != old_masking.name && n != old_mask.name && n != MASKS);
+    let mut kept = Vec::new();
+    let chosen = if own(&mask) {
+        mask.clone()
+    } else if own(&masking) {
+        masking.clone()
+    } else {
+        // merge the two built-in pages, as the user left them, into Masks
+        let mut merged = p.page(MASKS).cloned().unwrap_or_else(|| Page { auto: true, ..masks_page() });
+        let pm = masking.as_deref().filter(|n| *n == old_masking.name).and_then(|n| p.page(n)).cloned();
+        let pk = mask.as_deref().filter(|n| *n == old_mask.name).and_then(|n| p.page(n)).cloned();
+        let mut controls: std::collections::BTreeSet<String> = merged.bindings.keys().cloned().collect();
+        for pg in [&pm, &pk].into_iter().flatten() {
+            controls.extend(pg.bindings.keys().cloned());
+        }
+        for c in controls {
+            let changed = |pg: &Option<Page>, old: &Page| {
+                pg.as_ref().filter(|pg| pg.bindings.get(&c) != old.bindings.get(&c)).map(|pg| pg.bindings.get(&c).cloned())
+            };
+            let take = changed(&pk, &old_mask).or_else(|| changed(&pm, &old_masking));
+            if let Some(b) = take {
+                kept.push(c.clone());
+                match b {
+                    Some(b) => {
+                        merged.bindings.insert(c, b);
+                    }
+                    None => {
+                        merged.bindings.remove(&c);
+                    }
+                }
+            }
+        }
+        match p.pages.iter_mut().find(|pg| pg.name == MASKS) {
+            Some(pg) => *pg = merged,
+            None => p.pages.push(merged),
+        }
+        Some(MASKS.to_string())
+    };
+    p.contexts.remove("masking.mask");
+    p.contexts.remove("masking.mask.gradient");
+    if let Some(name) = chosen {
+        p.contexts.insert("masking".into(), vec![name]);
+    }
+    // the old built-in pages go when nothing shows them any more
+    for old in [&old_masking.name, &old_mask.name] {
+        let used = p.contexts.values().any(|l| l.contains(old));
+        if !used {
+            p.pages.retain(|pg| !(pg.auto && pg.name == *old));
+        }
+    }
+    p.sanitize();
+    Some(MaskPagesMerged { profile: p.name.clone(), kept })
+}
+
 /// Pages that follow LightCraft's tools, shared by every built-in profile, with the contexts they
 /// show in.
 pub fn tool_pages() -> Vec<(Page, &'static [&'static str])> {
@@ -96,44 +237,10 @@ pub fn tool_pages() -> Vec<(Page, &'static [&'static str])> {
             &["crop"],
         ),
         (
-            Page::new(
-                "Masking",
-                both,
-                [
-                    ("key.1", cmdp("tool.brush", json!({"new": true}))),
-                    ("key.2", cmd("tool.linear")),
-                    ("key.3", cmd("tool.radial")),
-                    ("key.4", cmdp("mask.add", json!({"kind": "subject"}))),
-                    ("key.5", cmdp("mask.add", json!({"kind": "sky"}))),
-                    ("key.6", cmdp("mask.add", json!({"kind": "luminanceRange"}))),
-                    ("key.7", cmd("view.maskOverlay")),
-                    ("key.8", cmd("edit.undo")),
-                    ("key.9", cmd("tool.done")),
-                    ("dial", val("ui.zoom")),
-                ],
-            ),
+            // the Masks panel: one page (test notes 2026-10-24 note 24). With a mask selected its values adjust that
+            // mask; with none selected they set what the next mask is made with (as the panel's sliders do)
+            masks_page(),
             &["masking"],
-        ),
-        (
-            // a selected mask: its sliders on the keys (press one to put it on the dial)
-            Page::new(
-                "Mask",
-                both,
-                [
-                    ("key.1", val("mask.exposure")),
-                    ("key.2", val("mask.contrast")),
-                    ("key.3", val("mask.highlights")),
-                    ("key.4", val("mask.shadows")),
-                    ("key.5", val("mask.temp")),
-                    ("key.6", val("mask.saturation")),
-                    ("key.7", cmd("mask.invert")),
-                    ("key.8", cmd("surface.maskPrevious")),
-                    ("key.9", cmd("surface.maskNext")),
-                    ("dial", val("mask.exposure")),
-                    ("roller", val("mask.amount")),
-                ],
-            ),
-            &["masking.mask", "masking.mask.gradient"],
         ),
         (
             // TactileBridge's Draw Mask context: mask actions on the keys, brush size and feather
@@ -447,7 +554,7 @@ pub fn fine_modifier() -> Binding {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -473,5 +580,64 @@ mod tests {
         // Real Estate's Keystone keys became Upright
         let re = &ps[5];
         assert_eq!(re.page("Correct").unwrap().bindings["key.3"], Binding::command("tool.guidedUpright"));
+    }
+
+    /// A profile as format 3 had it: the "Masking" and "Mask" pages for the Masks panel.
+    pub(crate) fn format_3(name: &str) -> Profile {
+        let mut p = profiles().into_iter().find(|p| p.name == name).unwrap();
+        p.pages.retain(|pg| pg.name != MASKS);
+        let (masking, mask) = old_mask_pages();
+        p.pages.push(Page { auto: true, ..masking });
+        p.pages.push(Page { auto: true, ..mask });
+        p.contexts.insert("masking".into(), vec!["Masking".into()]);
+        p.contexts.insert("masking.mask".into(), vec!["Mask".into()]);
+        p.contexts.insert("masking.mask.gradient".into(), vec!["Mask".into()]);
+        p
+    }
+
+    /// Test notes 2026-10-24 note 24: one Masks page for the Masks panel (Brush keeps its own); the old pair is
+    /// merged, the user's own changes on either kept ("Mask"'s first).
+    #[test]
+    fn the_masks_panel_has_one_page_and_old_pairs_merge_keeping_the_users_changes() {
+        for p in profiles() {
+            assert_eq!(p.contexts.get("masking"), Some(&vec![MASKS.to_string()]), "{}", p.name);
+            assert!(!p.contexts.contains_key("masking.mask") && !p.contexts.contains_key("masking.mask.gradient"), "{}", p.name);
+            assert!(p.page("Masking").is_none() && p.page("Mask").is_none(), "{}", p.name);
+            assert_eq!(p.contexts.get("masking.mask.brush"), Some(&vec!["Brush".to_string()]));
+        }
+        // the photographer's case: the dial and the roller changed on "Masking", "Mask" left alone
+        let mut p = format_3("Wedding");
+        let pg = p.pages.iter_mut().find(|pg| pg.name == "Masking").unwrap();
+        pg.bindings.insert("dial".into(), Binding::value("mask.temp"));
+        pg.bindings.insert("roller".into(), Binding::value("mask.exposure"));
+        let merged = merge_mask_pages(&mut p).expect("merged");
+        assert_eq!(merged.kept, ["dial", "roller"]);
+        let masks = p.page(MASKS).expect("a Masks page");
+        assert_eq!(masks.bindings.get("dial"), Some(&Binding::value("mask.temp")));
+        assert_eq!(masks.bindings.get("roller"), Some(&Binding::value("mask.exposure")));
+        assert_eq!(masks.bindings.get("key.1"), masks_page().bindings.get("key.1"), "the rest as built in");
+        assert!(masks.auto);
+        assert_eq!(p.contexts.get("masking"), Some(&vec![MASKS.to_string()]));
+        assert!(!p.contexts.contains_key("masking.mask") && !p.contexts.contains_key("masking.mask.gradient"));
+        assert!(p.page("Masking").is_none() && p.page("Mask").is_none(), "the old pages go");
+        // both changed: "Mask"'s wins for the same control
+        let mut p = format_3("Default");
+        for (page, b) in [("Masking", "mask.temp"), ("Mask", "mask.tint")] {
+            p.pages.iter_mut().find(|pg| pg.name == page).unwrap().bindings.insert("dial".into(), Binding::value(b));
+        }
+        merge_mask_pages(&mut p).unwrap();
+        assert_eq!(p.page(MASKS).unwrap().bindings.get("dial"), Some(&Binding::value("mask.tint")));
+        // nothing changed: the Masks page as built in; and once merged, nothing more to do
+        let mut p = format_3("Portrait");
+        assert_eq!(merge_mask_pages(&mut p).unwrap().kept, Vec::<String>::new());
+        assert_eq!(p.page(MASKS).unwrap().bindings, masks_page().bindings);
+        assert_eq!(merge_mask_pages(&mut p), None);
+        // a page of the user's own for a selected mask stays in charge
+        let mut p = format_3("Landscape");
+        p.pages.push(Page::new("My Mask", &[], [("dial", Binding::value("mask.clarity"))]));
+        p.contexts.insert("masking.mask".into(), vec!["My Mask".into()]);
+        merge_mask_pages(&mut p).unwrap();
+        assert_eq!(p.contexts.get("masking"), Some(&vec!["My Mask".to_string()]));
+        assert!(p.page("My Mask").is_some());
     }
 }

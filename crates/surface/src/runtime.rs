@@ -122,6 +122,10 @@ pub struct Runtime {
     learn: Learn,
     shown: Option<(Shown, f64)>,
     revision: u64,
+    /// The pages (shown, chosen by hand) before the editor showed the device a page being edited
+    /// ([`Runtime::show_page`]); put back by [`Runtime::end_preview`] (test notes 2026-10-24 note 24: the edited page
+    /// stayed on the console "everywhere").
+    preview: Option<(BTreeMap<PageGroup, String>, BTreeMap<PageGroup, String>)>,
 }
 
 impl Runtime {
@@ -138,6 +142,7 @@ impl Runtime {
             held: Vec::new(),
             accel: Accelerator::default(),
             pending: BTreeMap::new(),
+            preview: None,
             gesture: None,
             last_flush_ms: f64::NEG_INFINITY,
             learn: Learn::Off,
@@ -337,6 +342,9 @@ impl Runtime {
     /// the device the page being edited). False when it's already shown or doesn't exist.
     pub fn show_page(&mut self, name: &str) -> bool {
         let Some(page) = self.profile().and_then(|p| p.page(name)).cloned() else { return false };
+        if self.preview.is_none() {
+            self.preview = Some((self.pages.clone(), self.manual.clone()));
+        }
         let mut changed = false;
         for g in PageGroup::ALL {
             if page.in_group(g) && self.pages.get(&g) != Some(&page.name) {
@@ -349,6 +357,27 @@ impl Runtime {
             self.revision += 1;
         }
         changed
+    }
+
+    /// The editor closed: the pages shown before it previewed one come back, as the context asks (true when that
+    /// changed something).
+    pub fn end_preview(&mut self) -> bool {
+        let Some((pages, manual)) = self.preview.take() else { return false };
+        let before = self.pages.clone();
+        self.pages = pages;
+        self.manual = manual;
+        let ctx = self.context.clone();
+        self.apply_context(&ctx);
+        let changed = before != self.pages;
+        if changed {
+            self.revision += 1;
+        }
+        changed
+    }
+
+    /// Whether the device shows a page the editor previews ([`Runtime::show_page`]).
+    pub fn previewing(&self) -> bool {
+        self.preview.is_some()
     }
 
     fn goto_page(&mut self, name: &str, now_ms: f64) -> Vec<Effect> {
@@ -760,6 +789,27 @@ mod tests {
 
     fn turn(c: &str, t: i32) -> Input {
         Input::Turn { control: c.into(), ticks: t }
+    }
+
+    /// Test notes 2026-10-24 note 24: the page the editor previews goes when the editor closes; the console shows
+    /// what the app shows again (it stayed "everywhere").
+    #[test]
+    fn a_previewed_page_goes_back_when_the_editor_closes() {
+        let mut r = Runtime::new(settings());
+        r.set_context("develop");
+        assert_eq!(r.pages().get(&PageGroup::Keys).map(String::as_str), Some("Cull"));
+        assert!(r.show_page("Crop"));
+        assert!(r.previewing());
+        assert_eq!(r.pages().get(&PageGroup::Keys).map(String::as_str), Some("Crop"));
+        assert!(r.end_preview());
+        assert!(!r.previewing());
+        assert_eq!(r.pages().get(&PageGroup::Keys).map(String::as_str), Some("Cull"), "back to the page for Edit");
+        assert_eq!(r.pages().get(&PageGroup::Dials).map(String::as_str), Some("Light"));
+        // and later contexts don't bring the previewed page back as one chosen by hand
+        r.set_context("crop");
+        r.set_context("library");
+        assert_eq!(r.pages().get(&PageGroup::Keys).map(String::as_str), Some("Cull"));
+        assert!(!r.end_preview(), "nothing to put back");
     }
     fn press(c: &str) -> Input {
         Input::Press { control: c.into(), page: None }

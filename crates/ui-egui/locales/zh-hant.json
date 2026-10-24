@@ -3046,5 +3046,10 @@
   "AI Denoise from": "AI 降噪起始 ISO",
   "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "以此 ISO 或更高拍攝的新 RAW 照片會開啟 AI 降噪，匯入後在背景產生降噪後的影像。需要降噪模型（設定，AI 降噪）。",
   "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "照片與預覽保存在記憶體中，返回查看的照片可立即顯示。自動使用本機記憶體的四分之一，最多 16 GB。大型拍攝可選擇更多，但請為其他應用程式留出空間。",
-  "Finding skin and faces to retouch": "正在尋找要修飾的皮膚和臉部"
+  "Finding skin and faces to retouch": "正在尋找要修飾的皮膚和臉部",
+  "No spots on this photo": "此相片沒有斑點",
+  "Masks panel": "遮色片面板",
+  "Masks panel: painting with the Brush": "遮色片面板：用筆刷繪製",
+  "New mask": "新遮色片",
+  "The console shows this page while you edit it. When you close Settings it shows the page for what LightCraft shows again.": "編輯時主控台會顯示此頁面。關閉設定後，它會重新顯示與 LightCraft 目前內容對應的頁面。"
 }

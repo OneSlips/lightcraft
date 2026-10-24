@@ -120,6 +120,8 @@ pub struct SurfaceHost {
     /// The change the overlay reports (`panels::surface_osd`), and the last report taken.
     pub action: Option<crate::panels::surface_osd::ActionShown>,
     pub osd_seq: u64,
+    /// The overlay was kept off the photo in the last frame: an on-photo tool is in use (note 15).
+    pub osd_held: bool,
 }
 
 /// Load the control-surface settings (they hold the overlay's too) if nothing has yet.
@@ -153,6 +155,7 @@ impl Default for SurfaceHost {
             plugin: Default::default(),
             action: None,
             osd_seq: 0,
+            osd_held: false,
         }
     }
 }
@@ -227,10 +230,13 @@ pub fn value(app: &LightcraftApp, target: &str) -> Option<f64> {
         }
         TargetKind::Mask => {
             let field = ls::targets::mask_field(target)?;
-            let d = app.session.develop_of(app.session.active()?)?;
-            let id = app.session.active_mask?;
-            let m = d.masks.iter().find(|m| m.id == id)?;
-            serde_json::to_value(m.adjust).ok()?.get(field)?.as_f64()
+            let adjust = match app.session.active_mask {
+                Some(id) => app.session.develop_of(app.session.active()?)?.masks.iter().find(|m| m.id == id)?.adjust,
+                // no mask selected: the settings the next mask is made with, as the panel's sliders show them
+                // (test notes 2026-10-24 note 24)
+                None => app.session.mask_next,
+            };
+            serde_json::to_value(adjust).ok()?.get(field)?.as_f64()
         }
         TargetKind::Ui => Some(match target {
             "ui.brushSize" => f64::from(app.ui.brush_size) * 400.0,
@@ -564,6 +570,10 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
         run_effects(app, ends);
         app.surface.gesture = None;
     }
+    // the editor closed: the page it showed the device goes, the page for what the app shows comes back (note 24)
+    if !controls_open {
+        app.surface.runtime.end_preview();
+    }
     let key = context_key(app);
     app.surface.runtime.set_context(&key);
     let effects = app.surface.runtime.flush(now_ms);
@@ -615,7 +625,20 @@ fn load(app: &mut LightcraftApp) {
     let Some(store) = app.services.surface_store.as_ref() else { return };
     match store.load() {
         Ok(Some(text)) => match ls::SurfaceSettings::from_json(&text) {
-            Ok(s) => app.surface.runtime.replace_settings(s),
+            Ok(s) => {
+                // an older file's two Masks pages became one (note 24): say so once, and save the new form
+                let merged = s.merged_mask_pages.clone();
+                app.surface.runtime.replace_settings(s);
+                if !merged.is_empty() {
+                    for m in &merged {
+                        app.notices.push(crate::i18n::tr_format!(
+                            "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.",
+                            profile = m.profile
+                        ));
+                    }
+                    app.surface.changed();
+                }
+            }
             Err(e) => {
                 log::warn!("{e}");
                 app.notices

@@ -457,5 +457,8 @@
   "Saved naming preset “{name}”": "Benennungsvorgabe „{name}“ gespeichert",
   "{n} items": "{n} Einträge",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Diese Aktion verwendet nicht: {keys}. Wählen Sie oben „Vorgabe“, um eine Vorgabe auf diese Taste zu legen.",
-  "{n} presets from your other libraries were added.": "{n} Vorgaben aus Ihren anderen Bibliotheken wurden hinzugefügt."
+  "{n} presets from your other libraries were added.": "{n} Vorgaben aus Ihren anderen Bibliotheken wurden hinzugefügt.",
+  "Spots on this photo: {n}": "Retuschierstellen in diesem Foto: {n}",
+  "From Remove Dust (outlined in amber): {n}": "Von „Staub entfernen“ (bernsteinfarben umrandet): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Konsolenprofil {profile}: Die Seiten „Masking“ und „Mask“ sind jetzt eine Seite „Masks“, die immer erscheint, wenn das Masken-Bedienfeld offen ist. Ohne ausgewählte Maske stellen ihre Regler die nächste Maske ein. Ihre eigenen Änderungen wurden übernommen."
 }

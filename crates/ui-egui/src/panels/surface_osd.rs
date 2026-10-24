@@ -68,7 +68,12 @@ pub fn surface_content(app: &LightcraftApp) -> Option<(Readout, f64)> {
             let spec = ls::targets::target_spec(target)?;
             let v = crate::surface::value(app, target);
             let title = tr(spec.label).to_string();
-            let title = if spec.kind == ls::TargetKind::Mask { format!("{} · {}", tr("Mask"), title) } else { title };
+            // a mask's value; with none selected, the next mask's (note 24: "New mask · Exposure")
+            let title = match spec.kind {
+                ls::TargetKind::Mask if app.session.active_mask.is_none() => format!("{} · {}", tr("New mask"), title),
+                ls::TargetKind::Mask => format!("{} · {}", tr("Mask"), title),
+                _ => title,
+            };
             let icon = ls::icons::icon_for(&ls::Binding::value(target));
             Readout {
                 title,
@@ -240,7 +245,32 @@ pub fn current(app: &mut LightcraftApp) -> Option<(Readout, f64)> {
     Some((r, (now - at).max(0.0)))
 }
 
+/// Whether an on-photo tool is in use: cropping, brushing, healing or cloning, drawing a mask, a picker or targeted
+/// adjustment armed, or a drag on the photo going on. The overlay stays off the photo then: "The photographer needs to
+/// see the pixels he is working with" (test notes 2026-10-24 note 15); the tool's own readout (the brush cursor, the
+/// crop's angle by the pointer) says what changes. Sliders in the panel still show it.
+pub fn on_photo_tool(app: &LightcraftApp, ctx: &egui::Context) -> bool {
+    use crate::state::RightPanel;
+    let photo_view = matches!(app.ui.view, crate::state::ViewMode::Detail);
+    if !photo_view {
+        return false;
+    }
+    if !app.ui.tool.is_empty() || matches!(app.ui.right, RightPanel::Crop | RightPanel::Remove | RightPanel::RedEye) {
+        return true;
+    }
+    // a drag that started on the photo (panning, a mask handle, a pin)
+    let canvas = app.canvas_rect;
+    ctx.input(|i| i.pointer.any_down() && i.pointer.press_origin().zip(canvas).is_some_and(|(at, c)| c.contains(at)))
+}
+
 pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
+    app.surface.osd_held = on_photo_tool(app, ctx);
+    if app.surface.osd_held {
+        // nothing over the photo; what changed meanwhile is not saved up for later either
+        take_report(app);
+        app.surface.action = None;
+        return;
+    }
     let Some((readout, age)) = current(app) else { return };
     let osd = app.surface.settings().osd.clone();
     let display = f64::from(osd.display_ms) / 1000.0;
@@ -439,7 +469,8 @@ pub fn command(app: &mut LightcraftApp, id: &str, p: &Value) -> Result<Value, St
         }
         "osd.state" => {
             let shown = current(app).map(|(r, age)| json!({"title": r.title, "value": r.value, "caption": r.caption, "icon": r.icon, "ageS": age}));
-            return Ok(json!({"settings": settings_json(&osd), "shown": shown}));
+            // `held`: kept off the photo while an on-photo tool is in use (note 15)
+            return Ok(json!({"settings": settings_json(&osd), "shown": shown, "held": app.surface.osd_held}));
         }
         other => return Err(format!("unknown command `{other}`")),
     }

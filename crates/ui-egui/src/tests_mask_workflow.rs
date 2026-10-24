@@ -127,7 +127,13 @@ fn one_press_of_a_tool_makes_one_mask() {
     // drags and clicks away from it make no copies
     drag(&mut h, (0.7, 0.7), (0.78, 0.76));
     tap(&mut h, (0.6, 0.2));
+    // with no tool armed a click zooms (note 23 of 2026-10-24): back to Fit for the next tap
+    assert!(matches!(h.app.ui.zoom, crate::state::Zoom::Percent(_)), "a click with no tool zooms in");
+    h.app.ui.zoom = crate::state::Zoom::Fit;
+    h.settle(Duration::from_secs(60));
     tap(&mut h, (0.1, 0.8));
+    h.app.ui.zoom = crate::state::Zoom::Fit;
+    h.settle(Duration::from_secs(60));
     assert_eq!(develop(&h).masks.len(), 1, "no mask from clicks or drags elsewhere");
     assert_eq!(develop(&h).masks[0].components.len(), 1, "and no part added to it");
     assert!(near(radial_centres(&h)[0], (0.25, 0.3)), "{:?}", radial_centres(&h));
@@ -169,6 +175,9 @@ fn one_press_of_a_tool_makes_one_mask() {
     let n = develop(&h).masks.len();
     tap(&mut h, (0.2, 0.6));
     assert_eq!(develop(&h).masks.len(), n, "a click places one radial, the next click none");
+    // (that click, with no tool armed, zoomed in: note 23 of 2026-10-24) back to Fit
+    h.app.ui.zoom = crate::state::Zoom::Fit;
+    h.settle(Duration::from_secs(60));
     // Brush: strokes go into its mask; the tile again starts a new one
     click(&mut h, "maskNew:brush");
     drag(&mut h, (0.2, 0.8), (0.3, 0.8));
@@ -344,6 +353,8 @@ fn add_and_subtract_work_with_every_kind() {
             h.app.ui.mask_pick_op = None;
             h.app.ui.tool.clear();
             h.app.ui.mask_new = None;
+            // a tap with no tool armed zooms (note 23 of 2026-10-24): the next kind starts at Fit
+            h.app.ui.zoom = crate::state::Zoom::Fit;
             h.step();
             let after = comps(&h);
             let made = !matches!(kind, "object" | "prompt" | "concept");

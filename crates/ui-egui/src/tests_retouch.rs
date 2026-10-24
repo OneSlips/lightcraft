@@ -110,12 +110,13 @@ fn retouch_section_groups_skin_and_blemishes_and_their_eyes_switch_them() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Find Blemishes in the Remove panel offers the models it needs; Include body skin is remembered.
+/// Find Blemishes in Retouch offers the models it needs; Include body skin is remembered.
 #[test]
 fn find_blemishes_offers_the_models_and_remembers_include_body_skin() {
     let (mut h, dir) = detail("blemish");
-    h.app.ui.right = crate::state::RightPanel::Remove;
+    h.app.ui.right = crate::state::RightPanel::Edit;
     h.settle(SETTLE);
+    open_retouch(&mut h, "blemishes");
     let r = h.request("ui.clickWidget", json!({"id": "check:blemishBody"}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.settle(SETTLE);
@@ -161,4 +162,23 @@ fn teeth_section_sets_its_sliders_person_eye_and_turns_off() {
     let t = h.app.session.develop_of(id).unwrap().retouch.teeth;
     assert!(!t.active() && t.person == 2);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Find Blemishes and "Include body skin" are in Retouch only; Remove keeps its manual tools and Remove Dust, and
+/// says how many spots in plain words (test notes 2026-10-24 note 13).
+#[test]
+fn find_blemishes_is_in_retouch_not_in_remove() {
+    let app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), crate::Services { png: None, ..Default::default() });
+    let mut h = crate::headless::Headless::new(app, [1400.0, 900.0], 1.0);
+    let r = h.request("ui.set", json!({"view": "detail"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    let r = h.request("engine.execute", json!({"command": "panel.remove", "params": {}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert_eq!(h.app.ui.right, crate::state::RightPanel::Remove);
+    let has = |h: &crate::headless::Headless, id: &str| h.app.widgets.iter().any(|(w, _)| w == id);
+    assert!(has(&h, "button:findDust"), "Remove Dust stays in Remove");
+    assert!(!has(&h, "button:findBlemishes"), "no Find Blemishes in Remove");
+    assert!(!has(&h, "check:blemishBody"), "no Include body skin in Remove");
+    assert!(h.app.ui.tool == "remove" || !h.app.ui.tool.is_empty(), "the manual tools are there");
 }
