@@ -1168,10 +1168,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let now = ui.input(|i| i.time);
     if let Some(note) = photo_note(app, photo.id.0, now) {
         // a note about this photo (Upright found nothing to correct) takes the strip's place for a while
-        shot_info_strip(ui, canvas, img_rect, &[note]);
+        shot_info_strip(ui, canvas, img_rect, &[note], false);
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
     } else if app.ui.shot_info {
-        shot_info_strip(ui, canvas, img_rect, &shot_info(&photo.meta, native));
+        // zoomed in, it sits over the photo's bottom edge: not while a tool works on the pixels (notes 15, 20)
+        let busy = super::surface_osd::on_photo_tool(app, ui.ctx());
+        shot_info_strip(ui, canvas, img_rect, &shot_info(&photo.meta, native), busy);
     }
     if !fullscreen {
         filter_pill(app, ui, canvas);
@@ -1688,10 +1690,13 @@ fn photo_note(app: &mut LightcraftApp, photo: u64, now: f64) -> Option<String> {
     Some(n.text.clone())
 }
 
-/// The shot info strip: one line under the photo (inside its bottom edge when there is no room
-/// below it, as in full screen), its parts dropped from the end when it doesn't fit (widget
-/// `loupe:shotInfo`).
-fn shot_info_strip(ui: &egui::Ui, canvas: Rect, img: Rect, parts: &[String]) {
+/// The shot info strip: one line under the photo, or a slim pill over the bottom edge of the part of the photo on
+/// screen when there is no room below it (full screen, zoomed in: test notes 2026-10-24 note 20), its parts dropped
+/// from the end when it doesn't fit (widget `loupe:shotInfo`). `hide_over`: an on-photo tool is in use, so the pill
+/// over the photo is left out (under the photo it stays: it covers nothing).
+fn shot_info_strip(ui: &egui::Ui, canvas: Rect, img: Rect, parts: &[String], hide_over: bool) {
+    // the part of the photo on screen (zoomed in, the photo is far bigger than the canvas)
+    let img = img.intersect(canvas);
     if parts.is_empty() || !img.is_positive() {
         return;
     }
@@ -1700,8 +1705,11 @@ fn shot_info_strip(ui: &egui::Ui, canvas: Rect, img: Rect, parts: &[String]) {
     let font = t.font(11.5);
     let h = 18.0;
     let below = img.bottom() + 3.0 + h <= canvas.bottom();
+    if !below && hide_over {
+        return;
+    }
     let top = if below { img.bottom() + 3.0 } else { img.bottom() - h - 6.0 };
-    let max_w = (img.width().min(canvas.width()) - 16.0).max(40.0);
+    let max_w = (img.width() - 16.0).max(40.0);
     let colour = if below { t.text_dim } else { Color32::from_gray(230) };
     let width = |s: &str| p.layout_no_wrap(s.to_string(), font.clone(), colour).size().x;
     let mut shown: Vec<String> = parts.to_vec();

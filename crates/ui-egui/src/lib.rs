@@ -211,6 +211,8 @@ mod tests_scroll;
 #[cfg(test)]
 mod tests_settings_tree;
 #[cfg(test)]
+mod tests_shot_info;
+#[cfg(test)]
 mod tests_slider_reset;
 #[cfg(test)]
 mod tests_slideshow;
