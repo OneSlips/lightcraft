@@ -1165,7 +1165,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     register(ui.ctx(), "canvas:image", img_rect);
     let map = CanvasMap::new(&frame, img_rect).turned(crop_turn);
     info_overlay(app, &p, canvas, &photo);
-    if app.ui.shot_info {
+    let now = ui.input(|i| i.time);
+    if let Some(note) = photo_note(app, photo.id.0, now) {
+        // a note about this photo (Upright found nothing to correct) takes the strip's place for a while
+        shot_info_strip(ui, canvas, img_rect, &[note]);
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+    } else if app.ui.shot_info {
         shot_info_strip(ui, canvas, img_rect, &shot_info(&photo.meta, native));
     }
     if !fullscreen {
@@ -1662,6 +1667,25 @@ pub(crate) fn shot_info(m: &lightcraft_catalog::Meta, size: [usize; 2]) -> Vec<S
         v.push(format!("{} × {}", size[0], size[1]));
     }
     v
+}
+
+/// How long a note about the photo stays under it (s).
+const PHOTO_NOTE_SECS: f64 = 8.0;
+
+/// The note to show under photo `photo` now (app time `now`), if any: it stays [`PHOTO_NOTE_SECS`]
+/// from when it is first drawn, and goes when another photo is shown.
+fn photo_note(app: &mut LightcraftApp, photo: u64, now: f64) -> Option<String> {
+    let n = app.ui.photo_note.as_mut()?;
+    if n.photo != photo {
+        app.ui.photo_note = None;
+        return None;
+    }
+    let until = *n.until.get_or_insert(now + PHOTO_NOTE_SECS);
+    if now > until {
+        app.ui.photo_note = None;
+        return None;
+    }
+    Some(n.text.clone())
 }
 
 /// The shot info strip: one line under the photo (inside its bottom edge when there is no room

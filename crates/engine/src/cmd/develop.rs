@@ -923,7 +923,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Upright",
             [],
             None,
-            "{mode: off|auto|guided|level|vertical|full} — analyses the photo (line segments → vanishing points) and stores the correction; run again to update after lens changes → {mode, transform, note (why the mode found nothing to correct, when it didn't)}",
+            "{mode: off|auto|guided|level|vertical|full, again?: bool} — analyses the photo (line segments → vanishing points) and stores the correction; run again to update after lens changes. `again` (a second click on the mode that is on) starts it over: the Transform sliders back to 0, a crop Constrain Crop made fitted again, Guided's guides cleared → {mode, transform, note (why the mode found nothing to correct, when it didn't)}",
             has_active,
             |s, p| {
                 let mode: Upright =
@@ -939,9 +939,21 @@ pub fn specs() -> Vec<CommandSpec> {
                         (Some(lightcraft_pipeline::upright::solve(m, &a)), lightcraft_pipeline::upright::shortfall(m, &a))
                     }
                 };
+                // test notes 2026-10-24 note 6: a second click on the mode starts over, without hunting for resets
+                let again = bool_or(p, "again", false);
                 edit(s, "geometry.upright", "Upright", |d| {
                     d.geometry.upright = mode;
                     d.geometry.upright_transform = transform;
+                    if again {
+                        let keep = d.geometry.clone();
+                        d.geometry = lightcraft_develop::Geometry {
+                            upright: keep.upright,
+                            upright_transform: keep.upright_transform,
+                            constrain_crop: keep.constrain_crop,
+                            guides: if mode == Upright::Guided { Vec::new() } else { keep.guides },
+                            ..Default::default()
+                        };
+                    }
                     Ok(())
                 })?;
                 // client note 4: say why when the mode can't do what it says, instead of nothing happening
@@ -952,7 +964,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         Upright::Full => "No full correction",
                         _ => "No Upright correction",
                     };
-                    format!("{what}: {why}. Try Guided: draw lines along what should be vertical.")
+                    format!("{what}: {why}.")
                 });
                 Ok(json!({"mode": mode, "transform": transform, "note": note}))
             }

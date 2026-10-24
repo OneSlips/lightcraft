@@ -628,10 +628,20 @@ impl Preset {
     }
 }
 
-/// `partial`'s masks as recipes: no segmentation computed for one photo, no Object clicks (they
-/// point at that photo's pixels: the object is picked again on each photo), no provisional tag
-/// (what presets, copy and paste carry).
+/// `partial`'s masks and Upright as recipes: no segmentation computed for one photo, no Object clicks (they
+/// point at that photo's pixels: the object is picked again on each photo), no provisional tag, no Upright
+/// correction found on one photo, no Guided guides (what presets, copy and paste carry).
 pub fn to_recipes(partial: &mut Value) {
+    // Upright is a recipe too (test notes 2026-10-24 note 4): the mode travels, each photo finds its own
+    // correction; Guided's guides were drawn on one photo's lines and stay there
+    if let Some(g) = partial.get_mut("geometry").and_then(Value::as_object_mut) {
+        if g.contains_key("upright_transform") {
+            g.insert("upright_transform".into(), Value::Null);
+        }
+        if g.contains_key("guides") {
+            g.insert("guides".into(), Value::Array(Vec::new()));
+        }
+    }
     let Some(masks) = partial.get_mut("masks").and_then(Value::as_array_mut) else { return };
     for m in masks.iter_mut() {
         if let Ok(mut mask) = serde_json::from_value::<crate::Mask>(m.clone()) {

@@ -40,11 +40,11 @@ pub(crate) fn wb_of_mode(info: &SourceInfo, mode: WbMode) -> Option<(f64, f64)> 
 }
 
 /// What each photo works out for itself before Auto Sync carries an edit to it: its own Auto
-/// white balance, its own Upright analysis.
+/// white balance. (Its own Upright correction is worked out after the edit, in the background in
+/// the app: [`crate::upright_jobs`].)
 #[derive(Default)]
 pub(crate) struct OwnModes {
     pub wb: HashMap<PhotoId, (f64, f64)>,
-    pub upright: HashMap<PhotoId, Option<Homography>>,
 }
 
 /// `synced.wb` for a photo (source `oinfo`, settings `own` before the sync) when the active
@@ -134,8 +134,8 @@ pub(crate) fn synced_crop(new: &Crop, adims: (f64, f64), odims: (f64, f64)) -> C
 
 impl Session {
     /// What the other selected photos must work out on themselves before Auto Sync carries the
-    /// active photo's edit (`id`, to `new`) over: their own Auto white balance, their own Upright
-    /// analysis. Empty when Auto Sync won't run or the edit doesn't change such a mode.
+    /// active photo's edit (`id`, to `new`) over: their own Auto white balance. Empty when Auto
+    /// Sync won't run or the edit doesn't change such a mode.
     pub(crate) fn own_modes(&mut self, id: PhotoId, new: &DevelopSettings, label: &str) -> OwnModes {
         let mut own = OwnModes::default();
         if !self.auto_sync
@@ -148,30 +148,17 @@ impl Session {
         }
         let Some(old) = self.develop_of(id) else { return own };
         let auto_wb = new.wb.mode == WbMode::Auto && old.wb != new.wb;
-        let g = &new.geometry;
-        let upright = matches!(g.upright, Upright::Auto | Upright::Level | Upright::Vertical | Upright::Full)
-            && (old.geometry.upright != g.upright || old.geometry.upright_transform != g.upright_transform);
-        if !auto_wb && !upright {
+        if !auto_wb {
             return own;
         }
         let others: Vec<PhotoId> = self.selection.ids.iter().copied().filter(|x| *x != id).collect();
         for x in others {
-            if auto_wb {
-                match self.source_now(x, crate::media::SourceLevel::Thumb) {
-                    Ok(src) => {
-                        let info = self.source_info(x);
-                        own.wb.insert(x, lightcraft_pipeline::auto::auto_wb(&src, &info));
-                    }
-                    Err(e) => log::warn!("Auto Sync: Auto white balance on photo {}: {e}", x.0),
+            match self.source_now(x, crate::media::SourceLevel::Thumb) {
+                Ok(src) => {
+                    let info = self.source_info(x);
+                    own.wb.insert(x, lightcraft_pipeline::auto::auto_wb(&src, &info));
                 }
-            }
-            if upright {
-                match self.upright_for(x, g.upright) {
-                    Ok(t) => {
-                        own.upright.insert(x, t);
-                    }
-                    Err(e) => log::warn!("Auto Sync: Upright on photo {}: {e}", x.0),
-                }
+                Err(e) => log::warn!("Auto Sync: Auto white balance on photo {}: {e}", x.0),
             }
         }
         own

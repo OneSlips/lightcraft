@@ -1107,6 +1107,11 @@ pub struct UiState {
     /// A button on the toast showing `text` (SAFETY 2: Undo on the "Removed from the library" toast).
     #[serde(skip)]
     pub toast_action: Option<ToastAction>,
+    /// A note about the photo on screen shown under it, in the shot info strip's place (never over
+    /// the pixels: test notes 2026-10-24 notes 4 and 15), e.g. why Upright found nothing to correct:
+    /// the text, the photo it is about and when it goes (app time, set when first drawn).
+    #[serde(skip)]
+    pub photo_note: Option<PhotoNote>,
     /// The result of the last Find Missing Photos (it searches in the background).
     #[serde(skip)]
     pub last_find_missing: Option<serde_json::Value>,
@@ -1736,6 +1741,7 @@ impl Default for UiState {
             reference: None,
             toast: None,
             toast_action: None,
+            photo_note: None,
             last_find_missing: None,
             last_find_missing_result: None,
             #[cfg(test)]
@@ -1867,6 +1873,15 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
         }
     }
     Ok(values)
+}
+
+/// A note shown under the photo ([`UiState::photo_note`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct PhotoNote {
+    pub text: String,
+    pub photo: u64,
+    /// When it goes (app time, s): set when it is first drawn.
+    pub until: Option<f64>,
 }
 
 /// A button on a toast: shown while that toast is ([`ToastAction::text`]) and only while the undo
