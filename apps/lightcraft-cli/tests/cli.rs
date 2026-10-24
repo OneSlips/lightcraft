@@ -831,3 +831,31 @@ fn denoise_serve_runs_tiles_for_another_computer() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&models);
 }
+
+/// Test note 29: `run --shared-settings store.gatherPresets` gathers an older library's export
+/// presets from its backup into the shared store without opening a library (the way to recover
+/// them while LightCraft is closed); the library and the backup are only read.
+#[test]
+fn run_shared_settings_gathers_presets_from_a_librarys_backup() {
+    let root = std::env::temp_dir().join(format!("lc-cli-gather-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let (config, lib) = (root.join("config"), root.join("Old Library"));
+    let backup = lib.join("Backups").join("2026-10-18 123441 UTC").join("library");
+    std::fs::create_dir_all(&backup).unwrap();
+    std::fs::create_dir_all(&config).unwrap();
+    let prefs = serde_json::to_vec(&json!({"exportPresets": [{"name": "Client Gallery", "params": {"format": "jpeg", "quality": 85}}]})).unwrap();
+    std::fs::write(backup.join("prefs.json"), &prefs).unwrap();
+    let o = Command::new(BIN)
+        .env("LIGHTCRAFT_CONFIG_DIR", &config)
+        .env_remove("LIGHTCRAFT_NO_PREFS")
+        .args(["run", "--shared-settings", "store.gatherPresets"])
+        .arg(format!("{{\"paths\": [{}]}}", serde_json::to_string(&lib.display().to_string()).unwrap()))
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout);
+    assert!(o.status.success(), "{out} {}", String::from_utf8_lossy(&o.stderr));
+    let shared: serde_json::Value = serde_json::from_slice(&std::fs::read(config.join("Library Store").join("shared.json")).unwrap()).unwrap();
+    assert!(shared["exportPresets"].as_array().unwrap().iter().any(|p| p["name"] == "Client Gallery"), "{shared}");
+    assert_eq!(std::fs::read(backup.join("prefs.json")).unwrap(), prefs, "the backup is only read");
+    let _ = std::fs::remove_dir_all(&root);
+}

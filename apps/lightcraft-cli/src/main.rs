@@ -44,6 +44,8 @@ USAGE:
         --demo            headless, the procedural demo library
         --library DIR     headless, open (or create) a LightCraft library; edits are saved
         --upgrade         a library made by an earlier LightCraft opens through its upgraded copy DIR_V10 (the original untouched)
+        --shared-settings headless without --library: use LightCraft's shared presets and profiles (the settings
+                          folder's Library Store), e.g. `run --shared-settings store.gatherPresets`; quit LightCraft first
         --import PATH     headless, import a file or folder first (repeatable)
         --connect [ADDR]  drive the running app (`lightcraft --control 7980`; default 127.0.0.1:7980)
         --script FILE|-   also run JSON lines {\"command\": id, \"params\": {…}} (or {\"method\": …})
@@ -570,6 +572,7 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut imports = Vec::new();
     let mut script: Option<String> = None;
     let mut keep_going = false;
+    let mut shared_settings = false;
     let mut i = 0;
     while i < args.len() && args[i].starts_with("--") {
         match args[i].as_str() {
@@ -577,6 +580,7 @@ fn run(args: &[String]) -> Result<(), String> {
                 i += 1;
                 break;
             }
+            "--shared-settings" => shared_settings = true,
             "--connect" => match args.get(i + 1).filter(|a| !a.contains('=') && (a.contains(':') || a.chars().all(|c| c.is_ascii_digit()))) {
                 Some(a) => {
                     connect = Some(if a.contains(':') { a.clone() } else { format!("127.0.0.1:{a}") });
@@ -622,8 +626,8 @@ fn run(args: &[String]) -> Result<(), String> {
     let mut backend: Box<dyn Backend> =
         match connect {
             Some(addr) => {
-                if demo || library.is_some() || !imports.is_empty() {
-                    return Err("--demo, --library and --import apply to headless mode only".into());
+                if demo || library.is_some() || !imports.is_empty() || shared_settings {
+                    return Err("--demo, --library, --shared-settings and --import apply to headless mode only".into());
                 }
                 Box::new(Remote::connect(&addr).map_err(|e| {
                     format!("LightCraft is not reachable at {addr} ({e}); start it with `lightcraft --control {}`", connect_port(&addr))
@@ -639,6 +643,12 @@ fn run(args: &[String]) -> Result<(), String> {
                         h
                     }
                     None if demo => Headless::demo(),
+                    None if shared_settings => {
+                        // the shared presets and profiles without a library (`store.*`, presets)
+                        let mut h = Headless::default();
+                        h.session.use_default_app_store();
+                        h
+                    }
                     None => Headless::default(),
                 };
                 if !imports.is_empty() {
