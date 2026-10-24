@@ -824,6 +824,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         && !app.renderer.is_pending(Slot::Main)
         && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id)
         && !app.pictures_busy(app.renderer.frame())
+        // (nor while the user's own work runs, an export above all: note 30 of 2026-10-24)
+        && app.session.activity.user_work().is_none()
     {
         let ids = app.session.visible_cloned();
         let mode = prep_mode(app);

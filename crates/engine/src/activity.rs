@@ -295,6 +295,14 @@ impl Entry {
 impl Activity {
     /// Register a task; it is listed until the returned guard is dropped. `label` is English (the frontend
     /// translates it).
+    /// Work the user started that the background preparation gives way to while it runs (notes 30 of
+    /// 2026-10-24: preparing photos competed with an export, which "can't even start"): an export, an
+    /// import, any batch over photos (AI Denoise, AI masks, retouch analysis…). Its kind, or `None`.
+    pub fn user_work(&self) -> Option<&'static str> {
+        const KINDS: [&str; 6] = ["export", "import", "finishing", "merge", "benchmark", "lightroom"];
+        lock(&self.inner.tasks).iter().find(|e| e.parent.is_none() && (e.batch || KINDS.contains(&e.kind))).map(|e| e.kind)
+    }
+
     pub fn start(&self, kind: &'static str, label: &str, cancel: Cancel) -> TaskGuard {
         self.register(kind, label, cancel, None, false)
     }

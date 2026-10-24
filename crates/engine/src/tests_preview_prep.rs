@@ -20,7 +20,12 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 fn png(p: &Path, seed: u8) {
-    let img = lightcraft_raster::Rgba8::from_fn(600, 400, |x, y| [(x % 251) as u8, (y % 241) as u8, seed, 255]);
+    png_n(p, usize::from(seed));
+}
+
+/// A 600 × 400 PNG whose pixels differ for every `n` (no two are duplicates).
+fn png_n(p: &Path, n: usize) {
+    let img = lightcraft_raster::Rgba8::from_fn(600, 400, |x, y| [((x + n / 256) % 251) as u8, (y % 241) as u8, (n % 256) as u8, 255]);
     let b =
         crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Png, ..Default::default() }).unwrap();
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();
@@ -33,7 +38,11 @@ fn library(tag: &str, n: usize) -> (Session, PathBuf, Vec<PhotoId>) {
     let paths: Vec<String> = (0..n)
         .map(|i| {
             let p = root.join("shoot").join(format!("p{i:02}.png"));
-            png(&p, (i * 20) as u8);
+            if n > 12 {
+                png_n(&p, i)
+            } else {
+                png(&p, (i * 20) as u8)
+            }
             p.to_string_lossy().to_string()
         })
         .collect();
@@ -350,4 +359,99 @@ fn the_automatic_preview_cache_is_a_share_of_the_drives_free_space() {
     // free space unknown: the minimum, or room for every photo
     assert_eq!(auto(10, None, 0), AUTO_DISK_CACHE_MIN);
     assert_eq!(auto(100_000, None, 0), crate::media::default_disk_cache_bytes(100_000));
+}
+
+/// Tick the preparation at `at` until `done` (at most 30 s).
+fn tick_until(s: &mut Session, at: PhotoId, done: impl Fn(&Session) -> bool) -> bool {
+    for _ in 0..1500 {
+        s.prep_tick(crate::prep::Mode::Library, Some(at), false);
+        if done(s) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
+}
+
+/// Whether photo `id`'s standard preview for its current settings is in the cache.
+fn has_view(s: &mut Session, id: PhotoId) -> bool {
+    let edge = crate::cmd::previews::standard_edge(s);
+    let jobs = crate::cmd::previews::jobs_for(s, id, Some(edge));
+    crate::cmd::previews::already_built(&jobs)
+}
+
+/// Note 11 of 2026-10-24: edits synced to other photos (Auto Sync, Sync, paste, presets) never
+/// re-rendered them, so stepping to one showed its old look (or the camera JPEG) for seconds. Now
+/// the photos whose settings changed off screen are rendered again in the background once the
+/// edits settle, the photo on screen left to the loupe.
+#[test]
+fn photos_changed_off_screen_are_rendered_again_in_the_background() {
+    let (mut s, root, ids) = library("resync", 5);
+    // the user is on the first photo and the view was prepared
+    for at in [ids[0], ids[1], ids[0]] {
+        s.prep_tick(crate::prep::Mode::Library, Some(at), false);
+    }
+    assert!(tick_until(&mut s, ids[0], |s| s.preview_build.as_ref().is_some_and(|b| !b.running())), "the view is prepared");
+    assert!(has_view(&mut s, ids[3]));
+    // synced from photo 0: photos 2 and 3 (and 0 itself, on screen) change
+    for id in [ids[0], ids[2], ids[3]] {
+        let mut d = (*s.catalog.photo(id).unwrap().develop).clone();
+        d.light.exposure = 0.8;
+        s.set_develop(id, d, "Sync").unwrap();
+    }
+    assert!(!has_view(&mut s, ids[2]) && !has_view(&mut s, ids[3]));
+    let first = s.preview_build.clone();
+    assert!(
+        tick_until(&mut s, ids[0], |s| s
+            .preview_build
+            .as_ref()
+            .is_some_and(|b| first.as_ref().is_none_or(|f| !std::sync::Arc::ptr_eq(f, b)) && !b.running())),
+        "a build for the changed photos ran"
+    );
+    let b = s.preview_build.clone().unwrap();
+    assert!(b.background);
+    assert_eq!(b.total, 2, "only the photos changed off screen");
+    assert!(has_view(&mut s, ids[2]) && has_view(&mut s, ids[3]), "their previews are made for the new settings");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Note 30 of 2026-10-24: preparing photos in the background competed with an export. While the
+/// user's own work runs, the background build pauses completely and its row says so.
+#[test]
+fn the_background_build_pauses_while_an_export_runs() {
+    let (mut s, root, ids) = library("pause", 3);
+    let export = s.activity.start_batch("export", "Exporting", crate::activity::Cancel::Yes);
+    assert_eq!(s.activity.user_work(), Some("export"));
+    s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "background": true})).unwrap();
+    let b = s.preview_build.clone().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    assert_eq!(b.done.load(Ordering::Relaxed), 0, "nothing prepared while the export runs");
+    let row = s.activity.list().into_iter().find(|t| t.label == "Preparing photos in the background").expect("its row");
+    assert_eq!(row.detail, "Paused while exporting");
+    drop(export);
+    assert_eq!(s.activity.user_work(), None);
+    for _ in 0..1500 {
+        if !b.running() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(b.done.load(Ordering::Relaxed), 3, "carried on once the export ended");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Note 30 of 2026-10-24: in a library the background build prepares the photos around the one on
+/// screen, not the whole (already edited) gallery.
+#[test]
+fn the_background_build_prepares_around_the_photo_on_screen() {
+    let (mut s, root, ids) = library("around", 130);
+    let at = ids[100];
+    for a in [ids[98], ids[99], at] {
+        s.prep_tick(crate::prep::Mode::Library, Some(a), false);
+    }
+    let b = s.preview_build.clone().expect("prepared");
+    b.cancel.store(true, Ordering::Relaxed);
+    assert!(b.total <= 3 * crate::prep::AROUND && b.total < ids.len(), "{} of {}", b.total, ids.len());
+    assert!(b.order.contains(&at.0) && b.order.contains(&ids[129].0) && !b.order.contains(&ids[0].0));
+    let _ = std::fs::remove_dir_all(root);
 }

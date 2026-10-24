@@ -224,7 +224,14 @@ type PhotoJobs = (u64, Vec<RenderJob>);
 /// Build every photo of `jobs` on `lanes` threads. `force`: render even the photos whose previews
 /// are there. `task`: the build's own row (`None`: another job's row shows it, e.g. the import's
 /// Getting photos ready).
-fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>, lanes: usize, force: bool) {
+fn run_all(
+    jobs: Vec<PhotoJobs>,
+    state: &PreviewBuild,
+    task: Option<&TaskGuard>,
+    lanes: usize,
+    force: bool,
+    activity: Option<&crate::activity::Activity>,
+) {
     let total = jobs.len();
     let queue = std::sync::Mutex::new(jobs.into_iter().map(Some).collect::<Vec<_>>());
     let work = || {
@@ -232,7 +239,11 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
             if state.cancel.load(Ordering::Relaxed) {
                 break;
             }
-            // the background preparation waits while the photo on screen is being made
+            // the background preparation pauses completely while the user's own work runs (an
+            // export, an import, a batch), and waits while the photo on screen is being made
+            if state.background && activity.is_some_and(|a| wait_for_user_work(a, &state.cancel, task)) {
+                break;
+            }
             if state.background && crate::prep::wait_for_foreground(&state.cancel) {
                 break;
             }
@@ -286,6 +297,35 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
     state.finished.store(true, Ordering::Relaxed);
 }
 
+/// Wait while the user's own work runs ([`crate::activity::Activity::user_work`]), saying so in the
+/// build's row. `true`: cancelled meanwhile.
+fn wait_for_user_work(activity: &crate::activity::Activity, cancel: &AtomicBool, task: Option<&TaskGuard>) -> bool {
+    let mut paused = false;
+    while let Some(kind) = activity.user_work() {
+        if cancel.load(Ordering::Relaxed) {
+            return true;
+        }
+        if !paused {
+            paused = true;
+            if let Some(t) = task {
+                t.detail(match kind {
+                    "export" => "Paused while exporting",
+                    "import" | "finishing" => "Paused while importing",
+                    _ => "Paused while your other work runs",
+                });
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        #[cfg(target_arch = "wasm32")]
+        break;
+    }
+    if paused && let Some(t) = task {
+        t.detail("");
+    }
+    cancel.load(Ordering::Relaxed)
+}
+
 /// The long edge a standard preview is built at: [`STANDARD_EDGE`], or what the loupe asks for
 /// on this screen when that is more ([`Session::loupe_edge`]), so the loupe finds what was built.
 pub fn standard_edge(s: &Session) -> usize {
@@ -332,20 +372,21 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
     let lanes = if background { crate::prep::background_lanes() } else { lanes(jobs.len(), edge.is_none()) };
     let wait = p.get("wait").and_then(Value::as_bool).unwrap_or(false) || cfg!(target_arch = "wasm32");
     if wait {
-        run_all(jobs, &state, task.as_ref(), lanes, force);
+        run_all(jobs, &state, task.as_ref(), lanes, force, Some(&s.activity));
         return Ok(state.json());
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         // the row stays while the worker runs (it is dropped with the closure, however that ends)
         let st = state.clone();
+        let activity = s.activity.clone();
         std::thread::Builder::new()
             .name("lc-build-previews".into())
             .spawn(move || {
                 if st.background {
                     lightcraft_preview::pool::as_worker();
                 }
-                run_all(jobs, &st, task.as_ref(), lanes, force)
+                run_all(jobs, &st, task.as_ref(), lanes, force, Some(&activity))
             })
             .map_err(|e| bad(C, format!("could not start: {e}")))?;
     }
