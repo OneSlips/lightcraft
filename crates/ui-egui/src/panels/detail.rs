@@ -4207,6 +4207,8 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
             let under = app.ui.settings.badges_under && app.ui.settings.film_badges;
             let strip = if under { (cr.height() * 0.11).clamp(12.0, 16.0) } else { 0.0 };
             let img_area = Rect::from_min_max(cr.min + vec2(10.0, 22.0), cr.max - vec2(10.0, 8.0 + strip));
+            // the picture: a click outside it (on the frame) selects this photo alone (note 1)
+            let mut picture = img_area;
             // the cells on screen first, then the few either side of them
             super::grid::request_thumb(app, *id, thumb_px, if local.intersects(vp) { 10 } else { 5 });
             if local.intersects(vp) {
@@ -4216,6 +4218,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                 let [tw, th] = tex.size;
                 let s = (img_area.width() / tw as f32).min(img_area.height() / th as f32);
                 let fr = Rect::from_center_size(img_area.center(), vec2(tw as f32 * s, th as f32 * s));
+                picture = fr;
                 p.image(tex.id(), fr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
                 if sel {
                     p.rect_stroke(fr, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Outside);
@@ -4238,6 +4241,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     p.galley(pos2(br.min.x + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
                 }
             }
+            register(ui.ctx(), format!("filmpic:{}", id.0), picture);
             if under && let Some(ph) = app.session.catalog.photo(*id) {
                 let bar = Rect::from_min_max(pos2(cr.left() + 8.0, img_area.bottom() + 3.0), pos2(cr.right() - 8.0, img_area.bottom() + 3.0 + strip));
                 super::grid::paint_badges(p, &t, bar, ph, false);
@@ -4252,15 +4256,9 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     // ⌘/Ctrl- and Shift-clicks change the selection; the pair on screen stays (#187)
                     super::compare::select_with_modifier(app, *id, !m.command)
                 } else {
-                    let mode = if m.command {
-                        "toggle"
-                    } else if m.shift {
-                        "range"
-                    } else {
-                        // inside the selection: the active photo changes, the set stays (note 19c)
-                        "click"
-                    };
-                    app.run("library.select", json!({"ids": [id.0], "mode": mode}))
+                    // on the picture: the active photo changes, the set stays (note 19c); on the frame: this photo alone
+                    let on_picture = resp.interact_pointer_pos().is_none_or(|at| picture.contains(at));
+                    app.run("library.select", json!({"ids": [id.0], "mode": super::grid::click_mode(m, on_picture)}))
                 };
                 if compare && let Err(e) = r {
                     app.toast(ui.ctx(), e);
