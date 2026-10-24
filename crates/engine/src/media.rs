@@ -1377,7 +1377,14 @@ impl crate::Session {
         } else {
             source_edge_needed(&p, &settings, apply_crop, max_w.max(max_h))
         });
-        let source = self.media.source_ref(&p, level);
+        // the Before side develops with the Before settings' camera profile (or none), not the edit's
+        let source = if before {
+            let mut q = (*p).clone();
+            q.develop = settings.clone();
+            self.media.source_ref(&q, level)
+        } else {
+            self.media.source_ref(&p, level)
+        };
         let request = RenderRequest { apply_crop, ..RenderRequest::fit(max_w, max_h) };
         // the photo id is part of the key: two photos with the same settings and size must not
         // share a result (a view slot showing photo A would otherwise look current for photo B)

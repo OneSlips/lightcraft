@@ -137,7 +137,15 @@ pub fn import_files(s: &mut Session, paths: &[String]) -> Result<(Vec<Value>, Ve
         let file = match &dir {
             Some(d) => {
                 let to = d.join(format!("{}.dcp", id.trim_start_matches(DCP_PREFIX)));
-                std::fs::write(&to, &bytes).map_err(|e| bad(C, format!("{}: {e}", to.display())))?;
+                // a copy that fails (disk full, no access) fails this file only: the profiles
+                // copied before it stay imported, and nothing half-written is left behind
+                if let Err(e) = std::fs::write(&to, &bytes) {
+                    if to.is_file() {
+                        let _ = std::fs::remove_file(&to);
+                    }
+                    failed.push(json!([shown, format!("{}: {e}", to.display())]));
+                    continue;
+                }
                 to.to_string_lossy().to_string()
             }
             // no library on disk: remember the original (the in-memory session ends with the app)

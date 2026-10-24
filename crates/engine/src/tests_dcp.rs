@@ -354,6 +354,61 @@ fn source_facts_come_from_a_source_developed_with_the_current_camera_profile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The Before side (and its region renders) decodes with the Before settings' camera profile — here none, the
+/// import defaults — not with the edit's: before, it reused or decoded a source developed with the edit's profile.
+#[test]
+fn the_before_side_decodes_with_its_own_camera_profile() {
+    use crate::media::{DecodedSource, SourceLevel};
+    let dir = temp_dir("before");
+    let (mut s, id, _) = library_with_profile(&dir);
+    let camera = |job: &crate::media::RenderJob| match &job.source {
+        SourceRef::File { camera_profile, .. } => camera_profile.as_ref().map(|c| c.0.clone()),
+        SourceRef::Loaded(a) => a.camera_profile.clone(),
+        _ => None,
+    };
+    s.media.forget(id);
+    let after = s.render_job(id, 256, 256, false, true).unwrap();
+    let tag = camera(&after);
+    assert!(tag.is_some(), "the edit develops with the imported profile");
+    let before = s.render_job(id, 256, 256, true, true).unwrap();
+    assert_eq!(camera(&before), None, "the Before side develops with the file's own colour");
+    // nor does a cached source developed with the edit's profile stand in for it
+    for level in [SourceLevel::Thumb, SourceLevel::Preview, SourceLevel::Full] {
+        let img = std::sync::Arc::new(lightcraft_raster::Rgb32f::new(4, 4));
+        s.media.insert_source(id, level, DecodedSource { camera_profile: tag.clone(), ..DecodedSource::new(img, None) });
+    }
+    let before = s.render_job(id, 256, 256, true, true).unwrap();
+    assert!(!matches!(before.source, SourceRef::Loaded(_)), "the Before side is decoded afresh");
+    assert_eq!(camera(&before), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A profile whose copy into the library fails is reported as failed on its own: the profiles imported with
+/// it stay imported (and are saved), and the command does not fail.
+#[test]
+fn a_profile_that_cannot_be_copied_fails_on_its_own() {
+    let dir = temp_dir("copy-fails");
+    let (lib, files) = (dir.join("lib"), dir.join("files"));
+    std::fs::create_dir_all(&files).unwrap();
+    for name in ["A", "B"] {
+        std::fs::write(files.join(format!("{name}.dcp")), write_dcp(&swapping_profile(name)).unwrap()).unwrap();
+    }
+    let mut s = Session::new().with_fs();
+    s.open_library(&lib, false).unwrap();
+    // a folder where B's copy goes: writing it fails
+    let blocked = lib.join("Profiles").join(format!("{}.dcp", crate::presets::slug("LightCraft Test Camera-B")));
+    std::fs::create_dir_all(&blocked).unwrap();
+    let r = s.execute("profile.import", &json!({"paths": [files.to_string_lossy()]})).unwrap();
+    let imported: Vec<&str> = r["imported"].as_array().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
+    assert_eq!(imported, ["A"], "{r}");
+    let failed = r["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{r}");
+    assert!(failed[0][0].as_str().is_some_and(|f| f.ends_with("B.dcp")), "{r}");
+    assert_eq!(s.dcp_profiles.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["A"]);
+    assert!(blocked.is_dir(), "the folder in the way is left alone");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A file that is neither a `.cube`, a `.dcp` nor a `.zip` is reported as failed instead of being passed over.
 #[test]
 fn importing_an_unsupported_profile_file_reports_it() {
