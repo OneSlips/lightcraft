@@ -225,11 +225,12 @@ pub fn specs() -> Vec<CommandSpec> {
             ))
         }),
         cmd!(query "profiles.menu", "Profile Menu", [], None, "{} — favourites, recent (newest first) and groups", always, |s, _| Ok(s.profile_menu())),
-        cmd!(query "history.list", "List History", [], None, "{id?} — returns {history: labels oldest first, cursor: index of the step the settings are at (later steps can be returned to), versions}", has_active, |s, p| {
+        cmd!(query "history.list", "List History", [], None, "{id?} — returns {history: labels oldest first, batches: per step the id an edit of several photos gave it on each of them (null: this photo's own edit), cursor: index of the step the settings are at (later steps can be returned to), versions}", has_active, |s, p| {
             let id = photo_arg(s, p, "history.list")?;
             let ph = s.catalog.photo(id).ok_or_else(|| bad("history.list", "no such photo"))?;
             Ok(json!({
                 "history": ph.history.iter().map(|h| h.label.clone()).collect::<Vec<_>>(),
+                "batches": ph.history.iter().map(|h| h.batch).collect::<Vec<_>>(),
                 "cursor": ph.history_index(),
                 "versions": ph.versions.iter().map(|v| json!({"name": v.name, "created": v.created})).collect::<Vec<_>>(),
             }))

@@ -27,9 +27,9 @@ pub fn apply_slider_out(
 }
 
 /// [`apply_slider_out`] for a develop slider (`develop.set`): with Auto Sync on and several photos
-/// selected, the drag edits all of them live, each moving from its own value by as much as the
-/// active photo (white balance on each photo's own scale), as one undo step, the way the
-/// console's dials do; not the active photo's numbers copied over when the drag ends.
+/// selected, the drag edits all of them live, each set to the active photo's value (Lightroom
+/// Classic's Auto Sync, note 18; white balance on each photo's own scale), as one undo step, the
+/// way the console's dials do.
 pub fn apply_develop_slider_out(
     app: &mut LightcraftApp,
     spec: &ControlSpec,

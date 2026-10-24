@@ -390,7 +390,7 @@ impl Session {
     /// `{queued, updated, approximate, notes, batch}`.
     pub fn compute_masks(&mut self, ids: &[PhotoId], force: bool) -> Value {
         let mut notes: BTreeSet<String> = BTreeSet::new();
-        let mut jobs: Vec<(PhotoId, u32, usize, Part)> = Vec::new();
+        let mut jobs: Vec<(PhotoId, u32, usize, Part, u64)> = Vec::new();
         for id in ids {
             let Some(mut d) = self.develop_of(*id).map(|d| (*d).clone()) else { continue };
             let aspect = self.photo_aspect(*id);
@@ -427,7 +427,7 @@ impl Session {
                         filled = true;
                         continue;
                     }
-                    jobs.push((*id, m.id, k, part));
+                    jobs.push((*id, m.id, k, part, pk));
                 }
             }
             if filled {
@@ -447,7 +447,7 @@ impl Session {
     }
 
     #[cfg(feature = "sam")]
-    fn queue_recipe_jobs(&mut self, jobs: Vec<(PhotoId, u32, usize, Part)>, mut notes: BTreeSet<String>) -> Value {
+    fn queue_recipe_jobs(&mut self, jobs: Vec<(PhotoId, u32, usize, Part, u64)>, mut notes: BTreeSet<String>) -> Value {
         let background = self.segmenter.background;
         let batch = {
             let st = &mut self.segmenter.smart;
@@ -460,10 +460,10 @@ impl Session {
         let mut updated = 0usize;
         let mut missing_models: BTreeSet<String> = BTreeSet::new();
         let mut submitted: Vec<(PhotoId, crate::segment::worker::Kind, crate::segment::Tag)> = Vec::new();
-        for (photo, mask, comp, part) in jobs {
+        for (photo, mask, comp, part, key) in jobs {
             match self.recipe_kind(photo, mask, comp, &part) {
                 Ok(Some(kind)) => {
-                    let tag = crate::segment::Tag::Recipe { photo, mask, comp, part, batch };
+                    let tag = crate::segment::Tag::Recipe { photo, mask, comp, part, batch, key: Some(key) };
                     submitted.push((photo, kind, tag));
                 }
                 Ok(None) => {}
@@ -653,7 +653,7 @@ impl Session {
     /// Apply a finished recipe job (from the worker or a waiting call); true when a mask changed.
     #[cfg(feature = "sam")]
     pub(crate) fn apply_recipe_outcome(&mut self, o: crate::segment::worker::Outcome, polled: &mut crate::segment::Polled) -> bool {
-        let crate::segment::Tag::Recipe { photo, mask, comp, part, batch } = o.tag else { return false };
+        let crate::segment::Tag::Recipe { photo, mask, comp, part, batch, key } = o.tag else { return false };
         let finished = self.finish_batch_job(batch, o.superseded);
         if let Some(note) = o.note.clone().filter(|_| !o.superseded) {
             self.batch_note(batch, note, polled);
@@ -685,17 +685,19 @@ impl Session {
                 }
             };
             let aspect = self.photo_aspect(photo);
-            let Some(d) = self.develop_of(photo) else { return false };
-            let mut d = (*d).clone();
-            let Some(c) = d.masks.iter_mut().find(|m| m.id == mask).and_then(|m| m.components.get_mut(comp)) else { return false };
-            // only into the selection it was computed for, if nothing filled it meanwhile
-            let fresh = match &part {
-                Part::Anchor => c.anchor.as_ref().is_some_and(|a| a.bounds.is_none()),
-                _ => !c.shape.has_seg(),
+            // merged into the photo's settings as they are now (an edit made while it ran stays,
+            // note 18), and into its undo / History steps: only into the selection it was computed
+            // for, if that recipe is still there and nothing filled it meanwhile
+            let fill = |d: &mut lightcraft_develop::DevelopSettings| {
+                let Some(c) = d.masks.iter_mut().find(|m| m.id == mask).and_then(|m| m.components.get_mut(comp)) else { return false };
+                let fresh = match &part {
+                    Part::Anchor => c.anchor.as_ref().is_some_and(|a| a.bounds.is_none()),
+                    _ => !c.shape.has_seg(),
+                };
+                fresh && key.is_none_or(|k| part_key(c, &part) == k) && fill_part(c, &part, seg.clone(), aspect)
             };
-            let ok = fresh && fill_part(c, &part, seg, aspect);
+            let ok = self.merge_background(photo, "AI masks", true, &fill);
             if ok {
-                self.amend_develop(photo, d);
                 polled.changed = true;
             }
             ok
@@ -808,7 +810,7 @@ impl Session {
 }
 
 /// What a recipe part computes, as a key (its recipe; the person, role or object it names).
-fn part_key(c: &lightcraft_develop::MaskComponent, part: &Part) -> u64 {
+pub(crate) fn part_key(c: &lightcraft_develop::MaskComponent, part: &Part) -> u64 {
     let what = match part {
         Part::Anchor => serde_json::to_string(&c.anchor.as_ref().map(|a| &a.to)).unwrap_or_default(),
         _ => serde_json::to_string(&c.shape.recipe()).unwrap_or_default(),

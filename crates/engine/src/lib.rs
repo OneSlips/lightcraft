@@ -19,6 +19,7 @@ pub mod app_store;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod apple_photos;
 pub mod availability;
+mod background_merge;
 pub mod backup;
 pub(crate) mod camera_preview;
 pub mod camera_profiles;
@@ -77,6 +78,7 @@ pub mod originals;
 mod pdf;
 pub mod people_store;
 pub mod prep;
+mod preset_gather;
 pub mod preset_import;
 pub mod preset_luminar;
 pub mod preset_manager;
@@ -104,6 +106,7 @@ pub mod slideshow_export;
 pub mod smart;
 pub mod smart_masks;
 pub mod sync;
+mod sync_same;
 pub mod text;
 mod view;
 pub mod walk;
@@ -235,9 +238,12 @@ pub struct Interaction {
     pub label: String,
     pub photo: PhotoId,
     pub original: Arc<DevelopSettings>,
-    /// Other photos edited live along with the active one (a multi-photo edit: each nudged from
-    /// its own value as it goes), with their settings before. They join the same undo step.
+    /// Other photos edited live along with the active one (a multi-photo edit: each given the
+    /// active photo's value as it goes), with their settings before. They join the same undo step.
     pub others: Vec<(PhotoId, Arc<DevelopSettings>)>,
+    /// The others an edit of the interaction actually changed (the on-screen display counts them:
+    /// a photo already at the value isn't "changed").
+    pub moved: std::collections::HashSet<PhotoId>,
     /// Whether an edit during the interaction changed the crop itself. If none did, the crop the
     /// photo shows was fitted by Constrain Crop, and the final commit starts again from the original
     /// crop, so Auto Sync carries the edit and not the active photo's fitted crop.
@@ -807,7 +813,8 @@ impl Session {
             Some((n, k)) => (n, k, false),
             None if self.silent_changes != silent_before => {
                 // a drag or a turning dial: the active photo, and the ones moving along
-                let n = self.interaction.as_ref().map_or(1, |i| 1 + i.others.len());
+                // (the others it actually changed: one already at the value isn't counted)
+                let n = self.interaction.as_ref().map_or(1, |i| 1 + i.moved.len());
                 (n, change_report::ChangeKind::Develop, self.interaction.is_some())
             }
             None => return,
@@ -847,6 +854,8 @@ impl Session {
 
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
+        let mut op = op;
+        self.mark_batch(&mut op);
         let fwd = op.clone();
         let inv = self.apply_catalog(op)?;
         self.pending_log.push(fwd);
@@ -1197,8 +1206,9 @@ impl Session {
             lightcraft_develop::presets::settle_provisional(&before, &mut settings);
         }
         let settings = Arc::new(settings);
+        let own = self.own_modes(id, &requested, label);
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
-        let (synced, compute) = self.auto_sync_ops(id, &requested, label);
+        let (synced, compute) = self.auto_sync_ops(id, &requested, label, &own);
         ops.extend(synced);
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
         self.commit(label, op)?;
@@ -1258,7 +1268,12 @@ impl Session {
     /// merged into each photo's own ([`lightcraft_develop::recipe::sync_masks`]): AI selections
     /// travel as recipes, never as the active photo's pixels. Also returns the photos whose AI masks
     /// now need computing (note 1).
-    fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str) -> (Vec<Op>, Vec<PhotoId>) {
+    ///
+    /// Every synced setting gets the active photo's value (note 18, decisions 24 Oct); modes go on
+    /// each photo as the mode ([`sync_same`]): white balance on each photo's own scale (As Shot /
+    /// Auto / a light preset: its own), Upright analysed on each photo (`own`), a crop fitted to
+    /// each photo's frame.
+    fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str, own: &sync_same::OwnModes) -> (Vec<Op>, Vec<PhotoId>) {
         if !self.auto_sync
             || self.active() != Some(id)
             || self.selection.ids.len() < 2
@@ -1280,6 +1295,11 @@ impl Session {
             return (Vec::new(), Vec::new());
         }
         let mut compute = Vec::new();
+        let ainfo = self.source_info(id);
+        let adims = cmd::develop::crop_dims(self, id);
+        let wb_changed = old.wb != new.wb;
+        let upright_changed = old.geometry.upright != new.geometry.upright || old.geometry.upright_transform != new.geometry.upright_transform;
+        let crop_changed = old.crop != new.crop;
         let ops = self
             .selection
             .ids
@@ -1288,6 +1308,20 @@ impl Session {
             .filter_map(|x| self.develop_of(*x).map(|d| (*x, d)))
             .filter_map(|(x, d)| {
                 let mut synced = if settings_changed { lightcraft_develop::apply_partial(&d, &delta, 1.0) } else { (*d).clone() };
+                if wb_changed {
+                    sync_same::synced_wb(&ainfo, &old, new, &self.source_info(x), &d, own.wb.get(&x).copied(), &mut synced);
+                }
+                if upright_changed {
+                    synced.geometry.upright = new.geometry.upright;
+                    synced.geometry.upright_transform = match new.geometry.upright {
+                        lightcraft_develop::Upright::Off | lightcraft_develop::Upright::Guided => None,
+                        // its own analysis; when that failed, what it had for the same mode
+                        m => own.upright.get(&x).copied().flatten().or(d.geometry.upright_transform.filter(|_| d.geometry.upright == m)),
+                    };
+                }
+                if crop_changed {
+                    synced.crop = sync_same::synced_crop(&new.crop, adims, cmd::develop::crop_dims(self, x));
+                }
                 if masks_changed {
                     let (masks, needs) = lightcraft_develop::recipe::sync_masks(&old.masks, &new.masks, &d.masks, self.photo_aspect(x));
                     synced.masks = masks;
@@ -1318,7 +1352,7 @@ impl Session {
             }
         }
         let settings = Arc::new(settings);
-        let step = lightcraft_catalog::HistoryStep { label: label.into(), settings: settings.clone() };
+        let step = lightcraft_catalog::HistoryStep::new(label, settings.clone());
         Some(Op::Batch {
             ops: vec![Op::SetDevelop { id, settings, label: label.into(), edited: Some((self.clock)()) }, Op::PushHistory { id, step }],
         })
@@ -1366,7 +1400,7 @@ impl Session {
         let original = self.develop_of(id).unwrap_or_default();
         let mut seen = std::collections::HashSet::new();
         let others = others.iter().filter(|x| **x != id && seen.insert(**x)).filter_map(|x| self.develop_of(*x).map(|d| (*x, d))).collect();
-        self.interaction = Some(Interaction { label: label.into(), photo: id, original, others, crop_edited: false });
+        self.interaction = Some(Interaction { label: label.into(), photo: id, original, others, moved: Default::default(), crop_edited: false });
         Ok(())
     }
 
@@ -1421,8 +1455,15 @@ impl Session {
         self.interaction.as_ref().map(|i| i.others.iter().map(|(id, _)| *id).collect()).unwrap_or_default()
     }
 
-    /// Set a photo's settings without an undo step while an interaction edits it along.
+    /// Set a photo's settings without an undo step while an interaction edits it along (nothing
+    /// happens when they are what it has).
     pub fn set_develop_silent(&mut self, id: PhotoId, settings: DevelopSettings, label: &str) -> Result<()> {
+        if self.develop_of(id).is_some_and(|d| *d == settings) {
+            return Ok(());
+        }
+        if let Some(i) = self.interaction.as_mut().filter(|i| i.photo != id) {
+            i.moved.insert(id);
+        }
         let now = (self.clock)();
         self.apply_silent(Op::SetDevelop { id, settings: Arc::new(settings), label: label.into(), edited: Some(now) })
     }
@@ -1760,6 +1801,8 @@ mod tests_albums_local;
 mod tests_app_store;
 #[cfg(test)]
 mod tests_autosync;
+#[cfg(test)]
+mod tests_background_merge;
 #[cfg(test)]
 mod tests_body_profiles;
 #[cfg(test)]

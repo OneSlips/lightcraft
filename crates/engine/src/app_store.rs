@@ -357,13 +357,29 @@ impl DialogMemory {
 
 /// Add `theirs` to `mine` by name: the same item twice is kept once; the same name with other
 /// content is kept as "name 2" (nothing lost). → how many were added.
-fn merge_named<T: PartialEq>(mine: &mut Vec<T>, theirs: Vec<T>, name: impl Fn(&T) -> String, rename: impl Fn(&mut T, String)) -> usize {
+fn merge_named<T: PartialEq + Clone>(mine: &mut Vec<T>, theirs: Vec<T>, name: impl Fn(&T) -> String, rename: impl Fn(&mut T, String)) -> usize {
     let mut added = 0;
     for mut t in theirs {
         if mine.contains(&t) {
             continue;
         }
         let base = name(&t);
+        // the same content kept already as "name 2" (a clash an earlier merge renamed): once
+        let renamed_copy = |m: &T| {
+            let n = name(m);
+            let numbered = n.get(..base.len()).is_some_and(|head| head.eq_ignore_ascii_case(&base))
+                && n.get(base.len()..)
+                    .and_then(|rest| rest.strip_prefix(' '))
+                    .is_some_and(|d| !d.is_empty() && d.bytes().all(|b| b.is_ascii_digit()));
+            numbered && {
+                let mut x = t.clone();
+                rename(&mut x, n);
+                x == *m
+            }
+        };
+        if mine.iter().any(renamed_copy) {
+            continue;
+        }
         if mine.iter().any(|m| name(m).eq_ignore_ascii_case(&base)) {
             let mut n = 2;
             let mut candidate = format!("{base} {n}");
@@ -380,17 +396,26 @@ fn merge_named<T: PartialEq>(mine: &mut Vec<T>, theirs: Vec<T>, name: impl Fn(&T
 }
 
 impl Habits {
-    /// Add what a library's `other` has: named presets by name ([`merge_named`]); a single setting
-    /// (the last export, the slideshow's…) only where this has none of its own. → presets added.
-    pub(crate) fn merge(&mut self, other: Habits) -> usize {
-        let mut n = merge_named(&mut self.export_presets, other.export_presets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.print_templates, other.print_templates, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.metadata_presets, other.metadata_presets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.filter_presets, other.filter_presets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.curve_presets, other.curve_presets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.label_sets, other.label_sets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.keyword_sets, other.keyword_sets, |p| p.name.clone(), |p, v| p.name = v);
-        n += merge_named(&mut self.naming_presets, other.naming_presets, |p| p.name.clone(), |p, v| p.name = v);
+    /// Add the named presets of `other` (export presets, templates, filter / metadata / curve /
+    /// keyword / label / naming presets) by name ([`merge_named`]): the same one once, the same
+    /// name with other content kept as "name 2"; nothing else. → presets added.
+    pub(crate) fn merge_lists(&mut self, other: &mut Habits) -> usize {
+        let mut n = merge_named(&mut self.export_presets, std::mem::take(&mut other.export_presets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.print_templates, std::mem::take(&mut other.print_templates), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.metadata_presets, std::mem::take(&mut other.metadata_presets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.filter_presets, std::mem::take(&mut other.filter_presets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.curve_presets, std::mem::take(&mut other.curve_presets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.label_sets, std::mem::take(&mut other.label_sets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.keyword_sets, std::mem::take(&mut other.keyword_sets), |p| p.name.clone(), |p, v| p.name = v);
+        n += merge_named(&mut self.naming_presets, std::mem::take(&mut other.naming_presets), |p| p.name.clone(), |p, v| p.name = v);
+        n
+    }
+
+    /// Add what a library's `other` has: named presets by name ([`Habits::merge_lists`]); a single
+    /// setting (the last export, the slideshow's…) only where this has none of its own. → presets
+    /// added.
+    pub(crate) fn merge(&mut self, mut other: Habits) -> usize {
+        let n = self.merge_lists(&mut other);
         if self.last_export.is_none() {
             self.last_export = other.last_export;
         }
@@ -442,6 +467,9 @@ struct SharedFile {
     /// Export presets, templates and the rest of the user's way of working (version 2).
     #[serde(flatten)]
     habits: Habits,
+    /// Libraries whose presets were gathered from their settings and backups (note 29).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    gathered: Vec<String>,
     /// Preparing photos in the background ([`crate::prep`]): the app-wide settings.
     prep: crate::prep::PrepSettings,
 }
@@ -500,6 +528,9 @@ pub struct AppStore {
     warnings_reported: usize,
     /// `shared.json` kept a sort (written by a build that keeps it there).
     pub(crate) sort_known: bool,
+    /// Library folders whose presets were gathered from their settings and backups (note 29;
+    /// once each, so a preset deleted from the store doesn't come back).
+    pub gathered: Vec<String>,
 }
 
 impl AppStore {
@@ -516,6 +547,7 @@ impl AppStore {
             warnings: Vec::new(),
             warnings_reported: 0,
             sort_known: false,
+            gathered: Vec::new(),
         })
     }
 
@@ -742,6 +774,7 @@ impl Session {
         let shared: SharedFile = st.read(SHARED).unwrap_or_default();
         let presets: Option<PresetsFile> = st.read(PRESETS);
         st.merged = shared.merged;
+        st.gathered = shared.gathered;
         st.in_session = true;
         st.shared_written = Vec::new();
         self.lut_profiles = shared.lut_profiles;
@@ -801,6 +834,7 @@ impl Session {
 
     fn shared_json(&self) -> Vec<u8> {
         let merged = self.app_store.as_ref().map(|s| s.merged.clone()).unwrap_or_default();
+        let gathered = self.app_store.as_ref().map(|s| s.gathered.clone()).unwrap_or_default();
         let f = SharedFile {
             version: SHARED_VERSION,
             lut_profiles: self.lut_profiles.clone(),
@@ -813,6 +847,7 @@ impl Session {
             import_presets: self.import_presets.clone(),
             preset_state: self.preset_state.clone(),
             habits: self.habits(),
+            gathered,
             prep: self.prep.app,
         };
         serde_json::to_vec_pretty(&f).unwrap_or_default()

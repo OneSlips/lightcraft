@@ -251,8 +251,9 @@ pub(crate) enum Tag {
     /// The parts of people the Retouch sections work on.
     Retouch { key: RetouchKey },
     /// A part of a mask recipe (a preset's, a paste's…) for component `comp` of mask `mask`,
-    /// completing the history step of `batch` ([`crate::smart_masks`]).
-    Recipe { photo: PhotoId, mask: u32, comp: usize, part: crate::smart_masks::Part, batch: u64 },
+    /// completing the history step of `batch` ([`crate::smart_masks`]). `key`: the recipe it was
+    /// asked for (the result goes only where that recipe still is; `None`: wherever the part is).
+    Recipe { photo: PhotoId, mask: u32, comp: usize, part: crate::smart_masks::Part, batch: u64, key: Option<u64> },
     /// A selection for the hover preview of a preset (kept aside; nothing changes).
     Preview { photo: PhotoId, key: u64, part_key: u64 },
     /// The faces on a photo (`people.faces`).

@@ -45,6 +45,43 @@ fn nudge(info: &lightcraft_pipeline::SourceInfo, dims: (f64, f64), d: &DevelopSe
     nd
 }
 
+/// `d` (photo with source `oinfo`, crop frame `dims`) with control `ctl` set to `value`, the value
+/// the active photo (source `ainfo`) now has (Auto Sync and the live multi-photo edit: the same
+/// value on every photo, note 18). White balance on the photo's own scale: the same Kelvin / tint
+/// when both are on the same scale (an old relative value converted first, never read as Kelvin);
+/// across scales (a JPEG next to a raw) there is no same number, and the photo moves by `delta`,
+/// as much as the active photo did. A crop angle is fitted to the photo's own crop.
+fn same_value(
+    ainfo: &lightcraft_pipeline::SourceInfo,
+    oinfo: &lightcraft_pipeline::SourceInfo,
+    dims: (f64, f64),
+    d: &DevelopSettings,
+    ctl: &str,
+    value: f64,
+    delta: f64,
+) -> DevelopSettings {
+    let wb = ctl == "wb.temp" || ctl == "wb.tint";
+    if wb && crate::sync_same::kelvin(ainfo) != crate::sync_same::kelvin(oinfo) {
+        let default = controls::find(ctl).map_or(0.0, |c| c.default);
+        return if delta.is_finite() { nudge(oinfo, dims, d, ctl, delta, default) } else { d.clone() };
+    }
+    let mut nd = d.clone();
+    if wb {
+        lightcraft_pipeline::local::normalize_wb(&mut nd, oinfo);
+        // the white in effect (As Shot: the file's own; a light preset: its numbers) is where the other slider stays
+        let (t, tint) = lightcraft_pipeline::local::effective_wb(oinfo, d);
+        nd.wb.temp = t;
+        nd.wb.tint = tint;
+    }
+    let before = nd.crop.geometry;
+    controls::set(&mut nd, ctl, value);
+    refit_crop_angle(ctl == CROP_ANGLE, before, &mut nd, dims);
+    if wb {
+        nd.wb.mode = WbMode::Custom;
+    }
+    nd
+}
+
 /// The value control `ctl` has on a photo as its sliders show it: white balance as the Kelvin and
 /// tint in effect (As Shot reads the file's own), everything else as stored. What a live
 /// multi-photo edit measures the active photo's move from.
@@ -94,7 +131,7 @@ fn remember_dialogs(s: &mut Session) {
     }
 }
 
-fn crop_dims(s: &Session, id: PhotoId) -> (f64, f64) {
+pub(crate) fn crop_dims(s: &Session, id: PhotoId) -> (f64, f64) {
     let p = s.catalog.photo(id);
     let (w, h) = p.map(|p| (p.width.max(1) as f64, p.height.max(1) as f64)).unwrap_or((3.0, 2.0));
     let o = p.map(|p| p.develop.orientation).unwrap_or_default();
@@ -288,15 +325,9 @@ pub fn specs() -> Vec<CommandSpec> {
                 let info = s.source_info(id);
                 let dims = crop_dims(s, id);
                 // a multi-photo interaction (a slider dragged with Auto Sync on, the console's dials):
-                // the others move by as much as the active photo did, each from its own value and
-                // white balance on its own scale, live (`nudge`), never to the active photo's numbers
-                // Auto Sync outside a drag (a typed value, a reset, an arrow key): the same, as its
-                // own one-step interaction
-                let own_step = s.interaction.is_none() && s.auto_sync && s.selection.ids.len() >= 2;
-                if own_step {
-                    let along: Vec<PhotoId> = s.selection.ids.iter().copied().filter(|x| *x != id).collect();
-                    s.begin_interaction_with(&label, &along)?;
-                }
+                // the others get the active photo's new value, live (`same_value`: white balance on
+                // each photo's own scale). Outside a drag (a typed value, a reset, a key) Auto Sync
+                // does the same in the edit's own undo step (`Session::set_develop`).
                 let others = s.interaction_others();
                 let before: Vec<(String, f64)> = if others.is_empty() {
                     Vec::new()
@@ -304,35 +335,27 @@ pub fn specs() -> Vec<CommandSpec> {
                     let d = s.develop_of(id).unwrap_or_default();
                     vals.iter().map(|(k, _)| (k.clone(), own_value(&info, &d, k))).collect()
                 };
-                let moved = edit(s, "develop.set", &label, |d| {
+                edit(s, "develop.set", &label, |d| {
                     apply(d, &info, dims);
                     Ok(())
-                })
-                .and_then(|_| {
+                })?;
+                if !others.is_empty() {
+                    let now = s.develop_of(id).unwrap_or_default();
+                    let moved: Vec<(String, f64, f64)> = vals
+                        .iter()
+                        .zip(&before)
+                        .map(|((k, _), (_, was))| (k.clone(), own_value(&info, &now, k), *was))
+                        .filter(|(_, v, was)| v.is_finite() && (v - was).abs() > 0.0)
+                        .collect();
                     for other in &others {
                         let Some(mut d) = s.develop_of(*other).map(|d| (*d).clone()) else { continue };
                         let (oinfo, odims) = (s.source_info(*other), crop_dims(s, *other));
-                        for ((k, v), (_, was)) in vals.iter().zip(&before) {
-                            let delta = v - was;
-                            if delta.is_finite() && delta != 0.0 {
-                                let default = controls::find(k).map_or(0.0, |c| c.default);
-                                d = nudge(&oinfo, odims, &d, k, delta, default);
-                            }
+                        for (k, v, was) in &moved {
+                            d = same_value(&info, &oinfo, odims, &d, k, *v, v - was);
                         }
                         s.set_develop_silent(*other, d, &label)?;
                     }
-                    Ok(())
-                });
-                if own_step {
-                    match moved {
-                        Ok(()) => s.end_interaction()?,
-                        Err(e) => {
-                            s.cancel_interaction()?;
-                            return Err(e);
-                        }
-                    }
                 }
-                moved?;
                 ok()
             }
         ),
@@ -346,12 +369,17 @@ pub fn specs() -> Vec<CommandSpec> {
                 *d = nudge(&info, dims, d, &c, delta, spec.default);
                 Ok(())
             })?;
-            // a multi-photo interaction (develop.beginInteraction {ids}): the other photos move along,
-            // live, each from its own value
-            for other in s.interaction_others() {
-                let Some(d) = s.develop_of(other) else { continue };
-                let nd = nudge(&s.source_info(other), crop_dims(s, other), &d, &c, delta, spec.default);
-                s.set_develop_silent(other, nd, spec.label)?;
+            // a multi-photo interaction (develop.beginInteraction {ids}: the console's dials, a
+            // drag with Auto Sync on): the other photos get the active photo's new value, live
+            let others = s.interaction_others();
+            if !others.is_empty() {
+                let now = s.develop_of(id).unwrap_or_default();
+                let v = own_value(&info, &now, &c);
+                for other in others {
+                    let Some(d) = s.develop_of(other) else { continue };
+                    let nd = same_value(&info, &s.source_info(other), crop_dims(s, other), &d, &c, v, delta);
+                    s.set_develop_silent(other, nd, spec.label)?;
+                }
             }
             ok()
         }),
@@ -1394,7 +1422,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("history.clear", "Clear History", [], None, "{} — keeps the current settings as the only step", has_active, |s, _| {
             let id = active(s, "history.clear")?;
             let d = s.develop_of(id).unwrap_or_default();
-            let history = vec![lightcraft_catalog::HistoryStep { label: "Cleared History".into(), settings: d }];
+            let history = vec![lightcraft_catalog::HistoryStep::new("Cleared History", d)];
             s.commit("Clear History", Op::Batch { ops: vec![Op::SetHistory { id, history }, Op::SetHistoryCursor { id, cursor: None }] })?;
             ok()
         }),

@@ -28,6 +28,24 @@ fn merge(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"merged": reports}))
 }
 
+fn gather(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "store.gatherPresets";
+    let paths: Vec<PathBuf> = p
+        .get("paths")
+        .and_then(Value::as_array)
+        .map(|a| a.iter().filter_map(Value::as_str).filter(|x| !x.trim().is_empty()).take(1000).map(PathBuf::from).collect())
+        .unwrap_or_default();
+    let force = p.get("force").and_then(Value::as_bool) == Some(true);
+    if s.app_store.is_none() {
+        return Err(bad(C, "there is no shared store: LightCraft's settings folder isn't available"));
+    }
+    if !s.uses_app_store() {
+        return Ok(json!({"libraries": 0, "files": 0, "count": 0, "added": [], "skipped": 0, "problems": [], "libraryKeepsOwn": true}));
+    }
+    let r = s.gather_presets(&paths, force)?;
+    serde_json::to_value(r).map_err(|e| bad(C, e.to_string()))
+}
+
 /// The open library's photos name profiles by id: copy the profile files the session uses into the
 /// library's `Profiles/` so it is complete on its own.
 fn copy_profiles_into(s: &mut Session, dir: &Path) -> Vec<String> {
@@ -162,6 +180,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{paths: [library folders], force?: bool} — each library's presets, profiles (files copied), local adjustment presets and body defaults join the shared store, once per library unless `force` (the same item is kept once); the libraries are only read → {merged: [{library, presets, profiles, effects, problems, skipped}]}",
             always,
             merge
+        ),
+        cmd!(
+            "store.gatherPresets",
+            "Import Presets from Older Libraries",
+            ["File"],
+            None,
+            "{paths?: [library folders], force?: bool} — export presets, print templates and the other named presets of these libraries, the open one and every library merged before, read from each library's settings and its backups (once per library unless `force`), join the shared store: the same preset once, the same name with other content as \"name 2\"; nothing in the libraries is written → {libraries, files, count, added: [export preset names], skipped, problems}",
+            always,
+            gather
         ),
         cmd!(
             "store.useLibrary",

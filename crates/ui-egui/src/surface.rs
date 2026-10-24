@@ -303,8 +303,8 @@ fn begin(app: &mut LightcraftApp, target: &str) {
     let Some(photo) = app.session.active() else { return };
     let label = label_of(target);
     // Several photos edited at once (Apply to Selected, or the app's Auto Sync): LightCraft's own
-    // live multi-photo edit, every selected photo moving with each tick from its own value (white
-    // balance on its own scale), all in the gesture's one undo step
+    // live multi-photo edit, every selected photo given the active photo's value with each tick
+    // (white balance on its own scale; note 18), all in the gesture's one undo step
     let ids: Vec<u64> = if spec.kind == TargetKind::Develop
         && (app.surface.settings().apply_to_selected || app.session.auto_sync)
         && app.session.selection.ids.len() > 1

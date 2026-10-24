@@ -456,5 +456,6 @@
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "「{name}」將採用目前相片的設定。名稱、群組、位置和標記保持不變。",
   "Saved naming preset “{name}”": "已儲存命名預設「{name}」",
   "{n} items": "{n} 項",
-  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "此操作不使用：{keys}。要把預設放到此鍵上，請在上方選擇「預設」。"
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "此操作不使用：{keys}。要把預設放到此鍵上，請在上方選擇「預設」。",
+  "{n} presets from your other libraries were added.": "已從其他圖庫加入 {n} 個預設集。"
 }

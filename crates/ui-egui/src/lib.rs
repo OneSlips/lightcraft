@@ -1867,7 +1867,28 @@ impl LightcraftApp {
             let path = l.dir.to_string_lossy().into_owned();
             panels::settings::remember_library(&mut self.ui.settings.recent_libraries, &path);
         }
+        self.gather_presets(ctx);
         ctx.send_viewport_cmd(egui::ViewportCommand::Title(self.window_title()));
+    }
+
+    /// Test note 29: the export presets (and other named presets) of every library in File ▸ Open
+    /// Recent Library and of their backups join the shared store, once per library; nothing to set
+    /// up. Says so when it found some.
+    fn gather_presets(&mut self, ctx: &egui::Context) {
+        if !self.session.uses_app_store() {
+            return;
+        }
+        let paths = self.ui.settings.recent_libraries.clone();
+        match self.run("store.gatherPresets", serde_json::json!({"paths": paths})) {
+            Ok(r) => {
+                let n = r["count"].as_u64().unwrap_or(0);
+                if n > 0 {
+                    let msg = crate::i18n::tr_format!("{n} presets from your other libraries were added.", n = n);
+                    self.toast(ctx, msg);
+                }
+            }
+            Err(e) => log::warn!("gathering presets from older libraries: {e}"),
+        }
     }
 
     /// "LightCraft — <library name>" (just "LightCraft" for a library that isn't saved).
