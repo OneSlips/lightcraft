@@ -755,6 +755,21 @@ pub(crate) fn skips_the_real_render(embedded_is_final: bool, from_embedded: bool
 /// Rendered thumbnails replacing embedded previews: after everything on screen.
 pub const BACKGROUND_THUMB_PRIORITY: u32 = 3;
 
+/// The `library.select` mode of a click on a photo cell, as in Lightroom Classic: Shift = range, ⌘/Ctrl = toggle; a
+/// plain click on the picture of a selected photo makes it the active one and keeps the selection (note 19c), a plain
+/// click on the frame around the picture selects that photo alone (test notes 2026-10-24 note 1).
+pub(crate) fn click_mode(m: egui::Modifiers, on_picture: bool) -> &'static str {
+    if m.shift {
+        "range"
+    } else if m.command {
+        "toggle"
+    } else if on_picture {
+        "click"
+    } else {
+        "replace"
+    }
+}
+
 fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square: bool, onscreen: bool, ppp: f32) {
     let t = Tokens::get(ui.ctx());
     let Some(photo) = app.session.catalog.photo(id).cloned() else { return };
@@ -786,12 +801,15 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         r
     };
     // thumbnail
+    // the picture itself: a click on it keeps a selection, a click on the frame around it selects this photo alone (note 1)
+    let picture: Rect;
     let size = thumb_px(img_rect.width().max(img_rect.height()), ppp);
     request_thumb(app, id, size, if onscreen { 10 } else { 5 });
     if let Some(tex) = app.renderer.thumb(id) {
         let [tw, th] = tex.size;
         // Preserve the decoded preview's ratio when it differs from the catalog dimensions.
         let fit = super::detail::fit_texture_rect(img_rect, [tw, th]);
+        picture = fit;
         p.image(tex.tex.id(), fit, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         if active {
             p.rect_stroke(fit.expand(if square { 2.0 } else { 0.0 }), 0.0, Stroke::new(2.0, Color32::WHITE), StrokeKind::Outside);
@@ -800,6 +818,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         }
     } else {
         let ph = img_rect.shrink(if square { 20.0 } else { 0.0 });
+        picture = ph;
         p.rect_filled(ph, 0.0, t.skeleton);
         // not drawn yet (or unreadable): the selection is still visible
         if active {
@@ -920,17 +939,11 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         }
         return;
     }
+    register(ui.ctx(), format!("thumbpic:{}", id.0), picture);
     if resp.clicked() {
         let m = ui.input(|i| i.modifiers);
-        let mode = if m.shift {
-            "range"
-        } else if m.command {
-            "toggle"
-        } else {
-            // inside the selection: this photo becomes the active one and the set stays (note 19c)
-            "click"
-        };
-        let _ = app.run("library.select", json!({"ids": [id.0], "mode": mode}));
+        let on_picture = resp.interact_pointer_pos().is_none_or(|at| picture.contains(at));
+        let _ = app.run("library.select", json!({"ids": [id.0], "mode": click_mode(m, on_picture)}));
     }
     if resp.double_clicked() {
         let _ = app.run("library.select", json!({"ids": [id.0], "mode": "click"}));
