@@ -95,6 +95,32 @@ pub fn in_one_turn<R>(src_px: usize, out_px: usize, f: impl FnOnce() -> R) -> R 
     }
 }
 
+/// A photo's turn at the GPU taken by [`try_batch_turn`], held until dropped.
+pub struct BatchTurn {
+    #[cfg(not(target_arch = "wasm32"))]
+    _turn: Option<gate::Turn>,
+}
+
+/// [`in_one_turn`]'s turn for a photo of `src_px` source and `out_px` output pixels, if it is free
+/// now: its renders then run in it until the result is dropped. `None` when it would have to
+/// wait for other exports: the caller renders the photo on the CPU instead ([`on_cpu`]), so
+/// the processor and the GPU export photos at once. Without a device (or outside batch work)
+/// there is nothing to wait for: always a turn.
+pub fn try_batch_turn(src_px: usize, out_px: usize) -> Option<BatchTurn> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let Some(g) = existing_device().filter(|_| enabled()) else { return Some(BatchTurn { _turn: None }) };
+        let vram = g.vram.unwrap_or_else(|| vram::assumed(&g.info));
+        let bytes = gate::job_bytes(src_px, out_px).saturating_add((out_px as u64).saturating_mul(16));
+        gate::try_turn(bytes, vram).map(|t| BatchTurn { _turn: Some(t) })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (src_px, out_px);
+        Some(BatchTurn {})
+    }
+}
+
 /// Batch renders don't start for `d` from now: the window needs the GPU (it resizes, a frame was
 /// slow). Renders already running finish.
 pub fn hold_batch(d: std::time::Duration) {
@@ -793,6 +819,14 @@ fn run(
             }
         };
         let vram = gpu.vram.unwrap_or_else(|| vram::assumed(&gpu.info));
+        // The plan (Upright, the masks' tone ranges, red eye, the settings resolved) is the
+        // CPU's work: made before the turn, so an export waiting for the GPU never holds it with
+        // the processor's part of its render (note 28).
+        let t = render::profiling().then(std::time::Instant::now);
+        let plan = lightcraft_pipeline::plan(src, info, s, req);
+        if let Some(t) = t {
+            eprintln!("  gpu plan (before the turn): {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+        }
         let _turn = gate::enter(gate::job_bytes(src.width.saturating_mul(src.height), out_px), vram, &shutting_down).ok_or(Fallback::NotTried)?;
         // in flight until this returns; not tried once the process is ending (issue #620)
         let _work = exit::enter().ok_or(Fallback::NotTried)?;
@@ -809,7 +843,7 @@ fn run(
             let _scope = ctx::RenderScope::new(&gpu);
             let errors = ctx::ErrorScopes::push(&gpu);
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                render::render(&gpu, src, info, s, req, ext.as_deref(), stages, fault, display)
+                render::render(&gpu, plan, src, info, req, ext.as_deref(), stages, fault, display)
             }));
             (r, errors.pop())
         };

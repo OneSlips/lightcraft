@@ -1401,6 +1401,7 @@ pub fn encode_image(img: &Rgba8, o: &ExportOptions) -> Result<Vec<u8>, String> {
 
 /// Like [`encode_image`], embedding `meta` (already filtered by the policy) as EXIF + XMP.
 pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
+    note_encode();
     let img = finish_8bit(img, o);
     let space = o.effective_space();
     let profile = icc::write_named(named_space(space));
@@ -1423,23 +1424,8 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
             let jpeg = |q: u8| encode::encode_jpeg(&e, q, sub, &meta);
             match o.limit_kb {
                 Some(kb) => {
-                    let limit = kb as usize * 1024;
-                    // Binary search for the highest quality that fits.
-                    let (mut lo, mut hi) = (1u8, o.quality);
-                    let mut best = None;
-                    while lo <= hi {
-                        let mid = lo + (hi - lo) / 2;
-                        let b = jpeg(mid).map_err(|e| e.to_string())?;
-                        if b.len() <= limit {
-                            best = Some(b);
-                            lo = mid + 1;
-                        } else if mid == 1 {
-                            break;
-                        } else {
-                            hi = mid - 1;
-                        }
-                    }
-                    return best.ok_or_else(|| format!("cannot fit within {kb} KB"));
+                    let fixed = profile.len() + exif.as_ref().map_or(0, Vec::len) + xmp.as_ref().map_or(0, |x| x.len());
+                    return fit_jpeg(&img, o.quality, kb, sub, fixed, &mut |q| jpeg(q).map_err(|e| e.to_string()));
                 }
                 None => jpeg(o.quality),
             }
@@ -1484,6 +1470,7 @@ fn finish_deep(img: &DeepImage, o: &ExportOptions) -> DeepImage {
 /// against the base as written, so its 8-bit rounding is handed back by the map.
 pub fn encode_gain_map_jpeg(sdr: &Rgba8, hdr: &DeepImage, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
     use lightcraft_codecs::gainmap;
+    note_encode();
     let mut t = lap_clock();
     // (no copies of the 45 MP renders when there is nothing to add to them)
     let base = if finishes(o) { std::borrow::Cow::Owned(finish_8bit(sdr, o)) } else { std::borrow::Cow::Borrowed(sdr) };
@@ -1508,9 +1495,127 @@ pub fn encode_gain_map_jpeg(sdr: &Rgba8, hdr: &DeepImage, o: &ExportOptions, met
     let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
     let em = EncodeMeta { icc: Some(&profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
     let sub = if o.limit_kb.is_some() { ChromaSubsampling::S420 } else { ChromaSubsampling::S444 };
-    let r = gainmap::encode_jpeg(&EncodeImage::rgba8(&base), &map, &gm, o.quality, sub, &em).map_err(|e| e.to_string());
+    // the gain map is encoded once; a file size limit only encodes the primary image again
+    let gain_jpeg = gainmap::encode_gain(&map, &gm, o.quality).map_err(|e| e.to_string())?;
+    let e = EncodeImage::rgba8(&base);
+    let mut primary = |q: u8| gainmap::encode_with_gain(&e, &gain_jpeg, q, sub, &em).map_err(|e| e.to_string());
+    let r = match o.limit_kb {
+        Some(kb) => {
+            let fixed = gain_jpeg.len() + profile.len() + exif.as_ref().map_or(0, Vec::len) + xmp.as_ref().map_or(0, |x| x.len());
+            fit_jpeg(&base, o.quality, kb, sub, fixed, &mut primary)
+        }
+        None => primary(o.quality),
+    };
     lap("gain map: JPEG encode", &mut t);
     r
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Full-size JPEG encodes [`fit_jpeg`] made on this thread so far (tests: at most two per photo).
+    pub(crate) static FIT_ENCODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// The JPEG of `img` at the highest quality up to `quality` whose file (`encode(q)`: the whole
+/// file at quality q, `fixed` of its bytes, metadata and any gain map, don't change with q) fits within `kb` KB, in two full-size
+/// encodes (note 28: a binary search made seven or eight of a 6000 px photo, ~30 s per photo).
+///
+/// The first is at `quality`; when it is too big, how the size falls with the quality is measured
+/// on a small mosaic of the photo's own blocks (a sixteenth of it), scaled to the first encode's
+/// size, and the second encode is at the quality that curve says fits, with a margin. Should the
+/// photo still not fit (rare: the mosaic misjudged it), the curve is corrected by that encode and
+/// a lower quality tried, until quality 1.
+fn fit_jpeg(
+    img: &Rgba8,
+    quality: u8,
+    kb: u32,
+    sub: ChromaSubsampling,
+    fixed: usize,
+    encode: &mut dyn FnMut(u8) -> Result<Vec<u8>, String>,
+) -> Result<Vec<u8>, String> {
+    let limit = (kb as usize).saturating_mul(1024);
+    let mut full = |q: u8| {
+        #[cfg(test)]
+        FIT_ENCODES.with(|c| c.set(c.get() + 1));
+        encode(q)
+    };
+    let quality = quality.clamp(1, 100);
+    let first = full(quality)?;
+    if first.len() <= limit {
+        return Ok(first);
+    }
+    let mosaic = sample_mosaic(img);
+    let me = EncodeImage::rgba8(&mosaic);
+    let none = EncodeMeta::default();
+    let small = |q: u8| encode::encode_jpeg(&me, q, sub, &none).map(|b| b.len()).map_err(|e| e.to_string());
+    let (mut q_at, mut file_at) = (quality, first.len());
+    let mut m_at = small(q_at)?.max(1);
+    // (an 8×8 encode's size: the headers every encode has)
+    let headers = encode::encode_jpeg(&EncodeImage::rgba8(&Rgba8 { width: 8, height: 8, data: vec![[128, 128, 128, 255]; 64] }), quality, sub, &none)
+        .map(|b| b.len())
+        .unwrap_or(600);
+    let mut margin = 0.96;
+    loop {
+        // file(q) ≈ fixed + k × (mosaic(q) − headers): `fixed` (metadata, profile, a gain map)
+        // doesn't shrink with the quality
+        let pixel_bytes = |m: usize| m.saturating_sub(headers).max(1) as f64;
+        let k = file_at.saturating_sub(fixed) as f64 / pixel_bytes(m_at);
+        let target = limit as f64 * margin;
+        // highest quality below q_at predicted to fit (binary search on the mosaic)
+        let (mut lo, mut hi) = (1u8, q_at.saturating_sub(1).max(1));
+        let mut pick = 1u8;
+        while lo <= hi {
+            let mid = lo + (hi - lo) / 2;
+            let predicted = fixed as f64 + k * pixel_bytes(small(mid)?);
+            if predicted <= target {
+                pick = mid;
+                lo = mid + 1;
+            } else if mid == 1 {
+                break;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        let b = full(pick)?;
+        if b.len() <= limit {
+            return Ok(b);
+        }
+        if pick <= 1 {
+            return Err(format!("cannot fit within {kb} KB"));
+        }
+        // the mosaic misjudged this photo: correct the curve with what this encode gave
+        (q_at, file_at) = (pick, b.len());
+        m_at = small(q_at)?.max(1);
+        margin *= 0.97;
+    }
+}
+
+/// A sixteenth of `img`: its 32 px blocks at every fourth row and column of blocks, side by side
+/// (whole JPEG MCUs, so the mosaic's blocks code as the photo's do). Small photos are used whole.
+fn sample_mosaic(img: &Rgba8) -> Rgba8 {
+    const T: usize = 32;
+    const STEP: usize = 4;
+    let (w, h) = (img.width, img.height);
+    let (cols, rows) = (w / T / STEP, h / T / STEP);
+    if cols == 0 || rows == 0 {
+        return img.clone();
+    }
+    let (mw, mh) = (cols * T, rows * T);
+    let mut data = vec![[0u8; 4]; mw * mh];
+    for r in 0..rows {
+        for c in 0..cols {
+            let (sx, sy) = (c * T * STEP + T * (STEP / 2), r * T * STEP + T * (STEP / 2));
+            for y in 0..T {
+                let (src_y, dst_y) = (sy + y, r * T + y);
+                let src = img.data.get(src_y * w + sx..src_y * w + sx + T);
+                let dst = data.get_mut(dst_y * mw + c * T..dst_y * mw + c * T + T);
+                if let (Some(src), Some(dst)) = (src, dst) {
+                    dst.copy_from_slice(src);
+                }
+            }
+        }
+    }
+    Rgba8 { width: mw, height: mh, data }
 }
 
 /// Whether [`finish_8bit`] / [`finish_deep`] change anything (output sharpening or a watermark).
@@ -1711,6 +1816,9 @@ pub struct PreparedExport {
     weight: usize,
     /// Its renders may use the GPU ([`export_gpu`] when it was prepared).
     gpu: bool,
+    /// When the GPU is busy with other photos it renders on the processor instead of waiting
+    /// ([`export_mix`] when it was prepared).
+    mix: bool,
 }
 
 struct RenderWork {
@@ -1820,7 +1928,7 @@ fn prepare_guarded(
         };
         (work, weight)
     };
-    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight, gpu: export_gpu() })
+    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight, gpu: export_gpu(), mix: export_mix() })
 }
 
 /// The folder a photo's original is in, for [`DestinationMode::SameAsOriginal`]. None for a demo
@@ -1874,12 +1982,61 @@ fn source_px(full_px: usize, long: usize, level: crate::media::SourceLevel) -> u
     (full_px as f64 * scale * scale).min(usize::MAX as f64 / 64.0) as usize
 }
 
+/// The error of a photo whose export was cancelled before it was done ([`PreparedExport::run_until`]).
+pub const CANCELLED: &str = "export cancelled";
+
+/// Whether an export's render job decodes its original when it runs (no cached picture stands in
+/// for it): [`PreparedExport::run`] then decodes it first, outside the photo's turn at the GPU.
+fn needs_source(job: &crate::media::RenderJob) -> bool {
+    job.cache.is_none() && job.view_cache.is_none() && job.preview_cut.is_none() && !matches!(job.source, crate::media::SourceRef::Loaded(_))
+}
+
+thread_local! {
+    /// This thread is inside a photo's renders ([`TurnMark`]): what holds its turn at the GPU.
+    static IN_RENDERS: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Marks the renders of one photo (what may hold its turn at the GPU) on this thread.
+struct TurnMark;
+
+impl TurnMark {
+    fn enter() -> Self {
+        let _ = IN_RENDERS.try_with(|c| c.set(c.get().saturating_add(1)));
+        TurnMark
+    }
+}
+
+impl Drop for TurnMark {
+    fn drop(&mut self) {
+        let _ = IN_RENDERS.try_with(|c| c.set(c.get().saturating_sub(1)));
+    }
+}
+
+/// Encodes that ran inside a photo's renders (tests: an encode must never hold the GPU turn).
+#[cfg(test)]
+pub(crate) static ENCODES_IN_TURN: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Count an encode that runs inside a photo's renders (tests).
+fn note_encode() {
+    #[cfg(test)]
+    if IN_RENDERS.try_with(|c| c.get() > 0).unwrap_or(false) {
+        ENCODES_IN_TURN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 impl PreparedExport {
     pub fn run(self) -> Result<Exported, String> {
+        self.run_until(&|| false)
+    }
+
+    /// [`Self::run`], giving up ([`CANCELLED`]) between its steps (decode, renders, encode) once
+    /// `stop()` says so: a cancelled export stops within a step, not after the photo.
+    pub fn run_until(self, stop: &dyn Fn() -> bool) -> Result<Exported, String> {
+        let check = || if stop() { Err(CANCELLED.to_string()) } else { Ok(()) };
         let file_name = self.file_name;
         match self.work {
             Work::Render(w) => {
-                let RenderWork { mut job, hdr_job, meta, opts, src_px } = *w;
+                let RenderWork { mut job, mut hdr_job, meta, opts, src_px } = *w;
                 // A gain map's HDR rendition renders on the GPU too when the SDR one can: from the
                 // stages the SDR render left on the device, in one turn at the GPU (the memory
                 // those stages hold is never another export's to take meanwhile).
@@ -1888,8 +2045,27 @@ impl PreparedExport {
                     && lightcraft_gpu::enabled()
                     && lightcraft_gpu::handles(OutputDepth::F32Hdr, false, lightcraft_pipeline::Overlay::None);
                 let out_px = job.request.max_w.saturating_mul(job.request.max_h);
-                let render = || -> Result<Exported, String> {
+                let mut t = lap_clock();
+                // 1. The original is decoded (and AI-denoised when asked) before the photo's turn
+                // at the GPU, on this lane's thread: other photos render on the GPU meanwhile
+                // (note 28: the turn used to cover the decode and the encode too, so photos side
+                // by side took turns at an idle card).
+                check()?;
+                if needs_source(&job) {
+                    let src = job.source.load_source()?;
+                    if let Some(hj) = &mut hdr_job {
+                        hj.source = crate::media::SourceRef::Loaded(Box::new(src.clone()));
+                    }
+                    job.source = crate::media::SourceRef::Loaded(Box::new(src));
+                    lap("decode", &mut t);
+                }
+                // 2. The renders (the GPU's part): the SDR rendition, and a gain map's HDR one
+                let renders = || -> Result<(lightcraft_pipeline::Rendered, Option<DeepImage>, Option<String>), String> {
                     let mut t = lap_clock();
+                    lap("waiting for the GPU", &mut t);
+                    // (cancelled while it waited for its turn: give the turn back at once)
+                    check()?;
+                    let _turn = TurnMark::enter();
                     // A gain map's HDR rendition is the same photo rendered a second time: it starts
                     // from the SDR render's decoded original and its stages (on the device, or when
                     // it renders on the CPU, the white-balanced, denoised, retouched image and
@@ -1906,8 +2082,9 @@ impl PreparedExport {
                     let loaded = result.loaded.take();
                     let r = result.rendered?;
                     let gpu_fallback = result.gpu_fallback;
-                    let bytes = match hdr_job {
+                    let hdr = match hdr_job {
                         Some(mut hj) => {
+                            check()?;
                             if let Some(src) = loaded {
                                 hj.source = crate::media::SourceRef::Loaded(Box::new(src));
                             }
@@ -1920,18 +2097,36 @@ impl PreparedExport {
                             }
                             let hr = hj.run().rendered?;
                             lap("HDR render", &mut t);
-                            let hdr = hr.deep.ok_or("the HDR render has no float samples")?;
-                            encode_gain_map_jpeg(&r.image, &hdr, &opts, meta.as_ref())?
+                            Some(hr.deep.ok_or("the HDR render has no float samples")?)
                         }
-                        None => {
-                            let b = encode_rendered(&r, &opts, meta.as_ref())?;
-                            lap("encode", &mut t);
-                            b
-                        }
+                        None => None,
                     };
-                    Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new(), gpu_fallback })
+                    Ok((r, hdr, gpu_fallback))
                 };
-                if hdr_on_gpu { lightcraft_gpu::in_one_turn(src_px, out_px, render) } else { render() }
+                let (r, hdr, gpu_fallback) = if self.gpu && self.mix {
+                    // the GPU and the processor at once: this photo takes the GPU when it is free,
+                    // else it renders on the processor rather than wait (Test my machine picks it)
+                    match lightcraft_gpu::try_batch_turn(src_px, out_px) {
+                        Some(_turn) => renders(),
+                        None => {
+                            lap("the GPU is busy: rendering on the processor", &mut t);
+                            lightcraft_gpu::on_cpu(renders)
+                        }
+                    }
+                } else if hdr_on_gpu {
+                    lightcraft_gpu::in_one_turn(src_px, out_px, renders)
+                } else {
+                    renders()
+                }?;
+                lap("renders", &mut t);
+                check()?;
+                // 3. The encode, on this lane's thread after its turn (the next photo renders meanwhile)
+                let bytes = match &hdr {
+                    Some(hdr) => encode_gain_map_jpeg(&r.image, hdr, &opts, meta.as_ref())?,
+                    None => encode_rendered(&r, &opts, meta.as_ref())?,
+                };
+                lap("encode", &mut t);
+                Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new(), gpu_fallback })
             }
             Work::File { path, read, packet, dng, quality, lossy_edge, label, size, remove_location } => {
                 let bytes = match &read {
@@ -2113,23 +2308,26 @@ pub fn export_batch(
     run_batch(items, o, to, write, exists, true, &mut |_, _| true)
 }
 
-/// [`export_batch`] with `lanes` photos side by side, on the GPU or not, the files thrown away
-/// (a benchmark: [`crate::machine_test`]). Changes nothing process-wide.
+/// [`export_batch`] with `lanes` photos side by side, on the GPU or not (and with `mix`, on the
+/// processor too while the GPU is busy), the files thrown away (a benchmark:
+/// [`crate::machine_test`]). Changes nothing process-wide.
 pub(crate) fn export_batch_tuned(
     session: &mut crate::Session,
     ids: &[lightcraft_catalog::PhotoId],
     o: &ExportOptions,
     lanes: usize,
     gpu: bool,
+    mix: bool,
 ) -> Result<Vec<serde_json::Value>, String> {
     let mut items = prepare_batch(session, ids, o)?;
     for it in &mut items {
         it.gpu = gpu;
+        it.mix = gpu && mix;
     }
     let lanes = lanes.clamp(1, MAX_EXPORT_LANES).min(items.len().max(1));
     let to = Destination::default();
     let mut sink = |_: &str, _: &[u8]| Ok(());
-    run_batch_with(items, &mut Placer::new(o, &to, &mut sink, &|_| false, true), &mut |_, _| true, lanes)
+    run_batch_with(items, &mut Placer::new(o, &to, &mut sink, &|_| false, true), &mut |_, _| true, lanes, None)
 }
 
 /// Write an exported or rendered file on disk: its folder is created if needed, and the file is
@@ -2182,8 +2380,26 @@ pub fn run_batch(
     stop_on_error: bool,
     progress: &mut dyn FnMut(usize, &str) -> bool,
 ) -> Result<Vec<serde_json::Value>, String> {
+    run_batch_cancellable(items, o, to, write, exists, stop_on_error, progress, None)
+}
+
+/// [`run_batch`] that also stops within about a second once `cancel` is set (note 28: a cancelled
+/// export stayed "cancelling" for minutes while the photos in flight finished). The photos then in
+/// flight are dropped (their lanes stop at their next step and give their memory back); the files
+/// already written stay. Returns the files placed until then.
+#[allow(clippy::too_many_arguments)]
+pub fn run_batch_cancellable(
+    items: Vec<PreparedExport>,
+    o: &ExportOptions,
+    to: &Destination,
+    write: &mut dyn FnMut(&str, &[u8]) -> Result<(), String>,
+    exists: &dyn Fn(&str) -> bool,
+    stop_on_error: bool,
+    progress: &mut dyn FnMut(usize, &str) -> bool,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+) -> Result<Vec<serde_json::Value>, String> {
     let lanes = export_parallelism(items.len());
-    run_batch_with(items, &mut Placer::new(o, to, write, exists, stop_on_error), progress, lanes)
+    run_batch_with(items, &mut Placer::new(o, to, write, exists, stop_on_error), progress, lanes, cancel)
 }
 
 /// How many photos of a batch of `n` render side by side. Each render already spreads its rows
@@ -2233,74 +2449,100 @@ pub fn export_gpu() -> bool {
     EXPORT_GPU.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// [`run_batch`] with `lanes` photos in flight (the calling thread is one of them).
+/// Exports render on the processor too while the GPU is busy with other photos (note 28: "Why
+/// can't we separate the load at CPU and GPU?"). Off by default; Test my machine turns it on
+/// when it measured it faster.
+static EXPORT_MIX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Let photos of an export render on the processor while the GPU renders others ([`export_mix`]).
+pub fn set_export_mix(on: bool) {
+    EXPORT_MIX.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether exports use the processor and the GPU at once ([`set_export_mix`]).
+pub fn export_mix() -> bool {
+    EXPORT_MIX.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// [`run_batch`] with `lanes` photos in flight. Without `cancel` the calling thread is one of the
+/// lanes; with it the lanes are threads of their own and this one only places the files, looking
+/// at `cancel` while it waits, so it can leave at once: lanes still in flight then stop at their
+/// next step on their own.
 fn run_batch_with(
     items: Vec<PreparedExport>,
     placer: &mut Placer<'_>,
     progress: &mut dyn FnMut(usize, &str) -> bool,
     lanes: usize,
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 ) -> Result<Vec<serde_json::Value>, String> {
     placer.single = items.len() == 1;
-    if lanes <= 1 || items.len() <= 1 {
+    let cancelled = || cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed));
+    if cfg!(target_arch = "wasm32") || (cancel.is_none() && (lanes <= 1 || items.len() <= 1)) {
         for (i, item) in items.into_iter().enumerate() {
-            if !progress(i, &item.file_name) {
+            if !progress(i, &item.file_name) || cancelled() {
                 break;
             }
             let (photo, name, guard, source_dir) = (item.photo, item.file_name.clone(), item.guard.clone(), item.source_dir.clone());
-            placer.place(photo, name, source_dir.as_deref(), &guard, run_gated(item))?;
+            let r = run_gated(item, &cancelled);
+            if cancelled() {
+                break;
+            }
+            placer.place(photo, name, source_dir.as_deref(), &guard, r)?;
         }
         return Ok(std::mem::take(&mut placer.out));
     }
     let heads: Vec<_> = items.iter().map(|i| (i.photo, i.file_name.clone(), i.guard.clone(), i.source_dir.clone())).collect();
-    let queue = Queue {
+    let lanes = lanes.max(1);
+    let queue = std::sync::Arc::new(Queue {
         lane: std::sync::Mutex::new(Lane { items: items.into_iter().map(Some).collect(), next: 0, placed: 0, stop: false, done: Default::default() }),
         cv: std::sync::Condvar::new(),
         ahead: lanes,
-    };
-    std::thread::scope(|sc| {
-        // stops the lanes however this thread leaves the scope: a panic in `progress` or the placer
-        // would otherwise leave them waiting and the scope's join would never return
-        let _stop = StopOnDrop(&queue);
-        for k in 1..lanes {
-            let q = &queue;
-            // a lane that can't start leaves its photos to the others (and to this thread)
-            if std::thread::Builder::new().name(format!("export-{k}")).spawn_scoped(sc, move || q.work()).is_err() {
-                break;
-            }
+        cancel: cancel.clone(),
+        lanes: std::sync::atomic::AtomicUsize::new(0),
+    });
+    // stops the lanes however this thread leaves: an error, a cancel, a panic in `progress` or the placer
+    let _stop = StopOnDrop(queue.clone());
+    // (without a cancel flag the calling thread is a lane too: one thread fewer)
+    let threads = if cancel.is_some() { lanes } else { lanes - 1 };
+    for k in 0..threads {
+        let q = queue.clone();
+        // a lane that can't start leaves its photos to the others (and to this thread)
+        if std::thread::Builder::new().name(format!("export-{}", k + 1)).spawn(move || q.work()).is_err() {
+            break;
         }
-        let placed = || {
-            for (i, (photo, name, guard, source_dir)) in heads.into_iter().enumerate() {
-                if !progress(i, &name) {
-                    break;
-                }
-                let e = queue.result(i);
-                placer.place(photo, name, source_dir.as_deref(), &guard, e)?;
-            }
-            Ok::<_, String>(())
-        };
-        placed()
-    })?;
+        queue.lanes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+    for (i, (photo, name, guard, source_dir)) in heads.into_iter().enumerate() {
+        if !progress(i, &name) || queue.cancelled() {
+            break;
+        }
+        let Some(e) = queue.result(i) else { break };
+        placer.place(photo, name, source_dir.as_deref(), &guard, e)?;
+    }
     Ok(std::mem::take(&mut placer.out))
 }
 
 /// Stops a [`Queue`] when dropped, also while unwinding from a panic.
-struct StopOnDrop<'a>(&'a Queue);
+struct StopOnDrop(std::sync::Arc<Queue>);
 
-impl Drop for StopOnDrop<'_> {
+impl Drop for StopOnDrop {
     fn drop(&mut self) {
         self.0.stop();
     }
 }
 
 /// Run one photo's export holding its working memory from [`crate::memory::export_gate`]; a panic
-/// becomes that photo's error, not the batch's end.
-fn run_gated(item: PreparedExport) -> Result<Exported, String> {
+/// becomes that photo's error, not the batch's end. `stop()`: the batch was cancelled.
+fn run_gated(item: PreparedExport, stop: &dyn Fn() -> bool) -> Result<Exported, String> {
     let _held = crate::memory::export_gate().acquire(item.weight);
+    if stop() {
+        return Err(CANCELLED.into());
+    }
     let what = format!("exporting {}", item.file_name);
     // (its GPU renders take turns with the other photos' and stay behind the window's: `lightcraft_gpu::as_batch`)
     // (on the processor when the GPU is turned off for exports: `set_export_gpu`)
     let gpu = item.gpu;
-    let render = || lightcraft_gpu::as_batch(|| item.run());
+    let render = || lightcraft_gpu::as_batch(|| item.run_until(stop));
     crate::guard::catch(&what, || if gpu { render() } else { lightcraft_gpu::on_cpu(render) }).and_then(|r| r)
 }
 
@@ -2311,6 +2553,10 @@ struct Queue {
     lane: std::sync::Mutex<Lane>,
     cv: std::sync::Condvar,
     ahead: usize,
+    /// The batch's cancel flag ([`run_batch_cancellable`]).
+    cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Lane threads started.
+    lanes: std::sync::atomic::AtomicUsize,
 }
 
 struct Lane {
@@ -2332,17 +2578,34 @@ impl Lane {
     }
 }
 
+/// How often the placer looks at the cancel flag while it waits for a photo.
+const CANCEL_POLL: std::time::Duration = std::time::Duration::from_millis(100);
+
 impl Queue {
     fn lock(&self) -> std::sync::MutexGuard<'_, Lane> {
         self.lane.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn wait<'a>(&self, g: std::sync::MutexGuard<'a, Lane>) -> std::sync::MutexGuard<'a, Lane> {
-        self.cv.wait(g).unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.cv.wait_timeout(g, CANCEL_POLL).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0)
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    /// Stopped: cancelled, or the batch ended early.
+    fn stopping(&self) -> bool {
+        self.cancelled() || self.lock().stop
     }
 
     fn finish(&self, i: usize, r: Result<Exported, String>) {
-        self.lock().done.insert(i, r);
+        let mut l = self.lock();
+        // (a cancelled or ended batch keeps no results nobody will collect)
+        if !l.stop && !self.cancelled() {
+            l.done.insert(i, r);
+        }
+        drop(l);
         self.cv.notify_all();
     }
 
@@ -2351,7 +2614,7 @@ impl Queue {
         loop {
             let mut l = self.lock();
             let (i, item) = loop {
-                if l.stop || l.next >= l.items.len() {
+                if l.stop || self.cancelled() || l.next >= l.items.len() {
                     return;
                 }
                 if l.next < l.placed.saturating_add(self.ahead) {
@@ -2363,26 +2626,33 @@ impl Queue {
                 l = self.wait(l);
             };
             drop(l);
-            self.finish(i, run_gated(item));
+            let r = run_gated(item, &|| self.stopping());
+            self.finish(i, r);
         }
     }
 
-    /// Photo `i`'s result, waiting for it; run here when no lane has started it yet.
-    fn result(&self, i: usize) -> Result<Exported, String> {
+    /// Photo `i`'s result, waiting for it; run here when no lane has started it yet (and this
+    /// thread is a lane, or no lane could start). `None`: the batch was cancelled meanwhile.
+    fn result(&self, i: usize) -> Option<Result<Exported, String>> {
         let mut l = self.lock();
         loop {
+            if self.cancelled() {
+                return None;
+            }
             if let Some(r) = l.done.remove(&i) {
                 l.placed = i + 1;
                 drop(l);
                 self.cv.notify_all();
-                return r;
+                return Some(r);
             }
-            if l.next == i {
+            let runs_here = self.cancel.is_none() || self.lanes.load(std::sync::atomic::Ordering::Relaxed) == 0;
+            if l.next == i && runs_here {
                 let Some((_, item)) = l.take_next() else {
-                    return Err("export: photo missing from the batch".into());
+                    return Some(Err("export: photo missing from the batch".into()));
                 };
                 drop(l);
-                self.finish(i, run_gated(item));
+                let r = run_gated(item, &|| self.cancelled());
+                self.finish(i, r);
                 l = self.lock();
                 continue;
             }
@@ -2629,6 +2899,74 @@ mod tests {
         let kb = (full.len() / 1024 / 2).max(2) as u32;
         let b = encode_image(&img, &ExportOptions { quality: 100, limit_kb: Some(kb), ..Default::default() }).unwrap();
         assert!(b.len() <= kb as usize * 1024);
+    }
+
+    /// A detailed photo-like image (gradients, texture, edges) of `w × h`.
+    fn detailed(w: usize, h: usize) -> Rgba8 {
+        let mut img = Rgba8::new(w, h);
+        let mut seed = 12345u32;
+        for y in 0..h {
+            for x in 0..w {
+                seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12345);
+                let n = (seed >> 24) as i32 - 128;
+                let base = ((x * 255 / w) as i32 + ((y / 40) % 2) as i32 * 60 + (((x as f32 / 9.0).sin() * 30.0) as i32)).clamp(0, 255);
+                let c = |o: i32| (base + o + n / 3).clamp(0, 255) as u8;
+                img.data[y * w + x] = [c(0), c(-20), c(25), 255];
+            }
+        }
+        img
+    }
+
+    /// Note 28: "Limit file size" made a full encode per step of a binary search (7-8 of a 6000 px
+    /// photo). Now at most two: the quality is predicted from the first encode's size.
+    #[test]
+    fn a_file_size_limit_takes_at_most_two_encodes() {
+        let img = detailed(1600, 1100);
+        let full = encode_image(&img, &ExportOptions { quality: 90, limit_kb: None, ..Default::default() }).unwrap();
+        for share in [0.8, 0.5, 0.3, 0.15] {
+            let kb = ((full.len() as f64 * share) / 1024.0) as u32;
+            FIT_ENCODES.with(|c| c.set(0));
+            let b = encode_image(&img, &ExportOptions { quality: 90, limit_kb: Some(kb), ..Default::default() }).unwrap();
+            let n = FIT_ENCODES.with(|c| c.get());
+            assert!(b.len() <= kb as usize * 1024, "{} bytes over {kb} KB", b.len());
+            assert!(n <= 2, "{n} encodes for {share} of the size");
+            // and not much smaller than it may be: the quality is close to the best that fits
+            assert!(b.len() as f64 >= kb as f64 * 1024.0 * 0.6, "{} bytes for {kb} KB", b.len());
+        }
+        // one encode when it fits already
+        FIT_ENCODES.with(|c| c.set(0));
+        encode_image(&img, &ExportOptions { quality: 90, limit_kb: Some(100_000), ..Default::default() }).unwrap();
+        assert_eq!(FIT_ENCODES.with(|c| c.get()), 1);
+    }
+
+    /// The limit holds for a gain map JPEG too (it used to only switch to 4:2:0), in at most two
+    /// encodes of the primary image and one of the gain map.
+    #[test]
+    fn a_gain_map_jpeg_fits_the_file_size_limit() {
+        let sdr = detailed(1200, 800);
+        let hdr = DeepImage {
+            width: 1200,
+            height: 800,
+            space: OutputSpace::Srgb,
+            samples: DeepSamples::F32(
+                sdr.data
+                    .iter()
+                    .flat_map(|p| {
+                        let l = |v: u8| lightcraft_pipeline::OutputTrc::Srgb.decode(v as f32 / 255.0);
+                        let g = if p[0] > 200 { 3.0 } else { 1.0 };
+                        [l(p[0]) * g, l(p[1]) * g, l(p[2]) * g]
+                    })
+                    .collect(),
+            ),
+        };
+        let o = ExportOptions { quality: 90, hdr: true, ..Default::default() };
+        let free = encode_gain_map_jpeg(&sdr, &hdr, &o, None).unwrap();
+        let kb = (free.len() as f64 * 0.5 / 1024.0) as u32;
+        FIT_ENCODES.with(|c| c.set(0));
+        let b = encode_gain_map_jpeg(&sdr, &hdr, &ExportOptions { limit_kb: Some(kb), ..o }, None).unwrap();
+        assert!(b.len() <= kb as usize * 1024, "{} bytes over {kb} KB", b.len());
+        assert!(FIT_ENCODES.with(|c| c.get()) <= 2);
+        assert!(lightcraft_codecs::gainmap::read_jpeg(&b).is_some(), "still a gain map JPEG");
     }
 
     #[test]
@@ -3727,7 +4065,7 @@ mod tests {
             seen.push((i, name.to_string()));
             i < cancel_at
         };
-        let files = run_batch_with(items, &mut Placer::new(o, &to, &mut write, &|_| false, stop_on_error), &mut progress, lanes);
+        let files = run_batch_with(items, &mut Placer::new(o, &to, &mut write, &|_| false, stop_on_error), &mut progress, lanes, None);
         (files, written, seen)
     }
 
@@ -3823,7 +4161,7 @@ mod tests {
                 true
             };
             let r = crate::guard::catch("test batch", || {
-                run_batch_with(items, &mut Placer::new(&o, &to, &mut write, &|_| false, true), &mut progress, 2)
+                run_batch_with(items, &mut Placer::new(&o, &to, &mut write, &|_| false, true), &mut progress, 2, None)
             });
             tx.send(r.and_then(|r| r)).ok();
         });

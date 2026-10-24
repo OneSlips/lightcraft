@@ -4,10 +4,12 @@
 //! photos side by side). Prints photos per minute.
 //!
 //! `cargo run --release -p lightcraft-engine --example export_bench -- [--cpu] [--sdr] [--plain]
-//! [--lanes N] [--runs N] [--gpu-jobs N] [--gpu-mb MB] FILES…`
+//! [--lanes N] [--runs N] [--gpu-jobs N] [--gpu-mb MB] [--long-edge PX] [--limit-kb KB] FILES…`
 //!
 //! - `--cpu`: no GPU (as after a device failure); `--sdr`: plain JPEGs, no gain map; `--plain`:
-//!   no Smooth Skin or masks; `--lanes N`: photos side by side (default: the app's choice).
+//!   no Smooth Skin or masks; `--lanes N`: photos side by side (default: the app's choice);
+//!   `--long-edge PX`, `--limit-kb KB`: resize and "Limit file size" as in the Export dialog
+//!   (note 28's settings: `--long-edge 6000 --limit-kb 10240`).
 //! - `LIGHTCRAFT_PROFILE=1` prints each render's stages on stderr.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -27,7 +29,7 @@ fn main() {
         args.iter()
             .filter(|a| {
                 let keep = !skip && !a.starts_with("--");
-                skip = matches!(a.as_str(), "--lanes" | "--runs" | "--gpu-jobs" | "--gpu-mb");
+                skip = matches!(a.as_str(), "--lanes" | "--runs" | "--gpu-jobs" | "--gpu-mb" | "--long-edge" | "--limit-kb");
                 keep
             })
             .cloned()
@@ -77,7 +79,11 @@ fn main() {
     for &id in &ids {
         session.set_develop(id, settings.clone(), "bench").expect("settings");
     }
-    let o = ExportOptions { hdr, quality: 90, ..ExportOptions::default() };
+    let mut o = ExportOptions { hdr, quality: 90, ..ExportOptions::default() };
+    if let Some(edge) = value("--long-edge") {
+        o.resize = Some(lightcraft_engine::export::Resize::long_edge(edge as u32));
+    }
+    o.limit_kb = value("--limit-kb").map(|kb| kb as u32);
     let lanes = lightcraft_engine::export::export_parallelism(ids.len());
     println!(
         "{} photos, {lanes} lanes, {}, {}, {}, memory budget {} MB",
