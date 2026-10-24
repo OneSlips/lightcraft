@@ -1882,7 +1882,18 @@ fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
     for &nid in &targets {
         super::grid::request_thumb(app, nid, AHEAD_THUMB_EDGE, AHEAD_PRIORITY + 2);
     }
-    let jobs = targets.into_iter().filter_map(|nid| app.session.quick_view_job(nid, edge, crop)).collect();
+    // (an edited photo's stand-in made ahead is its last render, if any: never a raw decode for a
+    // thumbnail ahead, which would take the cores from the render the user waits for)
+    let jobs = targets
+        .into_iter()
+        .filter_map(|nid| app.session.quick_view_job(nid, edge, crop))
+        .map(|mut q| {
+            if !q.latest.is_empty() {
+                q.small = None;
+            }
+            q
+        })
+        .collect();
     app.renderer.look_ahead(jobs, AHEAD_PRIORITY);
 }
 
@@ -2021,6 +2032,7 @@ fn quick_name(q: lightcraft_engine::media::QuickSource) -> &'static str {
         QuickSource::Embedded => "embedded",
         QuickSource::Small => "small",
         QuickSource::Last => "last",
+        QuickSource::Draft => "draft",
     }
 }
 

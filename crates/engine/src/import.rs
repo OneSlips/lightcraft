@@ -1918,6 +1918,7 @@ impl Session {
             embedded_on_disk: false,
             latest: Vec::new(),
             fit: None,
+            draft: None,
             small: Some(Box::new(small)),
         })
     }

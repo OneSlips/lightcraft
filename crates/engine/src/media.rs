@@ -1471,6 +1471,10 @@ pub enum QuickSource {
     /// The photo's latest render, made with earlier settings (an edited photo whose render for its
     /// current settings is on its way: its edit as last seen, never the unedited camera JPEG).
     Last,
+    /// A fast draft of an edited raw with its settings, developed from the camera's JPEG instead of
+    /// the sensor data (crop, tone and colour edits as they will look, white balance as shot): what an
+    /// edited photo that was never rendered shows at once, until its render arrives.
+    Draft,
 }
 
 /// Something to show *now* for a photo while its real render is prepared. Tried in order: cached
@@ -1500,6 +1504,9 @@ pub struct QuickJob {
     /// Shrink a picture taken from the caches to fit this (a loupe view standing in for a grid
     /// thumbnail is not kept at 2 000 px for a 256 px cell).
     pub fit: Option<(usize, usize)>,
+    /// A fast draft of an edited raw with its settings ([`QuickSource::Draft`]): the camera JPEG at
+    /// (path, loader, max edge) developed by this job, tried after `latest` and before `small`.
+    pub draft: Option<(String, PreviewLoader, usize, Box<RenderJob>)>,
 }
 
 impl QuickJob {
@@ -1556,6 +1563,11 @@ impl QuickJob {
                 return done(rendered(fitted(img)), Some(QuickSource::Last));
             }
         }
+        if let Some((path, loader, edge, job)) = self.draft.as_ref()
+            && let Some(r) = draft_from_camera_jpeg(path, loader, *edge, job)
+        {
+            return RenderResult { request_id, key, quick: Some(QuickSource::Draft), ..r };
+        }
         if let Some((path, loader, edge)) = &self.embedded {
             if let Some((cache, k)) = &self.embedded_cache
                 && let Some(img) = if self.embedded_on_disk { cache.get(*k) } else { cache.get_memory(*k) }
@@ -1579,6 +1591,49 @@ impl QuickJob {
         }
         done(Err("no quick preview".into()), None)
     }
+}
+
+/// The longest edge a draft from the camera JPEG is developed at ([`QuickSource::Draft`]).
+pub const DRAFT_EDGE: usize = 1600;
+
+/// Develop `job` (an edited raw's render job) from its camera JPEG (`loader` at `path`, at most
+/// `edge` px) instead of its sensor data: a draft with its settings, white balance as shot (the
+/// JPEG's colours are the camera's, on no Kelvin scale). `None`: the JPEG can't be read, or the
+/// render failed.
+fn draft_from_camera_jpeg(path: &str, loader: &PreviewLoader, edge: usize, job: &RenderJob) -> Option<RenderResult> {
+    let jpeg = loader(path, edge.clamp(1, DRAFT_EDGE))?;
+    if jpeg.width == 0 || jpeg.height == 0 {
+        return None;
+    }
+    let lin: Vec<f32> = (0..=255u8).map(|v| lightcraft_color::transfer::srgb_to_linear(f32::from(v) / 255.0)).collect();
+    let to_working = lightcraft_color::SRGB.to_space(&lightcraft_color::WORKING);
+    let px = |c: u8| lin.get(usize::from(c)).copied().unwrap_or(0.0);
+    let data = jpeg.data.iter().map(|p| to_working.apply_f32([px(p[0]), px(p[1]), px(p[2])])).collect();
+    let image = Rgb32f { width: jpeg.width, height: jpeg.height, data };
+    let info = SourceInfo {
+        raw: false,
+        as_shot_temp: 6500.0,
+        as_shot_tint: 0.0,
+        relative_wb: true,
+        native_long: job.info.native_long,
+        ..Default::default()
+    };
+    let mut settings = (*job.settings).clone();
+    settings.wb = lightcraft_develop::WhiteBalance::default();
+    let mut job = job.clone();
+    job.source = SourceRef::Loaded(Box::new(DecodedSource::new(Arc::new(image), Some(info.clone()))));
+    job.info = info;
+    job.settings = Arc::new(settings);
+    job.cache = None;
+    job.view_cache = None;
+    job.latest = None;
+    job.stages = None;
+    job.on_screen = false;
+    job.preview_cut = None;
+    let mut r = job.draft().run();
+    r.loaded = None;
+    r.source_key = None;
+    r.rendered.is_ok().then_some(r)
 }
 
 /// The thumbnail cache's key for the camera JPEG standing for the thumbnail of cache key `k`.
@@ -2052,8 +2107,16 @@ impl crate::Session {
         } else {
             vec![(self.media.rendered.clone(), latest_view_key(&p, apply_crop)), (self.media.rendered.clone(), latest_thumb_key(&p))]
         };
-        let embedded =
-            self.embedded_stand_in_of(&p).filter(|_| as_shot).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
+        let camera_jpeg = self.embedded_stand_in_of(&p);
+        // an edited raw never rendered: a fast draft with its settings from the camera JPEG
+        let draft = match (&camera_jpeg, as_shot) {
+            (Some((path, l)), false) => {
+                let e = max_edge.clamp(1, DRAFT_EDGE);
+                self.render_job(id, e, e, false, apply_crop).map(|j| (path.clone(), l.clone(), e, Box::new(j)))
+            }
+            _ => None,
+        };
+        let embedded = camera_jpeg.filter(|_| as_shot).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
         let embedded_cache = embedded
             .as_ref()
             .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
@@ -2067,6 +2130,7 @@ impl crate::Session {
             embedded_on_disk: false,
             latest,
             fit: None,
+            draft,
             small: apply_crop.then(|| Box::new(small)),
         })
     }
@@ -2092,6 +2156,7 @@ impl crate::Session {
             embedded_on_disk: false,
             latest: Vec::new(),
             fit: None,
+            draft: None,
             small: None,
         })
     }
@@ -2114,9 +2179,17 @@ impl crate::Session {
             let c = self.media.rendered.clone();
             let latest = vec![(c.clone(), latest_thumb_key(&p)), (c.clone(), latest_view_key(&p, true))];
             let exact = job.cache.clone();
-            if !exact.iter().any(|(c, k)| c.has(*k)) && !latest.iter().any(|(c, k)| c.has(*k)) {
-                return None;
-            }
+            // nothing of it rendered yet: a fast draft with its settings from the camera JPEG (a raw), else
+            // its render is its first picture
+            let draft = if !exact.iter().any(|(c, k)| c.has(*k)) && !latest.iter().any(|(c, k)| c.has(*k)) {
+                let jpeg = self.embedded_stand_in_of(&p)?;
+                let mut j = job.clone();
+                j.cache = None;
+                j.latest = None;
+                Some((jpeg.0, jpeg.1, edge, Box::new(j)))
+            } else {
+                None
+            };
             return Some(QuickJob {
                 request_id: 0,
                 photo: job.photo,
@@ -2127,6 +2200,7 @@ impl crate::Session {
                 embedded_on_disk: false,
                 latest,
                 fit: Some((edge, edge)),
+                draft,
                 small: None,
             });
         }
@@ -2143,6 +2217,7 @@ impl crate::Session {
             embedded_on_disk: true,
             latest: Vec::new(),
             fit: None,
+            draft: None,
             small: Some(Box::new(job.clone())),
         })
     }
@@ -2454,6 +2529,7 @@ mod thumbnail_hash_tests {
             embedded_on_disk: false,
             latest: Vec::new(),
             fit: None,
+            draft: None,
             small: None,
         };
         let r = quick.run();
