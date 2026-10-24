@@ -332,14 +332,12 @@ pub const UI_COMMANDS: &[UiCommand] = &[
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
-    app.ui.note_right();
-    if app.ui.right == p && crate::docking::exposed(app, crate::docking::Panel::Tools) {
-        // a tool closing puts back the panel shown before it (in the same frame: no flash, no
-        // jump), or leaves the panel hidden when it was
-        app.ui.right = if p.is_tool() { app.ui.leave_tool() } else { RightPanel::None };
+    // toggled off: back to exactly what the right column showed before (in the same frame: no flash, no jump),
+    // closed when it was closed (note 21)
+    let exposed = crate::docking::exposed(app, crate::docking::Panel::Tools);
+    if !app.ui.toggle_panel(p, exposed) {
         app.toast(ctx, crate::i18n::tr_format!("{name} Off", name = crate::i18n::tr(name)));
     } else {
-        app.ui.right = p;
         app.toast(ctx, crate::i18n::tr_format!("{name} On", name = crate::i18n::tr(name)));
         if p.is_edit_tool() && !matches!(app.ui.view, ViewMode::Detail) {
             app.ui.view = ViewMode::Detail;

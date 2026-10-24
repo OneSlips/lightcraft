@@ -630,7 +630,7 @@ From `06-shortcuts.md` part 1. Evidence is our binding; conflicts are explained 
 | KEY-FULLSCREEN | Full-screen preview — F | P1 | ✅ | `cmd:view.fullScreenPreview` | |
 | KEY-LIGHTSOUT | Lights Out — Shift+L (Classic's L is Linear Gradient here) | P2 | ✅ | `cmd:view.lightsOut` | On → Dim (80 %) → Off; Esc turns the lights on |
 | KEY-GRID | Grid — G | P0 | ✅ | `cmd:view.gridToggle`, `cmd:view.photoGrid` | G toggles Photo Grid ↔ Square Grid |
-| KEY-INFO | Info — I | P0 | ✅ | `cmd:panel.info` | |
+| KEY-INFO | Info — I | P0 | ✅ | `cmd:panel.info` | pressing I again brings back exactly what the right column showed before (Edit, Masks…; closed stays closed); every panel key and button does the same (`UiState::toggle_panel`, test notes 2026-10-24 note 21) |
 | KEY-KEYWORDS | Keywords — K | P0 | ✅ | `cmd:panel.keywords` | |
 | KEY-CLIPBOARD | Copy / paste edit settings — ⌘C / ⌘V | P0 | ✅ | `cmd:develop.copy`, `cmd:develop.paste`, `crates/ui-egui/src/shortcuts.rs` (`matches`) | ⌘X has nothing to cut outside text fields; on Windows and Linux, where the windowing layer sends Ctrl+C / Ctrl+V as clipboard events rather than key presses, those run the shortcuts too (⇧Insert pastes plainly); there Ctrl+V only arrives while the system clipboard holds text (egui-winit drops it otherwise), so with an empty clipboard Paste Settings needs the menu |
 | KEY-UNDOREDO | Undo / redo — ⌘Z / ⇧⌘Z | P0 | ✅ | `cmd:edit.undo`, `cmd:edit.redo` | |

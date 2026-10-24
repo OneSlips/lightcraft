@@ -70,10 +70,12 @@ fn the_edit_panel_comes_back_after_masking_and_crop_where_it_was() {
         assert_eq!(widget(&h, "canvas:image"), Some(photo), "{tool}: the photo didn't move");
         assert_eq!(widget(&h, &slider), Some(at), "{tool}: Edit kept its scroll position");
     }
-    // Masking, then Crop from it, then Crop closed: still Edit
+    // Masking, then Crop from it, then Crop closed: exactly what was there before, Masking (note 21); then Edit
     exec(&mut h, "panel.masking");
     exec(&mut h, "panel.crop");
     exec(&mut h, "panel.crop");
+    assert_eq!(h.app.ui.right, RightPanel::Masking);
+    exec(&mut h, "panel.masking");
     assert_eq!(h.app.ui.right, RightPanel::Edit);
     // Return (Done) in a tool also goes back
     exec(&mut h, "panel.masking");
@@ -103,4 +105,41 @@ fn a_hidden_panel_stays_hidden_after_a_tool() {
     exec(&mut h, "panel.masking");
     exec(&mut h, "panel.masking");
     assert_eq!(h.app.ui.right, RightPanel::Info);
+}
+
+/// "I" toggles the Info panel; pressing it again brings back exactly what the right column showed before, closed
+/// included (test notes 2026-10-24 note 21: the Edit sliders stayed gone).
+#[test]
+fn info_toggled_off_brings_back_exactly_what_was_there() {
+    let mut h = detail();
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+    // the key, as the user pressed it
+    let key = |h: &mut Headless| {
+        let r = h.request("ui.key", json!({"key": "I"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.step();
+        h.step();
+    };
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::Edit, "Edit → I → I = Edit");
+    exec(&mut h, "panel.masking");
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::Masking, "Masks → I → I = Masks");
+    // and Masks still closes back to Edit
+    exec(&mut h, "panel.masking");
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+    for panel in ["panel.keywords", "panel.versions", "panel.activity"] {
+        exec(&mut h, panel);
+        exec(&mut h, panel);
+        assert_eq!(h.app.ui.right, RightPanel::Edit, "{panel} toggled off: Edit again");
+    }
+    exec(&mut h, "panel.close");
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    key(&mut h);
+    assert_eq!(h.app.ui.right, RightPanel::None, "closed → I → I = closed");
 }
