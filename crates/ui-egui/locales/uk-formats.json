@@ -459,5 +459,6 @@
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ця дія не використовує: {keys}. Щоб призначити пресет на клавішу, виберіть «Пресет» вище.",
   "{n} presets from your other libraries were added.": "Додано пресетів з інших бібліотек: {n}.",
   "Spots on this photo: {n}": "Ділянок на цьому фото: {n}",
-  "From Remove Dust (outlined in amber): {n}": "Від «Видалити пил» (обведені бурштиновим): {n}"
+  "From Remove Dust (outlined in amber): {n}": "Від «Видалити пил» (обведені бурштиновим): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Профіль консолі {profile}: сторінки Masking і Mask тепер одна сторінка Masks, вона показується щоразу, коли відкрито панель «Маски». Якщо маску не вибрано, її елементи задають налаштування наступної маски. Ваші зміни збережено."
 }

@@ -459,5 +459,6 @@
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Esta acción no usa: {keys}. Elija Ajuste arriba para poner un ajuste preestablecido en esta tecla.",
   "{n} presets from your other libraries were added.": "Se añadieron {n} ajustes preestablecidos de tus otras bibliotecas.",
   "Spots on this photo: {n}": "Manchas en esta foto: {n}",
-  "From Remove Dust (outlined in amber): {n}": "De «Quitar polvo» (contorno ámbar): {n}"
+  "From Remove Dust (outlined in amber): {n}": "De «Quitar polvo» (contorno ámbar): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Perfil de consola {profile}: las páginas Masking y Mask son ahora una sola página Masks, que aparece siempre que el panel Máscaras está abierto. Sin una máscara seleccionada, sus controles ajustan la próxima máscara. Tus propios cambios se conservaron."
 }

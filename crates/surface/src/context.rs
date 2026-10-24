@@ -14,7 +14,11 @@
 //! | `crop` | Crop & Rotate |
 //! | `remove` | Remove (heal / clone) |
 //! | `redeye` | Red Eye |
-//! | `masking`, `masking.mask`, `masking.mask.brush`, `masking.mask.gradient` | Masking; a mask selected; its brush or gradient tool |
+//! | `masking` | the Masks panel (a mask selected or not: one page, test notes 2026-10-24 note 24) |
+//! | `masking.mask.brush` | the Masks panel, painting with the Brush |
+//!
+//! (Format 3 profiles also mapped `masking.mask` and `masking.mask.gradient`; they are merged into `masking` on
+//! load, see `defaults::merge_mask_pages`.)
 
 use serde::Serialize;
 
@@ -59,18 +63,9 @@ pub fn context_key(s: &AppState) -> String {
         Some("crop") => "crop".into(),
         Some("remove") => "remove".into(),
         Some("redeye") => "redeye".into(),
-        Some("masking") => {
-            let mut k = String::from("masking");
-            if s.mask_selected {
-                k.push_str(".mask");
-                match s.tool {
-                    Some("brush") => k.push_str(".brush"),
-                    Some("linear" | "radial") => k.push_str(".gradient"),
-                    _ => {}
-                }
-            }
-            k
-        }
+        // one page for the panel, whether a mask is selected or not (its controls then set the next mask's
+        // settings); the Brush has its own (size, feather, flow while painting)
+        Some("masking") => if s.tool == Some("brush") { "masking.mask.brush" } else { "masking" }.into(),
         _ => match s.section.filter(|s| !s.is_empty()) {
             Some(sec) => format!("develop.{sec}"),
             None => "develop".into(),
@@ -110,10 +105,8 @@ pub const KNOWN: &[(&str, &str)] = &[
     ("crop", "Crop & Rotate"),
     ("remove", "Remove"),
     ("redeye", "Red Eye"),
-    ("masking", "Masking"),
-    ("masking.mask", "Masking: a mask selected"),
-    ("masking.mask.brush", "Masking: brush"),
-    ("masking.mask.gradient", "Masking: gradient"),
+    ("masking", "Masks panel"),
+    ("masking.mask.brush", "Masks panel: painting with the Brush"),
     ("dialog", "Any dialog"),
     ("dialog.export", "Export dialog"),
     ("dialog.import", "Import dialog"),
@@ -138,10 +131,15 @@ mod tests {
         assert_eq!(context_key(&AppState { panel: Some("edit"), section: Some("color"), ..s }), "develop.color");
         assert_eq!(context_key(&AppState { panel: Some("crop"), section: Some("color"), ..s }), "crop");
         assert_eq!(context_key(&AppState { panel: Some("masking"), ..s }), "masking");
-        assert_eq!(context_key(&AppState { panel: Some("masking"), mask_selected: true, ..s }), "masking.mask");
+        // one Masks page, a mask selected or not (note 24); the Brush its own
+        assert_eq!(context_key(&AppState { panel: Some("masking"), mask_selected: true, ..s }), "masking");
         assert_eq!(context_key(&AppState { panel: Some("masking"), mask_selected: true, tool: Some("brush"), ..s }), "masking.mask.brush");
-        assert_eq!(context_key(&AppState { panel: Some("masking"), mask_selected: true, tool: Some("radial"), ..s }), "masking.mask.gradient");
-        assert_eq!(context_key(&AppState { panel: Some("masking"), tool: Some("brush"), ..s }), "masking", "no mask, no tool context");
+        assert_eq!(context_key(&AppState { panel: Some("masking"), mask_selected: true, tool: Some("radial"), ..s }), "masking");
+        assert_eq!(
+            context_key(&AppState { panel: Some("masking"), tool: Some("brush"), ..s }),
+            "masking.mask.brush",
+            "the Brush armed: its page, before the first stroke too"
+        );
     }
 
     #[test]

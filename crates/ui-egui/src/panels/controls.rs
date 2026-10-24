@@ -379,9 +379,19 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         if !tools.is_empty() {
             let is_tool = tools.iter().any(|p| p.name == page_key);
             let text = if is_tool { page_key.clone() } else { tr("Tool pages").to_string() };
+            // each named with when it shows ("Masks · Masks panel"): never two near-identical names (note 24)
+            let when = |name: &str| -> String {
+                let keys: Vec<String> = profile
+                    .contexts
+                    .iter()
+                    .filter(|(_, pages)| pages.iter().any(|n| n == name))
+                    .map(|(key, _)| tr(ls::context::label(key)).to_string())
+                    .collect();
+                if keys.is_empty() { name.to_string() } else { format!("{name} · {}", keys.join(", ")) }
+            };
             let r = egui::ComboBox::from_id_salt("surfaceToolPage").selected_text(text).show_ui(ui, |ui| {
                 for p in &tools {
-                    if ui.selectable_label(p.name == page_key, &p.name).clicked() {
+                    if ui.selectable_label(p.name == page_key, when(&p.name)).clicked() {
                         app.surface.editor.page = Some(p.name.clone());
                     }
                 }
@@ -390,9 +400,11 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         }
     });
     ui.add_space(4.0);
-    // the device shows the page being edited (live), so the drawing and the hardware match
+    // the device shows the page being edited (live), so the drawing and the hardware match; said on screen, or the
+    // edited page looks as if it were everywhere (note 24)
     if page_key != BASE {
         app.surface.runtime.show_page(&page_key);
+        hint(ui, t, "The console shows this page while you edit it. When you close Settings it shows the page for what LightCraft shows again.");
     }
     let page = profile.page(&page_key).cloned();
     let binding = |c: &str| -> Option<Binding> {

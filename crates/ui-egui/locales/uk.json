@@ -3249,5 +3249,9 @@
   "New raw photos shot at this ISO or above start with AI Denoise on, and their denoised pictures are made in the background after the import. Needs a denoise model (Settings, AI Denoise).": "Нові raw-фото, зняті з цим ISO або вищим, отримують увімкнене усунення шуму ШІ, а їхні очищені зображення створюються у фоні після імпорту. Потрібна модель усунення шуму (Налаштування, ШІ: усунення шуму).",
   "Photos and previews kept in memory, so the photos you go back to show at once. Automatic uses a quarter of this computer's memory, up to 16 GB. Choose more for big shoots, but leave some for other apps.": "Фото й попередні перегляди зберігаються в пам’яті, щоб фото, до яких ви повертаєтеся, з’являлися одразу. «Автоматично» використовує чверть пам’яті цього комп’ютера, до 16 ГБ. Для великих зйомок виберіть більше, але залиште трохи іншим програмам.",
   "Finding skin and faces to retouch": "Пошук шкіри та облич для ретуші",
-  "No spots on this photo": "На цьому фото немає ділянок"
+  "No spots on this photo": "На цьому фото немає ділянок",
+  "Masks panel": "Панель «Маски»",
+  "Masks panel: painting with the Brush": "Панель «Маски»: малювання пензлем",
+  "New mask": "Нова маска",
+  "The console shows this page while you edit it. When you close Settings it shows the page for what LightCraft shows again.": "Поки ви редагуєте цю сторінку, консоль показує її. Коли ви закриєте налаштування, вона знову покаже сторінку для того, що показує LightCraft."
 }

@@ -459,5 +459,6 @@
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "ეს მოქმედება არ იყენებს: {keys}. კლავიშზე პრესეტის დასაყენებლად ზემოთ აირჩიეთ „პრესეტი“.",
   "{n} presets from your other libraries were added.": "თქვენი სხვა ბიბლიოთეკებიდან დაემატა {n} პრესეტი.",
   "Spots on this photo: {n}": "ლაქა ამ ფოტოზე: {n}",
-  "From Remove Dust (outlined in amber): {n}": "მტვრის მოცილებიდან (ქარვისფრად შემოხაზული): {n}"
+  "From Remove Dust (outlined in amber): {n}": "მტვრის მოცილებიდან (ქარვისფრად შემოხაზული): {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "კონსოლის პროფილი {profile}: Masking და Mask გვერდები ახლა ერთი Masks გვერდია, რომელიც ჩანს, როცა ნიღბების პანელი ღიაა. არჩეული ნიღბის გარეშე მისი მართვის ელემენტები შემდეგი ნიღბის პარამეტრებს აყენებს. თქვენი ცვლილებები შენარჩუნდა."
 }

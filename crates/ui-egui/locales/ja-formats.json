@@ -459,5 +459,6 @@
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "この操作は {keys} を使いません。キーにプリセットを割り当てるには上の「プリセット」を選んでください。",
   "{n} presets from your other libraries were added.": "他のライブラリからプリセットを {n} 件追加しました。",
   "Spots on this photo: {n}": "この写真のスポット: {n}",
-  "From Remove Dust (outlined in amber): {n}": "「ダストを除去」によるもの（琥珀色の枠）: {n}"
+  "From Remove Dust (outlined in amber): {n}": "「ダストを除去」によるもの（琥珀色の枠）: {n}",
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "コンソールプロファイル {profile}: Masking と Mask のページは 1 つの Masks ページになり、マスクパネルを開いている間は常に表示されます。マスクを選択していないときは、次に作るマスクの設定を調整します。ご自身の変更はそのまま残りました。"
 }

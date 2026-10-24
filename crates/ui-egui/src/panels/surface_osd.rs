@@ -68,7 +68,12 @@ pub fn surface_content(app: &LightcraftApp) -> Option<(Readout, f64)> {
             let spec = ls::targets::target_spec(target)?;
             let v = crate::surface::value(app, target);
             let title = tr(spec.label).to_string();
-            let title = if spec.kind == ls::TargetKind::Mask { format!("{} · {}", tr("Mask"), title) } else { title };
+            // a mask's value; with none selected, the next mask's (note 24: "New mask · Exposure")
+            let title = match spec.kind {
+                ls::TargetKind::Mask if app.session.active_mask.is_none() => format!("{} · {}", tr("New mask"), title),
+                ls::TargetKind::Mask => format!("{} · {}", tr("Mask"), title),
+                _ => title,
+            };
             let icon = ls::icons::icon_for(&ls::Binding::value(target));
             Readout {
                 title,

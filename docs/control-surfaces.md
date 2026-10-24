@@ -1,6 +1,6 @@
 # Control surfaces
 
-> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-22 · **Change:** minor (a preset on a key through the shared preset picker, labelled with its name, a preset icon with an AI mark, unused parameters flagged; before: the overlay reports every change, from any source, with mode and size settings; the Dialpad drawn as the device; the Actions Ring set up in LightCraft with drag and drop; Touch to find; the Loupedeck+ drawn by zones and set up with no driver steps); previously minor (Erase while held; destructive keys need a hold; no Delete on built-in layouts; lit keys say why they are lit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-25 · **Change:** minor (one Masks page for the Masks panel, settings format 4 merges the old Masking / Mask pair; with no mask selected the mask values set the next mask's; the editor's preview ends when Settings closes; before: a preset on a key through the shared preset picker, labelled with its name, a preset icon with an AI mark, unused parameters flagged; before: the overlay reports every change, from any source, with mode and size settings; the Dialpad drawn as the device; the Actions Ring set up in LightCraft with drag and drop; Touch to find; the Loupedeck+ drawn by zones and set up with no driver steps); previously minor (Erase while held; destructive keys need a hold; no Delete on built-in layouts; lit keys say why they are lit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 Hardware dials, keys and buttons that drive LightCraft: the **Logitech MX Creative Console** (Keypad + Dialpad) first,
 MIDI controllers and Tangent panels later. LightCraft owns the whole engine — layouts, what each control does, dial
@@ -223,7 +223,14 @@ clamped into range on reading.
 | `library` | the photo grid, Survey or People (or no photo open) |
 | `develop`, `develop.<section>` | Detail; the Edit panel's section opened last (`light`, `color`, `effects`, `detail`, `optics`, …) |
 | `crop`, `remove`, `redeye` | those tools |
-| `masking`, `masking.mask`, `masking.mask.brush`, `masking.mask.gradient` | Masking; a mask selected; its brush or gradient tool |
+| `masking` | the Masks panel, a mask selected or not: one **Masks** page. With a mask selected its values adjust that mask; with none they set the next mask's settings (the panel's sliders move; the overlay says "New mask · Exposure") |
+| `masking.mask.brush` | the Brush armed in the Masks panel (its size, feather and flow) |
+
+Settings format 4 merged format 3's two Masks panel pages ("Masking": no mask selected, `masking`; "Mask": a mask
+selected, `masking.mask` / `masking.mask.gradient`) into the Masks page, keeping each control the user had changed
+("Mask"'s first) and saying so once; a page of the user's own mapped there stays in charge. While Settings ▸ Controls
+edits a page the console shows it (the editor says so), and the page for what LightCraft shows comes back when Settings
+closes. The tool page menu names when each page shows ("Masks · Masks panel").
 
 A **layout file** (`.lcsurface`) is one profile as JSON (the `profiles[]` element above).
 
@@ -667,4 +674,5 @@ every dropped action says why).
 | 2026-10-16 | minor | Loupedeck+: a device of its own (`ld.r<n>` / `ld.b<n>`), works as labelled with no setup, imports a Loupedeck profile's layout (`surface.import`, Settings ▸ Controls ▸ Loupedeck+) |
 | 2026-10-16 | minor | 13 icons of LightCraft's own in the pack's style for functions that shared a generic icon |
 | 2026-10-16 | minor | Erase while held (`brush.erase`), key states (focus / held / on), destructive keys need a 0.7 s hold, no Delete key on built-in layouts, Previous / Next Mask, the brush page's size and feather keys; settings format 3 |
+| 2026-10-25 | minor | Test notes 2026-10-24 note 24: one Masks page for the Masks panel (Brush keeps its own), settings format 4 merges format 3's Masking / Mask pages keeping the user's changes; `mask.*` values with no mask selected set the next mask's settings, overlay "New mask"; the editor's live preview ends when Settings closes and says so; the tool page menu names when each page shows |
 | 2026-10-15 | minor | Zero setup for the Logi plugin (on by itself, trusted through its data folder); the console shows the page being edited; dialog pages opt-in; `dial` / `roller` are the real big dial / roller (settings format 2 swaps older files), so a value key's value lands on the big dial |
