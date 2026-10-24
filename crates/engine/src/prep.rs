@@ -202,6 +202,17 @@ impl Mode {
 /// to look at one photo starts nothing.
 pub const STEPS_BEFORE_BUILD: usize = 3;
 
+/// In a library (not a folder being culled) the background build prepares the photos this far
+/// before and after the one on screen, not the whole view (note 30 of 2026-10-24: "for a gallery
+/// that's already been edited, I don't know why it's preparing"); stepping out of that stretch
+/// prepares the next one.
+pub const AROUND: usize = 40;
+
+/// How long the photos' settings must have stayed as they are before the photos whose settings
+/// changed off screen (Auto Sync, Sync, paste, presets) are rendered again (ms): a drag synced to a
+/// selection changes them every frame.
+const RESYNC_QUIET_MS: u64 = 600;
+
 /// The background preparation's state in a session.
 #[derive(Default)]
 pub struct PrepState {
@@ -218,6 +229,18 @@ pub struct PrepState {
     steps_in: Option<u64>,
     last_at: Option<PhotoId>,
     steps: usize,
+    /// Each photo's settings as last seen (their `Arc`'s address), the catalog revision and the
+    /// library they were seen in: what changed off screen is rendered again ([`Session::prep_tick`]).
+    seen: std::collections::HashMap<PhotoId, usize>,
+    seen_rev: Option<(u64, Option<std::path::PathBuf>)>,
+    /// Photos whose settings changed while they weren't on screen and whose previews are not made
+    /// for them yet, and when the last such change was seen.
+    changed: std::collections::BTreeSet<PhotoId>,
+    changed_at: u64,
+    /// The running build is the one for [`Self::changed`] photos.
+    resync: bool,
+    /// The running build was stopped to make way for the changed photos (not by the user).
+    superseded: bool,
 }
 
 impl std::fmt::Debug for PrepState {
@@ -335,7 +358,14 @@ impl Session {
 
     /// Advance the background preparation (cheap; call every frame). `mode`: what the user is doing;
     /// `at`: the photo in the loupe (`None` in the grid), `backward`: stepping back.
+    ///
+    /// Photos whose settings changed while they were not on screen (Auto Sync, Sync, paste, a preset
+    /// on the selection) are rendered again first, nearest the photo on screen first, once the edits
+    /// have settled (note 11 of 2026-10-24: "none of the selected images had re-rendered with the
+    /// updated look, even after 15 min"). In a library the rest is prepared around the photo on screen
+    /// ([`AROUND`]), not the whole view; a folder being culled is prepared whole.
     pub fn prep_tick(&mut self, mode: Mode, at: Option<PhotoId>, backward: bool) {
+        self.note_changes(at);
         let settings = self.prep.settings();
         let want = settings.mode(mode);
         let wanted = want.previews && settings.scope(mode) != Scope::OnScreen;
@@ -347,12 +377,24 @@ impl Session {
                 } else if let Some(id) = at {
                     b.focus_on(id, backward);
                 }
+                // photos changed off screen go before the rest of the view: its build makes way
+                if wanted && !self.prep.resync && self.resync_due() && !b.cancel.load(Ordering::Relaxed) {
+                    b.cancel.store(true, Ordering::Relaxed);
+                    self.prep.superseded = true;
+                }
                 return;
             }
             self.prep.build = None;
             let mine = self.preview_build.as_ref().is_some_and(|p| Arc::ptr_eq(p, &b));
-            if b.cancel.load(Ordering::Relaxed) {
-                if mine && wanted {
+            let resync = std::mem::take(&mut self.prep.resync);
+            if std::mem::take(&mut self.prep.superseded) {
+                // made way for the changed photos: may start again afterwards (built photos are skipped)
+                self.prep.started_for = None;
+            } else if b.cancel.load(Ordering::Relaxed) {
+                if resync {
+                    // stopped from its row: these photos are left as they are
+                    self.prep.changed.clear();
+                } else if mine && wanted {
                     // stopped from its row: not again for this view
                     self.prep.declined_for = self.prep.started_for;
                 } else {
@@ -364,9 +406,14 @@ impl Session {
         if !wanted {
             return;
         }
+        let busy = self.preview_build.as_ref().is_some_and(|b| b.running()) || self.finishing.is_some();
+        if !busy && self.resync_due() {
+            self.start_resync(at, backward);
+            return;
+        }
         let Some(at) = at else { return };
         let ids = self.visible_cloned();
-        let sig = signature(&ids, self);
+        let mut sig = signature(&ids, self);
         if self.prep.steps_in != Some(sig) {
             self.prep.steps_in = Some(sig);
             self.prep.steps = 0;
@@ -376,7 +423,16 @@ impl Session {
             self.prep.last_at = Some(at);
             self.prep.steps = self.prep.steps.saturating_add(1);
         }
-        let busy = self.preview_build.as_ref().is_some_and(|b| b.running()) || self.finishing.is_some();
+        // a library: the stretch around the photo on screen (a build per stretch); a folder: all of it
+        let ids = match (mode, ids.iter().position(|id| *id == at)) {
+            (Mode::Culling, _) | (_, None) => ids,
+            (_, Some(i)) => {
+                let stretch = i / AROUND;
+                sig ^= (stretch as u64 + 1).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                let from = (stretch * AROUND).saturating_sub(AROUND);
+                ids.into_iter().skip(from).take(AROUND * 3).collect()
+            }
+        };
         if busy
             || self.prep.steps < STEPS_BEFORE_BUILD
             || self.prep.started_for == Some(sig)
@@ -396,6 +452,79 @@ impl Session {
         let p = json!({"ids": ids, "background": true, "from": at.0, "backward": backward});
         match self.execute("library.buildPreviews", &p) {
             Ok(_) => self.prep.build = self.preview_build.clone(),
+            Err(e) => log::info!("background preparation: {e}"),
+        }
+    }
+
+    /// Note which photos' settings changed since the last look (cheap: only when the catalog
+    /// changed, one pointer compare a photo). The photo on screen renders itself.
+    fn note_changes(&mut self, at: Option<PhotoId>) {
+        let rev = self.catalog.revision;
+        let lib = self.library.as_ref().map(|l| l.dir.as_path());
+        match &self.prep.seen_rev {
+            Some((r, l)) if *r == rev && l.as_deref() == lib => return,
+            Some((_, l)) if l.as_deref() == lib => {}
+            // another library (photo ids mean other photos): start over
+            _ => {
+                self.prep.seen.clear();
+                self.prep.changed.clear();
+            }
+        }
+        self.prep.seen_rev = Some((rev, lib.map(std::path::Path::to_path_buf)));
+        let first = self.prep.seen.is_empty();
+        let mut any = false;
+        for p in self.catalog.photos() {
+            let ptr = Arc::as_ptr(&p.develop) as usize;
+            if let Some(old) = self.prep.seen.insert(p.id, ptr)
+                && old != ptr
+                && !first
+                && Some(p.id) != at
+            {
+                self.prep.changed.insert(p.id);
+                any = true;
+            }
+        }
+        if self.prep.seen.len() > self.catalog.len() {
+            let catalog = &self.catalog;
+            self.prep.seen.retain(|id, _| catalog.photo(*id).is_some());
+        }
+        if any {
+            self.prep.changed_at = clock_ms();
+        }
+    }
+
+    /// Whether the photos changed off screen are to be rendered again now: there are some, no edit
+    /// is in progress and nothing changed for a moment.
+    fn resync_due(&self) -> bool {
+        !self.prep.changed.is_empty() && self.interaction.is_none() && clock_ms().saturating_sub(self.prep.changed_at) >= RESYNC_QUIET_MS
+    }
+
+    /// Render the previews of the photos changed off screen again, nearest the photo on screen
+    /// first (in the direction of travel), the ones out of view last.
+    fn start_resync(&mut self, at: Option<PhotoId>, backward: bool) {
+        let view = self.visible_cloned();
+        let here = at.and_then(|a| view.iter().position(|id| *id == a)).unwrap_or(0);
+        let pos: std::collections::HashMap<PhotoId, usize> = view.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let changed = std::mem::take(&mut self.prep.changed);
+        let mut ids: Vec<PhotoId> = changed.into_iter().filter(|id| self.catalog.photo(*id).is_some()).collect();
+        let distance = |id: &PhotoId| match pos.get(id) {
+            // ahead in the direction of travel first, then the one as far behind
+            Some(&i) => {
+                let (ahead, d) = if i >= here { (!backward, i - here) } else { (backward, here - i) };
+                (0u8, d.saturating_mul(2).saturating_sub(usize::from(ahead)))
+            }
+            None => (1, 0),
+        };
+        ids.sort_by_key(distance);
+        if ids.is_empty() {
+            return;
+        }
+        let p = json!({"ids": ids.iter().map(|id| id.0).collect::<Vec<_>>(), "background": true});
+        match self.execute("library.buildPreviews", &p) {
+            Ok(_) => {
+                self.prep.build = self.preview_build.clone();
+                self.prep.resync = true;
+            }
             Err(e) => log::info!("background preparation: {e}"),
         }
     }

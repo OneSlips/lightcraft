@@ -49,6 +49,8 @@ lightcraft-segment = { workspace = true, optional = true }
 # model downloads run natively only (the web build fetches no models)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 lightcraft-fetch = { workspace = true }
+# the preview cache's Automatic size: a share of the cache drive's free space
+lightcraft-sysmem = { workspace = true }
 # Delete Rejected Photos: the files go to the system's Recycle Bin / Trash (MIT)
 trash = "5.2"
 lightcraft-genfill = { workspace = true, features = ["cloud"] }

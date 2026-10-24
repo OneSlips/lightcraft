@@ -556,6 +556,34 @@ fn request_window(app: &mut LightcraftApp, c: &WindowCtx, v: &WindowView) -> Opt
     Some(view)
 }
 
+/// Make the window `view` shows, at the same place and scale, of the photos the user is likely to
+/// step to next (the next one in the direction of travel, then the one behind), into the renderer's
+/// kept windows, one at a time: photos of the same shape only (the same camera, as a shoot's are),
+/// since the place means the same there.
+fn prefetch_next_window(app: &mut LightcraftApp, c: &WindowCtx, view: &crate::region::RegionView, aspect: f32) {
+    if app.renderer.windows_ahead_done == Some(view.key) || app.renderer.is_pending(Slot::RegionAhead) {
+        return;
+    }
+    let ids = app.session.visible_cloned();
+    let Some(i) = ids.iter().position(|p| *p == c.id) else { return };
+    let proof = app.ui.soft_proof.then_some(app.ui.proof);
+    for next in app.look_ahead.targets_n(&ids, i, 1, 1) {
+        let Some(np) = app.session.catalog.photo(next).cloned() else { continue };
+        let frame = Frame::with_lens(np.width.max(1) as usize, np.height.max(1) as usize, &np.develop, !c.crop_tool, np.embedded_lens.as_ref());
+        if (frame.aspect() as f32 - aspect).abs() > 1e-3 {
+            continue;
+        }
+        let Some(job) = app.session.region_job(next, view.full.0, view.full.1, view.window, !c.crop_tool) else { continue };
+        let job = job.with_hidden_grading(app.ui.grading_hidden_for(next)).with_overlay(c.overlay).with_proof(proof);
+        let job = app.renderer.job_for(Slot::Region, job);
+        if !app.renderer.window_kept(job.key) {
+            app.renderer.prefetch_window(job, PREFETCH_PRIORITY);
+            return;
+        }
+    }
+    app.renderer.windows_ahead_done = Some(view.key);
+}
+
 /// Draw `v`'s window texture over the whole-frame render, if it is the one asked for (or, in a
 /// drag, an earlier draft of it).
 fn draw_window(p: &egui::Painter, app: &LightcraftApp, c: &WindowCtx, v: &WindowView, wanted: &crate::region::RegionView) -> bool {
@@ -824,6 +852,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         && !app.renderer.is_pending(Slot::Main)
         && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id)
         && !app.pictures_busy(app.renderer.frame())
+        // (nor while the user's own work runs, an export above all: note 30 of 2026-10-24)
+        && app.session.activity.user_work().is_none()
     {
         let ids = app.session.visible_cloned();
         let mode = prep_mode(app);
@@ -927,6 +957,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             windows.push((v, view));
         }
     }
+    // zoomed in and this window on screen: the next photo's window at the same place, made ahead
+    // (culling at 100 %, note 10 of 2026-10-24)
+    if let Some((_, view)) = windows.iter().find(|(v, _)| !v.before)
+        && !interacting
+        && hover_key.is_none()
+        && !app.renderer.is_pending(Slot::Region)
+        && app.renderer.textures.get(&Slot::Region).is_some_and(|t| t.key == view.key)
+        && app.session.activity.user_work().is_none()
+    {
+        prefetch_next_window(app, &window_ctx, view, aspect);
+    }
     // the renderer polled before these requests: without a frame to come, a render asked for
     // when nothing else repaints (the refine of a still photo in an open interaction) would sit
     // finished until the next input
@@ -963,13 +1004,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let p = ui.painter_at(canvas);
     // what a view slot shows: its own render of this photo, else the stand-ins (no blank frame
     // between photos, and the full render replaces them in place)
+    // an edited photo never shows the camera's JPEG (unedited, uncropped), not even one made while
+    // the photo was still as shot (notes 3, 11, 31 of 2026-10-24)
+    let as_shot = lightcraft_engine::import::looks_as_shot(&photo);
+    let truthful = |t: &&crate::render::Tex| as_shot || t.quick != Some(lightcraft_engine::media::QuickSource::Embedded);
     let draw = |slot: Slot, r: Rect, clip: Rect| -> &'static str {
         let mine = |s: Slot| app.renderer.textures.get(&s).filter(|t| t.photo == id);
         let (tex, what) = if let Some(t) = mine(slot) {
             (t, "render")
-        } else if let Some(t) = mine(Slot::Preview) {
+        } else if let Some(t) = mine(Slot::Preview).filter(truthful) {
             (t, t.quick.map(quick_name).unwrap_or("preview"))
-        } else if let Some(t) = app.renderer.thumb(id) {
+        } else if let Some(t) = app.renderer.thumb(id).filter(truthful) {
             (t, "thumb")
         } else {
             return "none";
@@ -1837,7 +1882,18 @@ fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
     for &nid in &targets {
         super::grid::request_thumb(app, nid, AHEAD_THUMB_EDGE, AHEAD_PRIORITY + 2);
     }
-    let jobs = targets.into_iter().filter_map(|nid| app.session.quick_view_job(nid, edge, crop)).collect();
+    // (an edited photo's stand-in made ahead is its last render, if any: never a raw decode for a
+    // thumbnail ahead, which would take the cores from the render the user waits for)
+    let jobs = targets
+        .into_iter()
+        .filter_map(|nid| app.session.quick_view_job(nid, edge, crop))
+        .map(|mut q| {
+            if !q.latest.is_empty() {
+                q.small = None;
+            }
+            q
+        })
+        .collect();
     app.renderer.look_ahead(jobs, AHEAD_PRIORITY);
 }
 
@@ -1975,6 +2031,8 @@ fn quick_name(q: lightcraft_engine::media::QuickSource) -> &'static str {
         QuickSource::Cached => "cached",
         QuickSource::Embedded => "embedded",
         QuickSource::Small => "small",
+        QuickSource::Last => "last",
+        QuickSource::Draft => "draft",
     }
 }
 

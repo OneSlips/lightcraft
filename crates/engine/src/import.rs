@@ -1897,6 +1897,7 @@ impl Session {
             cache: None,
             stages: None,
             view_cache: None,
+            latest: None,
             display: None,
             on_screen: false,
             slide: None,
@@ -1915,6 +1916,9 @@ impl Session {
             embedded,
             embedded_cache: None,
             embedded_on_disk: false,
+            latest: Vec::new(),
+            fit: None,
+            draft: None,
             small: Some(Box::new(small)),
         })
     }
