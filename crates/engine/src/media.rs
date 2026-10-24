@@ -1770,12 +1770,10 @@ impl crate::Session {
             ^ salt;
         let cache = thumb_bucket.map(|b| {
             let mut k = Hasher128::new();
-            k.str(&content_key)
-                .u64(settings_hash)
-                .u64(b as u64)
-                .u64(RENDER_CACHE_VERSION)
-                .u64(crate::camera_profiles::cache_key())
-                .u64(crate::sensor_maps::generation());
+            k.str(&content_key).u64(settings_hash).u64(b as u64).u64(RENDER_CACHE_VERSION).u64(crate::camera_profiles::cache_key());
+            // (not the camera bodies' hot pixel maps: they learn as photos render, and a thumbnail from before
+            // one more pixel was confirmed looks the same; with them in the key every start rendered every
+            // preview again)
             // (only a render that uses a denoised picture has it in its key, so every other thumbnail stays valid)
             if salt != 0 {
                 k.u64(salt);
@@ -1837,7 +1835,6 @@ impl crate::Session {
             .u64(edge as u64)
             .u64(RENDER_CACHE_VERSION)
             .u64(crate::camera_profiles::cache_key())
-            .u64(crate::sensor_maps::generation())
             .finish()
     }
 
@@ -1966,8 +1963,7 @@ impl crate::Session {
             .u64(p.develop.hash64())
             .u64(apply_crop as u64)
             .u64(RENDER_CACHE_VERSION)
-            .u64(crate::camera_profiles::cache_key())
-            .u64(crate::sensor_maps::generation());
+            .u64(crate::camera_profiles::cache_key());
         if salt != 0 {
             k.u64(salt);
         }
@@ -2428,6 +2424,24 @@ mod thumbnail_hash_tests {
         assert!(s.embedded_full_job(PhotoId(1), 8192).is_some(), "framed and exposed as shot: a fair focus check");
     }
 
+    /// The camera bodies' hot pixel maps learn as photos render: the previews saved on disk keep their keys when
+    /// a map changes, so the next start finds them (it rendered every preview of the library again).
+    #[test]
+    fn saved_preview_keys_survive_a_hot_pixel_map_change() {
+        let mut s = session();
+        let p = s.catalog.photo(PhotoId(1)).unwrap().clone();
+        let keys = |s: &mut crate::Session| {
+            let thumb = s.thumb_job(PhotoId(1), 256).unwrap().cache.unwrap().1;
+            (thumb, s.view_key(&p, true), crate::Session::variant_key(&p, &p.develop, 256))
+        };
+        let before = keys(&mut s);
+        let g = crate::sensor_maps::generation();
+        crate::sensor_maps::set_generation_for_test(g.wrapping_add(0x5eed));
+        let after = keys(&mut s);
+        crate::sensor_maps::set_generation_for_test(g);
+        assert_eq!(before, after);
+    }
+
     #[test]
     fn hashes_match_uncached_keys_and_are_not_recomputed_for_sizes_metadata_or_before() {
         let mut s = session();
@@ -2445,7 +2459,6 @@ mod thumbnail_hash_tests {
                 .u64(b as u64)
                 .u64(RENDER_CACHE_VERSION)
                 .u64(crate::camera_profiles::cache_key())
-                .u64(crate::sensor_maps::generation())
                 .finish();
             let job = s.thumb_job(p.id, edge).unwrap();
             assert_eq!(job.key, expected);

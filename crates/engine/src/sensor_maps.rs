@@ -803,6 +803,12 @@ impl Registry {
     }
 }
 
+/// Tests: as if a body's map had changed (another pixel confirmed).
+#[cfg(test)]
+pub(crate) fn set_generation_for_test(g: u64) {
+    GENERATION.store(g.max(1), Ordering::Relaxed);
+}
+
 /// The corrections for a photo of `body` (`model`, raw data size `sensor`): its confirmed pixels, when the map fits.
 pub fn fixes_for(body: &str, model: &str, sensor: [usize; 2]) -> Arc<Vec<Fix>> {
     with(|r| {
