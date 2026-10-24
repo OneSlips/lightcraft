@@ -244,6 +244,41 @@ pub fn matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
     }
 }
 
+/// The out-of-memory, validation and internal error scopes around one product, from before its first
+/// buffer: an allocation that fails is then this product's error (on out of memory the CPU does this
+/// one) instead of an uncaptured device error that stops the GPU for the session. wgpu wants the scopes
+/// popped in reverse order, on every return too: [`Scopes::pop`] and `Drop` do that.
+struct Scopes(Option<[wgpu::ErrorScopeGuard; 3]>);
+
+impl Scopes {
+    fn push(device: &wgpu::Device) -> Self {
+        Scopes(Some([
+            device.push_error_scope(wgpu::ErrorFilter::OutOfMemory),
+            device.push_error_scope(wgpu::ErrorFilter::Validation),
+            device.push_error_scope(wgpu::ErrorFilter::Internal),
+        ]))
+    }
+
+    /// `(out of memory, validation or internal)` errors caught.
+    fn pop(mut self) -> (Option<wgpu::Error>, Option<wgpu::Error>) {
+        let Some([oom, validation, internal]) = self.0.take() else { return (None, None) };
+        let internal = pollster::block_on(internal.pop());
+        let validation = pollster::block_on(validation.pop());
+        let oom = pollster::block_on(oom.pop());
+        (oom, internal.or(validation))
+    }
+}
+
+impl Drop for Scopes {
+    fn drop(&mut self) {
+        if let Some([oom, validation, internal]) = self.0.take() {
+            drop(internal);
+            drop(validation);
+            drop(oom);
+        }
+    }
+}
+
 fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dyn Fn() -> Option<Vec<f32>>) -> Result<Vec<f32>, String> {
     let d = dev()?;
     let _work = crate::exit::enter().ok_or("LightCraft is closing")?;
@@ -267,6 +302,7 @@ fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
         k: u32::try_from(k).map_err(|_| "too deep")?,
         pad: 0,
     };
+    let scopes = Scopes::push(&d.device);
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
     if !cache.weights.get(&key).is_some_and(|(_, wk, wn)| (*wk, *wn) == (k, n)) {
         let w = weights().ok_or("the weights are not readable")?;
@@ -322,11 +358,6 @@ fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
             wgpu::BindGroupEntry { binding: 3, resource: ubuf.as_entire_binding() },
         ],
     });
-    let scopes = [
-        d.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory),
-        d.device.push_error_scope(wgpu::ErrorFilter::Validation),
-        d.device.push_error_scope(wgpu::ErrorFilter::Internal),
-    ];
     let mut enc = d.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("gemm") });
     {
         let mut pass = enc.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("gemm"), timestamp_writes: None });
@@ -343,12 +374,18 @@ fn try_matmul(a: &[f32], rows: usize, k: usize, n: usize, key: u64, weights: &dy
         let _ = tx.send(r);
     });
     let waited = d.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(TIMEOUT) });
-    let [oom, validation, internal] = scopes;
-    let (internal, validation, oom) = (pollster::block_on(internal.pop()), pollster::block_on(validation.pop()), pollster::block_on(oom.pop()));
+    let (oom, error) = scopes.pop();
+    if oom.is_some() || error.is_some() {
+        // the weights may be what failed: never keep them for the next product
+        let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((old, ..)) = cache.weights.remove(&key) {
+            cache.bytes = cache.bytes.saturating_sub(old.size());
+        }
+    }
     if let Some(e) = oom {
         return Err(format!("the GPU ran out of memory: {e}"));
     }
-    if let Some(e) = internal.or(validation) {
+    if let Some(e) = error {
         mark_broken(&format!("device error: {e}"));
         return Err(format!("the GPU reported an error: {e}"));
     }

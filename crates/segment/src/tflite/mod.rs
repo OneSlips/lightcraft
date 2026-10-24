@@ -225,11 +225,11 @@ fn numel(s: &[usize]) -> Result<usize> {
     s.iter().try_fold(1usize, |a, &d| a.checked_mul(d)).filter(|&n| n <= MAX_ELEMS).ok_or_else(|| bad(&format!("tensor of shape {s:?} is too large")))
 }
 
-/// Normalize a possibly negative axis of a rank-`rank` tensor.
+/// Normalize a possibly negative axis of a rank-`rank` tensor (a scalar has none).
 fn axis(a: i32, rank: usize) -> Result<usize> {
     let r = rank as i64;
     let v = if a < 0 { a as i64 + r } else { a as i64 };
-    if v < 0 || v >= r.max(1) {
+    if v < 0 || v >= r {
         return Err(bad(&format!("axis {a} out of range for rank {rank}")));
     }
     Ok(v as usize)
@@ -734,6 +734,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
             let (x, p) = (input(ins, 0), input(ins, 1));
             let s = b.shape(x)?;
             let perm = b.ints(p, "TRANSPOSE permutation")?;
+            let d = dims4(&s)?;
             let lead = 4usize.saturating_sub(s.len());
             let mut p4 = [0, 1, 2, 3];
             let mut seen = [false; 4];
@@ -747,7 +748,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 }
                 p4[lead + i] = a;
             }
-            let t = Transpose { d: dims4(&s)?, perm: p4 };
+            let t = Transpose { d, perm: p4 };
             expect_shape(b, out, t.out_shape().get(lead..).unwrap_or(&[]))?;
             step(Kind::Transpose(t), vec![b.data(x)?])
         }
@@ -764,6 +765,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
             let keep = opts.map(|o| o.bool(0)).transpose()?.unwrap_or(false);
             let (x, a) = (input(ins, 0), input(ins, 1));
             let s = b.shape(x)?;
+            let d = dims4(&s)?;
             let lead = 4usize.saturating_sub(s.len());
             let mut reduce = [false; 4];
             for &v in b.ints(a, "SUM axes")? {
@@ -779,7 +781,7 @@ fn compile(b: &mut Builder, code: i32, ins: &[i32], out: usize, opts: Option<Tab
                 })
                 .collect();
             expect_shape(b, out, &shape)?;
-            step(Kind::Sum(Sum { d: dims4(&s)?, reduce }), vec![b.data(x)?])
+            step(Kind::Sum(Sum { d, reduce }), vec![b.data(x)?])
         }
         RESIZE_BILINEAR | RESIZE_NEAREST_NEIGHBOR => {
             // ResizeBilinearOptions: new_height 0, new_width 1 (deprecated), align_corners 2,
@@ -1264,5 +1266,29 @@ mod tests {
         }
         // some damage leaves a loadable model (e.g. weight bytes), most doesn't
         assert!(loaded > 0);
+    }
+
+    /// A scalar (rank-0) tensor has no axis: SUM and CONCATENATION over one are refused at load
+    /// (they indexed out of bounds before).
+    #[test]
+    fn axes_of_a_scalar_are_refused() {
+        let axes = 0i32.to_le_bytes().to_vec();
+        for (code, ins, options) in [(SUM, vec![0, 1], None), (CONCATENATION, vec![0, 0], Some(vec![Some(V::I32(0)), Some(V::U8(0))]))] {
+            let graph = vec![
+                Some(V::Ts(vec![tensor(&[], FLOAT32, 0, "x"), tensor(&[1], INT32, 1, "axes"), tensor(&[], FLOAT32, 0, "y")])),
+                Some(V::Ints(vec![0])),
+                Some(V::Ints(vec![2])),
+                Some(V::Ts(vec![op(0, &ins, &[2], options)])),
+            ];
+            let model = build(&[
+                Some(V::U32(3)),
+                Some(V::Ts(vec![vec![Some(V::U8(code.min(127) as u8)), None, Some(V::I32(1)), Some(V::I32(code))]])),
+                Some(V::Ts(vec![graph])),
+                Some(V::Str("test")),
+                Some(V::Ts(vec![vec![], vec![Some(V::Bytes(axes.clone()))]])),
+            ]);
+            let e = Model::from_bytes(&model).err().map(|e| e.to_string());
+            assert!(e.as_deref().is_some_and(|e| e.contains("axis")), "{code}: {e:?}");
+        }
     }
 }

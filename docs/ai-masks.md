@@ -212,7 +212,9 @@ not RAW development, denoising, or upscaling. The model licence below still appl
 
 #### In the app (recommended)
 
-The first time you pick Object or Describe without the model, LightCraft asks:
+Object uses SAM 3 when it is installed, else SAM 2.1; with neither, it offers SAM 2.1 (the open
+model above). The first time you pick Describe without SAM 3 (or install SAM 3 for Object),
+LightCraft asks:
 
 > **Download the SAM 3 model?** Object and Describe masks use SAM 3, Meta's segmentation model.
 > It isn't part of LightCraft, and everything else works without it. Download it once (about
@@ -336,8 +338,10 @@ download on.
 
 Coordinates are normalized to the uncropped, oriented photo, like every mask shape. `seg` passes
 a stored segmentation (as `mask.list` / the develop settings hold it): the mask is made without
-the model. Without the model, the AI kinds fail with an error starting "The SAM 3 model is not
-installed" that says how to get it.
+the model. Without SAM 3, Describe (`prompt`) fails with an error starting "The SAM 3 model is not
+installed" that says how to get it; Object fails only when neither SAM 3 nor SAM 2.1 is installed,
+with an error offering SAM 2.1. Subject, Background and Sky never fail for a missing model: they
+return an approximate mask (`{approximate, model, note}`).
 
 In the desktop app the commands don't wait for the model: `mask.objectPoint` returns
 `{pending: true}` and the selection is applied when it's computed (one undo step per settled

@@ -938,9 +938,7 @@ impl LightcraftApp {
                 continue;
             }
             match &d.error {
-                Some(e) if e.contains("cancelled") => {
-                    self.toast(ctx, crate::i18n::tr("AI model download stopped: it resumes where it left off next time."))
-                }
+                Some(_) if d.cancelled => self.toast(ctx, crate::i18n::tr("AI model download stopped: it resumes where it left off next time.")),
                 Some(e) => self.toast_error(ctx, crate::i18n::tr_format!("The AI model download failed: {e}", e = e)),
                 None if d.finished => self.toast(ctx, crate::i18n::tr("The AI model is installed: new AI masks use it.")),
                 None => {}

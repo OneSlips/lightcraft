@@ -766,7 +766,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "AI Model Status",
             [],
             None,
-            "{} — every AI mask model this build knows (subject, scene, sam2, depth, sam3): what it does, whether it is installed (and where), its size and licence, and its download's progress → {available, models: [{id, title, purpose, installed, dir, sizeBytes, license, licenseUrl, pageUrl, open, mirrors, download}]}",
+            "{} — every AI mask model this build offers (people, face, subject, scene, sam2, sam3): what it does, whether it is installed (and where), its size and licence, and its download's progress → {available, models: [{id, title, purpose, installed, dir, sizeBytes, license, licenseUrl, pageUrl, open, licencePending, mirrors, download}]}",
             super::always,
             |s, _| Ok(json!({"available": crate::segment::Segmenter::AVAILABLE, "models": s.segmenter.model_status()}))
         ),

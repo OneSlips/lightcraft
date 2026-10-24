@@ -18,7 +18,7 @@ pub const MODEL_NOT_INSTALLED: &str = "model is not installed";
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelStatus {
-    /// The command key (`"subject"`, `"scene"`, `"sam2"`, `"depth"`, `"sam3"`).
+    /// The command key (`"people"`, `"face"`, `"subject"`, `"scene"`, `"sam2"`, `"sam3"`).
     pub id: String,
     pub title: String,
     /// What it is for.
