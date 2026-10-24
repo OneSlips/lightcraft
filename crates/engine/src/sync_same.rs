@@ -190,3 +190,53 @@ impl Session {
         Ok(Some(lightcraft_pipeline::upright::solve(mode, &a)))
     }
 }
+
+/// The last History batch id handed out (process-wide, so two sessions never share one).
+static LAST_BATCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A new History batch id: milliseconds since 1970, above every id handed out before (unique across
+/// sessions and restarts, as long as the clock doesn't run back further than the ids went).
+fn next_batch_id() -> u64 {
+    let now = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+    use std::sync::atomic::Ordering::SeqCst;
+    let mut last = LAST_BATCH.load(SeqCst);
+    loop {
+        let id = now.max(last.saturating_add(1));
+        match LAST_BATCH.compare_exchange_weak(last, id, SeqCst, SeqCst) {
+            Ok(_) => return id,
+            Err(seen) => last = seen,
+        }
+    }
+}
+
+/// Photos whose History `op` pushes a step on that has no batch yet (batches nested at most 16 deep).
+fn unbatched_steps(op: &lightcraft_catalog::Op, out: &mut std::collections::HashSet<PhotoId>, depth: usize) {
+    match op {
+        lightcraft_catalog::Op::PushHistory { id, step } if step.batch.is_none() => {
+            out.insert(*id);
+        }
+        lightcraft_catalog::Op::Batch { ops } if depth < 16 => ops.iter().for_each(|o| unbatched_steps(o, out, depth + 1)),
+        _ => {}
+    }
+}
+
+fn set_batch(op: &mut lightcraft_catalog::Op, batch: u64, depth: usize) {
+    match op {
+        lightcraft_catalog::Op::PushHistory { step, .. } if step.batch.is_none() => step.batch = Some(batch),
+        lightcraft_catalog::Op::Batch { ops } if depth < 16 => ops.iter_mut().for_each(|o| set_batch(o, batch, depth + 1)),
+        _ => {}
+    }
+}
+
+impl Session {
+    /// One edit that adds History steps on several photos (Auto Sync, Sync Settings, a preset or
+    /// Quick Develop on a selection, a multi-photo drag): the same batch id on each of its steps
+    /// (groundwork for note 22, the whole selection back to a step).
+    pub(crate) fn mark_batch(&mut self, op: &mut lightcraft_catalog::Op) {
+        let mut photos = std::collections::HashSet::new();
+        unbatched_steps(op, &mut photos, 0);
+        if photos.len() >= 2 {
+            set_batch(op, next_batch_id(), 0);
+        }
+    }
+}

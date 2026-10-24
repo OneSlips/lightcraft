@@ -853,6 +853,8 @@ impl Session {
 
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
+        let mut op = op;
+        self.mark_batch(&mut op);
         let fwd = op.clone();
         let inv = self.apply_catalog(op)?;
         self.pending_log.push(fwd);
@@ -1349,7 +1351,7 @@ impl Session {
             }
         }
         let settings = Arc::new(settings);
-        let step = lightcraft_catalog::HistoryStep { label: label.into(), settings: settings.clone() };
+        let step = lightcraft_catalog::HistoryStep::new(label, settings.clone());
         Some(Op::Batch {
             ops: vec![Op::SetDevelop { id, settings, label: label.into(), edited: Some((self.clock)()) }, Op::PushHistory { id, step }],
         })

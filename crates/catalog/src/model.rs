@@ -227,6 +227,19 @@ pub struct Version {
 pub struct HistoryStep {
     pub label: String,
     pub settings: Arc<DevelopSettings>,
+    /// The edit this step belongs to when one edit changed several photos (Auto Sync, Sync
+    /// Settings, a preset or Quick Develop on a selection): the same id on each photo's step, so the
+    /// whole selection can go back to it (test notes 2026-10-24 note 22). `None`: one photo's own
+    /// edit, and every step written before this existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub batch: Option<u64>,
+}
+
+impl HistoryStep {
+    /// A step of one photo's own edit.
+    pub fn new(label: impl Into<String>, settings: Arc<DevelopSettings>) -> Self {
+        HistoryStep { label: label.into(), settings, batch: None }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

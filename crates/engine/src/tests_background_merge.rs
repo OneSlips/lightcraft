@@ -3,7 +3,7 @@
 //! result reaches the undo and History steps made meanwhile.
 
 use lightcraft_catalog::PhotoId;
-use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, SegMask};
+use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape};
 use serde_json::json;
 
 use crate::Session;
@@ -17,6 +17,7 @@ fn sky_recipe() -> Mask {
     }
 }
 
+#[cfg(feature = "sam")]
 fn has_seg(s: &Session, id: PhotoId) -> bool {
     s.develop_of(id).is_some_and(|d| d.masks.iter().any(|m| m.id == 7 && m.components.iter().all(|c| c.shape.has_seg())))
 }
@@ -56,7 +57,7 @@ fn deliver(s: &mut Session, id: PhotoId, key: Option<u64>) -> bool {
     use crate::smart_masks::Part;
     let tag = Tag::Recipe { photo: id, mask: 7, comp: 0, part: Part::Seg(AutoKind::Sky), batch: 4242, key };
     let mut polled = Polled::default();
-    let seg = SegMask::from_logits(8, &[4.0; 64]);
+    let seg = lightcraft_develop::SegMask::from_logits(8, &[4.0; 64]);
     s.apply_recipe_outcome(
         Outcome { tag, result: Ok(Some(seg)), superseded: false, faces: None, payload: Default::default(), note: None, notice: None },
         &mut polled,

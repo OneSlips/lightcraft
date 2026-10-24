@@ -402,3 +402,33 @@ fn recalculate_all_ai_masks_replaces_every_ai_selection_on_the_selected_photos()
     // the command needs a selection and caps its size
     assert!(s.execute("masks.recalculate", &json!({"ids": (0..50_001).collect::<Vec<u64>>()})).is_err());
 }
+
+/// Note 22's groundwork: one edit on several photos (Auto Sync, a multi-photo drag, Sync
+/// Settings) gives each photo's History step the same batch id, a new one per edit; one photo's
+/// own edit has none; steps saved before the id existed read as having none, and a step without
+/// one is saved as before.
+#[test]
+fn an_edit_on_several_photos_shares_one_history_batch_id() {
+    let (mut s, [a, b, c]) = three();
+    let last = |s: &Session, id| s.catalog.photo(id).unwrap().history.last().cloned().unwrap();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.3})).unwrap();
+    let first = last(&s, a).batch;
+    assert!(first.is_some());
+    assert!([b, c].iter().all(|id| last(&s, *id).batch == first), "the same id on every photo's step");
+    s.execute("develop.beginInteraction", &json!({"label": "Contrast", "ids": [b.0, c.0]})).unwrap();
+    s.execute("develop.set", &json!({"control": "light.contrast", "value": 10.0})).unwrap();
+    s.execute("develop.endInteraction", &json!({})).unwrap();
+    let second = last(&s, a).batch;
+    assert!(second.is_some() && second != first, "a new id per edit");
+    assert!([b, c].iter().all(|id| last(&s, *id).batch == second));
+    let listed = s.execute("history.list", &json!({"id": b.0})).unwrap();
+    assert_eq!(listed["batches"].as_array().and_then(|v| v.last()).and_then(|v| v.as_u64()), second);
+    // one photo's own edit
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.1})).unwrap();
+    assert_eq!(last(&s, a).batch, None);
+    // older catalogs: a step without the field reads, and one without an id writes no field
+    let old: lightcraft_catalog::HistoryStep = serde_json::from_value(json!({"label": "Exposure", "settings": {}})).unwrap();
+    assert_eq!(old.batch, None);
+    assert!(serde_json::to_value(&old).unwrap().get("batch").is_none());
+}

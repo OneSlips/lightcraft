@@ -1422,7 +1422,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("history.clear", "Clear History", [], None, "{} — keeps the current settings as the only step", has_active, |s, _| {
             let id = active(s, "history.clear")?;
             let d = s.develop_of(id).unwrap_or_default();
-            let history = vec![lightcraft_catalog::HistoryStep { label: "Cleared History".into(), settings: d }];
+            let history = vec![lightcraft_catalog::HistoryStep::new("Cleared History", d)];
             s.commit("Clear History", Op::Batch { ops: vec![Op::SetHistory { id, history }, Op::SetHistoryCursor { id, cursor: None }] })?;
             ok()
         }),

@@ -1723,7 +1723,7 @@ fn apply_settings(s: &Session, p: &mut Photo, opts: &ImportOptions, now: &str, p
         let d = std::sync::Arc::new(d);
         if d != p.develop {
             let name = s.profile_info(look).map_or(look.as_str(), |(n, _)| n);
-            p.history.push(lightcraft_catalog::HistoryStep { label: format!("Profile: {name}"), settings: d.clone() });
+            p.history.push(lightcraft_catalog::HistoryStep::new(format!("Profile: {name}"), d.clone()));
             p.develop = d;
             p.edited = Some(now.to_string());
         }
@@ -1751,7 +1751,7 @@ fn apply_settings(s: &Session, p: &mut Photo, opts: &ImportOptions, now: &str, p
         let label = format!("Preset: {}", preset.name);
         p.develop = d.clone();
         p.edited = Some(now.to_string());
-        p.history.push(lightcraft_catalog::HistoryStep { label, settings: d });
+        p.history.push(lightcraft_catalog::HistoryStep::new(label, d));
     }
 }
 
