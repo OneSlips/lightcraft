@@ -80,11 +80,11 @@ const FIELDS: &[(&str, usize)] = &[
     ("LUT_AMT", 1),
     ("LUT_MIN", 3),
     ("LUT_MAX", 3),
-    // soft proofing: Rec.2020 → proof, the proof's luminance weights, proof → output, warnings
+    // soft proofing (matrix proofs; `ProofParams`): working → proof RGB, its luma, proof → output, warnings
     ("PROOF", 1),
     ("PROOF_M", 9),
     ("PROOF_Y", 3),
-    ("PROOF_OUT_M", 9),
+    ("PROOF_OUT", 9),
     ("PROOF_DEST_WARN", 1),
     ("PROOF_DISP_WARN", 1),
     // first row of a band dispatch (the kernel runs over rows Y0.., see `render`)
@@ -259,11 +259,11 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.fs("LUT_MIN", &l.domain_min);
         p.fs("LUT_MAX", &l.domain_max);
     }
-    if let Some(pp) = &fp.proof {
+    if let Some(pp) = fp.proof.as_ref().filter(|pp| pp.table.is_none()) {
         p.b("PROOF", true);
         p.fs("PROOF_M", pp.to_proof.as_flattened());
         p.fs("PROOF_Y", &pp.luma);
-        p.fs("PROOF_OUT_M", pp.proof_to_out.as_flattened());
+        p.fs("PROOF_OUT", pp.proof_to_out.as_flattened());
         p.b("PROOF_DEST_WARN", pp.dest_warning);
         p.b("PROOF_DISP_WARN", pp.display_warning);
     }

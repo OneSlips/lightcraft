@@ -237,25 +237,6 @@ fn mat_at(o: u32) -> array<vec3<f32>, 3> {
     );
 }
 
-// `finish::gamut_map_to` (SDR peak 1) with the luminance weights at parameter `yo`: the mapped
-// colour and the scale t it needed.
-fn gamut_map(r: vec3<f32>, yo: u32) -> vec4<f32> {
-    let yy = clamp(pf(yo) * r.x + pf(yo + 1u) * r.y + pf(yo + 2u) * r.z, 0.0, 1.0);
-    var t = 1.0;
-    for (var k = 0u; k < 3u; k++) {
-        let c = r[k];
-        if (c < 0.0) {
-            t = min(t, yy / max(yy - c, 1e-9));
-        } else if (c > 1.0) {
-            t = min(t, (1.0 - yy) / max(c - yy, 1e-9));
-        }
-    }
-    if (t < 1.0) {
-        return vec4<f32>(yy + (r - yy) * t, t);
-    }
-    return vec4<f32>(r, 1.0);
-}
-
 // `finish::out_of_gamut`: needed real desaturation, and isn't a neutral clipping at white/black.
 fn out_of_gamut(r: vec3<f32>, t: f32) -> bool {
     let lo = min(r.x, min(r.y, r.z));
@@ -315,6 +296,30 @@ fn out_encode(v: f32) -> f32 {
         return l * 4.5;
     }
     return 1.099 * pow(l, 0.45) - 0.099;
+}
+
+// `finish::gamut_map` (SDR): the chroma scale that brings `r` into 0..1 towards its luminance (1: in gamut) ...
+fn gamut_scale(r: vec3<f32>, luma: vec3<f32>) -> f32 {
+    let yy = clamp(dot(luma, r), 0.0, 1.0);
+    var tg = 1.0;
+    for (var k = 0u; k < 3u; k++) {
+        let cc = r[k];
+        if (cc < 0.0) {
+            tg = min(tg, yy / max(yy - cc, 1e-9));
+        } else if (cc > 1.0) {
+            tg = min(tg, (1.0 - yy) / max(cc - yy, 1e-9));
+        }
+    }
+    return tg;
+}
+
+// ... and `r` scaled by it.
+fn gamut_apply(r: vec3<f32>, luma: vec3<f32>, tg: f32) -> vec3<f32> {
+    if (tg < 1.0) {
+        let yy = clamp(dot(luma, r), 0.0, 1.0);
+        return yy + (r - yy) * tg;
+    }
+    return r;
 }
 
 @compute @workgroup_size(16, 16)
@@ -389,8 +394,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // --- dehaze (scene linear)
     let dz = pf(F_DEHAZE) + lt[10];
     if (dz != 0.0 && pu(F_HAS_DARK) != 0u) {
-        let d = clamp(dark[i] / pf(F_AIR_PRE), 0.0, 1.0);
+        // the dark channel is a blur, not a patch minimum: never attribute more veil than the
+        // pixel's own minimum channel, or dark pixels next to bright ones crush to black (#2504)
         let air = pf(F_AIR);
+        let cmin = min(c.x, min(c.y, c.z));
+        let d = clamp(min(select(0.0, dark[i] / pf(F_AIR_PRE), pf(F_AIR_PRE) > 0.0), select(0.0, cmin / air, air > 0.0)), 0.0, 1.0);
         if (dz > 0.0) {
             let t = max(1.0 - 0.95 * min(dz, 1.0) * d, 0.12);
             c = max((c - air * (1.0 - t)) / t, vec3<f32>(0.0));
@@ -534,23 +542,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 
     // --- gamut map to the output space (desaturate towards luminance until in range);
     // soft proofing maps into the proof space first and shows that in the output space
+    // (warn: 0 none, 1 destination gamut, 2 display gamut)
     var warn = 0u;
     var r: vec3<f32>;
     if (pu(F_PROOF) != 0u) {
         let q0 = mul3(mat_at(F_PROOF_M), d);
-        let gq = gamut_map(q0, F_PROOF_Y);
-        if (pu(F_PROOF_DEST_WARN) != 0u && out_of_gamut(q0, gq.w)) {
+        let tq = gamut_scale(q0, vec3<f32>(pf(F_PROOF_Y), pf(F_PROOF_Y + 1u), pf(F_PROOF_Y + 2u)));
+        if (pu(F_PROOF_DEST_WARN) != 0u && out_of_gamut(q0, tq)) {
             warn = 1u;
         }
-        r = mul3(mat_at(F_PROOF_OUT_M), gq.xyz);
+        r = mul3(mat_at(F_PROOF_OUT), gamut_apply(q0, vec3<f32>(pf(F_PROOF_Y), pf(F_PROOF_Y + 1u), pf(F_PROOF_Y + 2u)), tq));
     } else {
         r = mul3(mat_at(F_OUT_M), d);
     }
-    let go = gamut_map(r, F_OUT_Y);
-    if (pu(F_PROOF) != 0u && pu(F_PROOF_DISP_WARN) != 0u && warn == 0u && out_of_gamut(r, go.w)) {
+    let oy = vec3<f32>(pf(F_OUT_Y), pf(F_OUT_Y + 1u), pf(F_OUT_Y + 2u));
+    let tg = gamut_scale(r, oy);
+    if (pu(F_PROOF) != 0u && pu(F_PROOF_DISP_WARN) != 0u && warn == 0u && out_of_gamut(r, tg)) {
         warn = 2u;
     }
-    r = go.xyz;
+    r = gamut_apply(r, oy, tg);
 
     // --- encode, curves, grain
     var e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
