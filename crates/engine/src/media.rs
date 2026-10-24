@@ -1194,8 +1194,16 @@ enum OnScreen {
 fn develop_on_screen(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> OnScreen {
     #[cfg(not(target_arch = "wasm32"))]
     match lightcraft_gpu::render_display(src, info, s, req, stages) {
-        Some(lightcraft_gpu::Output::Display { frame, histogram }) => OnScreen::Frame(frame, histogram),
-        Some(lightcraft_gpu::Output::Image(r)) => OnScreen::Pixels(r),
+        // an HDR edit's histogram shows the HDR range, as `develop_reporting` gives it
+        Some(lightcraft_gpu::Output::Display { frame, histogram }) => {
+            OnScreen::Frame(frame, lightcraft_pipeline::hdr_histogram(src, info, s, req).unwrap_or(histogram))
+        }
+        Some(lightcraft_gpu::Output::Image(mut r)) => {
+            if let Some(h) = lightcraft_pipeline::hdr_histogram(src, info, s, req) {
+                r.histogram = h;
+            }
+            OnScreen::Pixels(r)
+        }
         None => OnScreen::Pixels(develop(src, info, s, req, stages, false)),
     }
     #[cfg(target_arch = "wasm32")]
