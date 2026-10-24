@@ -811,6 +811,11 @@ pub struct UiState {
     /// when the tool closes ([`RightPanel::None`]: the panel was hidden, and stays hidden).
     #[serde(skip)]
     pub tool_return: Option<RightPanel>,
+    /// The panel a toggle (a panel key or button: I, M, R, Q…) opened, with what the right column showed before it
+    /// and that one's [`UiState::tool_return`]: toggling it off puts back exactly that, closed included (test notes
+    /// 2026-10-24 note 21). Forgotten once another panel is shown.
+    #[serde(skip)]
+    pub toggle_return: Option<(RightPanel, RightPanel, Option<RightPanel>)>,
     /// The panel [`UiState::note_right`] last saw.
     #[serde(skip)]
     pub right_seen: RightPanel,
@@ -1497,6 +1502,9 @@ impl UiState {
         if self.right == self.right_seen {
             return;
         }
+        if self.toggle_return.is_some_and(|(opened, ..)| opened != self.right) {
+            self.toggle_return = None;
+        }
         if self.right.is_tool() {
             if !self.right_seen.is_tool() {
                 self.tool_return = Some(self.right_seen);
@@ -1511,8 +1519,45 @@ impl UiState {
     /// when the panel was hidden (Edit when nothing is known).
     pub fn leave_tool(&mut self) -> RightPanel {
         self.note_right();
+        if let Some(back) = self.untoggle() {
+            return back;
+        }
         let back = self.tool_return.take().unwrap_or(RightPanel::Edit);
         if back.is_tool() { RightPanel::Edit } else { back }
+    }
+
+    /// A panel toggle (`panel.info`, `panel.masking`…) for `p`: when `p` is on show (`exposed`: not hidden behind
+    /// another dock tab) it goes and the right column shows exactly what it showed before the toggle opened it, or
+    /// stays closed when it was (note 21); otherwise `p` comes up and what was there is remembered. Returns whether
+    /// `p` is now on.
+    pub fn toggle_panel(&mut self, p: RightPanel, exposed: bool) -> bool {
+        self.note_right();
+        if self.right == p && exposed {
+            self.right = match self.untoggle() {
+                Some(back) => back,
+                None if p.is_tool() => self.leave_tool(),
+                None => RightPanel::None,
+            };
+            self.note_right();
+            false
+        } else {
+            let saved = (p, if exposed || self.right != p { self.right } else { RightPanel::None }, self.tool_return);
+            self.right = p;
+            self.note_right();
+            self.toggle_return = Some(saved);
+            true
+        }
+    }
+
+    /// What the toggle that opened the panel on show replaced (see [`UiState::toggle_panel`]), with its own tool
+    /// memory put back, or `None` when that panel wasn't opened by a toggle.
+    fn untoggle(&mut self) -> Option<RightPanel> {
+        let (_, before, tool_return) = self.toggle_return.filter(|(opened, ..)| *opened == self.right)?;
+        self.toggle_return = None;
+        self.tool_return = tool_return;
+        // seen already: `note_right` must not take the panel being left for the one this came back from
+        self.right_seen = before;
+        Some(before)
     }
 }
 
@@ -1533,6 +1578,7 @@ impl Default for UiState {
             right: RightPanel::Edit,
             right_hidden: RightPanel::None,
             tool_return: None,
+            toggle_return: None,
             right_seen: RightPanel::Edit,
             presets: false,
             preset_thumbs: false,
