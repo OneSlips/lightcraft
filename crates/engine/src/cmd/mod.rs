@@ -16,7 +16,7 @@ pub mod curves;
 pub mod dcp_profiles;
 mod delete_rejected;
 pub(crate) mod denoise;
-mod develop;
+pub(crate) mod develop;
 mod edit;
 mod export;
 pub(crate) mod face_detect;

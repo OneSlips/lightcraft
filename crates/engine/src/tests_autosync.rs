@@ -1,4 +1,4 @@
-//! Auto Sync and live multi-photo edits: each photo moves from its own value.
+//! Auto Sync and live multi-photo edits: every photo gets the active photo's value (note 18).
 
 use serde_json::json;
 
@@ -8,40 +8,194 @@ fn demo() -> Session {
     Session::with_demo()
 }
 
-/// Auto Sync from a slider moves every selected photo by as much as the active one, from its own
-/// value, live during the drag and as one undo step; never the active photo's numbers copied over
-/// (which turned photos with another as-shot white balance blue).
-#[test]
-fn auto_sync_moves_each_photo_from_its_own_value() {
+/// Give photo `id` a decoded raw source (thumbnail and preview) with as-shot white `(temp, tint)`;
+/// `legacy`: a camera whose settings without a scale were written on the relative scale.
+fn raw_as_shot(s: &mut Session, id: lightcraft_catalog::PhotoId, temp: f64, tint: f64, legacy: bool, warm: f32) {
+    use crate::media::SourceLevel;
+    let mut img = lightcraft_raster::Rgb32f::new(48, 32);
+    for (i, px) in img.data.iter_mut().enumerate() {
+        let v = 0.1 + 0.6 * ((i % 48) as f32 / 48.0);
+        *px = [v * warm, v, v / warm];
+    }
+    let img = std::sync::Arc::new(img);
+    let info =
+        lightcraft_pipeline::SourceInfo { raw: true, legacy_relative_wb: legacy, as_shot_temp: temp, as_shot_tint: tint, ..Default::default() };
+    s.media.insert_with_info(id, SourceLevel::Thumb, img.clone(), info.clone());
+    s.media.insert_with_info(id, SourceLevel::Preview, img, info);
+}
+
+fn pid(n: u64) -> lightcraft_catalog::PhotoId {
+    lightcraft_catalog::PhotoId(n)
+}
+
+/// The white balance photo `id` renders with (Kelvin, tint).
+fn wb(s: &Session, id: lightcraft_catalog::PhotoId) -> (f64, f64) {
+    lightcraft_pipeline::local::effective_wb(&s.source_info(id), &s.develop_of(id).unwrap())
+}
+
+fn exp(s: &Session, id: lightcraft_catalog::PhotoId) -> f64 {
+    s.develop_of(id).unwrap().light.exposure
+}
+
+/// Three demo photos a (active), b, c selected with Auto Sync on; b at Exposure +1, c at +0.5.
+fn three() -> (Session, [lightcraft_catalog::PhotoId; 3]) {
     let mut s = demo();
-    let ids: Vec<u64> = s.visible_cloned().iter().take(2).map(|p| p.0).collect();
-    let (a, b) = (lightcraft_catalog::PhotoId(ids[0]), lightcraft_catalog::PhotoId(ids[1]));
-    s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
-    s.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
-    s.execute("develop.set", &json!({"control": "wb.temp", "value": 7000.0})).unwrap();
-    s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
+    let ids: Vec<u64> = s.visible_cloned().iter().take(3).map(|p| p.0).collect();
+    let (a, b, c) = (pid(ids[0]), pid(ids[1]), pid(ids[2]));
+    for (id, e) in [(b, 1.0), (c, 0.5)] {
+        s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
+        s.execute("develop.set", &json!({"control": "light.exposure", "value": e})).unwrap();
+    }
+    s.execute("library.select", &json!({"ids": [a.0, b.0, c.0], "active": a.0})).unwrap();
     s.execute("develop.autoSync", &json!({"on": true})).unwrap();
-    let exp = |s: &Session, id| s.develop_of(id).unwrap().light.exposure;
-    let temp = |s: &Session, id| {
-        let info = s.source_info(id);
-        lightcraft_pipeline::local::effective_wb(&info, &s.develop_of(id).unwrap()).0
-    };
-    let (a_temp, b_temp) = (temp(&s, a), temp(&s, b));
-    // a drag: live, each from its own value
-    s.execute("develop.beginInteraction", &json!({"label": "Exposure", "ids": [b.0]})).unwrap();
+    (s, [a, b, c])
+}
+
+/// Note 18 (the user's decision, 24 Oct): Auto Sync sets every selected photo to the active
+/// photo's value, as Lightroom Classic does: live during a slider drag, from the console's dials
+/// (`develop.adjust` in a multi-photo interaction), for a typed value, a key or a reset; one undo
+/// step for all; clamped like the active photo. The on-screen display counts the photos that
+/// actually changed (one already at the value isn't). Quick Develop's +/- stay relative.
+#[test]
+fn auto_sync_sets_every_photo_to_the_active_photos_value() {
+    let (mut s, [a, b, c]) = three();
+    // a slider drag: live
+    s.execute("develop.beginInteraction", &json!({"label": "Exposure", "ids": [b.0, c.0]})).unwrap();
     s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.25})).unwrap();
-    assert!((exp(&s, b) - 1.25).abs() < 1e-9, "b moves during the drag: {}", exp(&s, b));
+    assert!((exp(&s, b) - 0.25).abs() < 1e-9 && (exp(&s, c) - 0.25).abs() < 1e-9, "b {} c {}", exp(&s, b), exp(&s, c));
     s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.5})).unwrap();
     s.execute("develop.endInteraction", &json!({})).unwrap();
-    assert!((exp(&s, a) - 0.5).abs() < 1e-9 && (exp(&s, b) - 1.5).abs() < 1e-9);
+    assert!([a, b, c].iter().all(|id| (exp(&s, *id) - 0.5).abs() < 1e-9));
     s.execute("edit.undo", &json!({})).unwrap();
-    assert!(exp(&s, a).abs() < 1e-9 && (exp(&s, b) - 1.0).abs() < 1e-9, "one undo step for both");
-    // a typed value outside a drag: the same, on each photo's own white-balance scale
-    s.execute("develop.set", &json!({"control": "wb.temp", "value": a_temp + 300.0})).unwrap();
-    assert!((temp(&s, a) - (a_temp + 300.0)).abs() < 1.0);
-    assert!((temp(&s, b) - (b_temp + 300.0)).abs() < 1.0, "b keeps its own white balance: {} vs {}", temp(&s, b), b_temp + 300.0);
+    assert!(exp(&s, a).abs() < 1e-9 && (exp(&s, b) - 1.0).abs() < 1e-9 && (exp(&s, c) - 0.5).abs() < 1e-9, "one undo step for all");
+    // the console's dials: relative ticks on the active photo, its value on the others
+    s.execute("develop.beginInteraction", &json!({"label": "Exposure", "ids": [b.0, c.0]})).unwrap();
+    s.execute("develop.adjust", &json!({"control": "light.exposure", "delta": 0.5})).unwrap();
+    assert!((exp(&s, b) - 0.5).abs() < 1e-9, "b takes a's value, not +0.5 from its own: {}", exp(&s, b));
+    // c was at +0.5 already: two photos changed, not three
+    assert_eq!(s.last_change.as_ref().map(|c| c.photos), Some(2), "{:?}", s.last_change);
+    s.execute("develop.adjust", &json!({"control": "light.exposure", "delta": 9.0})).unwrap();
+    assert!([a, b, c].iter().all(|id| (exp(&s, *id) - 5.0).abs() < 1e-9), "clamped alike");
+    s.execute("develop.endInteraction", &json!({})).unwrap();
     s.execute("edit.undo", &json!({})).unwrap();
-    assert!((temp(&s, b) - b_temp).abs() < 1.0);
+    // a typed value or a key outside a drag: the same, in one step
+    s.execute("develop.set", &json!({"control": "light.exposure", "value": 0.7})).unwrap();
+    assert!([a, b, c].iter().all(|id| (exp(&s, *id) - 0.7).abs() < 1e-9));
+    s.execute("develop.adjust", &json!({"control": "light.exposure", "delta": 0.1})).unwrap();
+    assert!([a, b, c].iter().all(|id| (exp(&s, *id) - 0.8).abs() < 1e-9), "a key nudge: the active photo's new value");
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert!((exp(&s, b) - 1.0).abs() < 1e-9 && (exp(&s, c) - 0.5).abs() < 1e-9);
+    // Quick Develop's +/- buttons stay relative: each photo from its own value
+    s.execute("develop.quickAdjust", &json!({"control": "light.exposure", "delta": 0.5})).unwrap();
+    assert!((exp(&s, a) - 0.5).abs() < 1e-9 && (exp(&s, b) - 1.5).abs() < 1e-9 && (exp(&s, c) - 1.0).abs() < 1e-9);
+}
+
+/// Note 18 and the old blue photos (test notes 2026-10-15): white balance syncs as the same Kelvin
+/// and tint on each photo's own scale, whatever the path (drag, dial, typed value), for photos
+/// with another as-shot white and one still holding an old relative-scale value (which, read as
+/// Kelvin, turned photos blue). A Temp move leaves each photo's own tint. Modes go on as modes:
+/// As Shot gives each photo its own as-shot white, a light preset its numbers, Auto each photo's
+/// own from its pixels.
+#[test]
+fn white_balance_syncs_the_same_kelvin_on_each_photos_own_scale_and_modes_per_photo() {
+    use lightcraft_develop::{WbMode, WbScale, WhiteBalance};
+    let (mut s, [a, b, c]) = three();
+    raw_as_shot(&mut s, a, 5200.0, 4.0, false, 1.0);
+    raw_as_shot(&mut s, b, 3300.0, -12.0, false, 1.4);
+    raw_as_shot(&mut s, c, 6100.0, 8.0, true, 0.7);
+    // c holds an old relative-scale white: 7000 K there meant "a little warmer than as shot"
+    let mut d = (*s.develop_of(c).unwrap()).clone();
+    d.wb = WhiteBalance { mode: WbMode::Custom, temp: 7000.0, tint: 0.0, scale: WbScale::Legacy };
+    s.catalog.apply(lightcraft_catalog::Op::SetDevelop { id: c, settings: std::sync::Arc::new(d), label: "x".into(), edited: None }).unwrap();
+    let (b_tint, c_tint) = (wb(&s, b).1, wb(&s, c).1);
+    let close = |x: (f64, f64), y: (f64, f64)| (x.0 - y.0).abs() < 1.0 && (x.1 - y.1).abs() < 0.5;
+    // a typed Temp
+    s.execute("develop.set", &json!({"control": "wb.temp", "value": 5600.0})).unwrap();
+    assert!((wb(&s, a).0 - 5600.0).abs() < 1.0);
+    assert!(close(wb(&s, b), (5600.0, b_tint)), "b: {:?}", wb(&s, b));
+    assert!(close(wb(&s, c), (5600.0, c_tint)), "c (old relative value): {:?}", wb(&s, c));
+    s.execute("edit.undo", &json!({})).unwrap();
+    // a drag and the dials
+    s.execute("develop.beginInteraction", &json!({"label": "Temp", "ids": [b.0, c.0]})).unwrap();
+    s.execute("develop.set", &json!({"control": "wb.temp", "value": 4800.0})).unwrap();
+    s.execute("develop.adjust", &json!({"control": "wb.tint", "delta": 6.0})).unwrap();
+    s.execute("develop.endInteraction", &json!({})).unwrap();
+    let want = wb(&s, a);
+    assert!((want.0 - 4800.0).abs() < 1.0 && (want.1 - 10.0).abs() < 0.5, "a: {want:?}");
+    assert!(close(wb(&s, b), want) && close(wb(&s, c), want), "b {:?} c {:?} a {want:?}", wb(&s, b), wb(&s, c));
+    // As Shot: each photo's own
+    s.execute("develop.wb", &json!({"mode": "asShot"})).unwrap();
+    assert!(
+        close(wb(&s, a), (5200.0, 4.0)) && close(wb(&s, b), (3300.0, -12.0)) && close(wb(&s, c), (6100.0, 8.0)),
+        "{:?} {:?} {:?}",
+        wb(&s, a),
+        wb(&s, b),
+        wb(&s, c)
+    );
+    assert!([a, b, c].iter().all(|id| s.develop_of(*id).unwrap().wb.mode == WbMode::AsShot));
+    // a light preset: its numbers on every raw
+    s.execute("develop.wb", &json!({"mode": "tungsten"})).unwrap();
+    assert!([a, b, c].iter().all(|id| close(wb(&s, *id), (2850.0, 0.0))));
+    // Auto: each photo's own, from its own pixels
+    s.execute("develop.wb", &json!({"mode": "auto"})).unwrap();
+    for id in [b, c] {
+        let src = s.source_now(id, crate::media::SourceLevel::Thumb).unwrap();
+        let own = lightcraft_pipeline::auto::auto_wb(&src, &s.source_info(id));
+        assert!(close(wb(&s, id), own), "photo {}: {:?} vs its own Auto {own:?}", id.0, wb(&s, id));
+        assert_eq!(s.develop_of(id).unwrap().wb.mode, WbMode::Auto);
+    }
+    assert!(!close(wb(&s, a), wb(&s, b)), "not a's Auto copied over");
+}
+
+/// Note 18 / note 4: a crop goes on as its shape and angle, fitted to each photo's frame (a
+/// portrait photo takes the locked ratio turned); an Upright mode is analysed on each photo, never
+/// the active photo's correction copied over.
+#[test]
+fn crop_and_upright_sync_as_modes_fitted_to_each_photo() {
+    let (mut s, [a, b, c]) = three();
+    raw_as_shot(&mut s, a, 5200.0, 0.0, false, 1.0);
+    raw_as_shot(&mut s, b, 5200.0, 0.0, false, 1.3);
+    let dims = |s: &Session, id| crate::cmd::develop::crop_dims(s, id);
+    let (aw, ah) = dims(&s, a);
+    let wide = aw > ah;
+    // b is turned the way a is, c the other way
+    if (dims(&s, b).0 > dims(&s, b).1) != wide {
+        s.execute("photo.rotateRight", &json!({"ids": [b.0]})).unwrap();
+    }
+    if (dims(&s, c).0 > dims(&s, c).1) == wide {
+        s.execute("photo.rotateRight", &json!({"ids": [c.0]})).unwrap();
+    }
+    s.execute("library.select", &json!({"ids": [a.0, b.0, c.0], "active": a.0})).unwrap();
+    let (lock, turned) = if wide { ((300, 200), (200, 300)) } else { ((200, 300), (300, 200)) };
+    let ratio = |l: (u32, u32)| f64::from(l.0) / f64::from(l.1);
+    let mut d = (*s.develop_of(a).unwrap()).clone();
+    d.crop.aspect = Some(lock);
+    d.crop.geometry = lightcraft_geom::crop_fit_angle(aw, ah, 3.0, Some(ratio(lock)));
+    s.set_develop(a, d, "Crop").unwrap();
+    let shape = |s: &Session, id| {
+        let (w, h) = dims(s, id);
+        let r = s.develop_of(id).unwrap().crop.geometry.rect_px(w, h);
+        r.width() / r.height()
+    };
+    let cb = s.develop_of(b).unwrap().crop;
+    assert_eq!(cb.aspect, Some(lock));
+    assert!((cb.geometry.angle - 3.0).abs() < 1e-9);
+    let cc = s.develop_of(c).unwrap().crop;
+    assert_eq!(cc.aspect, Some(turned), "the ratio turned for the photo turned the other way");
+    assert!((cc.geometry.angle - 3.0).abs() < 1e-9);
+    assert!((shape(&s, c) - ratio(turned)).abs() < 0.01, "c's crop has the turned shape on its own frame: {}", shape(&s, c));
+    let (cw, ch) = dims(&s, c);
+    let fit = lightcraft_geom::crop_fit_angle(cw, ch, 3.0, Some(ratio(turned)));
+    assert!((cc.geometry.rect.x0 - fit.rect.x0).abs() < 1e-6 && (cc.geometry.rect.y1 - fit.rect.y1).abs() < 1e-6, "the largest that fits");
+    // Upright Vertical: each photo's own analysis
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    let own = s.upright_for(b, lightcraft_develop::Upright::Vertical).unwrap();
+    let gb = s.develop_of(b).unwrap().geometry.clone();
+    assert_eq!(gb.upright, lightcraft_develop::Upright::Vertical);
+    assert_eq!(gb.upright_transform, own, "b's own correction");
+    s.execute("geometry.upright", &json!({"mode": "off"})).unwrap();
+    assert!([a, b, c].iter().all(|id| s.develop_of(*id).unwrap().geometry.upright_transform.is_none()));
 }
 
 /// Note 51: Develop's Presets panel (`followAutoSync`) follows the slider rule. Auto Sync off: the

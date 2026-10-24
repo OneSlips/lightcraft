@@ -492,16 +492,18 @@ fn an_installed_logi_plugin_works_with_no_setup_and_settings_show_the_edited_pag
 }
 
 #[test]
-fn white_balance_on_several_photos_moves_each_from_its_own_value() {
-    // the console's dial with Apply to Selected on photos whose white balance differs: each is
-    // moved by the turn on its own scale (as Quick Develop does), never given the active
-    // photo's Kelvin; Tint and the other values the same way; one undo step
+fn white_balance_on_several_photos_takes_the_active_photos_value() {
+    // the console's dial with Apply to Selected on photos whose white balance differs: every photo
+    // is given the active photo's value (note 18, Lightroom Classic's Auto Sync), white balance on
+    // each photo's own scale; Tint and the other values the same way; one undo step
     let mut h = demo();
     open_photo(&mut h);
     let ids: Vec<u64> = h.app.session.visible_cloned().iter().take(3).map(|p| p.0).collect();
     let wb = |h: &Headless, id: u64| {
-        let d = h.app.session.develop_of(lightcraft_catalog::PhotoId(id)).unwrap();
-        (d.wb.temp, d.wb.tint, d.light.contrast)
+        let id = lightcraft_catalog::PhotoId(id);
+        let d = h.app.session.develop_of(id).unwrap();
+        let (t, tint) = lightcraft_pipeline::local::effective_wb(&h.app.session.source_info(id), &d);
+        (t, tint, d.light.contrast)
     };
     // different white balances (and one left As Shot)
     for (id, temp, tint) in [(ids[1], 4200.0, 12.0), (ids[2], 9000.0, -20.0)] {
@@ -522,19 +524,17 @@ fn white_balance_on_several_photos_moves_each_from_its_own_value() {
             h.step();
         }
         if action == "v.wb.temp" {
-            assert!(wb(&h, ids[1]).0 > before[1].0, "photo 2 follows the dial while it turns");
+            assert!((wb(&h, ids[1]).0 - wb(&h, ids[0]).0).abs() < 1e-6, "photo 2 follows the dial while it turns");
             assert!(h.app.session.interaction.is_some(), "still the same gesture");
         }
         finish_gesture(&mut h);
     }
     let after: Vec<_> = ids.iter().map(|i| wb(&h, *i)).collect();
-    // the two Custom photos keep their difference: moved by the same amount, not set to one value
-    let d1 = (after[1].0 - before[1].0, after[1].1 - before[1].1, after[1].2 - before[1].2);
-    let d2 = (after[2].0 - before[2].0, after[2].1 - before[2].1, after[2].2 - before[2].2);
-    assert!(d1.0 > 0.0 && (d1.0 - d2.0).abs() < 1e-6, "temp moved by the same amount: {d1:?} {d2:?}");
-    assert!(d1.1 > 0.0 && (d1.1 - d2.1).abs() < 1e-6, "tint too: {d1:?} {d2:?}");
-    assert!(d1.2 > 0.0 && (d1.2 - d2.2).abs() < 1e-6, "contrast too: {d1:?} {d2:?}");
-    assert!((after[1].0 - after[2].0).abs() > 4000.0, "not copied from one photo: {after:?}");
+    // every photo at the active photo's value, not moved by the same amount from its own
+    for a in &after[1..] {
+        assert!((a.0 - after[0].0).abs() < 1e-6 && (a.1 - after[0].1).abs() < 1e-6 && (a.2 - after[0].2).abs() < 1e-6, "{after:?}");
+    }
+    assert!(after[0].0 > before[0].0 && after[0].1 > before[0].1 && after[0].2 > before[0].2, "{before:?} {after:?}");
     // the active photo moved too
     assert!(after[0] != before[0]);
     // one undo step per turn: three undos put everything back

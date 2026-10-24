@@ -1,5 +1,15 @@
 # What's new in LightCraft
 
+## 2026-10-24
+
+### Editing several photos
+- **Auto Sync sets every selected photo to the same value**, as Lightroom Classic does: drag Exposure to +0.50
+  and every selected photo is at +0.50 (sliders, console dials, keys alike). White balance is the same Kelvin
+  and tint on every raw, on each photo's own scale; As Shot and Auto give each photo its own white balance, an
+  Upright mode corrects each photo by its own lines, and a crop keeps its ratio and angle and fits each photo.
+  Quick Develop's +/- buttons still move each photo by a step from its own value. The note over the photo says
+  how many photos actually changed.
+
 ## 2026-10-22
 
 ### Control surfaces

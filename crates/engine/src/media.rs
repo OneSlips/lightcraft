@@ -642,6 +642,12 @@ impl MediaCache {
         self.insert_source(id, level, DecodedSource::new(img, None));
     }
 
+    /// A decoded source with what the decoder reported about it (tests: photos of another as-shot white).
+    #[cfg(test)]
+    pub(crate) fn insert_with_info(&mut self, id: PhotoId, level: SourceLevel, img: Arc<Rgb32f>, info: SourceInfo) {
+        self.insert_source(id, level, DecodedSource::new(img, Some(info)));
+    }
+
     fn insert_source(&mut self, id: PhotoId, level: SourceLevel, img: DecodedSource) {
         let tick = lightcraft_preview::next_tick();
         match level {
