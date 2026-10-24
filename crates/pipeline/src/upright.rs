@@ -99,7 +99,8 @@ pub fn detect_segments(lum: &Plane) -> Vec<Segment> {
     }
     sorted.sort_by(f32::total_cmp);
     let p90 = sorted[sorted.len() * 9 / 10];
-    let thr = (p90 * 0.35).max(0.008);
+    // a quarter of the 90th percentile: a post's edge against foliage stays in (test notes 2026-10-24 note 4)
+    let thr = (p90 * 0.25).max(0.008);
     let mut order: Vec<u32> = (0..n as u32).filter(|&i| mag[i as usize] > thr).collect();
     order.sort_by(|&a, &b| mag[b as usize].total_cmp(&mag[a as usize]));
     let mut used = vec![false; n];
@@ -273,6 +274,11 @@ fn refine_vp(segs: &[&Segment]) -> [f64; 3] {
 /// The dominant vanishing point of a segment family: RANSAC over pairs, then least squares on the inliers.
 /// Returns the point and the total inlier length, or None with fewer than two consistent segments.
 pub fn vanishing_point(segs: &[Segment]) -> Option<([f64; 3], f64)> {
+    vanishing_point_where(segs, |_| true)
+}
+
+/// [`vanishing_point`] among the candidate points `ok` accepts.
+fn vanishing_point_where(segs: &[Segment], ok: impl Fn([f64; 3]) -> bool) -> Option<([f64; 3], f64)> {
     if segs.len() < 2 {
         return None;
     }
@@ -290,6 +296,9 @@ pub fn vanishing_point(segs: &[Segment]) -> Option<([f64; 3], f64)> {
                 continue;
             }
             let v = norm(v);
+            if !ok(v) {
+                continue;
+            }
             let sc = score(v);
             if best.is_none_or(|b| sc > b.1) {
                 best = Some((v, sc));
@@ -447,14 +456,36 @@ impl Reject {
     /// In words for the user: "No vertical correction: …".
     pub fn message(self) -> &'static str {
         match self {
-            Reject::TooFew => "it found too few straight lines",
-            Reject::TooShort => "the straight lines it found are too short",
+            Reject::TooFew => "too few straight lines",
+            Reject::TooShort => "the straight lines are too short",
             Reject::OneObject => "the straight lines are all on one object",
-            Reject::Disagree => "the straight lines point in different directions (people, trees or folds rather than buildings)",
-            Reject::MeetInside => "the straight lines meet inside the photo (a scene feature rather than a tilted camera)",
+            Reject::Disagree => "the long lines lean different ways",
+            Reject::MeetInside => "the lines meet inside the photo (a floor or a road, not a tilted camera)",
         }
     }
 }
+
+/// How far (degrees) the camera turns to send the vertical vanishing point `v` to the image's y axis.
+fn tilt_degrees(v: [f64; 3]) -> f64 {
+    let d = direction(v, DEFAULT_FOCAL);
+    d[1].abs().clamp(0.0, 1.0).acos().to_degrees()
+}
+
+/// Whether a (homogeneous) vanishing point lies inside or near the photo (within twice the half long edge of
+/// its centre): a scene feature rather than a camera tilt.
+fn inside(v: [f64; 3]) -> bool {
+    v[2].abs() > 1e-9 && (v[0] / v[2]).hypot(v[1] / v[2]) < 2.0
+}
+
+/// A long line (in half long edges: 7.5 % of the long edge), and how far apart (across the family) two of them
+/// must be to vouch for a vanishing point. Tuned on the photographer's own Upright corrections (test notes
+/// 2026-10-24 note 4).
+const LONG_LINE: f64 = 0.15;
+const LONG_APART: f64 = 0.25;
+/// Camera turns (degrees) above which a vertical correction needs three long lines and half the long lines'
+/// length agreeing, and above which it needs most of it.
+const BIG_TILT: f64 = 10.0;
+const HUGE_TILT: f64 = 20.0;
 
 /// Whether a family's vanishing point is backed by real structure rather than one object: at least three
 /// inlier segments, a total inlier length of a quarter of the long edge, and inliers spread across at least a
@@ -469,7 +500,7 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> Result<(), Reject>
     let (lo, hi) = inl.iter().map(across).fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
     // a camera-tilt vanishing point lies far outside the frame; one inside or near it is a scene feature
     // (sun rays, a road to the horizon), not perspective to correct
-    if v[2].abs() > 1e-9 && (v[0] / v[2]).hypot(v[1] / v[2]) < 2.0 {
+    if inside(v) {
         return Err(Reject::MeetInside);
     }
     if inl.len() < 3 {
@@ -481,25 +512,143 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> Result<(), Reject>
     if hi - lo < 0.4 {
         return Err(Reject::OneObject);
     }
+    // real structure has long straight edges: at least two long lines, apart, agree (folds of a dress, hair
+    // and foliage are short pieces that agree by chance)
+    let long: Vec<f64> = inl.iter().filter(|s| s.len() >= LONG_LINE).map(across).collect();
+    let spread = long.iter().fold((f64::MAX, f64::MIN), |(lo, hi), x| (lo.min(*x), hi.max(*x)));
+    if long.len() < 2 || spread.1 - spread.0 < LONG_APART {
+        return Err(Reject::TooShort);
+    }
+    // a big correction needs more than a few lines: three long lines and half the long lines'
+    // length agreeing (the folds of a gown spreading to the floor point at a far point too)
+    let tilt = if vertical { tilt_degrees(v) } else { 0.0 };
     // consensus: real structure agrees; mirrored flanks (trees, peaks) split the family in two halves that each
     // converge somewhere. Most of the family agreeing settles it; else the lines that disagree must not gather at
     // a rival point of their own nearly as strongly (people, folds and foliage point every which way, so a few
     // long posts among them still decide: client note 4)
-    let family: f64 = segs.iter().map(Segment::len).sum();
+    let mut family: f64 = segs.iter().map(Segment::len).sum();
+    // (judged on the long lines: a gown's many short folds don't outvote the posts around it)
+    let long_family: f64 = segs.iter().filter(|s| s.len() >= LONG_LINE).map(Segment::len).sum();
+    let long_total: f64 = inl.iter().filter(|s| s.len() >= LONG_LINE).map(|s| s.len()).sum();
+    let share = if tilt > HUGE_TILT { 0.6 } else { 0.5 };
+    if tilt > BIG_TILT && (long.len() < 3 || long_total < share * long_family) {
+        return Err(Reject::Disagree);
+    }
     if total >= 0.6 * family {
         return Ok(());
     }
-    let rest: Vec<Segment> = segs.iter().copied().filter(|s| vp_error(s, v) >= thr).collect();
-    let rival = vanishing_point(&rest).map_or(0.0, |(_, support)| support);
+    // Lines that meet inside or near the photo are scene features (floorboards running to the horizon, the
+    // apex of a drape, rays), never a camera tilt: they neither vote against the posts nor make a rival
+    // (test notes 2026-10-24 note 4: the posts of a gazebo outvoted by its deck and its curtains).
+    let mut rest: Vec<Segment> = segs.iter().copied().filter(|s| vp_error(s, v) >= thr).collect();
+    let mut rival = 0.0;
+    for _ in 0..4 {
+        let Some((r, support)) = vanishing_point(&rest) else { break };
+        if !inside(r) {
+            rival = support;
+            break;
+        }
+        let (scene, other): (Vec<Segment>, Vec<Segment>) = rest.iter().partition(|s| vp_error(s, r) < thr);
+        if scene.is_empty() {
+            break;
+        }
+        family -= scene.iter().map(Segment::len).sum::<f64>();
+        rest = other;
+    }
+    if total >= 0.6 * family {
+        return Ok(());
+    }
     if total >= 0.3 * family && total >= 2.0 * rival {
+        return Ok(());
+    }
+    // most of the long lines agreeing settles it too (posts round a gown and its folds)
+    if long_total >= 0.6 * long_family {
         return Ok(());
     }
     Err(Reject::Disagree)
 }
 
+/// Join the pieces of one straight edge (a post's side broken by a person in front of it, a branch, a
+/// highlight) into one line, so a long structural edge counts as long: pieces on the same line (within 1.5°
+/// and about 3 px at the analysis size) with a gap of at most a quarter of the half long edge between them.
+fn merge_collinear(mut segs: Vec<Segment>) -> Vec<Segment> {
+    segs.sort_by(|a, b| b.len().total_cmp(&a.len()));
+    // each line: its first (longest) piece as the reference, and every piece joined to it
+    let mut lines: Vec<(Segment, Vec<Segment>)> = Vec::with_capacity(segs.len());
+    for s in segs {
+        let joined = lines.iter_mut().find(|(l, _)| collinear(l, &s));
+        match joined {
+            Some((l, pieces)) => {
+                pieces.push(s);
+                *l = fit_line(pieces).unwrap_or(*l);
+            }
+            None => lines.push((s, vec![s])),
+        }
+    }
+    lines.into_iter().map(|(l, _)| l).collect()
+}
+
+/// Whether piece `s` lies on line `l` (within 1.5° and about 3 px at the analysis size) with a gap of at most a
+/// quarter of the half long edge between them.
+fn collinear(l: &Segment, s: &Segment) -> bool {
+    let (dx, dy) = (l.b.x - l.a.x, l.b.y - l.a.y);
+    let n = dx.hypot(dy);
+    if n < 1e-9 {
+        return false;
+    }
+    let (ux, uy) = (dx / n, dy / n);
+    let (sx, sy) = (s.b.x - s.a.x, s.b.y - s.a.y);
+    let sn = sx.hypot(sy).max(1e-12);
+    if ((ux * sx + uy * sy) / sn).abs() < 1.5f64.to_radians().cos() {
+        return false;
+    }
+    let off = |p: Point| (p.x - l.a.x) * -uy + (p.y - l.a.y) * ux;
+    if off(s.a).abs() > 0.006 || off(s.b).abs() > 0.006 {
+        return false;
+    }
+    let t = |p: Point| (p.x - l.a.x) * ux + (p.y - l.a.y) * uy;
+    let (t0, t1) = (t(s.a).min(t(s.b)), t(s.a).max(t(s.b)));
+    (t0 - n).max(-t1).max(0.0) <= 0.25
+}
+
+/// The line through pieces (their endpoints weighted by the piece's length, principal axis), from end to end.
+fn fit_line(pieces: &[Segment]) -> Option<Segment> {
+    let (mut sw, mut mx, mut my) = (0.0, 0.0, 0.0);
+    for s in pieces {
+        let w = s.len();
+        for p in [s.a, s.b] {
+            sw += w;
+            mx += w * p.x;
+            my += w * p.y;
+        }
+    }
+    if sw <= 0.0 {
+        return None;
+    }
+    let (mx, my) = (mx / sw, my / sw);
+    let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+    for s in pieces {
+        let w = s.len();
+        for p in [s.a, s.b] {
+            let (dx, dy) = (p.x - mx, p.y - my);
+            sxx += w * dx * dx;
+            syy += w * dy * dy;
+            sxy += w * dx * dy;
+        }
+    }
+    let th = 0.5 * (2.0 * sxy).atan2(sxx - syy);
+    let (ux, uy) = (th.cos(), th.sin());
+    let t = |p: Point| (p.x - mx) * ux + (p.y - my) * uy;
+    let (lo, hi) = pieces.iter().flat_map(|s| [t(s.a), t(s.b)]).fold((f64::MAX, f64::MIN), |(lo, hi), v| (lo.min(v), hi.max(v)));
+    Some(Segment { a: Point::new(mx + ux * lo, my + uy * lo), b: Point::new(mx + ux * hi, my + uy * hi) })
+}
+
 /// One family's vanishing point, if [`reliable`], else why not.
 fn family_vp(segs: &[Segment], vertical: bool) -> (Option<[f64; 3]>, Option<Reject>) {
-    match vanishing_point(segs) {
+    // a camera tilt puts the point outside the photo: look there first, so lines meeting inside it (a deck
+    // running to the horizon) can't take the place of the posts
+    let found = vanishing_point_where(segs, |v| !inside(v)).or_else(|| vanishing_point(segs));
+    match found {
         None => (None, Some(Reject::TooFew)),
         Some((v, _)) => match reliable(segs, v, vertical) {
             Ok(()) => (Some(v), None),
@@ -511,8 +660,8 @@ fn family_vp(segs: &[Segment], vertical: bool) -> (Option<[f64; 3]>, Option<Reje
 /// Group segments into near-vertical / near-horizontal families and find their vanishing points (only reliable
 /// ones; see [`reliable`]).
 pub fn analyze(segs: &[Segment]) -> Analysis {
-    let vertical: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() < 30.0).collect();
-    let horizontal: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() > 60.0).collect();
+    let vertical = merge_collinear(segs.iter().copied().filter(|s| s.tilt_from_vertical() < 30.0).collect());
+    let horizontal = merge_collinear(segs.iter().copied().filter(|s| s.tilt_from_vertical() > 60.0).collect());
     let (vertical_vp, vertical_why) = family_vp(&vertical, true);
     let (horizontal_vp, horizontal_why) = family_vp(&horizontal, false);
     Analysis { vertical, horizontal, vertical_vp, horizontal_vp, vertical_why, horizontal_why }
@@ -618,9 +767,6 @@ const ANALYSIS_LONG: usize = 1024;
 /// segment detection and vanishing points. Cached per source + optics settings.
 pub fn analyze_source(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
     static CACHE: Mutex<Vec<(u64, Analysis)>> = Mutex::new(Vec::new());
-    let mut base = s.clone();
-    base.geometry = Geometry::default();
-    base.crop = Crop::default();
     let key = crate::optics::fingerprint(src)
         ^ lightcraft_develop::DevelopSettings { optics: s.optics, orientation: s.orientation, ..Default::default() }.hash64().rotate_left(17);
     if let Ok(c) = CACHE.lock()
@@ -628,16 +774,7 @@ pub fn analyze_source(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> A
     {
         return a.clone();
     }
-    let frame = crate::frame_for(src, info, &base, false);
-    let (w, h) = frame.fit(ANALYSIS_LONG, ANALYSIS_LONG);
-    let img = frame.sample(src, w, h);
-    // perceptual lightness, normalized to the image's bright end
-    let lum = img.luminance();
-    let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
-    v.sort_by(f32::total_cmp);
-    let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);
-    let lum = lum.map(|x| (x.max(0.0) / white).min(1.5).powf(1.0 / 2.4));
-    let a = analyze(&detect_segments(&lum));
+    let a = analyze(&detect_segments(&analysis_luminance(src, info, s, ANALYSIS_LONG)));
     if let Ok(mut c) = CACHE.lock() {
         c.push((key, a.clone()));
         if c.len() > 8 {
@@ -645,6 +782,37 @@ pub fn analyze_source(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> A
         }
     }
     a
+}
+
+/// The plane Upright looks for lines in: the lens-corrected photo (optics and orientation applied, no
+/// perspective or crop) at `long` px on its long edge, as perceptual lightness normalized to its bright end.
+pub fn analysis_luminance(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, long: usize) -> Plane {
+    let mut base = s.clone();
+    base.geometry = Geometry::default();
+    base.crop = Crop::default();
+    let frame = crate::frame_for(src, info, &base, false);
+    let (w, h) = frame.fit(long, long);
+    let img = frame.sample(src, w, h);
+    let lum = img.luminance();
+    let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
+    v.sort_by(f32::total_cmp);
+    let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);
+    lum.map(|x| (x.max(0.0) / white).min(1.5).powf(1.0 / 2.4))
+}
+
+/// Analyse an [`analysis_luminance`] plane of any size (brought to the analysis size first).
+pub fn analyze_plane(lum: &Plane) -> Analysis {
+    analyze_plane_at(lum, ANALYSIS_LONG)
+}
+
+/// [`analyze_plane`] at `size` px on the long edge (at most the plane's own).
+pub fn analyze_plane_at(lum: &Plane, size: usize) -> Analysis {
+    let long = lum.width.max(lum.height);
+    if long > size {
+        let fit = lightcraft_raster::resample::fit(lum, size, size, lightcraft_raster::resample::Filter::Box);
+        return analyze(&detect_segments(&fit));
+    }
+    analyze(&detect_segments(lum))
 }
 
 /// The rotation (degrees, clockwise +) that levels `src`'s dominant horizon/plumb lines, if they agree
