@@ -1816,6 +1816,9 @@ pub struct PreparedExport {
     weight: usize,
     /// Its renders may use the GPU ([`export_gpu`] when it was prepared).
     gpu: bool,
+    /// When the GPU is busy with other photos it renders on the processor instead of waiting
+    /// ([`export_mix`] when it was prepared).
+    mix: bool,
 }
 
 struct RenderWork {
@@ -1925,7 +1928,7 @@ fn prepare_guarded(
         };
         (work, weight)
     };
-    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight, gpu: export_gpu() })
+    Ok(PreparedExport { photo: id, file_name, source_dir, work, guard, weight, gpu: export_gpu(), mix: export_mix() })
 }
 
 /// The folder a photo's original is in, for [`DestinationMode::SameAsOriginal`]. None for a demo
@@ -2100,7 +2103,21 @@ impl PreparedExport {
                     };
                     Ok((r, hdr, gpu_fallback))
                 };
-                let (r, hdr, gpu_fallback) = if hdr_on_gpu { lightcraft_gpu::in_one_turn(src_px, out_px, renders) } else { renders() }?;
+                let (r, hdr, gpu_fallback) = if self.gpu && self.mix {
+                    // the GPU and the processor at once: this photo takes the GPU when it is free,
+                    // else it renders on the processor rather than wait (Test my machine picks it)
+                    match lightcraft_gpu::try_batch_turn(src_px, out_px) {
+                        Some(_turn) => renders(),
+                        None => {
+                            lap("the GPU is busy: rendering on the processor", &mut t);
+                            lightcraft_gpu::on_cpu(renders)
+                        }
+                    }
+                } else if hdr_on_gpu {
+                    lightcraft_gpu::in_one_turn(src_px, out_px, renders)
+                } else {
+                    renders()
+                }?;
                 lap("renders", &mut t);
                 check()?;
                 // 3. The encode, on this lane's thread after its turn (the next photo renders meanwhile)
@@ -2291,18 +2308,21 @@ pub fn export_batch(
     run_batch(items, o, to, write, exists, true, &mut |_, _| true)
 }
 
-/// [`export_batch`] with `lanes` photos side by side, on the GPU or not, the files thrown away
-/// (a benchmark: [`crate::machine_test`]). Changes nothing process-wide.
+/// [`export_batch`] with `lanes` photos side by side, on the GPU or not (and with `mix`, on the
+/// processor too while the GPU is busy), the files thrown away (a benchmark:
+/// [`crate::machine_test`]). Changes nothing process-wide.
 pub(crate) fn export_batch_tuned(
     session: &mut crate::Session,
     ids: &[lightcraft_catalog::PhotoId],
     o: &ExportOptions,
     lanes: usize,
     gpu: bool,
+    mix: bool,
 ) -> Result<Vec<serde_json::Value>, String> {
     let mut items = prepare_batch(session, ids, o)?;
     for it in &mut items {
         it.gpu = gpu;
+        it.mix = gpu && mix;
     }
     let lanes = lanes.clamp(1, MAX_EXPORT_LANES).min(items.len().max(1));
     let to = Destination::default();
@@ -2427,6 +2447,21 @@ pub fn set_export_gpu(on: bool) {
 /// Whether exports use the GPU ([`set_export_gpu`]).
 pub fn export_gpu() -> bool {
     EXPORT_GPU.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Exports render on the processor too while the GPU is busy with other photos (note 28: "Why
+/// can't we separate the load at CPU and GPU?"). Off by default; Test my machine turns it on
+/// when it measured it faster.
+static EXPORT_MIX: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Let photos of an export render on the processor while the GPU renders others ([`export_mix`]).
+pub fn set_export_mix(on: bool) {
+    EXPORT_MIX.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether exports use the processor and the GPU at once ([`set_export_mix`]).
+pub fn export_mix() -> bool {
+    EXPORT_MIX.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// [`run_batch`] with `lanes` photos in flight. Without `cancel` the calling thread is one of the
