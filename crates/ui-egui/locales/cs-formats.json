@@ -253,6 +253,7 @@
   "new, inside {parent}": "nové, pod {parent}",
   "Keywords of {n} selected photos": "Klíčová slova vybraných fotografií (počet: {n})",
   "Removed “{name}” from {n} photos. Edit ▸ Undo puts it back.": "Klíčové slovo „{name}“ bylo odebráno z fotografií v počtu {n}. Úpravy → Zpět jej vrátí.",
+  "Inside: {names}": "Uvnitř: {names}",
   " in {g} group{}": " ve skupinách: {g}{:.0}",
   " · kept, not applied: {}": " · zachováno, nepoužito: {}",
   " — kept but not applied: {}": " — zachováno, ale nepoužito: {}",
@@ -301,5 +302,12 @@
   "A one-time download of about {mb} MB, saved in {dir}": "Jednorázové stažení asi {mb} MB, uložené do {dir}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licence: {licence}, open-source licence, která dovoluje jakékoli použití včetně komerční práce.",
   "Person {n}": "Osoba {n}",
-  "The AI model download failed: {e}": "Stažení modelu AI se nezdařilo: {e}"
+  "The AI model download failed: {e}": "Stažení modelu AI se nezdařilo: {e}",
+  "Drop to review {n} item{} for import": "Pusťte pro kontrolu před importem (položek: {n}){:.0}",
+  "Drop to import {n} item{}": "Pusťte pro import (položek: {n}){:.0}",
+  "Drop to import {n} preset{}": "Pusťte pro import přednastavení: {n}{:.0}",
+  "Could not read {name}: {e}": "Soubor {name} se nepodařilo přečíst: {e}",
+  "Added {n} photo{}": "Přidáno fotografií: {n}{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Kam má jít katalog Lightroomu „{catalog}“?",
+  "Merge into the open library “{library}” ({count} photo{})": "Sloučit s otevřenou knihovnou „{library}“ (fotografie: {count}{:.0})"
 }

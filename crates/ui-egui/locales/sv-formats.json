@@ -301,5 +301,13 @@
   "A one-time download of about {mb} MB, saved in {dir}": "En engångsnedladdning på cirka {mb} MB, sparas i {dir}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licens: {licence}, en öppen källkodslicens som tillåter all användning, även kommersiellt arbete.",
   "Person {n}": "Person {n}",
-  "The AI model download failed: {e}": "Nedladdningen av AI-modellen misslyckades: {e}"
+  "The AI model download failed: {e}": "Nedladdningen av AI-modellen misslyckades: {e}",
+  "Added {n} photo{}": "{n} foto tillagda{:.0}",
+  "Could not read {name}: {e}": "Kunde inte läsa {name}: {e}",
+  "Drop to import {n} item{}": "Släpp för att importera {n} objekt{:.0}",
+  "Drop to import {n} preset{}": "Släpp för att importera {n} förinställningar{:.0}",
+  "Drop to review {n} item{} for import": "Släpp för att granska {n} objekt före import{:.0}",
+  "Inside: {names}": "Inuti: {names}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Vart ska Lightroom-katalogen ”{catalog}” importeras?",
+  "Merge into the open library “{library}” ({count} photo{})": "Slå samman med det öppna biblioteket ”{library}” ({count} foto{:.0})"
 }

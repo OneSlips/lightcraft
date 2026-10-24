@@ -227,6 +227,7 @@
   "Delete the keyword “{name}”?": "要删除关键字“{name}”吗？",
   "It is taken off {count} photo{}, with the keywords below it. Undo brings it back.": "将从 {count} 张照片中移除，其下的关键字也一并移除。撤销可恢复。{:.0}",
   "Create Keyword Tag Inside “{name}”…": "在“{name}”中创建关键字标记…",
+  "Inside: {names}": "其中：{names}",
   "“{parent}” has a “{name}” already. Merge the two?": "“{parent}”中已有“{name}”。要合并两者吗？",
   "There is a “{name}” at the top level already. Merge the two?": "顶层已有“{name}”。要合并两者吗？",
   "Added “{keyword}” to {n} photo{}": "已将“{keyword}”添加到 {n} 张照片{:.0}",
@@ -301,5 +302,12 @@
   "The AI model download failed: {e}": "AI 模型下载失败：{e}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "许可证：{licence}，一种允许任何用途（包括商业工作）的开源许可证。",
   "A one-time download of about {mb} MB, saved in {dir}": "一次性下载约 {mb} MB，保存在 {dir}",
-  "Person {n}": "人物 {n}"
+  "Person {n}": "人物 {n}",
+  "Drop to review {n} item{} for import": "松开鼠标以在导入前检查 {n} 个项目{:.0}",
+  "Drop to import {n} item{}": "松开鼠标以导入 {n} 个项目{:.0}",
+  "Drop to import {n} preset{}": "松开鼠标以导入 {n} 个预设{:.0}",
+  "Could not read {name}: {e}": "无法读取 {name}：{e}",
+  "Added {n} photo{}": "已添加 {n} 张照片{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Lightroom 目录“{catalog}”要导入到哪里？",
+  "Merge into the open library “{library}” ({count} photo{})": "合并到当前打开的图库“{library}”（{count} 张照片）{:.0}"
 }

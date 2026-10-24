@@ -227,6 +227,7 @@
   "Delete the keyword “{name}”?": "Excluir a palavra-chave “{name}”?",
   "It is taken off {count} photo{}, with the keywords below it. Undo brings it back.": "Ela é removida de {count} foto{}, com as palavras-chave abaixo dela. Desfazer a traz de volta.",
   "Create Keyword Tag Inside “{name}”…": "Criar palavra-chave dentro de “{name}”…",
+  "Inside: {names}": "Dentro: {names}",
   "“{parent}” has a “{name}” already. Merge the two?": "“{parent}” já tem “{name}”. Mesclar as duas?",
   "There is a “{name}” at the top level already. Merge the two?": "Já existe “{name}” no nível superior. Mesclar as duas?",
   "Added “{keyword}” to {n} photo{}": "“{keyword}” adicionada a {n} foto{}",
@@ -301,5 +302,12 @@
   "The AI model download failed: {e}": "O download do modelo de IA falhou: {e}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licença: {licence}, uma licença de código aberto que permite qualquer uso, inclusive trabalho comercial.",
   "A one-time download of about {mb} MB, saved in {dir}": "Um download único de cerca de {mb} MB, salvo em {dir}",
-  "Person {n}": "Pessoa {n}"
+  "Person {n}": "Pessoa {n}",
+  "Drop to review {n} item{} for import": "Solte para revisar antes de importar (itens: {n}){:.0}",
+  "Drop to import {n} item{}": "Solte para importar (itens: {n}){:.0}",
+  "Drop to import {n} preset{}": "Solte para importar predefinições: {n}{:.0}",
+  "Could not read {name}: {e}": "Não foi possível ler {name}: {e}",
+  "Added {n} photo{}": "{n} foto{0} adicionada{0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Para onde vai o catálogo do Lightroom “{catalog}”?",
+  "Merge into the open library “{library}” ({count} photo{})": "Mesclar na biblioteca aberta “{library}” ({count} foto{})"
 }

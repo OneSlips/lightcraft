@@ -227,6 +227,7 @@
   "Delete the keyword “{name}”?": "キーワード「{name}」を削除しますか？",
   "It is taken off {count} photo{}, with the keywords below it. Undo brings it back.": "写真{count}枚から下位のキーワードとともに削除されます。取り消すと元に戻ります。{:.0}",
   "Create Keyword Tag Inside “{name}”…": "「{name}」の中にキーワードタグを作成…",
+  "Inside: {names}": "この中: {names}",
   "“{parent}” has a “{name}” already. Merge the two?": "「{parent}」にはすでに「{name}」があります。統合しますか？",
   "There is a “{name}” at the top level already. Merge the two?": "最上位にはすでに「{name}」があります。統合しますか？",
   "Added “{keyword}” to {n} photo{}": "写真{n}枚に「{keyword}」を追加しました{:.0}",
@@ -301,5 +302,12 @@
   "The AI model download failed: {e}": "AI モデルのダウンロードに失敗しました： {e}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "ライセンス： {licence}（商用利用を含むあらゆる用途を認めるオープンソースライセンス）",
   "A one-time download of about {mb} MB, saved in {dir}": "約 {mb} MB の 1 回限りのダウンロード。保存先： {dir}",
-  "Person {n}": "人物 {n}"
+  "Person {n}": "人物 {n}",
+  "Drop to review {n} item{} for import": "ドロップして {n} 件を確認してから読み込み{:.0}",
+  "Drop to import {n} item{}": "ドロップして {n} 件を読み込み{:.0}",
+  "Drop to import {n} preset{}": "ドロップして {n} 件のプリセットを読み込み{:.0}",
+  "Could not read {name}: {e}": "{name} を読み取れませんでした: {e}",
+  "Added {n} photo{}": "{n}枚を追加しました{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Lightroom カタログ「{catalog}」をどこに読み込みますか？",
+  "Merge into the open library “{library}” ({count} photo{})": "開いているライブラリ「{library}」に統合（写真{count}枚）{:.0}"
 }

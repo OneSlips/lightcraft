@@ -283,6 +283,7 @@
   "Delete the effect preset “{name}”?": "Eliminare il preset effetto “{name}”?",
   "{n} raws can now be developed from their raw data": "Raw che ora si possono sviluppare dai loro dati raw: {n}",
   "Removed “{name}” from {n} photos. Edit ▸ Undo puts it back.": "Removed “{name}” from {n} photos. Edit → Undo puts it back.",
+  "Inside: {names}": "Al suo interno: {names}",
   "Template preview: {name}": "Anteprima del modello: {name}",
   "{n} photos in view · {slides} slides · {time}": "Foto nella vista: {n} · diapositive: {slides} · {time}",
   "Applied {name}": "{name} applicato",
@@ -301,5 +302,12 @@
   "A one-time download of about {mb} MB, saved in {dir}": "Un download una tantum di circa {mb} MB, salvato in {dir}",
   "Licence: {licence}, an open-source licence that allows any use, including commercial work.": "Licenza: {licence}, una licenza open source che consente qualsiasi uso, incluso il lavoro commerciale.",
   "Person {n}": "Persona {n}",
-  "The AI model download failed: {e}": "Il download del modello IA non è riuscito: {e}"
+  "The AI model download failed: {e}": "Il download del modello IA non è riuscito: {e}",
+  "Drop to review {n} item{} for import": "Rilascia per rivedere prima dell'importazione (elementi: {n}){:.0}",
+  "Drop to import {n} item{}": "Rilascia per importare (elementi: {n}){:.0}",
+  "Drop to import {n} preset{}": "Rilascia per importare predefiniti: {n}{:.0}",
+  "Could not read {name}: {e}": "Impossibile leggere {name}: {e}",
+  "Added {n} photo{}": "Foto aggiunte: {n}{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Dove importare il catalogo Lightroom “{catalog}”?",
+  "Merge into the open library “{library}” ({count} photo{})": "Unisci alla libreria aperta “{library}” (foto: {count}{:.0})"
 }
