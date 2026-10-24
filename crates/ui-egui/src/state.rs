@@ -997,6 +997,10 @@ pub struct UiState {
     pub grading_hidden: Option<(lightcraft_catalog::PhotoId, [bool; 3])>,
     /// Active on-canvas tool: "", "brush", "linear", "radial", "wbPicker", "straighten", "remove".
     pub tool: String,
+    /// The panel layout a picker ([`is_picker`]) was armed in: when it changes (another tab, mixer mode, curve
+    /// channel or panel) the picker is put away (test notes 2026-10-24 note 8).
+    #[serde(skip)]
+    pub picker_armed_in: Option<String>,
     /// The Remove panel's tool last used ("remove", "fill", "generate", "heal", "clone"): the panel
     /// opens on it again (this session).
     pub remove_tool: String,
@@ -1586,6 +1590,41 @@ impl UiState {
         if back.is_tool() { RightPanel::Edit } else { back }
     }
 
+    /// Where a picker is armed: the panel and the tabs on show in it.
+    fn picker_layout(&self) -> String {
+        format!(
+            "{:?}|{:?}|{}|{}|{}|{}|{}|{}",
+            self.view, self.right, self.mixer_tab, self.mixer_adjust, self.mixer_group, self.mixer_mode, self.curve_channel, self.grading_mode
+        )
+    }
+
+    /// Once a frame: a picker armed in one layout is put away when the layout changes (another Color Mixer tab,
+    /// Hue / Saturation / Luminance, a mixer mode, the curve channel, another panel or view: note 8), so its cursor
+    /// and its claim on the photo's clicks go with it (note 23).
+    pub fn check_picker(&mut self) {
+        if !is_picker(&self.tool) {
+            self.picker_armed_in = None;
+            return;
+        }
+        let here = self.picker_layout();
+        match &self.picker_armed_in {
+            Some(armed) if *armed != here => {
+                self.tool.clear();
+                self.picker_armed_in = None;
+            }
+            Some(_) => {}
+            None => self.picker_armed_in = Some(here),
+        }
+    }
+
+    /// A slider (or dial) was touched: a picker armed is put away (note 8).
+    pub fn put_away_picker(&mut self) {
+        if is_picker(&self.tool) {
+            self.tool.clear();
+            self.picker_armed_in = None;
+        }
+    }
+
     /// A panel toggle (`panel.info`, `panel.masking`…) for `p`: when `p` is on show (`exposed`: not hidden behind
     /// another dock tab) it goes and the right column shows exactly what it showed before the toggle opened it, or
     /// stays closed when it was (note 21); otherwise `p` comes up and what was there is remembered. Returns whether
@@ -1640,6 +1679,7 @@ impl Default for UiState {
             right: RightPanel::Edit,
             tool_return: None,
             toggle_return: None,
+            picker_armed_in: None,
             right_seen: RightPanel::Edit,
             presets: false,
             preset_thumbs: false,
@@ -1919,6 +1959,13 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
         }
     }
     Ok(values)
+}
+
+/// Whether `tool` is a picker: a targeted adjustment (`tat:*`, drag on a colour or tone) or a colour sampler
+/// (Point Color, a mask's Point Color, Color / Luminance Range). The white balance picker is left out: it puts
+/// itself away after one pick and keeps working across panels (W).
+pub fn is_picker(tool: &str) -> bool {
+    tool.starts_with("tat:") || matches!(tool, "pointColor" | "colorRange" | "lumRange" | "maskPointColor")
 }
 
 /// A note shown under the photo ([`UiState::photo_note`]).

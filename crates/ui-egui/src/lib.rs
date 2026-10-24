@@ -183,6 +183,8 @@ mod tests_panel_restore;
 #[cfg(test)]
 mod tests_panels;
 #[cfg(test)]
+mod tests_pickers;
+#[cfg(test)]
 mod tests_preset_import;
 #[cfg(test)]
 mod tests_presets_manager;
@@ -1942,6 +1944,8 @@ impl LightcraftApp {
         self.library_changed(&ctx);
         // (a tool panel opened some other way still remembers the panel it took the place of)
         self.ui.note_right();
+        // a picker armed in another tab or panel than the one on show is put away (note 8)
+        self.ui.check_picker();
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
         // (and the mask row or pin under the pointer: the overlay shows that mask)

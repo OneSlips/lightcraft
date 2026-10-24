@@ -346,6 +346,10 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
     if p != RightPanel::Masking && app.ui.tool != "wbPicker" {
         app.ui.tool.clear();
     }
+    // an Edit panel picker doesn't follow into Masking, where it would claim the photo's clicks (note 23)
+    if app.ui.right == RightPanel::Masking && (app.ui.tool.starts_with("tat:") || app.ui.tool == "pointColor") {
+        app.ui.tool.clear();
+    }
     app.ui.note_right();
     let _ = app.session.end_interaction();
 }

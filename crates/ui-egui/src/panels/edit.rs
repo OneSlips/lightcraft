@@ -56,6 +56,10 @@ fn slider_interaction(
     mut set: impl FnMut(&mut LightcraftApp, f64) -> Result<Value, String>,
     develop: bool,
 ) {
+    // a slider touched puts a picker away (note 8): the slider's own change is what is wanted now
+    if out.drag_started || out.reset || out.value.is_some() {
+        app.ui.put_away_picker();
+    }
     if out.drag_started && !out.reset {
         let along = if develop { synced_along(app) } else { Vec::new() };
         let params = if along.is_empty() { json!({"label": spec.label}) } else { json!({"label": spec.label, "ids": along}) };

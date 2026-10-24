@@ -2325,7 +2325,13 @@ fn general_interaction(
         }
         return;
     }
-    // click toggles Fit ↔ the chosen click-zoom ratio at the clicked point; drag pans when zoomed
+    click_zoom(app, resp, img, canvas);
+    let _ = (native, aspect);
+}
+
+/// A click on the photo toggles Fit ↔ the chosen click-zoom ratio at the clicked point; a drag pans when zoomed
+/// (the loupe with no tool armed, in Edit and in Masks alike: test notes 2026-10-24 note 23).
+fn click_zoom(app: &mut LightcraftApp, resp: &egui::Response, img: Rect, canvas: Rect) {
     let zoomed = img.width() > canvas.width() + 1.0 || img.height() > canvas.height() + 1.0;
     if resp.double_clicked() || (resp.clicked() && !zoomed) {
         if let Some(q) = resp.interact_pointer_pos() {
@@ -2342,7 +2348,6 @@ fn general_interaction(
     if zoomed && resp.dragged() {
         pan_image(app, canvas, img, resp.drag_delta());
     }
-    let _ = (native, aspect);
 }
 
 // ------------------------------------------------------------------------ crop
@@ -3162,6 +3167,8 @@ fn color_range_pick(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Respons
 fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, d: &DevelopSettings) {
     let long = (map.rect.width().max(map.rect.height())) as f64;
     let active = app.session.active_mask;
+    // no tool armed as this frame starts (a click that makes a mask puts its tool away: that click doesn't zoom)
+    let idle = app.ui.tool.is_empty() && app.ui.mask_new.is_none();
     let clip = app.canvas_rect.unwrap_or(map.rect);
     let mut painter = ui.painter_at(clip);
     // a slider or dial at work: no lines, handles or pins over the effect
@@ -3561,12 +3568,21 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             }
         }
     }
-    if resp.clicked()
-        && let Some(q) = resp.interact_pointer_pos()
-        && let Some((mid, ..)) = hit(q)
+    let clicked_grip = resp.clicked().then(|| resp.interact_pointer_pos().and_then(hit)).flatten();
+    if let Some((mid, ..)) = clicked_grip
         && Some(mid) != active
     {
         let _ = app.run("mask.select", json!({"id": mid}));
+    }
+    // no tool armed and no pin or handle clicked: a click zooms, as in Edit (note 23; a drag pans below)
+    if (resp.clicked() || resp.double_clicked())
+        && clicked_grip.is_none()
+        && idle
+        && app.ui.tool.is_empty()
+        && app.ui.mask_new.is_none()
+        && let Some(canvas) = app.canvas_rect
+    {
+        click_zoom(app, resp, map.rect, canvas);
     }
     if resp.drag_started()
         && let Some(q) = ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos())
