@@ -9,6 +9,13 @@
   Upright mode corrects each photo by its own lines, and a crop keeps its ratio and angle and fits each photo.
   Quick Develop's +/- buttons still move each photo by a step from its own value. The note over the photo says
   how many photos actually changed.
+- **Edits made while AI masks compute are never lost**: a mask's selection that arrives later goes into the photo
+  as it is now, and into the undo and History steps made meanwhile.
+
+### Presets
+- **Export presets from all your libraries are back**: the presets of every library in File ▸ Open Recent Library
+  (and of their backups) join the shared presets once, the same preset only once. File ▸ Import Presets from
+  Older Libraries looks again.
 
 ## 2026-10-22
 

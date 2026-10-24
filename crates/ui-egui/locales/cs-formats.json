@@ -456,5 +456,6 @@
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}“ převezme nastavení aktivní fotografie. Název, skupina, pořadí a označení zůstanou.",
   "Saved naming preset “{name}”": "Předvolba názvů „{name}“ uložena",
   "{n} items": "{n} položek",
-  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Tato akce nepoužívá: {keys}. Předvolbu na klávesu dáte volbou Předvolba výše."
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Tato akce nepoužívá: {keys}. Předvolbu na klávesu dáte volbou Předvolba výše.",
+  "{n} presets from your other libraries were added.": "Přidáno {n} předvoleb z vašich dalších knihoven."
 }

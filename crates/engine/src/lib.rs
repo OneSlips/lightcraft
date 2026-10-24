@@ -78,6 +78,7 @@ pub mod originals;
 mod pdf;
 pub mod people_store;
 pub mod prep;
+mod preset_gather;
 pub mod preset_import;
 pub mod preset_luminar;
 pub mod preset_manager;

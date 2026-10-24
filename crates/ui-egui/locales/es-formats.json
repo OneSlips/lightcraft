@@ -456,5 +456,6 @@
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "“{name}” toma los ajustes de la foto activa. Su nombre, grupo, posición y marcas se mantienen.",
   "Saved naming preset “{name}”": "Ajuste de nombres “{name}” guardado",
   "{n} items": "{n} elementos",
-  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Esta acción no usa: {keys}. Elija Ajuste arriba para poner un ajuste preestablecido en esta tecla."
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Esta acción no usa: {keys}. Elija Ajuste arriba para poner un ajuste preestablecido en esta tecla.",
+  "{n} presets from your other libraries were added.": "Se añadieron {n} ajustes preestablecidos de tus otras bibliotecas."
 }

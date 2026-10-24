@@ -425,3 +425,62 @@ fn remembered_objects_travel_with_the_store() {
     assert_eq!(std::fs::read(store.join(crate::app_store::CONCEPTS)).unwrap(), b"{broken");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Note 29: export presets made before the store held them are gathered from every library, never
+/// dropped. A library merged by an older build whose own `prefs.json` is gone (rebuilt from a
+/// backup) still has the preset in its backup; a Recent library never merged has its own; the same
+/// preset found twice is kept once, a clash by name joins as "name 2"; once per library (a preset
+/// deleted from the store doesn't come back); nothing in the libraries or backups is written.
+#[test]
+fn export_presets_are_gathered_from_every_library_and_its_backups() {
+    let root = temp_dir("gather");
+    let (old, recent, other, store) = (root.join("Old Wedding"), root.join("Recent"), root.join("Open"), root.join("store"));
+    // the older library: its preset only in a backup now
+    let backup = old.join("Backups").join("2026-10-18 123441 UTC").join("library");
+    std::fs::create_dir_all(&backup).unwrap();
+    let gallery = json!({"name": "Client Gallery - Yes", "params": {"format": "jpeg", "quality": 85, "limitSize": 10}});
+    let proof = json!({"name": "Proof", "params": {"format": "jpeg", "quality": 70}});
+    std::fs::write(backup.join("prefs.json"), serde_json::to_vec(&json!({"exportPresets": [gallery, proof]})).unwrap()).unwrap();
+    std::fs::write(old.join("catalog.snap"), b"{}").unwrap();
+    // a Recent library with its own, one the same preset again and one clashing by name
+    std::fs::create_dir_all(&recent).unwrap();
+    let proof_other = json!({"name": "Proof", "params": {"format": "tiff"}});
+    std::fs::write(recent.join("prefs.json"), serde_json::to_vec(&json!({"exportPresets": [proof, proof_other]})).unwrap()).unwrap();
+    let before: Vec<Vec<u8>> = [backup.join("prefs.json"), recent.join("prefs.json")].iter().map(|f| std::fs::read(f).unwrap()).collect();
+    // the store as the move left it: the older library merged without its export presets
+    std::fs::create_dir_all(&store).unwrap();
+    let merged = json!({"library": old.display().to_string(), "at": "2026-10-16T03:49:33"});
+    std::fs::write(
+        store.join("shared.json"),
+        serde_json::to_vec(&json!({"version": 2, "merged": [merged], "exportPresets": [{"name": "Previews", "params": {"format": "jpeg"}}]}))
+            .unwrap(),
+    )
+    .unwrap();
+
+    let mut s = with_store(&store);
+    s.open_library(&other, true).unwrap();
+    let r = s.execute("store.gatherPresets", &json!({"paths": [recent.display().to_string()]})).unwrap();
+    let names = |s: &Session| -> Vec<String> { s.export_presets.iter().map(|p| p.name.clone()).collect() };
+    assert_eq!(names(&s), ["Previews", "Proof", "Proof 2", "Client Gallery - Yes"], "{r}");
+    assert_eq!(s.export_presets.iter().find(|p| p.name == "Client Gallery - Yes").unwrap().params["limitSize"], 10, "as it was");
+    assert_eq!(r["count"], 3, "{r}");
+    // once per library: a preset deleted afterwards stays deleted
+    s.export_presets.retain(|p| p.name != "Proof 2");
+    let again = s.execute("store.gatherPresets", &json!({"paths": [recent.display().to_string()]})).unwrap();
+    assert_eq!(again["count"], 0, "{again}");
+    assert!(!names(&s).contains(&"Proof 2".to_string()));
+    // asked again on purpose: what is there joins, the same preset still once
+    let forced = s.execute("store.gatherPresets", &json!({"paths": [recent.display().to_string()], "force": true})).unwrap();
+    assert_eq!(forced["count"], 1, "{forced}");
+    let n = names(&s).len();
+    s.execute("store.gatherPresets", &json!({"paths": [recent.display().to_string()], "force": true})).unwrap();
+    assert_eq!(names(&s).len(), n, "found again: no copies");
+    s.close_library().unwrap();
+    // saved in the store, for every library and after a restart
+    let shared: serde_json::Value = serde_json::from_slice(&std::fs::read(store.join("shared.json")).unwrap()).unwrap();
+    assert!(shared["exportPresets"].as_array().unwrap().iter().any(|p| p["name"] == "Client Gallery - Yes"));
+    assert_eq!(shared["gathered"].as_array().map(Vec::len), Some(3), "{}", shared["gathered"]);
+    let after: Vec<Vec<u8>> = [backup.join("prefs.json"), recent.join("prefs.json")].iter().map(|f| std::fs::read(f).unwrap()).collect();
+    assert_eq!(before, after, "the libraries and backups are only read");
+    let _ = std::fs::remove_dir_all(&root);
+}

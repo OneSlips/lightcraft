@@ -456,5 +456,6 @@
   "“{name}” takes the active photo's settings. Its name, group, place and marks stay.": "„{name}“ აქტიური ფოტოს პარამეტრებს იღებს. სახელი, ჯგუფი, ადგილი და ნიშნები რჩება.",
   "Saved naming preset “{name}”": "სახელის პრესეტი „{name}“ შენახულია",
   "{n} items": "{n} ელემენტი",
-  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "ეს მოქმედება არ იყენებს: {keys}. კლავიშზე პრესეტის დასაყენებლად ზემოთ აირჩიეთ „პრესეტი“."
+  "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "ეს მოქმედება არ იყენებს: {keys}. კლავიშზე პრესეტის დასაყენებლად ზემოთ აირჩიეთ „პრესეტი“.",
+  "{n} presets from your other libraries were added.": "თქვენი სხვა ბიბლიოთეკებიდან დაემატა {n} პრესეტი."
 }
