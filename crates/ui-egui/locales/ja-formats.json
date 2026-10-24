@@ -457,5 +457,7 @@
   "Saved naming preset “{name}”": "名前のプリセット「{name}」を保存しました",
   "{n} items": "{n} 件",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "この操作は {keys} を使いません。キーにプリセットを割り当てるには上の「プリセット」を選んでください。",
-  "{n} presets from your other libraries were added.": "他のライブラリからプリセットを {n} 件追加しました。"
+  "{n} presets from your other libraries were added.": "他のライブラリからプリセットを {n} 件追加しました。",
+  "Spots on this photo: {n}": "この写真のスポット: {n}",
+  "From Remove Dust (outlined in amber): {n}": "「ダストを除去」によるもの（琥珀色の枠）: {n}"
 }

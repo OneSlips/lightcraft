@@ -457,5 +457,7 @@
   "Saved naming preset “{name}”": "Benennungsvorgabe „{name}“ gespeichert",
   "{n} items": "{n} Einträge",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Diese Aktion verwendet nicht: {keys}. Wählen Sie oben „Vorgabe“, um eine Vorgabe auf diese Taste zu legen.",
-  "{n} presets from your other libraries were added.": "{n} Vorgaben aus Ihren anderen Bibliotheken wurden hinzugefügt."
+  "{n} presets from your other libraries were added.": "{n} Vorgaben aus Ihren anderen Bibliotheken wurden hinzugefügt.",
+  "Spots on this photo: {n}": "Retuschierstellen in diesem Foto: {n}",
+  "From Remove Dust (outlined in amber): {n}": "Von „Staub entfernen“ (bernsteinfarben umrandet): {n}"
 }

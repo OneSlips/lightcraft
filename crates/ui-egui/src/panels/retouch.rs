@@ -294,7 +294,7 @@ pub fn smooth_skin(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     ui.add_space(6.0);
 }
 
-/// Find Blemishes in the Remove panel: the button and its "Include body skin" option.
+/// Find Blemishes (in Retouch only, next to Smooth Skin: note 13): the button and its "Include body skin" option.
 pub fn find_blemishes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
         if text_button(ui, "findBlemishes", "Find Blemishes", false)

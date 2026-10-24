@@ -457,5 +457,7 @@
   "Saved naming preset “{name}”": "Predefinição de nomes “{name}” salva",
   "{n} items": "{n} itens",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Esta ação não usa: {keys}. Escolha Predefinição acima para pôr uma predefinição nesta tecla.",
-  "{n} presets from your other libraries were added.": "{n} predefinições das suas outras bibliotecas foram adicionadas."
+  "{n} presets from your other libraries were added.": "{n} predefinições das suas outras bibliotecas foram adicionadas.",
+  "Spots on this photo: {n}": "Pontos nesta foto: {n}",
+  "From Remove Dust (outlined in amber): {n}": "De “Remover poeira” (contorno âmbar): {n}"
 }

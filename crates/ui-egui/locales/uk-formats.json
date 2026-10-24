@@ -457,5 +457,7 @@
   "Saved naming preset “{name}”": "Шаблон імен «{name}» збережено",
   "{n} items": "{n} елем.",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Ця дія не використовує: {keys}. Щоб призначити пресет на клавішу, виберіть «Пресет» вище.",
-  "{n} presets from your other libraries were added.": "Додано пресетів з інших бібліотек: {n}."
+  "{n} presets from your other libraries were added.": "Додано пресетів з інших бібліотек: {n}.",
+  "Spots on this photo: {n}": "Ділянок на цьому фото: {n}",
+  "From Remove Dust (outlined in amber): {n}": "Від «Видалити пил» (обведені бурштиновим): {n}"
 }

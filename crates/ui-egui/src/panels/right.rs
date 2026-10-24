@@ -455,7 +455,12 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         });
         ui.add_space(8.0);
-        ui.label(crate::i18n::tr_format!("{} spot(s) on this photo", d.spots.len()));
+        let n = d.spots.len();
+        if n == 0 {
+            ui.label(crate::i18n::tr("No spots on this photo"));
+        } else {
+            ui.label(crate::i18n::tr_format!("Spots on this photo: {n}", n = n));
+        }
         ui.add_space(4.0);
         let several = app.session.selection.ids.len() > 1;
         let busy = app.session.sensor_job.as_ref().is_some_and(|j| !j.finished.load(std::sync::atomic::Ordering::Relaxed));
@@ -503,13 +508,13 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         let auto = d.spots.iter().filter(|sp| sp.auto.is_some()).count();
         if auto > 0 {
             ui.label(
-                egui::RichText::new(crate::i18n::tr_format!("{} spot(s) from Remove Dust (outlined in amber)", auto))
+                egui::RichText::new(crate::i18n::tr_format!("From Remove Dust (outlined in amber): {n}", n = auto))
                     .size(11.0)
                     .color(Tokens::get(ui.ctx()).text_dim),
             );
         }
-        ui.add_space(4.0);
-        super::retouch::find_blemishes(app, ui);
+        // Find Blemishes lives in Retouch, next to Smooth Skin (test notes 2026-10-24 note 13); the spots it makes
+        // show here like any other
         ui.add_space(4.0);
         ui.label(egui::RichText::new(crate::i18n::tr("Paint over a distraction on the photo to remove it.")).color(Tokens::get(ui.ctx()).text_dim));
     });

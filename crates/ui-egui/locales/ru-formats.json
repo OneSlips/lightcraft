@@ -457,5 +457,7 @@
   "Saved naming preset “{name}”": "Шаблон имён «{name}» сохранён",
   "{n} items": "{n} элем.",
   "This action doesn't use: {keys}. Choose Preset above to put a preset on this key.": "Это действие не использует: {keys}. Чтобы назначить пресет на клавишу, выберите «Пресет» выше.",
-  "{n} presets from your other libraries were added.": "Добавлено пресетов из других библиотек: {n}."
+  "{n} presets from your other libraries were added.": "Добавлено пресетов из других библиотек: {n}.",
+  "Spots on this photo: {n}": "Пятен на этом фото: {n}",
+  "From Remove Dust (outlined in amber): {n}": "От «Удалить пыль» (обведены янтарным): {n}"
 }
