@@ -877,6 +877,10 @@ pub struct RenderJob {
     pub stages: Option<Arc<StageCache>>,
     /// Keep a full-quality result here as the photo's view preview ([`crate::Session::loupe_job`]).
     pub view_cache: Option<(Arc<PreviewCache>, Hash128)>,
+    /// Keep a full-quality result also as the photo's latest picture of its kind, whatever its
+    /// settings ([`PreviewCache::put_latest`]; the alias, [`latest_view_key`] or [`latest_thumb_key`]):
+    /// what an edited photo shows while the render for its current settings is on its way.
+    pub latest: Option<(Arc<PreviewCache>, Hash128)>,
     /// Render for this monitor profile ([`Self::with_display`]).
     pub display: Option<Arc<crate::display::Display>>,
     /// Shown on screen at once and not kept: the result may stay on the GPU as a texture
@@ -969,6 +973,7 @@ impl RenderJob {
         // a diagnostic view (visualized range / spots) must never become the photo's cached preview
         if overlay != lightcraft_pipeline::Overlay::None {
             self.view_cache = None;
+            self.latest = None;
         }
         self
     }
@@ -983,6 +988,7 @@ impl RenderJob {
         }
         if proof.is_some() {
             self.view_cache = None;
+            self.latest = None;
         }
         self
     }
@@ -1015,6 +1021,7 @@ impl RenderJob {
         self.settings = Arc::new(s);
         self.cache = None;
         self.view_cache = None;
+        self.latest = None;
         self.preview_cut = None;
         self
     }
@@ -1254,14 +1261,23 @@ impl RenderJob {
                     }
                     _ => None,
                 };
+                let full = self.request.quality == Quality::Full;
                 if let Some((cache, key)) = &self.cache {
-                    cache.put_at(self.cache_generation, *key, Arc::new(rendered.image.clone()));
+                    let img = Arc::new(rendered.image.clone());
+                    cache.put_at(self.cache_generation, *key, img.clone());
+                    if let Some((latest, alias)) = self.latest.as_ref().filter(|_| full && self.view_cache.is_none()) {
+                        latest.put_latest(self.cache_generation, *alias, *key, img, false);
+                    }
                 }
                 if let Some((cache, key)) = &self.view_cache
-                    && self.request.quality == Quality::Full
+                    && full
                     && (display.is_none() || srgb.is_some())
                 {
-                    cache.put_deferred_at(self.cache_generation, *key, Arc::new(srgb.unwrap_or_else(|| rendered.image.clone())));
+                    let img = Arc::new(srgb.unwrap_or_else(|| rendered.image.clone()));
+                    cache.put_deferred_at(self.cache_generation, *key, img.clone());
+                    if let Some((latest, alias)) = &self.latest {
+                        latest.put_latest(self.cache_generation, *alias, *key, img, false);
+                    }
                 }
                 // the display fit, after the caches have the full render
                 if let Some((fw, fh)) = self.display_fit
@@ -1428,6 +1444,9 @@ pub enum QuickSource {
     Embedded,
     /// A thumbnail-level develop render made for the occasion.
     Small,
+    /// The photo's latest render, made with earlier settings (an edited photo whose render for its
+    /// current settings is on its way: its edit as last seen, never the unedited camera JPEG).
+    Last,
 }
 
 /// Something to show *now* for a photo while its real render is prepared. Tried in order: cached
@@ -1451,6 +1470,12 @@ pub struct QuickJob {
     pub embedded_on_disk: bool,
     /// Last resort: run this thumbnail job.
     pub small: Option<Box<RenderJob>>,
+    /// The photo's latest pictures (aliases, [`PreviewCache::get_latest`]), tried after `cached` and
+    /// before `embedded` ([`QuickSource::Last`]).
+    pub latest: Vec<(Arc<PreviewCache>, Hash128)>,
+    /// Shrink a picture taken from the caches to fit this (a loupe view standing in for a grid
+    /// thumbnail is not kept at 2 000 px for a 256 px cell).
+    pub fit: Option<(usize, usize)>,
 }
 
 impl QuickJob {
@@ -1493,9 +1518,18 @@ impl QuickJob {
             let histogram = Histogram::of_srgb8(&image);
             Ok(Rendered { image, histogram, deep: None })
         };
+        let fitted = |img: Arc<Rgba8>| match self.fit {
+            Some((w, h)) if img.width > w.max(1) || img.height > h.max(1) => fit_cached(&img, w, h).unwrap_or_else(|| Arc::unwrap_or_clone(img)),
+            _ => Arc::unwrap_or_clone(img),
+        };
         for (cache, k) in &self.cached {
             if let Some(img) = cache.get(*k) {
-                return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Cached));
+                return done(rendered(fitted(img)), Some(QuickSource::Cached));
+            }
+        }
+        for (cache, k) in &self.latest {
+            if let Some(img) = cache.get_latest(*k) {
+                return done(rendered(fitted(img)), Some(QuickSource::Last));
             }
         }
         if let Some((path, loader, edge)) = &self.embedded {
@@ -1526,6 +1560,18 @@ impl QuickJob {
 /// The thumbnail cache's key for the camera JPEG standing for the thumbnail of cache key `k`.
 fn embedded_thumb_key(k: Hash128) -> Hash128 {
     Hasher128::new().str("embedded-thumb").u64((k.0 >> 64) as u64).u64(k.0 as u64).finish()
+}
+
+/// The alias of photo `p`'s latest loupe view, whatever settings it was rendered with
+/// ([`PreviewCache::put_latest`]): an edited photo's first picture while the render for its current
+/// settings is on its way (notes 3, 11 and 31 of 2026-10-24).
+pub fn latest_view_key(p: &Photo, apply_crop: bool) -> Hash128 {
+    Hasher128::new().str(&content_key(p)).str("latest-view").u64(apply_crop as u64).u64(RENDER_CACHE_VERSION).finish()
+}
+
+/// The alias of photo `p`'s latest grid thumbnail, whatever settings it was rendered with.
+pub fn latest_thumb_key(p: &Photo) -> Hash128 {
+    Hasher128::new().str(&content_key(p)).str("latest-thumb").u64(RENDER_CACHE_VERSION).finish()
 }
 
 /// What identifies a photo's pixels for caching: its content hash, else its source.
@@ -1651,6 +1697,8 @@ impl crate::Session {
             }
             (self.media.rendered.clone(), k.finish())
         });
+        // a thumbnail of the photo's own settings is its latest grid picture too
+        let latest = cache.as_ref().filter(|_| !before).map(|(c, _)| (c.clone(), latest_thumb_key(&p)));
         Some(RenderJob {
             request_id: 0,
             cache_generation: self.media.rendered.generation(),
@@ -1666,6 +1714,7 @@ impl crate::Session {
             cache,
             stages: None,
             view_cache: None,
+            latest,
             display: None,
             on_screen: false,
             slide: None,
@@ -1739,6 +1788,7 @@ impl crate::Session {
             cache: Some((self.media.rendered.clone(), ck)),
             stages: None,
             view_cache: None,
+            latest: None,
             display: None,
             on_screen: false,
             slide: None,
@@ -1795,6 +1845,7 @@ impl crate::Session {
             cache: Some((self.media.rendered.clone(), ck)),
             stages: None,
             view_cache: None,
+            latest: None,
             display: None,
             on_screen: false,
             slide: None,
@@ -1844,6 +1895,7 @@ impl crate::Session {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         let p = self.catalog.photo(id)?;
         job.view_cache = Some((self.media.rendered.clone(), self.view_key(p, apply_crop)));
+        job.latest = Some((self.media.rendered.clone(), latest_view_key(p, apply_crop)));
         Some(job)
     }
 
@@ -1957,7 +2009,10 @@ impl crate::Session {
     }
 
     /// Something to show in the loupe right away for `id` (see [`QuickJob`]): its cached view
-    /// render, else the embedded preview of an unedited raw, else a cached or fresh thumbnail.
+    /// render, else its latest render with earlier settings, else the embedded preview of a raw as
+    /// shot, else a cached or fresh thumbnail. An edited photo never gets the camera's JPEG: it is
+    /// unedited and uncropped (notes 3, 11 and 31 of 2026-10-24: "land on any photo that I just
+    /// edited and you see the camera JPG").
     pub fn quick_view_job(&mut self, id: PhotoId, max_edge: usize, apply_crop: bool) -> Option<QuickJob> {
         let p = self.catalog.photo(id)?.clone();
         let small = self.thumb_job(id, THUMB_SIZES[THUMB_SIZES.len() - 1])?;
@@ -1965,7 +2020,16 @@ impl crate::Session {
         let cached = vec![(self.media.rendered.clone(), self.view_key(&p, apply_crop))];
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
-        let embedded = self.embedded_stand_in_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
+        let as_shot = crate::import::looks_as_shot(&p);
+        // an edited photo: its last view, else its last grid thumbnail (its edit, if older); a photo
+        // as shot has its camera JPEG, sharper than a thumbnail
+        let latest = if as_shot {
+            Vec::new()
+        } else {
+            vec![(self.media.rendered.clone(), latest_view_key(&p, apply_crop)), (self.media.rendered.clone(), latest_thumb_key(&p))]
+        };
+        let embedded =
+            self.embedded_stand_in_of(&p).filter(|_| as_shot).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
         let embedded_cache = embedded
             .as_ref()
             .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
@@ -1977,6 +2041,8 @@ impl crate::Session {
             embedded,
             embedded_cache,
             embedded_on_disk: false,
+            latest,
+            fit: None,
             small: apply_crop.then(|| Box::new(small)),
         })
     }
@@ -2000,6 +2066,8 @@ impl crate::Session {
             embedded: Some((path, l, max_edge.max(1))),
             embedded_cache: None,
             embedded_on_disk: false,
+            latest: Vec::new(),
+            fit: None,
             small: None,
         })
     }
@@ -2010,10 +2078,35 @@ impl crate::Session {
     /// itself: the grid queues no render behind an unedited raw's quick thumbnail
     /// ([`Self::embedded_thumb_is_final`]), so a preview that can't be read must not leave the
     /// cell empty (issue #1448). `None` for other photos (render them directly).
+    ///
+    /// An edited photo (not as shot, [`crate::import::looks_as_shot`]) never gets its camera JPEG
+    /// (unedited, uncropped): its stand-in is its own thumbnail for these settings, else its latest
+    /// thumbnail or view with earlier settings, shrunk to the cell ([`QuickSource::Last`]). `None`
+    /// when it has none of them: its render is the first picture.
     pub fn quick_thumb_job(&mut self, job: &RenderJob) -> Option<QuickJob> {
         let p = self.catalog.photo(job.photo)?.clone();
-        let (path, l) = self.embedded_stand_in_of(&p)?;
         let edge = job.request.max_w.max(job.request.max_h);
+        if !crate::import::looks_as_shot(&p) {
+            let c = self.media.rendered.clone();
+            let latest = vec![(c.clone(), latest_thumb_key(&p)), (c.clone(), latest_view_key(&p, true))];
+            let exact = job.cache.clone();
+            if !exact.iter().any(|(c, k)| c.has(*k)) && !latest.iter().any(|(c, k)| c.has(*k)) {
+                return None;
+            }
+            return Some(QuickJob {
+                request_id: 0,
+                photo: job.photo,
+                key: job.key,
+                cached: exact.into_iter().collect(),
+                embedded: None,
+                embedded_cache: None,
+                embedded_on_disk: false,
+                latest,
+                fit: Some((edge, edge)),
+                small: None,
+            });
+        }
+        let (path, l) = self.embedded_stand_in_of(&p)?;
         Some(QuickJob {
             request_id: 0,
             photo: job.photo,
@@ -2024,6 +2117,8 @@ impl crate::Session {
             // a key of its own, so the folder's next visit reads it from the thumbnail cache
             embedded_cache: job.cache.as_ref().map(|(c, k)| (c.clone(), embedded_thumb_key(*k))),
             embedded_on_disk: true,
+            latest: Vec::new(),
+            fit: None,
             small: Some(Box::new(job.clone())),
         })
     }
@@ -2333,6 +2428,8 @@ mod thumbnail_hash_tests {
             embedded: Some(("x.arw".into(), Arc::new(|_: &str, _: usize| -> Option<Rgba8> { panic!("preview reader bug") }), 256)),
             embedded_cache: None,
             embedded_on_disk: false,
+            latest: Vec::new(),
+            fit: None,
             small: None,
         };
         let r = quick.run();

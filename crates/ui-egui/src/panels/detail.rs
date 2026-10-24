@@ -963,13 +963,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let p = ui.painter_at(canvas);
     // what a view slot shows: its own render of this photo, else the stand-ins (no blank frame
     // between photos, and the full render replaces them in place)
+    // an edited photo never shows the camera's JPEG (unedited, uncropped), not even one made while
+    // the photo was still as shot (notes 3, 11, 31 of 2026-10-24)
+    let as_shot = lightcraft_engine::import::looks_as_shot(&photo);
+    let truthful = |t: &&crate::render::Tex| as_shot || t.quick != Some(lightcraft_engine::media::QuickSource::Embedded);
     let draw = |slot: Slot, r: Rect, clip: Rect| -> &'static str {
         let mine = |s: Slot| app.renderer.textures.get(&s).filter(|t| t.photo == id);
         let (tex, what) = if let Some(t) = mine(slot) {
             (t, "render")
-        } else if let Some(t) = mine(Slot::Preview) {
+        } else if let Some(t) = mine(Slot::Preview).filter(truthful) {
             (t, t.quick.map(quick_name).unwrap_or("preview"))
-        } else if let Some(t) = app.renderer.thumb(id) {
+        } else if let Some(t) = app.renderer.thumb(id).filter(truthful) {
             (t, "thumb")
         } else {
             return "none";
@@ -1975,6 +1979,7 @@ fn quick_name(q: lightcraft_engine::media::QuickSource) -> &'static str {
         QuickSource::Cached => "cached",
         QuickSource::Embedded => "embedded",
         QuickSource::Small => "small",
+        QuickSource::Last => "last",
     }
 }
 
