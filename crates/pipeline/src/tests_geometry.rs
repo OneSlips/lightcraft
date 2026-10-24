@@ -618,3 +618,117 @@ fn upright_corrects_converging_posts_among_people() {
         }
     }
 }
+
+/// A ceremony under a white gazebo, shot level with a long lens but rolled 1.6°
+/// (portrait). Two white posts stand up the whole frame; the deck's boards run away to the horizon (they meet
+/// inside the photo); two drapes hang diagonally from the roof; a couple stands between the posts. Upright
+/// Vertical said "the straight lines point in different directions" and did nothing.
+fn gazebo(w: usize, h: usize, fwd: lightcraft_geom::Homography) -> Rgb32f {
+    let l = w.max(h) as f64 / 2.0;
+    let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
+    synth(
+        w,
+        h,
+        move |p| fwd.apply(Point::new((p.x - cx) / l, (p.y - cy) / l)),
+        move |q| {
+            let (x, y) = (q.x, q.y);
+            for px in [-0.47, 0.47] {
+                if (x - px).abs() < 0.035 {
+                    return [0.95; 3];
+                }
+            }
+            // drapes from the roof's middle out and down, thin bright bands
+            for (x0, x1) in [(-0.05, -0.3), (0.05, 0.3)] {
+                let (y0, y1) = (-1.0, 0.25);
+                if y > y0 && y < y1 {
+                    let t = (y - y0) / (y1 - y0);
+                    if (x - (x0 + (x1 - x0) * t)).abs() < 0.02 {
+                        return [0.7; 3];
+                    }
+                }
+            }
+            // the couple: a dark suit and a white gown, a little tilted
+            for (px, half_w, tilt, v) in [(-0.1, 0.07, 6.0f64, 0.85f32), (0.1, 0.06, -5.0, 0.08)] {
+                let (s, c) = tilt.to_radians().sin_cos();
+                let (dx, dy) = (x - px, y - 0.25);
+                let (u, t) = (dx * c - dy * s, dx * s + dy * c);
+                if t.abs() < 0.4 && u.abs() < half_w * (1.0 + 0.8 * (t + 0.4)) {
+                    return [v; 3];
+                }
+            }
+            if y > 0.3 {
+                // deck boards running to a point on the horizon (inside the photo)
+                let a = x.atan2(y + 0.1);
+                if (a * 14.0).rem_euclid(1.0) < 0.12 {
+                    return [0.15; 3];
+                }
+                return [0.55; 3];
+            }
+            // sky, a railing line
+            if (y - 0.05).abs() < 0.01 { [0.3; 3] } else { [0.62; 3] }
+        },
+    )
+}
+
+#[test]
+fn upright_vertical_follows_the_posts_not_the_deck_or_the_drapes() {
+    let (w, h) = (600usize, 900usize);
+    let shot = lightcraft_develop::Geometry { rotate: 1.6, ..Default::default() };
+    let src = gazebo(w, h, crate::transform::manual(&shot));
+    let a = crate::upright::analyze_source(&src, &SourceInfo::default(), &DevelopSettings::default());
+    assert!(a.vertical_vp.is_some(), "the posts give a vertical vanishing point: {:?}", a.vertical_why);
+    let post_x = |img: &Rgba8, y: usize, right: bool| {
+        let (a, b) = if right { (img.width * 3 / 4, img.width) } else { (0, img.width / 4) };
+        let (mut s, mut n) = (0.0f64, 0.0f64);
+        for x in a..b {
+            if img.get(x, y)[1] > 235 {
+                s += x as f64;
+                n += 1.0;
+            }
+        }
+        s / n.max(1.0)
+    };
+    let lean = |img: &Rgba8, right: bool| post_x(img, img.height / 8, right) - post_x(img, img.height * 5 / 8, right);
+    let raw = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(w, h)).image;
+    assert!(lean(&raw, false).abs() > 6.0 && lean(&raw, true).abs() > 6.0, "the posts lean: {} {}", lean(&raw, false), lean(&raw, true));
+    for mode in [Upright::Vertical, Upright::Auto] {
+        let img = upright_render(&src, mode);
+        for right in [false, true] {
+            assert!(
+                lean(&img, right).abs() < 2.0,
+                "{mode:?}: the {} post still leans {} px",
+                if right { "right" } else { "left" },
+                lean(&img, right)
+            );
+        }
+    }
+}
+
+/// Do no harm: a gown's folds spreading to the floor point at a far point too, but they are short and there is
+/// no post, wall or door among them: Upright Vertical leaves such a photo alone.
+#[test]
+fn upright_vertical_leaves_a_gown_without_structure_alone() {
+    let (w, h) = (600usize, 900usize);
+    let l = 450.0;
+    let src = synth(
+        w,
+        h,
+        |p| Point::new((p.x - 300.0) / l, (p.y - 450.0) / l),
+        |q| {
+            let (x, y) = (q.x, q.y);
+            // the gown: from the waist (y = −0.1) to the floor (y = 0.9), widening
+            if y > -0.1 && y < 0.9 && x.abs() < 0.08 + 0.45 * (y + 0.1) {
+                // folds: soft, wavy dark lines that all aim at a point far below (y = 3)
+                let a = x.atan2(3.0 - y) + 0.012 * (y * 23.0).sin();
+                let band = (a * 40.0).rem_euclid(1.0) < 0.15;
+                let piece = ((y * 9.0).floor() as i64 + (a * 40.0).floor() as i64).rem_euclid(3) == 0;
+                return if band && piece { [0.55; 3] } else { [0.92; 3] };
+            }
+            // a plain, soft background
+            [0.35 + 0.05 * (x as f32); 3]
+        },
+    );
+    let a = crate::upright::analyze_source(&src, &SourceInfo::default(), &DevelopSettings::default());
+    assert!(a.vertical_vp.is_none(), "folds are not structure: {:?}", a.vertical_vp);
+    assert!(crate::upright::shortfall(Upright::Vertical, &a).is_some(), "and it says why");
+}
