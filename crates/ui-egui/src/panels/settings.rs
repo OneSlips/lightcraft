@@ -806,7 +806,7 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     heading(ui, t, crate::i18n::tr("Preview cache"));
     let cur = app.session.cache_mb;
     row(ui, t, crate::i18n::tr("Size limit"), |ui| {
-        let gb = lightcraft_engine::media::default_disk_cache_bytes(app.session.catalog.len()).div_ceil(1 << 30);
+        let gb = app.session.automatic_cache_bytes().div_ceil(1 << 30);
         let auto = format!("{} ({gb} GB)", crate::i18n::tr("Automatic"));
         let opts = [
             (512u32, "512 MB"),
@@ -827,14 +827,17 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui,
         t,
         crate::i18n::tr(
-            "Grid thumbnails and the previews the loupe shows, kept on disk so photos open at once next time. Automatic makes room for every photo in this library (about 1.5 MB a photo). 50 GB: normal · 200 GB: better, for several weddings or large shoots.",
+            "Grid thumbnails and the previews the loupe shows, kept on disk so photos open at once next time. Each library keeps its own. Automatic takes 15 % of the drive's free space (at least 20 GB, never the last 10 GB). When it is full, the oldest previews go first and your edited photos' latest previews last.",
         ),
     );
-    let used = app.session.media.rendered.disk().map(|d| d.size());
+    let used = app.session.media.rendered.disk().map(|d| (d.size(), d.budget()));
     row(ui, t, crate::i18n::tr("In use"), |ui| {
         ui.label(
-            RichText::new(used.map(|b| format!("{:.1} MB", b as f64 / 1048576.0)).unwrap_or_else(|| crate::i18n::tr("memory only").to_string()))
-                .color(t.text),
+            RichText::new(
+                used.map(|(b, limit)| format!("{} / {}", cache_size_text(b), cache_size_text(limit)))
+                    .unwrap_or_else(|| crate::i18n::tr("memory only").to_string()),
+            )
+            .color(t.text),
         );
         let r = ui.button(crate::i18n::tr("Clear Cache"));
         register(ui.ctx(), "button:settingsClearCache", r.rect);
@@ -864,6 +867,11 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 
 /// Settings ▸ Performance ▸ Prepare photos in the background (notes 47 and 48): per mode, what
 /// is made ready before the user gets to it (`prefs.backgroundPrep`), app-wide or for this library.
+/// A preview cache size for Settings: MB below a gigabyte, else GB with one decimal.
+fn cache_size_text(bytes: u64) -> String {
+    if bytes < 1 << 30 { format!("{:.0} MB", bytes as f64 / 1048576.0) } else { format!("{:.1} GB", bytes as f64 / 1073741824.0) }
+}
+
 fn background_prep(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     use lightcraft_engine::prep::{Mode, Scope};
     heading(ui, t, crate::i18n::tr("Prepare photos in the background"));

@@ -99,7 +99,12 @@ fn the_disk_cache_default_grows_with_the_library() {
     assert_eq!(crate::media::default_disk_cache_bytes(10), crate::media::DISK_CACHE_BYTES);
     assert!(crate::media::default_disk_cache_bytes(4000) >= 4000 * (1 << 20));
     let (mut s, root, ids) = library("diskroom", 2);
-    assert_eq!(s.cache_bytes(), crate::media::DISK_CACHE_BYTES);
+    // Automatic: a share of the cache drive's room (note 31 of 2026-10-24), here whatever this drive has
+    let free = lightcraft_sysmem::free_disk_space(&root);
+    let thumbs = s.media.rendered.disk().unwrap().dir().to_path_buf();
+    assert_eq!(s.cache_bytes(), crate::media::automatic_disk_cache_bytes(2, free, s.media.rendered.disk().unwrap().known_size().unwrap_or(0)));
+    assert_eq!(s.cache_bytes(), s.cache_bytes_in(&thumbs));
+    assert_eq!(s.automatic_cache_bytes(), s.cache_bytes());
     s.cache_mb = 700;
     assert_eq!(s.cache_bytes(), 700 << 20, "a size the user chose is kept");
     assert_eq!(ids.len(), 2);
@@ -322,4 +327,27 @@ fn the_loupe_uses_a_built_preview_as_big_as_the_drawn_size() {
     assert_eq!(img.width.max(img.height), 300, "fitted to the drawn size");
     let r = s.loupe_job(id, 2560, 2560, true).unwrap().with_display_fit(900, 900).run();
     assert_eq!(r.quick, None, "a preview smaller than drawn is not used");
+}
+
+/// Note 31 of 2026-10-24: Automatic was sized from the open library alone (3.2 GB for 544 photos),
+/// so a wedding's previews and each round of edits pruned the last ones and reopening the library
+/// rendered everything again. Now it is a share of the cache drive's free space.
+#[test]
+fn the_automatic_preview_cache_is_a_share_of_the_drives_free_space() {
+    use crate::media::{AUTO_DISK_CACHE_MIN, automatic_disk_cache_bytes as auto};
+    const GB: u64 = 1 << 30;
+    // the user's 544-photo library on a drive with 1.5 TB free: far more than 1.5 MB a photo
+    assert_eq!(auto(544, Some(1500 * GB), 0), 225 * GB);
+    assert!(auto(544, Some(1500 * GB), 0) > crate::media::default_disk_cache_bytes(544) * 50);
+    // at least 20 GB where there is room, and what the cache holds counts as room
+    assert_eq!(auto(10, Some(60 * GB), 0), AUTO_DISK_CACHE_MIN);
+    assert_eq!(auto(10, Some(1000 * GB), 500 * GB), 225 * GB);
+    // a nearly full drive: the last 10 GB (or half, on a small one) stay free
+    assert_eq!(auto(10, Some(25 * GB), 0), 15 * GB);
+    assert_eq!(auto(10, Some(8 * GB), 0), 4 * GB);
+    assert_eq!(auto(10, Some(GB), 0), GB, "the old floor where the drive has it");
+    assert_eq!(auto(10, Some(0), 0), 0);
+    // free space unknown: the minimum, or room for every photo
+    assert_eq!(auto(10, None, 0), AUTO_DISK_CACHE_MIN);
+    assert_eq!(auto(100_000, None, 0), crate::media::default_disk_cache_bytes(100_000));
 }

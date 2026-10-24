@@ -10,10 +10,11 @@
 //! `SetThreadPriority`), so renders leave the desktop responsive.
 //!
 //! And it reads the computer's memory where only a system call tells it ([`total_physical_memory`],
-//! Windows' `GlobalMemoryStatusEx`).
+//! Windows' `GlobalMemoryStatusEx`), and the free space of a drive ([`free_disk_space`], Windows'
+//! `GetDiskFreeSpaceExW`; elsewhere POSIX `df`, no system call of our own).
 //!
 //! This is LightCraft's only crate allowed `unsafe` (FFI calls: `malloc_zone_pressure_relief`
-//! in `macos`, `SetThreadPriority` and `GlobalMemoryStatusEx` in `windows`). Its API is safe, and on failure or on other
+//! in `macos`, `SetThreadPriority`, `GlobalMemoryStatusEx` and `GetDiskFreeSpaceExW` in `windows`). Its API is safe, and on failure or on other
 //! platforms it simply does nothing.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -59,6 +60,47 @@ pub fn total_physical_memory() -> Option<u64> {
     {
         None
     }
+}
+
+/// Bytes free for this user on the drive that holds `path` (the folder itself, or the nearest
+/// folder above it that exists), `None` when it can't be told. Windows asks `GetDiskFreeSpaceExW`;
+/// other systems run POSIX `df -Pk`. Blocking (a few ms; `df` a process start): not for a UI frame.
+pub fn free_disk_space(path: &std::path::Path) -> Option<u64> {
+    let mut at = Some(path);
+    while let Some(p) = at {
+        if p.is_dir() {
+            break;
+        }
+        at = p.parent();
+    }
+    let dir = at.filter(|p| !p.as_os_str().is_empty())?;
+    #[cfg(windows)]
+    {
+        windows::free_space(dir)
+    }
+    #[cfg(not(windows))]
+    {
+        df_free(dir)
+    }
+}
+
+/// `df -Pk dir`: the fourth column of its second line is the space available, in KiB.
+#[cfg(not(windows))]
+fn df_free(dir: &std::path::Path) -> Option<u64> {
+    let out = std::process::Command::new("df").arg("-Pk").arg(dir).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    parse_df(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The available KiB of `df -P`'s output, in bytes.
+#[cfg_attr(windows, allow(dead_code))]
+fn parse_df(text: &str) -> Option<u64> {
+    let line = text.lines().nth(1)?;
+    // (a mount point may hold spaces; the numbers come before it)
+    let kib: u64 = line.split_whitespace().nth(3)?.parse().ok()?;
+    kib.checked_mul(1024)
 }
 
 #[cfg(windows)]
@@ -124,6 +166,27 @@ mod windows {
         // kept after it returns.
         let ok = unsafe { GlobalMemoryStatusEx(&mut s) } != 0;
         (ok && s.total_phys > 0).then_some(s.total_phys)
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        /// Nonzero on success. `dir` is a NUL-terminated UTF-16 folder name; each out pointer may be null.
+        fn GetDiskFreeSpaceExW(dir: *const u16, free_to_caller: *mut u64, total: *mut u64, total_free: *mut u64) -> i32;
+    }
+
+    pub fn free_space(dir: &std::path::Path) -> Option<u64> {
+        use std::os::windows::ffi::OsStrExt;
+        if dir.as_os_str().encode_wide().any(|c| c == 0) {
+            return None;
+        }
+        let wide: Vec<u16> = dir.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let mut free = 0u64;
+        // SAFETY: `GetDiskFreeSpaceExW` is a documented, thread-safe kernel32 function. `wide` is a
+        // NUL-terminated UTF-16 string (no NUL inside, checked above) that lives for the whole call;
+        // `free` is a live, aligned u64 owned by this frame that it writes; the other two out
+        // pointers are null, which the function allows. Nothing is kept after it returns.
+        let ok = unsafe { GetDiskFreeSpaceExW(wide.as_ptr(), &mut free, std::ptr::null_mut(), std::ptr::null_mut()) } != 0;
+        ok.then_some(free)
     }
 }
 
@@ -198,6 +261,39 @@ mod tests {
         assert_eq!(lowered.2, 499_500);
         assert_eq!(lowered.0, cfg!(windows));
         assert_eq!(lowered.1, cfg!(windows));
+    }
+
+    #[test]
+    fn the_free_space_of_the_drive_of_a_folder_is_known() {
+        let dir = std::env::temp_dir();
+        let free = super::free_disk_space(&dir);
+        assert!(free.is_some_and(|b| b > 0), "{free:?}");
+        // a folder that isn't there: the drive of the nearest one above it
+        assert_eq!(super::free_disk_space(&dir.join("no-such-folder/below")).is_some(), free.is_some());
+        assert_eq!(super::free_disk_space(std::path::Path::new("")), None);
+    }
+
+    #[test]
+    fn df_output_is_read_in_bytes() {
+        let text = "Filesystem 1024-blocks Used Available Capacity Mounted on
+/dev/disk3s5 971350180 512 2048 50% /Volumes/My Drive
+";
+        assert_eq!(super::parse_df(text), Some(2048 * 1024));
+        assert_eq!(
+            super::parse_df(
+                "Filesystem
+"
+            ),
+            None
+        );
+        assert_eq!(
+            super::parse_df(
+                "h
+/dev/x 1 2 lots 3% /
+"
+            ),
+            None
+        );
     }
 
     #[test]

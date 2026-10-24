@@ -494,6 +494,9 @@ pub struct Session {
     pub import_defaults: import::ImportDefaults,
     /// Disk budget of the library's thumbnail cache in MB (0 = default; persisted in prefs.json).
     pub cache_mb: u32,
+    /// The free space of the preview cache's drive, as last looked up (when, bytes): the Automatic
+    /// preview cache size is a share of it ([`crate::media::automatic_disk_cache_bytes`]).
+    pub(crate) cache_drive_free: std::sync::Mutex<Option<(web_time::Instant, std::path::PathBuf, Option<u64>)>>,
     /// Slideshow playback settings (`slideshow.playback`; persisted in prefs.json).
     pub slideshow: slideshow::PlaybackSettings,
     /// Slideshow slide layout: Layout, Options and Backdrop (`slideshow.layout`; persisted in
@@ -660,6 +663,7 @@ impl Session {
             slideshow_export: None,
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
+            cache_drive_free: std::sync::Mutex::new(None),
             slideshow: slideshow::PlaybackSettings::default(),
             slide_layout: slide::SlideSettings::default(),
             slide_overlays: slide_overlay::OverlaySettings::default(),

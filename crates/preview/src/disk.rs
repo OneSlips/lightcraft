@@ -404,6 +404,11 @@ impl DiskCache {
         *self.total.lock().unwrap_or_else(|e| e.into_inner()) = Some(total);
     }
 
+    /// Bytes on disk when they are known without a scan.
+    pub fn known_size(&self) -> Option<u64> {
+        *self.total.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Bytes on disk (scans if not yet known).
     pub fn size(&self) -> u64 {
         let mut t = self.total.lock().unwrap_or_else(|e| e.into_inner());
