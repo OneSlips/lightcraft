@@ -203,8 +203,11 @@ pub fn paste_crops(whole: &PeopleMap, boxes: &[[f32; 4]], crops: &[PeopleMap], s
 pub const MAX_CROPS: usize = 160;
 
 /// A person is cropped for the class map when they are shorter than this share of the photo's
-/// height (about 9.5 face heights): in the whole image's 256-cell map they'd be under ~85 cells.
-pub const CROP_BELOW: f32 = 1.0 / 3.0;
+/// height (about 9.5 face heights): in the whole image's 256-cell map they'd be under ~150 cells.
+/// A bridesmaid seen whole in a ceremony frame (her face a twentieth of the photo's height) is
+/// still too small there: her long gown blurs into the floor and reads as background, and her
+/// bouquet as clothes; on her own crop the gown is clothes and the flowers aren't.
+pub const CROP_BELOW: f32 = 0.6;
 
 /// The bodies of the small people among `faces` (in a `w × h` photo) as normalized boxes for
 /// [`PeopleModel::segment_people`]: from a little above the head to the feet (or the photo's
@@ -1981,6 +1984,11 @@ mod tests {
         let b = person_boxes(&[face(100.0, 20.0), face(500.0, 20.0)], 1000, 1000);
         assert_eq!(b.len(), 2);
         assert!(b[0][0] < 0.1 && b[0][2] > 0.12 && b[0][1] < 0.1 && b[0][3] > 0.25, "{:?}", b[0]);
+        // a bridesmaid seen whole at a ceremony (test notes 2026-10-24, note 17): cropped, down to
+        // where her gown reaches
+        let b = person_boxes(&[face(100.0, 50.0)], 1000, 1000);
+        assert_eq!(b.len(), 1, "a face a twentieth of the photo's height is cropped");
+        assert!(b[0][3] >= 0.55, "the crop reaches the hem: {:?}", b[0]);
         assert!(person_boxes(&[face(f32::NAN, 20.0)], 1000, 1000).iter().all(|b| b.iter().all(|v| v.is_finite())));
         assert!(person_boxes(&[face(1.0, 1.0)], 0, 0).is_empty());
         // the whole map says background; a crop says clothes: inside it clothes, outside background
