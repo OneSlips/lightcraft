@@ -371,8 +371,10 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let active = modes.iter().position(|(_, m, _)| *m == d.geometry.upright);
             if let Some(i) = crate::widgets::segmented(ui, "upright", &items, active, 3) {
                 let (_, mode, key) = modes[i];
-                let r = app.run("geometry.upright", json!({"mode": key}));
-                upright_note(app, ui.ctx(), r.as_ref().ok());
+                // a second click on the mode that is on starts it over (test notes 2026-10-24 note 6);
+                // why a mode found nothing shows under the photo (`LightcraftApp::run_typed`)
+                let again = active == Some(i) && mode != Upright::Off;
+                let _ = app.run("geometry.upright", json!({"mode": key, "again": again}));
                 app.ui.tool = if mode == Upright::Guided { "guidedUpright".into() } else { String::new() };
             }
         }
@@ -383,8 +385,7 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 && text_button(ui, "uprightUpdate", crate::i18n::tr("Update"), false).clicked()
             {
                 let mode = serde_json::to_value(d.geometry.upright).unwrap_or_default();
-                let r = app.run("geometry.upright", json!({"mode": mode}));
-                upright_note(app, ui.ctx(), r.as_ref().ok());
+                let _ = app.run("geometry.upright", json!({"mode": mode}));
             }
             if guided {
                 let drawing = app.ui.tool == "guidedUpright";
@@ -1498,13 +1499,6 @@ enum HistoryRow {
     Done,
     Current,
     Undone,
-}
-
-/// Upright that found nothing to correct says why (client note 4), as a note over the photo.
-fn upright_note(app: &mut LightcraftApp, ctx: &egui::Context, result: Option<&serde_json::Value>) {
-    if let Some(note) = result.and_then(|r| r.get("note")).and_then(serde_json::Value::as_str) {
-        app.toast_for(ctx, note.to_string(), 8.0);
-    }
 }
 
 fn history_row(i: usize, cursor: Option<usize>) -> HistoryRow {

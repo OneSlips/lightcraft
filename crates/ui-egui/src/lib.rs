@@ -233,6 +233,8 @@ mod tests_tool_pan;
 #[cfg(test)]
 mod tests_unsaved;
 #[cfg(test)]
+mod tests_upright_note;
+#[cfg(test)]
 mod tests_view_cost;
 #[cfg(test)]
 mod tests_wb_selector;
@@ -659,6 +661,8 @@ impl LightcraftApp {
         session.segmenter.background = true;
         // generative fills run on their own thread; frames apply them
         session.genfill.background = true;
+        // Upright modes that reach other photos (Auto Sync, Sync, Paste, presets) are analysed on a worker
+        session.upright_jobs.background = true;
         Self {
             session,
             ui: UiState::default(),
@@ -815,7 +819,7 @@ impl LightcraftApp {
         let params = if id == "crop.aspect"
             && params.get("aspect").and_then(Value::as_str) == Some("toggle")
             && self.crop_tool_aspect().is_some()
-            && self.session.active().and_then(|id| self.session.develop_of(id)).is_some_and(|d| d.crop == lightcraft_develop::Crop::default())
+            && self.session.active().is_some_and(|id| self.session.crop_untouched(id))
         {
             serde_json::json!({"aspect": "free"})
         } else if id == "crop.rotateAspect" && params.get("lock").is_none() {
@@ -824,6 +828,16 @@ impl LightcraftApp {
             params
         };
         let r = self.session.execute(id, &params).map_err(CommandError::from);
+        // Upright that found nothing to correct says why, whatever ran it (the panel, a console key,
+        // a menu, an agent): under the photo, never over it (test notes 2026-10-24 notes 4 and 15)
+        if id == "geometry.upright"
+            && let Ok(v) = &r
+        {
+            self.ui.photo_note = match (v.get("note").and_then(Value::as_str), self.session.active()) {
+                (Some(note), Some(photo)) => Some(state::PhotoNote { text: crate::i18n::tr(note).to_string(), photo: photo.0, until: None }),
+                _ => None,
+            };
+        }
         // a delete says plainly what happened and offers Undo (from the console too, where a stray
         // press is easy): the file itself is never touched
         if id == "photo.delete"
@@ -938,7 +952,8 @@ impl LightcraftApp {
     pub(crate) fn crop_tool_aspect(&self) -> Option<(u32, u32)> {
         let photo = self.session.active()?;
         let d = self.session.develop_of(photo)?;
-        if d.crop != lightcraft_develop::Crop::default() {
+        // (a crop Constrain Crop only fitted to a warp is still untouched: note 16)
+        if !self.session.crop_untouched(photo) {
             return d.crop.aspect;
         }
         // nothing chosen yet: locked to the photo's own shape, as Lightroom starts (#991); one
@@ -965,8 +980,7 @@ impl LightcraftApp {
     /// whose crop is untouched, the tool shows it locked to a ratio the crop itself doesn't carry
     /// yet; the swap is told that ratio so it keeps the lock (client note 3c).
     fn rotate_aspect_params(&self, params: Value) -> Value {
-        let untouched =
-            self.session.active().and_then(|id| self.session.develop_of(id)).is_some_and(|d| d.crop == lightcraft_develop::Crop::default());
+        let untouched = self.session.active().is_some_and(|id| self.session.crop_untouched(id));
         match (untouched, self.crop_tool_aspect(), params) {
             (true, Some((w, h)), Value::Object(mut m)) => {
                 m.insert("lock".into(), serde_json::json!([f64::from(w) / 100.0, f64::from(h) / 100.0]));
@@ -982,7 +996,7 @@ impl LightcraftApp {
         // nothing chosen yet: the photo's own shape, as `crop_tool_aspect` shows it
         let aspect = self.ui.crop_default_aspect.clone().unwrap_or_else(|| serde_json::json!("original"));
         if self.session.interaction.is_some()
-            && self.session.active().and_then(|id| self.session.develop_of(id)).is_some_and(|d| d.crop == lightcraft_develop::Crop::default())
+            && self.session.active().is_some_and(|id| self.session.crop_untouched(id))
             && aspect != serde_json::json!("free")
             // the remembered ratio, turned like the new photo's crop (as a named ratio is)
             && let Err(e) = self.session.execute("crop.aspect", &serde_json::json!({"aspect": aspect, "orientation": "crop"}))
@@ -1144,6 +1158,13 @@ impl LightcraftApp {
     /// show their errors; start a zoomed-in detail pass once the clicking stops
     /// (`ui.detail_due`); watch the model download. Never waits for the model.
     fn ai_mask_detail(&mut self, ctx: &egui::Context) {
+        // Upright found on photos in the background: into their settings as they arrive
+        if self.session.upright_poll() {
+            ctx.request_repaint();
+        }
+        if self.session.upright_jobs.pending() > 0 {
+            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+        }
         let polled = self.session.segment_poll();
         // an import being finished unattended (masks, skin, previews): its note when it is done
         if self.session.finishing.is_some() || self.session.finish_pending.is_some() {

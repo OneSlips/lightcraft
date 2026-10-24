@@ -108,6 +108,7 @@ pub mod smart_masks;
 pub mod sync;
 mod sync_same;
 pub mod text;
+pub mod upright_jobs;
 mod view;
 pub mod walk;
 
@@ -199,6 +200,35 @@ pub struct UndoEntry {
 
 /// The one photo an undo step changes, when it changes exactly one through its edit, rating, flag,
 /// label, metadata or versions (`depth` bounds nested batches).
+/// When the crop of settings `before` (a `src_w × src_h` source) is the whole frame at its shape and
+/// angle — as drawn, or as Constrain Crop shrank it to fit the warp of `before` — that whole-frame
+/// crop; `None` for a crop the photographer drew (a part of the frame, off centre, another shape).
+pub(crate) fn auto_fitted_crop(
+    before: &DevelopSettings,
+    src_w: usize,
+    src_h: usize,
+    lens: Option<&lightcraft_develop::EmbeddedLens>,
+) -> Option<lightcraft_geom::CropGeometry> {
+    let (sw, sh) = (src_w.max(1) as f64, src_h.max(1) as f64);
+    let (w, h) = if before.orientation.swaps_axes() { (sh, sw) } else { (sw, sh) };
+    let g = before.crop.geometry;
+    let px = g.rect_px(w, h);
+    let shape = before.crop.aspect.map(|(x, y)| f64::from(x) / f64::from(y.max(1))).or(Some(px.width() / px.height()));
+    let shape = shape.filter(|s| s.is_finite() && *s > 0.0)?;
+    let whole = lightcraft_geom::crop_fit_angle(w, h, g.angle, Some(shape));
+    let close = |a: &lightcraft_geom::Rect, b: &lightcraft_geom::Rect| {
+        let e = 2e-4;
+        (a.x0 - b.x0).abs() < e && (a.y0 - b.y0).abs() < e && (a.x1 - b.x1).abs() < e && (a.y1 - b.y1).abs() < e
+    };
+    if close(&g.rect, &whole.rect) {
+        return Some(whole);
+    }
+    let mut at = before.clone();
+    at.crop.geometry = whole;
+    let fitted = lightcraft_pipeline::geometry::Frame::with_lens(src_w.max(1), src_h.max(1), &at, true, lens).crop.rect;
+    close(&g.rect, &fitted).then_some(whole)
+}
+
 fn single_photo(op: &Op, depth: usize) -> Option<PhotoId> {
     match op {
         Op::SetDevelop { id, .. }
@@ -474,6 +504,8 @@ pub struct Session {
     pub activity: activity::Activity,
     /// Generative fill: keys, consent, the running generation, the patch cache ([`genfill`]).
     pub genfill: genfill::GenfillState,
+    /// Upright analysed on each photo a mode reaches without its own correction ([`upright_jobs`]).
+    pub upright_jobs: upright_jobs::UprightJobs,
     /// The last (or running) slideshow export (`slideshow.export`).
     pub slideshow_export: Option<std::sync::Arc<slideshow_export::ExportRun>>,
     /// The last (or running) Build Previews.
@@ -654,6 +686,7 @@ impl Session {
             folder_changes: None,
             activity: Default::default(),
             genfill: Default::default(),
+            upright_jobs: Default::default(),
             preview_build: None,
             prep: Default::default(),
             loupe_edge: 0,
@@ -858,6 +891,7 @@ impl Session {
         self.mark_batch(&mut op);
         let fwd = op.clone();
         let inv = self.apply_catalog(op)?;
+        let upright = upright_jobs::needs_any(&fwd).then(|| fwd.clone());
         self.pending_log.push(fwd);
         self.undo.push(UndoEntry {
             label: label.to_string(),
@@ -874,6 +908,10 @@ impl Session {
         }
         for mut dropped in self.redo.drain(..) {
             self.pending_sidecar_repairs.append(&mut dropped.retry_sidecars);
+        }
+        // an Upright mode that reached a photo without its own correction: analysed on that photo
+        if let Some(op) = upright {
+            self.upright_after(&op);
         }
         Ok(())
     }
@@ -1239,15 +1277,37 @@ impl Session {
         if !(turned_on || (warp_changed && !crop_edited)) {
             return d;
         }
-        let frame = lightcraft_pipeline::geometry::Frame::with_lens(
-            photo.width.max(1) as usize,
-            photo.height.max(1) as usize,
-            &d,
-            true,
-            photo.embedded_lens.as_ref(),
-        );
+        let (sw, sh) = (photo.width.max(1) as usize, photo.height.max(1) as usize);
+        let lens = photo.embedded_lens.as_ref();
+        // A crop Constrain Crop made (the whole frame, shrunk to fit the warp) is made again from the whole
+        // frame at its shape and angle, so it grows back when the warp shrinks or goes (test notes 2026-10-24
+        // note 5: Upright Off left a strip around the photo); a crop the photographer drew only shrinks.
+        if let Some(whole) = auto_fitted_crop(before, sw, sh, lens) {
+            d.crop.geometry = lightcraft_geom::CropGeometry { rect: whole.rect, angle: d.crop.geometry.angle };
+        }
+        let frame = lightcraft_pipeline::geometry::Frame::with_lens(sw, sh, &d, true, lens);
         d.crop.geometry.rect = frame.crop.rect;
         d
+    }
+
+    /// Whether photo `id`'s crop is still the one it started with: no ratio chosen, no angle, no flip, and
+    /// the whole frame, or what Constrain Crop made of it to fit a warp (Upright, lens corrections). The crop
+    /// tool shows such a crop locked to the remembered ratio, as an untouched one (test notes 2026-10-24
+    /// note 16: Upright lost the "Original, Locked" the tool showed).
+    pub fn crop_untouched(&self, id: PhotoId) -> bool {
+        let Some(p) = self.catalog.photo(id) else { return false };
+        let c = &p.develop.crop;
+        if *c == lightcraft_develop::Crop::default() {
+            return true;
+        }
+        if c.aspect.is_some() || c.flip_h || c.flip_v || c.geometry.angle != 0.0 {
+            return false;
+        }
+        let whole = auto_fitted_crop(&p.develop, p.width.max(1) as usize, p.height.max(1) as usize, p.embedded_lens.as_ref());
+        whole.is_some_and(|w| {
+            let r = w.rect;
+            r.x0.abs() < 1e-6 && r.y0.abs() < 1e-6 && (r.x1 - 1.0).abs() < 1e-6 && (r.y1 - 1.0).abs() < 1e-6
+        })
     }
 
     /// The photos a Develop slider changes: the active photo, and with Auto Sync on every selected
@@ -1313,11 +1373,13 @@ impl Session {
                 }
                 if upright_changed {
                     synced.geometry.upright = new.geometry.upright;
-                    synced.geometry.upright_transform = match new.geometry.upright {
-                        lightcraft_develop::Upright::Off | lightcraft_develop::Upright::Guided => None,
-                        // its own analysis; when that failed, what it had for the same mode
-                        m => own.upright.get(&x).copied().flatten().or(d.geometry.upright_transform.filter(|_| d.geometry.upright == m)),
-                    };
+                    // its own analysis, worked out after the commit (in the background in the app:
+                    // `upright_jobs`); Guided's guides belong to the photo they were drawn on
+                    synced.geometry.upright_transform = None;
+                    if new.geometry.upright == lightcraft_develop::Upright::Guided {
+                        synced.geometry.guides =
+                            if d.geometry.upright == lightcraft_develop::Upright::Guided { d.geometry.guides.clone() } else { Vec::new() };
+                    }
                 }
                 if crop_changed {
                     synced.crop = sync_same::synced_crop(&new.crop, adims, cmd::develop::crop_dims(self, x));
@@ -1919,6 +1981,8 @@ mod tests_smart_presets;
 mod tests_spots;
 #[cfg(test)]
 mod tests_sync;
+#[cfg(test)]
+mod tests_upright;
 #[cfg(test)]
 mod tests_view_follow;
 #[cfg(test)]
