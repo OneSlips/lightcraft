@@ -120,6 +120,8 @@ pub struct SurfaceHost {
     /// The change the overlay reports (`panels::surface_osd`), and the last report taken.
     pub action: Option<crate::panels::surface_osd::ActionShown>,
     pub osd_seq: u64,
+    /// The overlay was kept off the photo in the last frame: an on-photo tool is in use (note 15).
+    pub osd_held: bool,
 }
 
 /// Load the control-surface settings (they hold the overlay's too) if nothing has yet.
@@ -153,6 +155,7 @@ impl Default for SurfaceHost {
             plugin: Default::default(),
             action: None,
             osd_seq: 0,
+            osd_held: false,
         }
     }
 }
