@@ -71,7 +71,15 @@ pub enum Slot {
     /// A slider drag's live HDR histogram: a small full-quality render of an HDR edit, beside the
     /// drafts (which have no HDR histogram), with no texture ([`Renderer::live_hdr_histogram`]).
     HdrHistogram,
+    /// The loupe zoomed in while stepping: the next photo's window at the same place, made ahead
+    /// and kept with the recent windows ([`Renderer::prefetch_window`]), so the step shows it at once.
+    RegionAhead,
 }
+
+/// Full-quality zoom windows ([`Slot::Region`]) kept after the view moved on, newest last: going
+/// back to a photo at the same zoom and place shows its window at once instead of rendering it
+/// again (note 10 of 2026-10-24: "switching between two photos re-renders every time").
+pub const KEPT_WINDOWS: usize = 8;
 
 pub struct Tex {
     pub key: u64,
@@ -261,6 +269,12 @@ pub struct Renderer {
     catalog_rev: u64,
     /// Prefetch slot → key of the last job submitted (each runs once).
     prefetched: HashMap<Slot, u64>,
+    /// Recent full-quality zoom windows ([`KEPT_WINDOWS`], least recently shown first).
+    kept_windows: std::collections::VecDeque<Tex>,
+    /// Keys of the full-quality (not draft) windows among the textures and `kept_windows`.
+    full_windows: std::collections::HashSet<u64>,
+    /// The zoom window (key) whose neighbours' windows are all made ahead and kept.
+    pub windows_ahead_done: Option<u64>,
     /// Variant key → frame it was last asked for (LRU of [`Slot::Variant`] textures).
     variant_used: HashMap<u64, u64>,
     /// How many variants the last frame's views showed at once (see [`Self::want_variants`]).
@@ -417,6 +431,9 @@ impl Renderer {
             failed: HashMap::new(),
             catalog_rev: 0,
             prefetched: HashMap::new(),
+            kept_windows: std::collections::VecDeque::new(),
+            full_windows: std::collections::HashSet::new(),
+            windows_ahead_done: None,
             variant_used: HashMap::new(),
             variant_want: 0,
             frame: 0,
@@ -572,7 +589,12 @@ impl Renderer {
     }
     /// Free a view slot's texture and stage cache (the view is no longer shown).
     pub fn release(&mut self, slot: Slot) {
-        self.textures.remove(&slot);
+        // (a full-quality zoom window is kept for a return to it, [`KEPT_WINDOWS`])
+        if let Some(t) = self.textures.remove(&slot)
+            && slot == Slot::Region
+        {
+            self.keep_window(t);
+        }
         self.stages.remove(&slot);
     }
 
@@ -601,6 +623,9 @@ impl Renderer {
             self.slides_live = true;
         }
         let mut job = self.job_for(slot, job);
+        if slot == Slot::Region && self.textures.get(&slot).is_none_or(|t| t.key != job.key) && self.take_kept_window(job.key) {
+            return;
+        }
         if !self.request_needed(slot, job.key, priority) {
             return;
         }
@@ -633,7 +658,7 @@ impl Renderer {
             return;
         }
         let key = job.key;
-        let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
+        let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_) | Slot::RegionAhead);
         let display = self.display.clone();
         self.pool.submit(
             slot,
@@ -668,6 +693,56 @@ impl Renderer {
         // small read and a JPEG decoded at the size shown, on a worker kept for stand-ins, which
         // must not sit there while the renders hold the memory)
         self.pool.submit(slot, key, priority, Box::new(move || Self::run_for(|| job.run(), &display)));
+    }
+
+    /// Show the kept window made for `key` ([`KEPT_WINDOWS`]) in [`Slot::Region`], keeping the one
+    /// shown there now. Whether there was one.
+    fn take_kept_window(&mut self, key: u64) -> bool {
+        let Some(i) = self.kept_windows.iter().position(|t| t.key == key) else { return false };
+        let Some(found) = self.kept_windows.remove(i) else { return false };
+        self.drop_queued(Slot::Region);
+        self.pending.remove(&Slot::Region);
+        self.request_ids.remove(&Slot::Region);
+        self.failed.remove(&Slot::Region);
+        if let Some(old) = self.textures.insert(Slot::Region, found) {
+            self.keep_window(old);
+        }
+        true
+    }
+
+    /// Keep `t`, a window that leaves [`Slot::Region`], if it is a full-quality one drawn from
+    /// pixels (a draft, or a texture that stayed on the GPU, is let go).
+    fn keep_window(&mut self, t: Tex) {
+        if t.native.is_some() || !self.full_windows.contains(&t.key) {
+            self.full_windows.remove(&t.key);
+            return;
+        }
+        self.kept_windows.retain(|k| k.key != t.key);
+        self.kept_windows.push_back(t);
+        while self.kept_windows.len() > KEPT_WINDOWS {
+            if let Some(gone) = self.kept_windows.pop_front() {
+                self.full_windows.remove(&gone.key);
+            }
+        }
+    }
+
+    /// Make the window `job` (already keyed for [`Slot::Region`], see [`Self::job_for`]) ahead, at
+    /// `priority`, into the kept windows: the loupe zoomed in, for the photo the user steps to next.
+    /// Nothing when it is kept already or being made.
+    pub fn prefetch_window(&mut self, job: RenderJob, priority: u32) {
+        let key = job.key;
+        if self.kept_windows.iter().any(|t| t.key == key)
+            || self.textures.get(&Slot::Region).is_some_and(|t| t.key == key)
+            || self.pending.get(&Slot::RegionAhead).is_some_and(|p| p.0 == key)
+        {
+            return;
+        }
+        self.request(Slot::RegionAhead, job, priority);
+    }
+
+    /// Whether the window made for `key` is kept ([`KEPT_WINDOWS`]).
+    pub fn window_kept(&self, key: u64) -> bool {
+        self.kept_windows.iter().any(|t| t.key == key)
     }
 
     /// Move a [`Slot::QuickAhead`] texture of `photo` made for `key` into [`Slot::Preview`].
@@ -790,6 +865,9 @@ impl Renderer {
         self.pool.reprioritize(|_, _| None);
         self.thumb_inputs.clear();
         self.textures.clear();
+        self.kept_windows.clear();
+        self.full_windows.clear();
+        self.windows_ahead_done = None;
         self.stages.clear();
         self.quick_tried.clear();
         self.failed.clear();
@@ -1183,6 +1261,20 @@ impl Renderer {
             if let Slot::Thumb(id) = slot {
                 self.textures.remove(&Slot::ThumbQuick(id));
             }
+            // a zoom window: the full-quality one shown so far is kept for a return to it, and the
+            // new one gets a texture of its own
+            if slot == Slot::Region || slot == Slot::RegionAhead {
+                let draft = slot == Slot::Region && self.view_requests.get(&r.request_id).is_some_and(|q| q.draft);
+                if !draft {
+                    self.full_windows.insert(r.key);
+                }
+                let old = self.textures.get(&Slot::Region).filter(|t| t.key != r.key && slot == Slot::Region).map(|t| t.key);
+                if old.is_some_and(|k| self.full_windows.contains(&k))
+                    && let Some(t) = self.textures.remove(&Slot::Region)
+                {
+                    self.keep_window(t);
+                }
+            }
             let img = &rendered.image;
             let color = color.unwrap_or_else(|| Arc::new(color_image(img)));
             let pixels = self.keep_pixels.then(|| color.clone());
@@ -1223,6 +1315,13 @@ impl Renderer {
                         },
                     );
                 }
+            }
+            // a window made ahead: kept for the step to its photo
+            if slot == Slot::RegionAhead {
+                if let Some(t) = self.textures.remove(&Slot::RegionAhead) {
+                    self.keep_window(t);
+                }
+                continue;
             }
             // (a preview taken from the cache says nothing about how long a render takes)
             if slot == Slot::Main && r.quick.is_none() {

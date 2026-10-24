@@ -437,6 +437,9 @@ fn draw_window(p: &egui::Painter, app: &LightcraftApp, pane: u8, id: PhotoId, lo
 
 /// Per frame, before the central view is shown: Compare and Reference keep two photos' originals
 /// decoded (their windows are cut from both); other views keep one and free the panes' windows.
+/// Full-size originals the loupe keeps decoded: the photo on screen and the last ones before it.
+pub const RECENT_ORIGINALS: usize = 3;
+
 /// The Detail view's photo keeps its original even over the memory budget (a zoomed 64 MP raw);
 /// other views free the Detail view's windows (while one is shown the GPU copy of its original stays).
 pub fn prepare(app: &mut LightcraftApp) {
@@ -453,7 +456,9 @@ pub fn prepare(app: &mut LightcraftApp) {
         app.session.media.set_full_capacity(WINDOW_PANES as usize);
         return;
     }
-    app.session.media.set_full_capacity(1);
+    // the loupe: the originals of the last few photos stay decoded (within the memory budget), so
+    // going back to one zoomed in doesn't decode its raw again (note 10 of 2026-10-24)
+    app.session.media.set_full_capacity(if app.ui.view == ViewMode::Detail { RECENT_ORIGINALS } else { 1 });
     for i in 0..WINDOW_PANES {
         if app.compare_windows[i as usize].take().is_some() || app.renderer.textures.contains_key(&Slot::CompareRegion(i)) {
             app.renderer.release(Slot::CompareRegion(i));

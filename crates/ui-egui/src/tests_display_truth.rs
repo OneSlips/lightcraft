@@ -156,3 +156,57 @@ fn an_unedited_raw_still_shows_its_camera_jpeg_first() {
     let mut seen = Vec::new();
     assert!(frames(&mut h, Duration::from_secs(3), &mut seen, |h| h.app.loupe_shown == Some((PhotoId(2), "embedded"))), "{seen:?}");
 }
+
+/// Full-quality zoom windows the loupe rendered so far.
+fn window_renders(h: &Headless) -> usize {
+    h.app.renderer.loupe_log.iter().filter(|l| l.slot == "region" && !l.draft).count()
+}
+
+/// Whether the loupe's zoom window on screen is the one it wants for photo `id`.
+fn window_shown(h: &Headless, id: PhotoId) -> bool {
+    h.app.region_view.is_some_and(|v| v.photo == id && h.app.renderer.textures.get(&Slot::Region).is_some_and(|t| t.key == v.key && t.photo == id))
+}
+
+/// Note 10 of 2026-10-24: at 100 %, going from one photo to the other "always shows Rendering…"
+/// and renders again. The recent windows are kept (going back is instant, nothing rendered), and
+/// the next photo's window at the same place is made ahead while the user looks at this one.
+#[test]
+fn zoomed_in_stepping_back_and_forth_shows_kept_windows_at_once() {
+    let mut h = raws(4, Duration::from_millis(30));
+    exec(&mut h, "library.select", json!({"ids": [2]}));
+    let r = h.request("ui.set", json!({"view": "detail", "right": "none", "filmstrip": false}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    exec(&mut h, "view.zoom100", json!({}));
+    let mut seen = Vec::new();
+    assert!(frames(&mut h, T, &mut seen, |h| window_shown(h, PhotoId(2))), "photo 2's window");
+    // the next photo's window is made ahead meanwhile
+    let v = h.app.region_view.unwrap();
+    let mut keys = Vec::new();
+    let view = h.app.session.visible_cloned();
+    let i = view.iter().position(|p| *p == PhotoId(2)).unwrap();
+    let (next, prev) = (view[i + 1], view[i - 1]);
+    for id in [next.0, prev.0] {
+        let job = h.app.session.region_job(PhotoId(id), v.full.0, v.full.1, v.window, true).expect("a window job");
+        keys.push(h.app.renderer.job_for(Slot::Region, job).key);
+    }
+    let ahead = frames(&mut h, T, &mut seen, |h| keys.iter().all(|k| h.app.renderer.window_kept(*k)));
+    assert!(ahead, "the windows of the photos before and after made ahead");
+    let before = window_renders(&h);
+    // (the frames until it is up; a render of a window here takes several)
+    let at_once = |h: &mut Headless, id: u64| {
+        let t0 = Instant::now();
+        let mut n = 0;
+        while !window_shown(h, PhotoId(id)) && t0.elapsed() < T {
+            h.step();
+            n += 1;
+        }
+        n
+    };
+    exec(&mut h, "library.next", json!({}));
+    let n = at_once(&mut h, next.0);
+    assert!(n <= 3, "the step to the next photo shows its window at once: {n} frames, {:?}", h.app.region_view);
+    exec(&mut h, "library.previous", json!({}));
+    let n = at_once(&mut h, 2);
+    assert!(n <= 3, "back to photo 2: its window at once: {n} frames");
+    assert_eq!(window_renders(&h), before, "nothing rendered again");
+}

@@ -1048,7 +1048,8 @@ mod in_the_loupe {
         h.settle(SETTLE);
         assert_eq!(h.app.compare_windows, [None, None]);
         assert!(!h.app.renderer.textures.contains_key(&Slot::CompareRegion(0)) && !h.app.renderer.textures.contains_key(&Slot::CompareRegion(1)));
-        assert!(h.app.session.media.usage().2.count <= 1, "one original in Detail");
+        // (Detail keeps the originals of the last few photos, note 10 of 2026-10-24)
+        assert!(h.app.session.media.usage().2.count <= crate::panels::compare::RECENT_ORIGINALS, "the recent originals in Detail");
     }
 
     // A pane's window is drawn where it belongs: its pixels agree with the pane's whole-frame render

@@ -556,6 +556,34 @@ fn request_window(app: &mut LightcraftApp, c: &WindowCtx, v: &WindowView) -> Opt
     Some(view)
 }
 
+/// Make the window `view` shows, at the same place and scale, of the photos the user is likely to
+/// step to next (the next one in the direction of travel, then the one behind), into the renderer's
+/// kept windows, one at a time: photos of the same shape only (the same camera, as a shoot's are),
+/// since the place means the same there.
+fn prefetch_next_window(app: &mut LightcraftApp, c: &WindowCtx, view: &crate::region::RegionView, aspect: f32) {
+    if app.renderer.windows_ahead_done == Some(view.key) || app.renderer.is_pending(Slot::RegionAhead) {
+        return;
+    }
+    let ids = app.session.visible_cloned();
+    let Some(i) = ids.iter().position(|p| *p == c.id) else { return };
+    let proof = app.ui.soft_proof.then_some(app.ui.proof);
+    for next in app.look_ahead.targets_n(&ids, i, 1, 1) {
+        let Some(np) = app.session.catalog.photo(next).cloned() else { continue };
+        let frame = Frame::with_lens(np.width.max(1) as usize, np.height.max(1) as usize, &np.develop, !c.crop_tool, np.embedded_lens.as_ref());
+        if (frame.aspect() as f32 - aspect).abs() > 1e-3 {
+            continue;
+        }
+        let Some(job) = app.session.region_job(next, view.full.0, view.full.1, view.window, !c.crop_tool) else { continue };
+        let job = job.with_hidden_grading(app.ui.grading_hidden_for(next)).with_overlay(c.overlay).with_proof(proof);
+        let job = app.renderer.job_for(Slot::Region, job);
+        if !app.renderer.window_kept(job.key) {
+            app.renderer.prefetch_window(job, PREFETCH_PRIORITY);
+            return;
+        }
+    }
+    app.renderer.windows_ahead_done = Some(view.key);
+}
+
 /// Draw `v`'s window texture over the whole-frame render, if it is the one asked for (or, in a
 /// drag, an earlier draft of it).
 fn draw_window(p: &egui::Painter, app: &LightcraftApp, c: &WindowCtx, v: &WindowView, wanted: &crate::region::RegionView) -> bool {
@@ -928,6 +956,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         if let Some(view) = request_window(app, &window_ctx, &v) {
             windows.push((v, view));
         }
+    }
+    // zoomed in and this window on screen: the next photo's window at the same place, made ahead
+    // (culling at 100 %, note 10 of 2026-10-24)
+    if let Some((_, view)) = windows.iter().find(|(v, _)| !v.before)
+        && !interacting
+        && hover_key.is_none()
+        && !app.renderer.is_pending(Slot::Region)
+        && app.renderer.textures.get(&Slot::Region).is_some_and(|t| t.key == view.key)
+        && app.session.activity.user_work().is_none()
+    {
+        prefetch_next_window(app, &window_ctx, view, aspect);
     }
     // the renderer polled before these requests: without a frame to come, a render asked for
     // when nothing else repaints (the refine of a still photo in an open interaction) would sit
