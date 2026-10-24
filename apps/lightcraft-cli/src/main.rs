@@ -156,7 +156,7 @@ fn app_library_with(config: Option<std::path::PathBuf>, env_set: bool, default: 
         .filter(|_| !env_set)
         .and_then(|d| std::fs::read(d.join("ui.json")).ok())
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-        .and_then(|v| v.get("settings")?.get("library_path")?.as_str().map(str::to_string))
+        .and_then(|v| v.get("settings")?.get("libraryPath")?.as_str().map(str::to_string))
         .filter(|p| !p.trim().is_empty());
     saved.or_else(|| default.map(|d| d.to_string_lossy().into_owned()))
 }
@@ -1180,10 +1180,10 @@ mod tests {
         let default = Some(std::path::PathBuf::from("/home/me/Pictures/LightCraft Library"));
         let def = default.clone().map(|p| p.to_string_lossy().into_owned());
         assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def, "no settings yet");
-        std::fs::write(d.join("ui.json"), br#"{"settings": {"library_path": "/Volumes/Photos/Lib"}}"#).unwrap();
+        std::fs::write(d.join("ui.json"), br#"{"settings": {"libraryPath": "/Volumes/Photos/Lib"}}"#).unwrap();
         assert_eq!(app_library_with(Some(d.clone()), false, default.clone()).as_deref(), Some("/Volumes/Photos/Lib"));
         assert_eq!(app_library_with(Some(d.clone()), true, default.clone()), def, "the environment wins, as in the app");
-        std::fs::write(d.join("ui.json"), br#"{"settings": {"library_path": ""}}"#).unwrap();
+        std::fs::write(d.join("ui.json"), br#"{"settings": {"libraryPath": ""}}"#).unwrap();
         assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def);
         std::fs::write(d.join("ui.json"), b"{not json").unwrap();
         assert_eq!(app_library_with(Some(d.clone()), false, default.clone()), def);
