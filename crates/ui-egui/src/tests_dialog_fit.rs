@@ -168,13 +168,18 @@ fn export_saves_the_typed_preset_name() {
         *preset_name = "Client Web".into();
     }
     h.settle(T);
+    // (the export waits for memory meanwhile: a one-photo export would otherwise finish within
+    // these frames and its "Exported" toast replace the one looked at here)
+    let (_, limit) = lightcraft_engine::memory::export_gate().usage();
+    let hold = lightcraft_engine::memory::export_gate().acquire(limit);
     let r = h.request("ui.clickWidget", json!({"id": "button:dialogOk"}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.step();
     h.step();
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+    drop(hold);
     assert!(h.app.ui.dialog.is_none());
     assert!(h.app.session.export_presets.iter().any(|p| p.name == "Client Web"), "saved without pressing Save");
-    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
     assert!(toast.contains("Client Web"), "{toast}");
     assert!(h.step_until(Duration::from_secs(60), |h| h.app.export.is_none()));
 }
