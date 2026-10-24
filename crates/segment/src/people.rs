@@ -203,8 +203,11 @@ pub fn paste_crops(whole: &PeopleMap, boxes: &[[f32; 4]], crops: &[PeopleMap], s
 pub const MAX_CROPS: usize = 160;
 
 /// A person is cropped for the class map when they are shorter than this share of the photo's
-/// height (about 9.5 face heights): in the whole image's 256-cell map they'd be under ~85 cells.
-pub const CROP_BELOW: f32 = 1.0 / 3.0;
+/// height (about 9.5 face heights): in the whole image's 256-cell map they'd be under ~150 cells.
+/// A bridesmaid seen whole in a ceremony frame (her face a twentieth of the photo's height) is
+/// still too small there: her long gown blurs into the floor and reads as background, and her
+/// bouquet as clothes; on her own crop the gown is clothes and the flowers aren't.
+pub const CROP_BELOW: f32 = 0.6;
 
 /// The bodies of the small people among `faces` (in a `w × h` photo) as normalized boxes for
 /// [`PeopleModel::segment_people`]: from a little above the head to the feet (or the photo's
@@ -662,6 +665,11 @@ fn clean_garment(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], map: Option<&Peopl
 /// [`Surfaces`]): fully kept below the first value, gone above the second.
 const SURFACE_CUT: (f32, f32) = (0.45, 0.75);
 
+/// How far the strongest surface class must lead the strongest other class (a person, a boat, a
+/// tent…) for the cell to count as a surface: not at all below the first margin, fully above the
+/// second.
+const SURFACE_WINS: (f32, f32) = (-0.05, 0.10);
+
 /// Floors, grounds, walls, tables… (EoMT's COCO-panoptic "stuff" a garment is never part of), where
 /// no person is: the probability, on the scene model's grid over the photo. A dress's hem and a
 /// train touch the floor, and the people model's coarse map spills its "clothes" onto a pale floor
@@ -676,7 +684,8 @@ pub struct Surfaces {
 /// The scene model's classes that are surfaces around people, never what they wear.
 pub fn is_surface(label: &str) -> bool {
     const PREFIXES: [&str; 12] = ["floor", "pavement", "grass", "dirt", "road", "wall", "table", "counter", "ceiling", "building", "rug", "window"];
-    const NAMES: [&str; 14] = [
+    const NAMES: [&str; 15] = [
+        "dining table",
         "sand",
         "gravel",
         "snow",
@@ -696,11 +705,38 @@ pub fn is_surface(label: &str) -> bool {
 }
 
 impl Surfaces {
-    /// From a scene segmentation: the surfaces' summed probability where the scene isn't a person.
+    /// From a scene segmentation: the surfaces' summed probability where the scene isn't a person
+    /// and a surface is what the scene model sees there most. A large white gown that EoMT
+    /// doesn't take for a person spreads its probability over boat, tent, water, wall… (a
+    /// sum of surfaces can then pass the cut while no single one is more than a guess); a floor,
+    /// a wall or a table is the clear winner where it is one.
     pub fn from_scene(scene: &crate::scene::Scene) -> Surfaces {
-        let surf = scene.class_probability(&crate::scene::class_ids(is_surface));
+        let surface_ids = crate::scene::class_ids(is_surface);
+        let surf = scene.class_probability(&surface_ids);
         let person = scene.class_probability(&crate::scene::class_ids(|l| l == "person"));
-        let probs = surf.iter().zip(&person).map(|(s, p)| (s * (1.0 - p)).clamp(0.0, 1.0)).collect();
+        let n = scene.width.saturating_mul(scene.height);
+        let classes = scene.probs.len().checked_div(n).unwrap_or(0);
+        // per cell: the strongest surface class and the strongest other class
+        let mut best_surface = vec![0f32; n];
+        let mut best_other = vec![0f32; n];
+        for k in 0..classes {
+            let Some(plane) = scene.probs.get(k * n..(k + 1) * n) else { break };
+            let best = if surface_ids.contains(&k) { &mut best_surface } else { &mut best_other };
+            for (b, p) in best.iter_mut().zip(plane) {
+                if p.is_finite() {
+                    *b = b.max(*p);
+                }
+            }
+        }
+        let probs = surf
+            .iter()
+            .zip(&person)
+            .zip(best_surface.iter().zip(&best_other))
+            .map(|((s, p), (bs, bo))| {
+                let v = s * (1.0 - p) * matte::smoothstep(SURFACE_WINS.0, SURFACE_WINS.1, bs - bo);
+                if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }
+            })
+            .collect();
         Surfaces { width: scene.width, height: scene.height, probs }
     }
 
@@ -1948,6 +1984,11 @@ mod tests {
         let b = person_boxes(&[face(100.0, 20.0), face(500.0, 20.0)], 1000, 1000);
         assert_eq!(b.len(), 2);
         assert!(b[0][0] < 0.1 && b[0][2] > 0.12 && b[0][1] < 0.1 && b[0][3] > 0.25, "{:?}", b[0]);
+        // a bridesmaid seen whole at a ceremony (test notes 2026-10-24, note 17): cropped, down to
+        // where her gown reaches
+        let b = person_boxes(&[face(100.0, 50.0)], 1000, 1000);
+        assert_eq!(b.len(), 1, "a face a twentieth of the photo's height is cropped");
+        assert!(b[0][3] >= 0.55, "the crop reaches the hem: {:?}", b[0]);
         assert!(person_boxes(&[face(f32::NAN, 20.0)], 1000, 1000).iter().all(|b| b.iter().all(|v| v.is_finite())));
         assert!(person_boxes(&[face(1.0, 1.0)], 0, 0).is_empty());
         // the whole map says background; a crop says clothes: inside it clothes, outside background
@@ -2067,5 +2108,51 @@ mod tests {
         assert_eq!(Surfaces::from_grid(4, 4, vec![1.0; 3]).at(0.5, 0.5), 0.0);
         assert_eq!(Surfaces::from_grid(2, 2, vec![1.0; 4]).at(f32::NAN, 0.5), 0.0);
         assert!(is_surface("floor-wood") && is_surface("wall-brick") && is_surface("grass-merged") && !is_surface("person"));
+    }
+
+    /// Regression (test notes 2026-10-24, note 17): the scene model doesn't see a big white gown as
+    /// a person and spreads it over guesses (boat, water, building, tent); their surfaces summed
+    /// passed the cut and the whole gown, train and veil left Clothes. A surface counts only where
+    /// one is the scene model's clear winner: the gown stays to the hem, the floor below goes.
+    #[test]
+    fn a_gown_the_scene_model_only_guesses_at_stays_clothes() {
+        use crate::scene::{CLASSES, Scene, class_ids};
+        let (rgb, map) = bride_on_a_floor([224, 168, 140]);
+        let (sw, sh) = (40usize, 40usize);
+        let n = sw * sh;
+        let id = |name: &str| class_ids(|l| l == name)[0];
+        let mut probs = vec![0f32; CLASSES * n];
+        let mut set = |class: usize, c: usize, p: f32| probs[class * n + c] = p;
+        for c in 0..n {
+            let (x, y) = ((c % sw) * 200 / sw, (c / sw) * 200 / sh);
+            if y >= 172 {
+                // the deck: floor, sure of it
+                set(id("floor-wood"), c, 1.0);
+                set(id("boat"), c, 0.35);
+            } else if y >= 60 && (40..160).contains(&x) {
+                // the gown: guesses, the strongest a thing
+                set(id("boat"), c, 0.47);
+                set(id("water-other"), c, 0.37);
+                set(id("building-other-merged"), c, 0.14);
+                set(id("fence-merged"), c, 0.12);
+                set(id("tent"), c, 0.12);
+            }
+        }
+        let scene = Scene { width: sw, height: sh, probs, instances: Vec::new() };
+        let surfaces = Surfaces::from_scene(&scene);
+        assert!(surfaces.at(0.5, 0.95) > 0.9, "the floor is a surface: {}", surfaces.at(0.5, 0.95));
+        assert!(surfaces.at(0.5, 0.6) < 0.05, "the gown is not: {}", surfaces.at(0.5, 0.6));
+        let req = PeopleRequest::parse(0, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &[], None, Some(&surfaces)).unwrap();
+        for (x, y) in [(70, 120), (100, 140), (130, 165), (100, 100)] {
+            assert!(clothes_at(&m, x, y) > 0.5, "the gown at {x},{y} is clothes: {}", clothes_at(&m, x, y));
+        }
+        for (x, y) in [(70, 185), (100, 190)] {
+            assert!(clothes_at(&m, x, y) < 0.5, "the floor at {x},{y} is not clothes: {}", clothes_at(&m, x, y));
+        }
+        // a dining table in front of the couple is a surface too; a malformed scene is none
+        assert!(is_surface("dining table") && !is_surface("boat"));
+        let empty = Surfaces::from_scene(&Scene { width: 3, height: 3, probs: vec![f32::NAN; 5], instances: Vec::new() });
+        assert_eq!(empty.at(0.5, 0.5), 0.0);
     }
 }
