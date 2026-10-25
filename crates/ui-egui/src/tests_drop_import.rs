@@ -1,6 +1,6 @@
 //! Files dragged from the file manager onto the window: while they hover, the window says what
-//! dropping will do; dropping photos or folders opens the import review (unless Settings ▸ Import
-//! says to import dropped files directly); a drop while a dialog is open is refused.
+//! dropping will do; dropping photos or folders imports them at once (Settings ▸ Import ▸ Import dropped files
+//! without review, on by default), or opens the import review with it off; a drop while a dialog is open is refused.
 
 use std::time::Duration;
 
@@ -79,6 +79,7 @@ fn photos(h: &Headless) -> usize {
 fn hovering_photos_says_they_will_be_reviewed_and_lets_go_when_they_leave() {
     let dir = Scratch::new("hover");
     let mut h = app(&dir);
+    h.app.ui.settings.import_dropped_directly = false;
     assert!(!overlay(&h), "nothing is dragged over the window");
     drop_files(&mut h, &[dir.path("trip/a.png"), dir.path("trip/b.png")], true);
     assert!(overlay(&h), "the window shows where to drop");
@@ -111,12 +112,29 @@ fn hovering_unknown_files_says_only_that_dropping_imports() {
 fn dropping_a_folder_opens_the_import_review_and_imports_nothing_yet() {
     let dir = Scratch::new("review");
     let mut h = app(&dir);
+    h.app.ui.settings.import_dropped_directly = false;
     drop_files(&mut h, &[dir.path("trip")], false);
     assert!(h.step_until(SETTLE, |h| matches!(h.app.ui.dialog, Some(Dialog::Import { .. }))), "the review opens");
     let Some(Dialog::Import { opts }) = &h.app.ui.dialog else { panic!("no import review") };
     assert_eq!(opts.candidates.len(), 2);
     assert_eq!(photos(&h), 0, "nothing is imported until the review is confirmed");
     assert!(!overlay(&h), "the files were let go");
+}
+
+/// Decision 2026-10-25 (item 16): dropped files go straight in by default; a settings file that saved the choice
+/// keeps it (off: the review first), one from before the setting gets the new default.
+#[test]
+fn dropped_files_import_without_review_by_default_and_a_saved_choice_is_kept() {
+    assert!(crate::state::AppSettings::default().import_dropped_directly);
+    let saved: crate::state::AppSettings = serde_json::from_value(json!({"importDroppedDirectly": false})).unwrap();
+    assert!(!saved.import_dropped_directly, "the saved choice is kept");
+    let older: crate::state::AppSettings = serde_json::from_value(json!({})).unwrap();
+    assert!(older.import_dropped_directly, "a file without the setting gets the default");
+    let dir = Scratch::new("default-direct");
+    let mut h = app(&dir);
+    drop_files(&mut h, &[dir.path("trip")], false);
+    assert!(h.step_until(SETTLE, |h| photos(h) == 2), "imported without a review");
+    assert!(!matches!(h.app.ui.dialog, Some(Dialog::Import { .. })), "no review opened");
 }
 
 #[test]

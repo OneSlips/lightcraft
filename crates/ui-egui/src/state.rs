@@ -447,7 +447,8 @@ pub struct AppSettings {
     /// A click on the dimmed backdrop around a dialog closes it, like Esc (off: a stray click
     /// never throws away a dialog's choices).
     pub close_dialogs_outside: bool,
-    /// Photos and folders dropped on the window import at once, without the import review.
+    /// Photos and folders dropped on the window import at once, without the import review. On by default in this
+    /// build (decision 2026-10-25, item 16); a saved choice is kept, and off gives the review first.
     pub import_dropped_directly: bool,
     /// GPU rendering allowed (`app.gpu`).
     pub gpu: bool,
@@ -556,7 +557,7 @@ impl Default for AppSettings {
             confirm_delete: true,
             ask_before_move: true,
             close_dialogs_outside: false,
-            import_dropped_directly: false,
+            import_dropped_directly: true,
             gpu: true,
             preview_limit: 0,
             external_editor: String::new(),
