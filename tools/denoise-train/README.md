@@ -27,7 +27,7 @@ CARGO_TARGET_DIR=<target> cargo build --release --manifest-path tools/denoise-tr
 python fetch_rpu.py --out <scratch>/data --rawdump <target>/release/lc-denoise-rawdump
 python calibrate_noise.py --rawdump <...> --out <scratch>/noise/camera.json --sample 200 <photo folders>   # optional
 python train.py --data <scratch>/data --out <scratch>/run1 --steps 160000 --duty 0.75
-python export.py --ckpt <scratch>/run1/final.pt --out <scratch>/model --rawdump <...>
+python export.py --ckpt <scratch>/run1/final.pt --out <scratch>/model --rawdump <...> --data <scratch>/data
 ```
 
 `export.py` writes `model.onnx` and `denoise-model.json` (with its SHA-256, size, licence and data credits) and runs

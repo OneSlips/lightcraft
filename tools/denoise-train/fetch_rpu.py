@@ -95,7 +95,9 @@ def main():
     todo = [r for r in cand if r["sha256"] not in iso_cache]
     with ThreadPoolExecutor(8) as ex:
         for r, iso in zip(todo, ex.map(iso_of, todo)):
-            iso_cache[r["sha256"]] = iso
+            # only an answer is kept: a lookup that failed (a timeout) is tried again next run
+            if iso is not None:
+                iso_cache[r["sha256"]] = iso
     json.dump(iso_cache, open(iso_cache_path, "w"))
     good = [r for r in cand if (iso_cache.get(r["sha256"]) or 99999) <= a.max_iso]
     # diversity first: one file per camera, then the rest
