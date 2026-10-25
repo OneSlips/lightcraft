@@ -371,7 +371,7 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let active = modes.iter().position(|(_, m, _)| *m == d.geometry.upright);
             if let Some(i) = crate::widgets::segmented(ui, "upright", &items, active, 3) {
                 let (_, mode, key) = modes[i];
-                // a second click on the mode that is on starts it over (test notes 2026-10-24 note 6);
+                // a second click on the mode that is on analyses it afresh, the sliders kept (test notes 2026-10-24 note 6);
                 // why a mode found nothing shows under the photo (`LightcraftApp::run_typed`)
                 let again = active == Some(i) && mode != Upright::Off;
                 let _ = app.run("geometry.upright", json!({"mode": key, "again": again}));

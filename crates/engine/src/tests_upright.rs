@@ -1,5 +1,5 @@
 //! Upright per photo (test notes 2026-10-24 notes 4, 5, 6 and 16): a mode that reaches other photos is
-//! analysed on each, in the background in the app; a second click starts over; Constrain Crop's fit grows back
+//! analysed on each, in the background in the app; a second click analyses afresh; Constrain Crop's fit grows back
 //! when the warp goes and keeps the photo's own shape.
 
 use std::sync::Arc;
@@ -96,29 +96,30 @@ fn pasted_upright_is_analysed_on_the_photo_it_lands_on() {
     assert_ne!(gb.upright_transform, transform(&s, a), "not a's");
 }
 
-/// Note 6: a second click on the mode that is on starts over: the Transform sliders back to 0 and (Guided) the
-/// guides cleared, one undo step.
+/// Note 6 and decision 2026-10-25 (item 11): a second click on the mode that is on analyses it afresh and
+/// (Guided) clears the guides, one undo step; the Transform sliders the photographer set stay.
 #[test]
-fn a_second_click_on_the_upright_mode_starts_over() {
+fn a_second_click_on_the_upright_mode_re_analyses_and_keeps_the_sliders() {
     let (mut s, [a, ..]) = three(false);
     s.execute("library.select", &json!({"ids": [a.0], "active": a.0})).unwrap();
     s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
     s.execute("develop.set", &json!({"control": "geometry.rotate", "value": 4.0})).unwrap();
     s.execute("develop.set", &json!({"control": "geometry.vertical", "value": 20.0})).unwrap();
-    let undo = s.undo.len();
     s.execute("geometry.upright", &json!({"mode": "vertical", "again": true})).unwrap();
     let g = s.develop_of(a).unwrap().geometry.clone();
-    assert_eq!((g.rotate, g.vertical), (0.0, 0.0), "the Transform sliders start over");
+    assert_eq!((g.rotate, g.vertical), (4.0, 20.0), "the Transform sliders are kept");
     assert_eq!(g.upright, Upright::Vertical);
     assert_eq!(g.upright_transform, s.upright_for(a, Upright::Vertical).unwrap());
-    assert_eq!(s.undo.len(), undo + 1, "one undo step");
     // Guided: the guides go
     s.execute("geometry.guides", &json!({"guides": [[0.2, 0.1, 0.25, 0.9], [0.8, 0.1, 0.75, 0.9]]})).unwrap();
     assert_eq!(s.develop_of(a).unwrap().geometry.guides.len(), 2);
+    let undo = s.undo.len();
     s.execute("geometry.upright", &json!({"mode": "guided", "again": true})).unwrap();
     let g = s.develop_of(a).unwrap().geometry.clone();
     assert_eq!(g.upright, Upright::Guided);
     assert!(g.guides.is_empty(), "a second click on Guided clears the guides");
+    assert_eq!((g.rotate, g.vertical), (4.0, 20.0), "and keeps the sliders");
+    assert_eq!(s.undo.len(), undo + 1, "one undo step");
     // a plain run (the Update button, an agent) keeps the sliders
     s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
     s.execute("develop.set", &json!({"control": "geometry.rotate", "value": 3.0})).unwrap();
