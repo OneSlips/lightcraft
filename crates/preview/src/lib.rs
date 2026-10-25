@@ -55,6 +55,9 @@ pub struct PreviewCache {
     /// A photo's latest picture of a kind (its last loupe view, its last grid thumbnail, whatever its
     /// settings were then): alias → the key it is kept under in memory ([`Self::put_latest`]).
     aliases: Mutex<std::collections::HashMap<Hash128, Hash128>>,
+    /// What each alias's picture was made with ([`Self::put_latest_with`]): a small record the
+    /// caller reads back with the picture (where it lies in its photo, its look).
+    latest_meta: Mutex<std::collections::HashMap<Hash128, Arc<[u8]>>>,
     /// The writer thread's queue (started with the first deferred write), and the bytes waiting in it.
     #[cfg(not(target_arch = "wasm32"))]
     writer: Mutex<Option<std::sync::mpsc::Sender<Write>>>,
@@ -73,6 +76,7 @@ impl PreviewCache {
             mem: Mutex::new(Lru::new(mem_bytes)),
             disk,
             aliases: Mutex::new(Default::default()),
+            latest_meta: Mutex::new(Default::default()),
             #[cfg(not(target_arch = "wasm32"))]
             writer: Mutex::new(None),
             queued: Arc::new(AtomicUsize::new(0)),
@@ -214,8 +218,35 @@ impl PreviewCache {
     /// own, so the next session has it too. `now`: written before this returns (a preview build),
     /// else by the cache's writer thread.
     pub fn put_latest(self: &Arc<Self>, generation: u64, alias: Hash128, real: Hash128, img: Arc<Rgba8>, now: bool) {
+        self.put_latest_with(generation, alias, real, img, now, None);
+    }
+
+    /// [`Self::put_latest`] with a small record of what the picture was made with, read back with it
+    /// by [`Self::get_latest_with`] (kept beside the picture on disk too). `None` forgets the
+    /// alias's record: a picture never pairs with the record of another.
+    pub fn put_latest_with(self: &Arc<Self>, generation: u64, alias: Hash128, real: Hash128, img: Arc<Rgba8>, now: bool, meta: Option<&[u8]>) {
         if *self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner) != Some(generation) {
             return;
+        }
+        {
+            let mut m = self.latest_meta.lock().unwrap_or_else(|e| e.into_inner());
+            if m.len() >= MAX_ALIASES && !m.contains_key(&alias) {
+                m.clear();
+            }
+            match meta {
+                Some(b) => {
+                    m.insert(alias, Arc::from(b));
+                }
+                None => {
+                    m.remove(&alias);
+                }
+            }
+        }
+        if let Some(d) = &self.disk {
+            match meta {
+                Some(b) => d.put_data(latest_meta_key(alias), b),
+                None => d.remove_data(latest_meta_key(alias)),
+            }
         }
         {
             let mut a = self.aliases.lock().unwrap_or_else(|e| e.into_inner());
@@ -239,6 +270,19 @@ impl PreviewCache {
     /// The latest picture kept under `alias` ([`Self::put_latest`]): from memory when the picture it
     /// points at is still there, else from its own file on disk (then kept in memory under the alias).
     pub fn get_latest(&self, alias: Hash128) -> Option<Arc<Rgba8>> {
+        self.get_latest_with(alias).map(|(img, _)| img)
+    }
+
+    /// [`Self::get_latest`] and the record kept with it ([`Self::put_latest_with`]; `None` for a
+    /// picture kept without one).
+    pub fn get_latest_with(&self, alias: Hash128) -> Option<(Arc<Rgba8>, Option<Arc<[u8]>>)> {
+        let img = self.get_latest_picture(alias)?;
+        let meta = self.latest_meta.lock().unwrap_or_else(|e| e.into_inner()).get(&alias).cloned();
+        let meta = meta.or_else(|| self.get_data(latest_meta_key(alias)).map(Arc::from));
+        Some((img, meta))
+    }
+
+    fn get_latest_picture(&self, alias: Hash128) -> Option<Arc<Rgba8>> {
         let generation = self.generation();
         if generation == u64::MAX {
             return None;
@@ -330,6 +374,7 @@ impl PreviewCache {
         *g = g.wrapping_add(1) % u64::MAX;
         self.mem.lock().unwrap_or_else(|e| e.into_inner()).clear();
         self.aliases.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.latest_meta.lock().unwrap_or_else(|e| e.into_inner()).clear();
         if let Some(d) = &self.disk {
             d.clear();
         }
@@ -378,3 +423,8 @@ fn cost(img: &Rgba8) -> usize {
 
 #[cfg(test)]
 mod tests;
+
+/// Where the record of an alias's picture is kept on disk ([`PreviewCache::put_latest_with`]).
+fn latest_meta_key(alias: Hash128) -> Hash128 {
+    Hash128(alias.0 ^ 0x6c61_7465_7374_2d6d_6574_612d_7265_636f)
+}

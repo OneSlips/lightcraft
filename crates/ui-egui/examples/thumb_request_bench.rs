@@ -119,7 +119,18 @@ fn micro(points: usize, pending: bool) {
             let key = app.session.thumb_job(id, 384).unwrap().key;
             app.renderer.textures.insert(
                 Slot::Thumb(id),
-                Tex { key, photo: id, tex: texture.clone(), size: [1, 1], histogram: None, ms: 0.0, quick: None, pixels: None, native: None },
+                Tex {
+                    key,
+                    photo: id,
+                    tex: texture.clone(),
+                    size: [1, 1],
+                    histogram: None,
+                    ms: 0.0,
+                    quick: None,
+                    pixels: None,
+                    native: None,
+                    placement: None,
+                },
             );
         }
         request_thumb(&mut app, id, 384, 10);

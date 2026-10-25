@@ -199,7 +199,7 @@ pub(crate) fn run_photo(jobs: Vec<RenderJob>) -> bool {
             if let (Some((cache, alias)), Some(real)) = (latest, real)
                 && r.quick != Some(crate::media::QuickSource::Cached)
             {
-                cache.put_latest(generation, alias, real, img, true);
+                cache.put_latest_with(generation, alias, real, img, true, crate::media::placement_bytes(r.placement.as_ref()).as_deref());
             }
         }
         ok &= r.rendered.is_ok();

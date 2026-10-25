@@ -79,6 +79,7 @@ pub mod open_path;
 pub mod originals;
 mod pdf;
 pub mod people_store;
+pub mod placement;
 pub mod prep;
 mod preset_gather;
 pub mod preset_import;

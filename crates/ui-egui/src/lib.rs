@@ -258,6 +258,8 @@ mod tests_smart_presets;
 #[cfg(test)]
 mod tests_solo_sections;
 #[cfg(test)]
+mod tests_stand_in_crop;
+#[cfg(test)]
 mod tests_surface;
 #[cfg(test)]
 mod tests_switch_library;
@@ -587,6 +589,9 @@ pub struct LightcraftApp {
     /// What the loupe drew last frame: photo and source ("render", "cached", "embedded", "small",
     /// "thumb", "none").
     pub loupe_shown: Option<(lightcraft_catalog::PhotoId, &'static str)>,
+    /// How the loupe drew its picture last frame ([`panels::detail::LoupeDrawn`]): where the
+    /// picture's corners went and the rect it fills (tests check that no part of it is empty).
+    pub loupe_drawn: Option<panels::detail::LoupeDrawn>,
     /// Renders made for the crop tool (the whole photo, uncropped), by photo and render key: once
     /// the tool closes they stay on screen until the cropped render arrives, drawn cropped
     /// (client note 3b: Done showed the uncropped photo for seconds). The last few only.
@@ -772,6 +777,7 @@ impl LightcraftApp {
             gesture: None,
             brush_live: None,
             loupe_shown: None,
+            loupe_drawn: None,
             crop_tool_renders: Vec::new(),
             loupe_timing: Default::default(),
             eye_strip: Default::default(),

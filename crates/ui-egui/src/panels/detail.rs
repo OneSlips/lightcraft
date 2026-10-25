@@ -702,6 +702,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let uncropped_uv = (!crop_tool).then(|| uncropped_stand_in_uv(&photo, &d)).flatten();
     let crop_tool_renders = if crop_tool { Vec::new() } else { app.crop_tool_renders.clone() };
     let uncropped = |t: &crate::render::Tex| crop_tool_renders.contains(&(t.photo, t.key));
+    // where the view's picture lies in the photo now: any picture of it that says where it lies is
+    // drawn cut to that, at once (notes 4, 5 and 7 of 2026-10-25)
+    let view_place = app.session.placement_of(id, !crop_tool);
+    let placed = |t: &crate::render::Tex| t.placement.is_some_and(|p| lightcraft_engine::placement::fits_shape(&p, t.size[0], t.size[1]));
     let visible_texture_aspect = app
         .renderer
         .textures
@@ -710,6 +714,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .or_else(|| app.renderer.textures.get(&Slot::Preview).filter(|t| t.photo == id))
         .filter(|t| !uncropped(t))
         .or_else(|| app.renderer.thumb(id))
+        // (a picture that says where it lies is drawn in the photo's own shape)
+        .filter(|t| !(view_place.is_some() && placed(t)))
         .map(|tex| tex.size[0].max(1) as f32 / tex.size[1].max(1) as f32);
     // Follow the texture only where it really differs (an unsupported raw's embedded JPEG with
     // another crop): a texture's whole-pixel size is a little off the exact aspect, and the crop
@@ -1038,17 +1044,45 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // the photo was still as shot (notes 3, 11, 31 of 2026-10-24)
     let as_shot = lightcraft_engine::import::looks_as_shot(&photo);
     let truthful = |t: &&crate::render::Tex| as_shot || t.quick != Some(lightcraft_engine::media::QuickSource::Embedded);
+    let drawn = std::cell::Cell::new(None);
     let draw = |slot: Slot, r: Rect, clip: Rect| -> &'static str {
         let mine = |s: Slot| app.renderer.textures.get(&s).filter(|t| t.photo == id);
-        let (tex, what) = if let Some(t) = mine(slot) {
-            (t, "render")
-        } else if let Some(t) = mine(Slot::Preview).filter(truthful) {
-            (t, t.quick.map(quick_name).unwrap_or("preview"))
-        } else if let Some(t) = app.renderer.thumb(id).filter(truthful) {
-            (t, "thumb")
-        } else {
-            return "none";
+        let candidates = [
+            mine(slot).map(|t| (t, "render")),
+            mine(Slot::Preview).filter(truthful).map(|t| (t, t.quick.map(quick_name).unwrap_or("preview"))),
+            app.renderer.thumb(id).filter(truthful).map(|t| (t, "thumb")),
+        ];
+        // each picture's corners on the view, when it says where it lies (`Some(None)`: drawn as it
+        // is; `None`: it can't be drawn for this view)
+        let quad_of = |t: &crate::render::Tex| -> Option<Option<[Pos2; 4]>> {
+            let (Some(have), Some(want)) = (t.placement.filter(|_| placed(t) && crop_turn == 0.0), view_place) else {
+                return Some(None);
+            };
+            // a picture with another look (the as-shot preview of a photo with a preset since) never
+            // stands in (note 4 of 2026-10-25)
+            if !have.look.close_to(&want.look) {
+                return None;
+            }
+            let uv = lightcraft_engine::placement::stand_in_uv(&have, &want)?;
+            if lightcraft_engine::placement::is_identity(&uv, 1e-3) {
+                return Some(None);
+            }
+            placed_quad(r, &uv).map(Some)
         };
+        // the first picture that fills the view (as it is, or cut to the crop); else the first that
+        // fills part of it, where it lies
+        let view = r.intersect(clip);
+        let pick = candidates
+            .iter()
+            .flatten()
+            .find_map(|(t, w)| quad_of(t).filter(|q| q.is_none_or(|q| quad_covers(&q, view))).map(|q| (*t, *w, q)))
+            .or_else(|| candidates.iter().flatten().find_map(|(t, w)| quad_of(t).map(|q| (*t, *w, q))));
+        let Some((tex, what, quad)) = pick else { return "none" };
+        if let Some(quad) = quad {
+            p.with_clip_rect(view).add(placed_mesh(tex.id(), &quad));
+            drawn.set(Some(LoupeDrawn { quad, rect: view, placed: true, known: true }));
+            return if uncropped(tex) { "cropping" } else { what };
+        }
         if uncropped(tex) {
             // the crop tool's whole-photo render, just after Done: its crop, at once
             let Some(uv) = uncropped_uv else { return "none" };
@@ -1056,6 +1090,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             return "cropping";
         }
         let image_rect = snap_fit_rect(fit_texture_rect(r, tex.size), tex.size, ppp);
+        let corners = [image_rect.left_top(), image_rect.right_top(), image_rect.right_bottom(), image_rect.left_bottom()];
+        let known = tex.placement.is_some_and(|h| placed(tex) && view_place.is_some_and(|w| h.look.close_to(&w.look)));
+        drawn.set(Some(LoupeDrawn { quad: corners, rect: image_rect.intersect(clip), placed: false, known }));
         if crop_turn != 0.0 {
             image_turned(&p.with_clip_rect(clip), tex.id(), image_rect, crop_turn);
         } else {
@@ -1122,6 +1159,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     app.loupe_shown = Some((id, shown));
+    app.loupe_drawn = drawn.get();
     app.loupe_timing.observe(id, shown, now);
     // no picture of this photo yet, or only a small one while its full-size stand-in is on its way:
     // background work waits (the photo on screen comes first, at its cheapest first)
@@ -3111,6 +3149,75 @@ fn uncropped_stand_in_uv(photo: &lightcraft_catalog::Photo, d: &DevelopSettings)
     let quad = f.crop_quad_norm().map(|q| pos2(q.x as f32, q.y as f32));
     let area = (quad[1] - quad[0]).length() * (quad[3] - quad[0]).length();
     (quad.iter().all(|q| q.is_finite()) && area > 1e-6).then_some(quad)
+}
+
+/// How the loupe drew its picture ([`crate::LightcraftApp::loupe_drawn`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LoupeDrawn {
+    /// Where the picture's top-left, top-right, bottom-right and bottom-left corners went.
+    pub quad: [Pos2; 4],
+    /// The part of the screen it was drawn in (clipped to).
+    pub rect: Rect,
+    /// Cut to the photo's current crop from a picture made with another ([`placed_quad`]).
+    pub placed: bool,
+    /// The picture said where it lies and has the photo's look ([`lightcraft_engine::placement`]).
+    pub known: bool,
+}
+
+/// Where a picture's corners go on screen when the view `r` shows the part of it whose corners
+/// (top-left, top-right, bottom-right, bottom-left of `r`) are `uv` on it
+/// ([`lightcraft_engine::placement::stand_in_uv`]). `None` for a degenerate mapping.
+fn placed_quad(r: Rect, uv: &[[f64; 2]; 4]) -> Option<[Pos2; 4]> {
+    // uv = u0 + sx (u1 - u0) + sy (u3 - u0), with (sx, sy) across `r` from 0 to 1
+    let [u0, u1, _, u3] = *uv;
+    let (ax, ay) = (u1[0] - u0[0], u1[1] - u0[1]);
+    let (bx, by) = (u3[0] - u0[0], u3[1] - u0[1]);
+    let det = ax * by - bx * ay;
+    if !det.is_finite() || det.abs() < 1e-12 {
+        return None;
+    }
+    let at = |c: [f64; 2]| {
+        let (dx, dy) = (c[0] - u0[0], c[1] - u0[1]);
+        let sx = (dx * by - bx * dy) / det;
+        let sy = (ax * dy - dx * ay) / det;
+        pos2(r.left() + (sx as f32) * r.width(), r.top() + (sy as f32) * r.height())
+    };
+    let q = [at([0.0, 0.0]), at([1.0, 0.0]), at([1.0, 1.0]), at([0.0, 1.0])];
+    q.iter().all(|p| p.x.is_finite() && p.y.is_finite()).then_some(q)
+}
+
+/// Whether the convex quad `q` holds every corner of `r` (half a pixel of slack).
+pub(crate) fn quad_covers(q: &[Pos2; 4], r: Rect) -> bool {
+    let inside = |p: Pos2| {
+        let mut sign = 0.0f32;
+        for i in 0..4 {
+            let (a, b) = (q[i], q[(i + 1) % 4]);
+            let edge = b - a;
+            let len = edge.length().max(1e-6);
+            let c = (edge.x * (p.y - a.y) - edge.y * (p.x - a.x)) / len;
+            if c.abs() <= 0.5 {
+                continue;
+            }
+            if sign == 0.0 {
+                sign = c.signum();
+            } else if c.signum() != sign {
+                return false;
+            }
+        }
+        true
+    };
+    r.is_positive() && [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()].into_iter().all(inside)
+}
+
+/// `tex` with its corners at `quad` (a picture cut to the view by the clip around it).
+fn placed_mesh(tex: egui::TextureId, quad: &[Pos2; 4]) -> egui::epaint::Mesh {
+    let mut mesh = egui::epaint::Mesh::with_texture(tex);
+    for (at, uv) in quad.iter().zip([pos2(0.0, 0.0), pos2(1.0, 0.0), pos2(1.0, 1.0), pos2(0.0, 1.0)]) {
+        mesh.vertices.push(egui::epaint::Vertex { pos: *at, uv, color: Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    mesh
 }
 
 /// `tex` (the crop tool's whole-photo render) cut to the crop whose corners on it are `uv`,

@@ -1962,6 +1962,7 @@ impl Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            placement: None,
         };
         let embedded = match (&self.media.preview_loader, c.kind) {
             (Some(l), MediaKind::Raw) => Some((c.path.clone(), l.clone(), edge)),
@@ -1979,6 +1980,7 @@ impl Session {
             fit: None,
             draft: None,
             small: Some(Box::new(small)),
+            want: None,
         })
     }
 

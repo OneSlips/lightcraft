@@ -408,6 +408,9 @@ impl SourceRef {
 
 pub struct MediaCache {
     settings_hashes: SettingsHashes,
+    /// Each photo's placement for its current settings ([`crate::Session::placement_of`]), by
+    /// (photo, cropped): computed once per settings, not per frame or per job.
+    placements: HashMap<(PhotoId, bool), (Weak<DevelopSettings>, crate::placement::Placement)>,
     /// Decoded thumbnail-level sources (LRU by bytes).
     thumbs: Lru<PhotoId, DecodedSource>,
     /// Decoded preview-level sources with their last use ([`lightcraft_preview::next_tick`]).
@@ -504,6 +507,7 @@ impl Default for MediaCache {
         let budget = crate::memory::cache_share(crate::memory::budget());
         MediaCache {
             settings_hashes: SettingsHashes::default(),
+            placements: HashMap::new(),
             thumbs: Lru::new(THUMB_SOURCE_BYTES.min(budget)),
             previews: Vec::new(),
             full: Vec::new(),
@@ -558,6 +562,7 @@ impl MediaCache {
     /// Forget every decoded source (photo ids changed meaning, e.g. another library was opened).
     pub fn clear_sources(&mut self) {
         self.settings_hashes = SettingsHashes::default();
+        self.placements.clear();
         self.thumbs = Lru::new(THUMB_SOURCE_BYTES.min(self.budget));
         self.previews.clear();
         self.full.clear();
@@ -955,6 +960,10 @@ pub struct RenderJob {
     /// to a 64 px step) and the window would otherwise shrink the texture with 2-tap bilinear sampling, which blurs fine detail at
     /// small ratios and aliases it at large ones. The caches keep the full render.
     pub display_fit: Option<(usize, usize)>,
+    /// Where the result lies in its photo and the look it has ([`crate::placement`]): what lets it
+    /// stand in, at once, for the photo with another crop (notes 4, 5 and 7 of 2026-10-25). Set for
+    /// the photo's own renders; `None` for others (a variant, a face tile, a hover preview).
+    pub placement: Option<crate::placement::Placement>,
 }
 
 /// `img` shrunk to fit `max_w × max_h` with a Lanczos filter (see [`RenderJob::display_fit`]).
@@ -1001,6 +1010,9 @@ pub struct RenderResult {
     /// The result as a texture on the window's GPU device ([`RenderJob::on_screen`]); `rendered`
     /// then holds its histogram and an empty image.
     pub frame: Option<ScreenFrame>,
+    /// Where the picture lies in its photo ([`RenderJob::placement`]; for a stand-in, the one of the
+    /// picture it is).
+    pub placement: Option<crate::placement::Placement>,
 }
 
 impl RenderJob {
@@ -1120,6 +1132,7 @@ impl RenderJob {
         RenderResult {
             request_id: self.request_id,
             source_key: self.source_key,
+            placement: self.placement,
             photo: self.photo,
             level: self.level,
             key: self.key,
@@ -1207,6 +1220,7 @@ impl RenderJob {
             return RenderResult {
                 request_id: self.request_id,
                 source_key: self.source_key,
+                placement: self.placement,
                 photo: self.photo,
                 level: self.level,
                 key: self.key,
@@ -1226,6 +1240,7 @@ impl RenderJob {
             return RenderResult {
                 request_id: self.request_id,
                 source_key: self.source_key,
+                placement: self.placement,
                 photo: self.photo,
                 level: self.level,
                 key: self.key,
@@ -1247,6 +1262,7 @@ impl RenderJob {
             return RenderResult {
                 request_id: self.request_id,
                 source_key: self.source_key,
+                placement: self.placement,
                 photo: self.photo,
                 level: self.level,
                 key: self.key,
@@ -1286,6 +1302,7 @@ impl RenderJob {
                         return RenderResult {
                             request_id: self.request_id,
                             source_key: self.source_key,
+                            placement: self.placement,
                             photo: self.photo,
                             level: self.level,
                             key: self.key,
@@ -1325,7 +1342,7 @@ impl RenderJob {
                     let img = Arc::new(rendered.image.clone());
                     cache.put_at(self.cache_generation, *key, img.clone());
                     if let Some((latest, alias)) = self.latest.as_ref().filter(|_| full && self.view_cache.is_none()) {
-                        latest.put_latest(self.cache_generation, *alias, *key, img, false);
+                        latest.put_latest_with(self.cache_generation, *alias, *key, img, false, placement_bytes(self.placement.as_ref()).as_deref());
                     }
                 }
                 if let Some((cache, key)) = &self.view_cache
@@ -1335,7 +1352,7 @@ impl RenderJob {
                     let img = Arc::new(srgb.unwrap_or_else(|| rendered.image.clone()));
                     cache.put_deferred_at(self.cache_generation, *key, img.clone());
                     if let Some((latest, alias)) = &self.latest {
-                        latest.put_latest(self.cache_generation, *alias, *key, img, false);
+                        latest.put_latest_with(self.cache_generation, *alias, *key, img, false, placement_bytes(self.placement.as_ref()).as_deref());
                     }
                 }
                 // the display fit, after the caches have the full render
@@ -1350,6 +1367,7 @@ impl RenderJob {
                 RenderResult {
                     request_id: self.request_id,
                     source_key: self.source_key,
+                    placement: self.placement,
                     photo: self.photo,
                     level: self.level,
                     key: self.key,
@@ -1542,6 +1560,11 @@ pub struct QuickJob {
     /// A fast draft of an edited raw with its settings ([`QuickSource::Draft`]): the camera JPEG at
     /// (path, loader, max edge) developed by this job, tried after `latest` and before `small`.
     pub draft: Option<(String, PreviewLoader, usize, Box<RenderJob>)>,
+    /// The placement of the picture asked for (the photo's current crop and look). A latest picture
+    /// stands in only when it was made with a look close to this one and holds every pixel of the
+    /// view ([`crate::placement::may_stand_in`]: never the browse-time preview of a photo imported
+    /// with a preset, note 4 of 2026-10-25); `None`: any latest picture does.
+    pub want: Option<crate::placement::Placement>,
 }
 
 impl QuickJob {
@@ -1552,6 +1575,7 @@ impl QuickJob {
         crate::guard::catch("the render", || self.run_unguarded()).unwrap_or_else(|e| RenderResult {
             request_id,
             source_key: None,
+            placement: None,
             photo,
             level: SourceLevel::Thumb,
             key,
@@ -1567,9 +1591,11 @@ impl QuickJob {
     fn run_unguarded(self) -> RenderResult {
         let (photo, key) = (self.photo, self.key);
         let request_id = self.request_id;
-        let done = |rendered: Result<Rendered, String>, quick| RenderResult {
+        let want = self.want;
+        let done = |rendered: Result<Rendered, String>, quick, placement| RenderResult {
             request_id,
             source_key: None,
+            placement,
             photo,
             level: SourceLevel::Thumb,
             key,
@@ -1590,24 +1616,35 @@ impl QuickJob {
         };
         for (cache, k) in &self.cached {
             if let Some(img) = cache.get(*k) {
-                return done(rendered(fitted(img)), Some(QuickSource::Cached));
+                return done(rendered(fitted(img)), Some(QuickSource::Cached), want);
             }
         }
         for (cache, k) in &self.latest {
-            if let Some(img) = cache.get_latest(*k) {
-                return done(rendered(fitted(img)), Some(QuickSource::Last));
+            if let Some((img, meta)) = cache.get_latest_with(*k) {
+                let have = placement_from(meta.as_deref());
+                let ok = match (&have, &want) {
+                    (_, None) => true,
+                    (Some(h), Some(w)) => {
+                        crate::placement::may_stand_in(h, w, STAND_IN_SLACK) && crate::placement::fits_shape(h, img.width, img.height)
+                    }
+                    // (made before pictures said where they lie: its crop and look are unknown)
+                    (None, Some(_)) => false,
+                };
+                if ok {
+                    return done(rendered(fitted(img)), Some(QuickSource::Last), have);
+                }
             }
         }
         if let Some((path, loader, edge, job)) = self.draft.as_ref()
             && let Some(r) = draft_from_camera_jpeg(path, loader, *edge, job)
         {
-            return RenderResult { request_id, key, quick: Some(QuickSource::Draft), ..r };
+            return RenderResult { request_id, key, quick: Some(QuickSource::Draft), placement: want, ..r };
         }
         if let Some((path, loader, edge)) = &self.embedded {
             if let Some((cache, k)) = &self.embedded_cache
                 && let Some(img) = if self.embedded_on_disk { cache.get(*k) } else { cache.get_memory(*k) }
             {
-                return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Embedded));
+                return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Embedded), want);
             }
             if let Some(image) = loader(path, *edge) {
                 if let Some((cache, k)) = &self.embedded_cache {
@@ -1617,16 +1654,20 @@ impl QuickJob {
                         cache.put_memory(*k, Arc::new(image.clone()));
                     }
                 }
-                return done(rendered(image), Some(QuickSource::Embedded));
+                return done(rendered(image), Some(QuickSource::Embedded), want);
             }
         }
         if let Some(job) = self.small {
             let r = job.run();
-            return RenderResult { request_id, key, quick: Some(QuickSource::Small), ..r };
+            return RenderResult { request_id, key, quick: Some(QuickSource::Small), placement: want.or(r.placement), ..r };
         }
-        done(Err("no quick preview".into()), None)
+        done(Err("no quick preview".into()), None, None)
     }
 }
+
+/// How far (in texture units) a latest picture may fall short of the view it stands in for: the
+/// rounding of whole pixels, never a visible strip.
+const STAND_IN_SLACK: f64 = 0.004;
 
 /// The longest edge a draft from the camera JPEG is developed at ([`QuickSource::Draft`]).
 pub const DRAFT_EDGE: usize = 1600;
@@ -1816,6 +1857,7 @@ impl crate::Session {
         });
         // a thumbnail of the photo's own settings is its latest grid picture too
         let latest = cache.as_ref().filter(|_| !before).map(|(c, _)| (c.clone(), latest_thumb_key(&p)));
+        let placement = (!before).then(|| self.placement_with(&p, &settings, apply_crop));
         Some(RenderJob {
             request_id: 0,
             cache_generation: self.media.rendered.generation(),
@@ -1837,6 +1879,7 @@ impl crate::Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            placement,
         })
     }
 
@@ -1851,6 +1894,7 @@ impl crate::Session {
             job.source = self.media.source_ref(&p, job.level);
         }
         job.settings = Arc::new(settings.clone());
+        job.placement = None;
         job.key = settings.hash64()
             ^ ((max_w as u64) << 40)
             ^ ((max_h as u64) << 20)
@@ -1910,6 +1954,7 @@ impl crate::Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            placement: None,
         })
     }
 
@@ -1967,6 +2012,7 @@ impl crate::Session {
             slide: None,
             preview_cut,
             display_fit: None,
+            placement: None,
         })
     }
 
@@ -1984,6 +2030,28 @@ impl crate::Session {
         let min = (want as f64 * crate::face_tiles::SOFT_LIMIT).ceil() as usize;
         let aspect = f64::from(p.width) / f64::from(p.height);
         Some(crate::face_tiles::PreviewCut { path, loader, want, min, rect, aspect, edge })
+    }
+
+    /// Where a render of photo `id` with its current settings lies in it, and its look
+    /// ([`crate::placement::Placement`]; `apply_crop`: cropped, as the loupe and grid show it).
+    pub fn placement_of(&mut self, id: PhotoId, apply_crop: bool) -> Option<crate::placement::Placement> {
+        let p = self.catalog.photo(id)?.clone();
+        let settings = p.develop.clone();
+        Some(self.placement_with(&p, &settings, apply_crop))
+    }
+
+    fn placement_with(&mut self, p: &Photo, settings: &Arc<DevelopSettings>, apply_crop: bool) -> crate::placement::Placement {
+        if let Some((s, pl)) = self.media.placements.get(&(p.id, apply_crop))
+            && s.as_ptr() == Arc::as_ptr(settings)
+        {
+            return *pl;
+        }
+        let pl = crate::placement::Placement::of(p, settings, apply_crop);
+        if self.media.placements.len() >= 2 * SETTINGS_HASH_ENTRIES {
+            self.media.placements.clear();
+        }
+        self.media.placements.insert((p.id, apply_crop), (Arc::downgrade(settings), pl));
+        pl
     }
 
     /// Size-independent cache key of a photo's view render (loupe) for its current settings. The
@@ -2136,6 +2204,7 @@ impl crate::Session {
         let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
         let key = h.0 as u64;
         let as_shot = crate::import::looks_as_shot(&p);
+        let want = self.placement_with(&p, &p.develop, apply_crop);
         // an edited photo: its last view, else its last grid thumbnail (its edit, if older); a photo
         // as shot has its camera JPEG, sharper than a thumbnail
         let latest = if as_shot {
@@ -2168,6 +2237,7 @@ impl crate::Session {
             fit: None,
             draft,
             small: apply_crop.then(|| Box::new(small)),
+            want: Some(want),
         })
     }
 
@@ -2194,6 +2264,7 @@ impl crate::Session {
             fit: None,
             draft: None,
             small: None,
+            want: None,
         })
     }
 
@@ -2215,16 +2286,22 @@ impl crate::Session {
             let c = self.media.rendered.clone();
             let latest = vec![(c.clone(), latest_thumb_key(&p)), (c.clone(), latest_view_key(&p, true))];
             let exact = job.cache.clone();
-            // nothing of it rendered yet: a fast draft with its settings from the camera JPEG (a raw), else
-            // its render is its first picture
-            let draft = if !exact.iter().any(|(c, k)| c.has(*k)) && !latest.iter().any(|(c, k)| c.has(*k)) {
-                let jpeg = self.embedded_stand_in_of(&p)?;
-                let mut j = job.clone();
-                j.cache = None;
-                j.latest = None;
-                Some((jpeg.0, jpeg.1, edge, Box::new(j)))
-            } else {
+            // not rendered with these settings yet: a fast draft with them from the camera JPEG (a raw),
+            // after a latest picture that may stand in (one with another look may not: note 4 of
+            // 2026-10-25); with neither, its render is its first picture
+            let draft = if exact.iter().any(|(c, k)| c.has(*k)) {
                 None
+            } else {
+                let jpeg = self.embedded_stand_in_of(&p);
+                if jpeg.is_none() && !latest.iter().any(|(c, k)| c.has(*k)) {
+                    return None;
+                }
+                jpeg.map(|(path, l)| {
+                    let mut j = job.clone();
+                    j.cache = None;
+                    j.latest = None;
+                    (path, l, edge, Box::new(j))
+                })
             };
             return Some(QuickJob {
                 request_id: 0,
@@ -2238,6 +2315,7 @@ impl crate::Session {
                 fit: Some((edge, edge)),
                 draft,
                 small: None,
+                want: job.placement,
             });
         }
         let (path, l) = self.embedded_stand_in_of(&p)?;
@@ -2255,6 +2333,7 @@ impl crate::Session {
             fit: None,
             draft: None,
             small: Some(Box::new(job.clone())),
+            want: None,
         })
     }
 
@@ -2595,6 +2674,7 @@ mod thumbnail_hash_tests {
             fit: None,
             draft: None,
             small: None,
+            want: None,
         };
         let r = quick.run();
         assert_eq!((r.request_id, r.key), (7, 9));
@@ -3129,4 +3209,14 @@ mod tests {
         assert_ne!(pv.key, s.render_job(id, 800, 600, false, true).unwrap().key);
         assert_eq!(*pv.settings, a);
     }
+}
+
+/// A placement as the record kept with a latest picture ([`PreviewCache::put_latest_with`]).
+pub(crate) fn placement_bytes(p: Option<&crate::placement::Placement>) -> Option<Vec<u8>> {
+    serde_json::to_vec(p?).ok()
+}
+
+/// The placement kept with a latest picture (`None`: none kept, or unreadable).
+fn placement_from(bytes: Option<&[u8]>) -> Option<crate::placement::Placement> {
+    serde_json::from_slice(bytes?).ok()
 }

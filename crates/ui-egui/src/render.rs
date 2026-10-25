@@ -94,6 +94,9 @@ pub struct Tex {
     pub pixels: Option<std::sync::Arc<egui::ColorImage>>,
     /// Showing a render that stayed on the GPU ([`ScreenTextures`]): drawn by this id instead of `tex`.
     pub native: Option<egui::TextureId>,
+    /// Where the picture lies in its photo and the look it has
+    /// ([`lightcraft_engine::placement`]): the loupe draws it cut to the photo's current crop.
+    pub placement: Option<lightcraft_engine::placement::Placement>,
 }
 
 impl Tex {
@@ -1257,6 +1260,7 @@ impl Renderer {
                         t.histogram = Some(histogram);
                         t.ms = ms;
                         t.quick = None;
+                        t.placement = r.placement;
                     }
                     None => {
                         // (`tex` is never drawn while `native` is set)
@@ -1272,6 +1276,7 @@ impl Renderer {
                             quick: None,
                             pixels: None,
                             native: Some(id),
+                            placement: r.placement,
                         };
                         self.textures.insert(slot, t);
                     }
@@ -1356,6 +1361,7 @@ impl Renderer {
                     t.histogram = Some(rendered.histogram);
                     t.ms = ms;
                     t.quick = r.quick;
+                    t.placement = r.placement;
                 }
                 None => {
                     let tex = ctx.load_texture(name, color, egui::TextureOptions::LINEAR);
@@ -1371,6 +1377,7 @@ impl Renderer {
                             quick: r.quick,
                             pixels,
                             native: None,
+                            placement: r.placement,
                         },
                     );
                 }
@@ -2526,7 +2533,7 @@ mod stage_budget_tests {
         let tex = ctx.load_texture("window", egui::ColorImage::new([1, 1], vec![egui::Color32::BLACK]), Default::default());
         r.textures.insert(
             Slot::Region,
-            Tex { key: 1, photo: PhotoId(1), tex, native: None, size: [1, 1], histogram: None, ms: 0.0, quick: None, pixels: None },
+            Tex { key: 1, photo: PhotoId(1), tex, native: None, size: [1, 1], histogram: None, ms: 0.0, quick: None, pixels: None, placement: None },
         );
         let long_ago = std::time::Instant::now().checked_sub(IDLE_TRIM * 2).unwrap();
         r.idle = Some((long_ago, false));
@@ -2659,6 +2666,7 @@ mod color_image_tests {
             quick: None,
             display: None,
             frame: None,
+            placement: None,
         };
         let histogram = Histogram::of_srgb8(&image);
         let ok = Renderer::run_for(|| result(Ok(lightcraft_pipeline::Rendered { image: image.clone(), histogram, deep: None })), &None);
