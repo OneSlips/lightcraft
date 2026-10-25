@@ -742,11 +742,18 @@ impl MediaCache {
         r
     }
 
+    /// Is photo `p`'s original known to be missing (cached answer only)?
+    fn original_offline(&self, p: &Photo) -> bool {
+        matches!(&p.source, Source::File { path } if self.availability.is_offline(path))
+    }
+
     fn source_ref_plain(&mut self, p: &Photo, level: SourceLevel, cached: bool, wanted: Option<(String, Arc<DcpProfile>)>) -> SourceRef {
-        // (a source developed with another camera profile, or none, doesn't stand in)
+        // (a source developed with another camera profile, or none, doesn't stand in; a smart preview
+        // has no camera profile, and decoding it again gives the same picture, so it stands in while the
+        // original is offline)
         if cached
             && let Some(a) = self.get_source(p.id, level)
-            && a.camera_profile == wanted.as_ref().map(|(id, _)| id.clone())
+            && (a.camera_profile == wanted.as_ref().map(|(id, _)| id.clone()) || (a.from_proxy && self.original_offline(p)))
         {
             return SourceRef::Loaded(Box::new(a));
         }
@@ -756,7 +763,7 @@ impl MediaCache {
             && level == SourceLevel::Thumb
             && self.denoise.spec(p.id).is_none()
             && let Some(big) = self.get_source(p.id, SourceLevel::Preview)
-            && big.camera_profile == wanted.as_ref().map(|(tag, _)| tag.clone())
+            && (big.camera_profile == wanted.as_ref().map(|(tag, _)| tag.clone()) || (big.from_proxy && self.original_offline(p)))
         {
             return SourceRef::Fit { from: Box::new(big), max_edge: level.max_edge() };
         }

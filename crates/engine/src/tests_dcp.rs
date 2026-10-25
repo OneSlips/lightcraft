@@ -335,6 +335,31 @@ fn smart_previews_are_built_without_the_imported_camera_profile() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// While the original is offline, a cached smart preview stands in for a photo developed with an imported camera
+/// profile: it has no profile and decoding it again gives the same picture. Before, it was decoded again for every
+/// render. Once the original is back, the photo is decoded from it with its profile.
+#[test]
+fn a_cached_smart_preview_stands_in_while_the_original_is_offline() {
+    use crate::media::{DecodedSource, SourceLevel, SourceRef};
+    let dir = temp_dir("proxy-offline");
+    let (mut s, id, _) = library_with_profile(&dir);
+    let p = (**s.catalog.photo(id).unwrap()).clone();
+    assert!(s.media.camera_profile_of(&p).is_some());
+    let proxy = DecodedSource { from_proxy: true, ..DecodedSource::new(std::sync::Arc::new(lightcraft_raster::Rgb32f::new(8, 8)), None) };
+    s.media.insert_source(id, SourceLevel::Preview, proxy);
+    let offline = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let probe_offline = offline.clone();
+    s.media.availability.set_probe(std::sync::Arc::new(move |path: &str| {
+        !(path.ends_with("IMG_0003.dng") && probe_offline.load(std::sync::atomic::Ordering::Relaxed)) && std::path::Path::new(path).exists()
+    }));
+    assert!(matches!(s.media.source_ref(&p, SourceLevel::Preview), SourceRef::Loaded(a) if a.from_proxy), "the proxy stands in");
+    assert!(matches!(s.media.source_ref(&p, SourceLevel::Thumb), SourceRef::Fit { .. }), "the thumbnail is cut from it");
+    offline.store(false, std::sync::atomic::Ordering::Relaxed);
+    assert!(!matches!(s.media.source_ref(&p, SourceLevel::Preview), SourceRef::Loaded(_)), "the original is back: decoded with the profile");
+    assert!(!matches!(s.media.source_ref(&p, SourceLevel::Thumb), SourceRef::Fit { .. }));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The decoder facts reported for a photo come from a cached source developed with the camera profile it uses now;
 /// before, a thumbnail decoded with another profile (or none) answered first.
 #[test]
