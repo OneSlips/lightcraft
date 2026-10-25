@@ -1394,16 +1394,19 @@ impl Session {
             r.progress.cancel_now();
             n += 1;
         }
-        let before = self.denoise.queue.len();
+        let before = self.denoise.queue.len() + self.denoise.backlog.len();
         match photo {
-            Some(p) => self.denoise.queue.retain(|q| *q != p),
+            Some(p) => {
+                self.denoise.queue.retain(|q| *q != p);
+                self.denoise.backlog.retain(|q| *q != p);
+            }
             None if all => {
                 self.denoise.queue.clear();
                 self.denoise.backlog.clear();
             }
             None => {}
         }
-        n + before - self.denoise.queue.len()
+        n + before.saturating_sub(self.denoise.queue.len() + self.denoise.backlog.len())
     }
 
     /// The photos the automatic queue looks at: the one open and the ones selected, those with a Denoise amount.

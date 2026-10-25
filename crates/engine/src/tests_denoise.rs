@@ -1031,8 +1031,18 @@ fn an_import_larger_than_the_queue_makes_every_picture() {
         std::fs::write(&path, synthetic_dng_of(192, 160, "RGGB", data, None, meta)).unwrap();
         paths.push(path.to_string_lossy().into_owned());
     }
-    x.s.execute("library.import", &json!({"paths": paths})).unwrap();
+    x.s.execute("library.import", &json!({"paths": paths.clone()})).unwrap();
     assert!(x.s.denoise_busy());
+    // cancelling one waiting photo takes it out of the backlog too
+    let last = x.s.catalog.photos().find(|p| p.file_name == "high-2.dng").map(|p| p.id).expect("imported");
+    assert_eq!(x.s.execute("denoise.cancel", &json!({"id": last.0})).unwrap()["cancelled"], 1);
+    pump_until_ready(&mut x.s, 2);
+    for _ in 0..20 {
+        x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+    }
+    assert!(!x.s.denoise_busy());
+    assert_eq!(x.s.execute("denoise.status", &json!({})).unwrap()["ready"], 2, "the cancelled photo isn't made");
+    x.s.execute("denoise.queue", &json!({"ids": [last.0]})).unwrap();
     pump_until_ready(&mut x.s, 3);
     drop(x.s);
     let _ = std::fs::remove_dir_all(x.dir);
