@@ -172,7 +172,7 @@ pub fn detail_status(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, am
             egui::Frame::NONE.inner_margin(pad).show(ui, |ui| {
                 note(ui, "AI Denoise needs a model, and none is installed. Meanwhile, Luminance and Color under Detail reduce noise.", t.text_dim);
                 ui.add_space(2.0);
-                let r = ui.small_button(crate::i18n::tr("Why?"));
+                let r = ui.small_button(crate::i18n::tr("Set up AI Denoise…"));
                 register(ui.ctx(), "denoise:setup", r.rect);
                 if r.clicked() {
                     let _ = app.run("denoise.toggle", json!({"id": id.0, "enabled": true}));
@@ -238,10 +238,8 @@ pub fn detail_status(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, am
 pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let list = models(app, ui.ctx());
     heading(ui, t, "AI Denoise");
-    let none_yet = list["models"].as_array().is_none_or(|m| m.is_empty());
-    if !none_yet {
-        crate::model_setup::notice(app, ui, "denoise");
-    }
+    // (also without a model to offer: a model installed from a file finishes the request)
+    crate::model_setup::notice(app, ui, "denoise");
     if list["dir"].is_null() {
         hint(ui, t, "This build has nowhere to keep denoise models, so AI Denoise is not available. (The desktop app has.)");
         return;

@@ -93,6 +93,12 @@ const LIGHTCRAFT_BAYER_BYTES: u64 = 31_091_398;
 /// LightCraft; the download is the `.onnx` itself.
 #[cfg(any(feature = "lightcraft-model", test))]
 fn lightcraft_bayer() -> Known {
+    lightcraft_bayer_from(lightcraft_bayer_urls())
+}
+
+/// [`lightcraft_bayer`] fetched from `urls`, in order (the first is the download's address, the rest its fallbacks).
+#[cfg(any(feature = "lightcraft-model", test))]
+fn lightcraft_bayer_from(urls: Vec<String>) -> Known {
     let manifest = DenoiserManifest {
         id: "lightcraft-bayer".into(),
         name: "LightCraft Denoise (Bayer)".into(),
@@ -119,7 +125,7 @@ fn lightcraft_bayer() -> Known {
         overlap: 64,
         gain: Gain::None,
     };
-    let mut urls = lightcraft_bayer_urls().into_iter();
+    let mut urls = urls.into_iter();
     let download = Download {
         id: manifest.id.clone(),
         url: urls.next().unwrap_or_else(|| LIGHTCRAFT_BAYER_URL.to_string()),
@@ -213,9 +219,14 @@ mod tests {
         assert_eq!(urls_or_default(Some("http://example.org/m.onnx")), both, "only https");
         assert_eq!(urls_or_default(Some("https://")), both);
         assert_eq!(urls_or_default(Some("https://a b")), both);
-        let k = lightcraft_bayer();
+        // (not `lightcraft_bayer()`: it reads LIGHTCRAFT_DENOISE_MODEL_URL, which a maintainer testing a copy of
+        // their own may have set)
+        let k = lightcraft_bayer_from(urls_or_default(None));
         let d = k.download.as_ref().unwrap();
         assert_eq!((d.url.as_str(), d.fallbacks.as_slice()), (LIGHTCRAFT_BAYER_URL, &[LIGHTCRAFT_BAYER_FALLBACK_URL.to_string()][..]));
+        let own = lightcraft_bayer_from(urls_or_default(Some("https://example.org/m.onnx")));
+        let d = own.download.as_ref().unwrap();
+        assert_eq!((d.url.as_str(), d.fallbacks.len()), ("https://example.org/m.onnx", 0), "one address given: no other source");
         // the same file wherever it comes from: both end in its name
         assert!(both.iter().all(|u| u.ends_with(&format!("/{}", d.file_name))));
         assert!(!lightcraft_bayer().manifest.licence.notice.contains("  "), "one space between words");

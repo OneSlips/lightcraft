@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--ckpt", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--rawdump", required=True)
-    ap.add_argument("--data", help="the data folder, for the credits in the manifest")
+    ap.add_argument("--data", required=True, help="the data folder (its sources.csv gives the credits in the manifest)")
     ap.add_argument("--version", default="0.1.0")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
@@ -50,11 +50,16 @@ def main():
     M.export_onnx(net, onnx_path, TILE)
     data = open(onnx_path, "rb").read()
 
-    n, cams = 0, 0
-    if a.data and os.path.exists(os.path.join(a.data, "sources.csv")):
-        rows = list(csv.DictReader(open(os.path.join(a.data, "sources.csv"), encoding="utf8")))
-        assert all(r["licence"] == "CC0-1.0" for r in rows)
-        n, cams = len(rows), len({(r["make"], r["model"]) for r in rows})
+    sources = os.path.join(a.data, "sources.csv")
+    if not os.path.exists(sources):
+        raise SystemExit(f"{sources} is missing: the manifest's data credits come from it")
+    rows = list(csv.DictReader(open(sources, encoding="utf8")))
+    other = [r for r in rows if r.get("licence") != "CC0-1.0"]
+    if other:
+        raise ValueError(f"{len(other)} training pictures are not CC0-1.0 (first: {other[0]})")
+    if not rows:
+        raise SystemExit(f"{sources} lists no training pictures")
+    n, cams = len(rows), len({(r["make"], r["model"]) for r in rows})
 
     manifest = {
         "id": "lightcraft-bayer",
