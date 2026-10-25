@@ -265,7 +265,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let resp = if elided { resp.on_hover_text(&m.name) } else { resp };
             // the pointer on a mask's row shows that mask's overlay (as Lightroom Classic)
             if ui.rect_contains_pointer(r) {
-                app.ui.mask_hover = Some(m.id);
+                app.ui.mask_hover = app.session.active().map(|photo| (photo, m.id));
             }
             // show / hide on hover (and always while hidden)
             // (the pointer test, not `hovered`: over the eye, the row itself no longer counts as hovered)

@@ -236,11 +236,41 @@ fn a_mask_shows_its_overlay_by_itself_only_without_settings() {
         assert!(!shown(&h), "{cmd} on a mask with settings shows its effect");
     }
     // on request: the pointer on the mask's row, or O
-    h.app.ui.mask_hover = h.app.session.active_mask;
+    h.app.ui.mask_hover = h.app.session.active().zip(h.app.session.active_mask);
     assert!(shown(&h), "the pointer on its row shows the overlay");
     off_rows(&mut h);
     h.request("ui.key", json!({"key": "o"}), T);
     assert!(shown(&h), "O shows it");
+    h.settle(SETTLE);
+}
+
+/// The pointer on a mask's row, and O hiding a mask's automatic overlay, belong to that photo: on
+/// another photo a mask with the same id is another mask.
+#[test]
+fn a_mask_hovered_or_hidden_on_one_photo_says_nothing_about_another() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    let first = h.app.session.active().unwrap();
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    let mask = h.app.session.active_mask.unwrap();
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    // O hides the fresh mask's overlay on this photo
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h));
+    assert_eq!(h.app.ui.mask_overlay_hidden, Some((first, mask)));
+    // another photo with a fresh mask of the same id still shows it
+    let other = h.app.session.visible_cloned().into_iter().find(|p| *p != first).unwrap();
+    exec(&mut h, "library.select", json!({"ids": [other.0]}));
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    assert_eq!(h.app.session.active(), Some(other));
+    assert_eq!(h.app.session.active_mask, Some(mask), "the same id on the other photo");
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(shown(&h), "hidden on the first photo only");
+    // a hover left over from the first photo doesn't count here
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 0.5}}));
+    h.app.ui.mask_hover_prev = Some((first, mask));
+    assert!(!shown(&h), "the first photo's hover is not this photo's");
     h.settle(SETTLE);
 }
 

@@ -842,14 +842,15 @@ pub struct UiState {
     /// or pin the pointer is on. Not kept between sessions: the photo opens without it.
     #[serde(skip)]
     pub mask_overlay: bool,
-    /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it).
+    /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it),
+    /// with the photo it is on: a mask of the same id on another photo is another mask.
     #[serde(skip)]
-    pub mask_hover: Option<u32>,
+    pub mask_hover: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
     #[serde(skip)]
-    pub mask_hover_prev: Option<u32>,
-    /// O hid the automatic overlay of this mask (until O shows it again).
+    pub mask_hover_prev: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
+    /// O hid the automatic overlay of this mask of this photo (until O shows it again).
     #[serde(skip)]
-    pub mask_overlay_hidden: Option<u32>,
+    pub mask_overlay_hidden: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,

@@ -204,7 +204,7 @@ mod in_the_loupe {
         h.app.ui.pan = (0.3, 0.4);
         // (a mask without settings shows its overlay by itself: O hides it for that mask)
         h.app.ui.mask_overlay = false;
-        h.app.ui.mask_overlay_hidden = h.app.session.active_mask;
+        h.app.ui.mask_overlay_hidden = h.app.session.active().zip(h.app.session.active_mask);
         h.settle(SETTLE);
         let (zoom, pan) = (h.app.ui.zoom, h.app.ui.pan);
         assert_eq!(zoom, crate::state::Zoom::Percent(100.0));
@@ -225,7 +225,7 @@ mod in_the_loupe {
         assert_ne!(shown.settings, plain.settings, "the overlay is part of the window's look");
 
         h.app.ui.mask_overlay = false;
-        h.app.ui.mask_overlay_hidden = h.app.session.active_mask;
+        h.app.ui.mask_overlay_hidden = h.app.session.active().zip(h.app.session.active_mask);
         h.settle(SETTLE);
         assert_eq!((h.app.ui.zoom, h.app.ui.pan), (zoom, pan), "hiding it keeps them too");
         assert_eq!(h.app.region_view.map(|r| r.settings), Some(plain.settings), "back to the plain window");

@@ -1588,7 +1588,9 @@ fn shapes_graphics(id: &str) -> bool {
 /// judges a mask's effect; hovering its row or pin, or O, shows it on request.
 pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> Option<&'a lightcraft_develop::Mask> {
     if !mask_gesture(app)
-        && let Some(m) = app.ui.mask_hover.or(app.ui.mask_hover_prev).and_then(|id| d.masks.iter().find(|m| m.id == id))
+        && let Some(photo) = app.session.active()
+        && let Some(m) =
+            app.ui.mask_hover.or(app.ui.mask_hover_prev).filter(|(p, _)| *p == photo).and_then(|(_, id)| d.masks.iter().find(|m| m.id == id))
     {
         return Some(m);
     }
@@ -1602,7 +1604,7 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
     if app.ui.mask_overlay {
         return true;
     }
-    if app.ui.mask_overlay_hidden == Some(m.id) {
+    if app.session.active().is_some_and(|photo| app.ui.mask_overlay_hidden == Some((photo, m.id))) {
         return false;
     }
     !mask_has_settings(m)
@@ -2495,7 +2497,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if let Some(h) = resp.hover_pos()
         && let Some((mid, ..)) = grips.iter().find(|(_, _, handle, q)| *handle == 0 && q.distance(h) < 9.0)
     {
-        app.ui.mask_hover = Some(*mid);
+        app.ui.mask_hover = app.session.active().map(|photo| (photo, *mid));
     }
     mask_keys(app, ui, map, d, &grips);
     // Object selections (SAM 3) of the selected mask: each click, green to include, red to exclude
