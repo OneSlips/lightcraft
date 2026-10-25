@@ -943,6 +943,21 @@ pub struct UiState {
     /// ([`crate::import_tab::keep_in_step`]): back to Library once the view is the library's again.
     #[serde(skip)]
     pub import_moved: bool,
+    /// The mask selected last on each photo (photo → mask id), for this session: entering Masks
+    /// there lands on it (test notes 2026-10-25 note 8).
+    #[serde(skip)]
+    pub mask_memory: std::collections::HashMap<u64, u32>,
+    /// The mask selected last in Masks, on whichever photo (photo, mask id): another photo with
+    /// the same synced masks selects its counterpart.
+    #[serde(skip)]
+    pub mask_last: Option<(u64, u32)>,
+    /// The photo on show and whether Masks was open, last frame: a change is "entering Masks".
+    #[serde(skip)]
+    pub mask_seen: Option<(Option<u64>, bool)>,
+    /// The mask selected when a new-mask tool was armed (photo, mask), deselected meanwhile:
+    /// putting the tool away without making a mask selects it again (test notes 2026-10-25 note 9).
+    #[serde(skip)]
+    pub mask_before_arm: Option<(u64, Option<u32>)>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -1900,6 +1915,10 @@ impl Default for UiState {
             mask_hover_prev: None,
             mask_overlay_hidden: None,
             import_moved: false,
+            mask_memory: Default::default(),
+            mask_last: None,
+            mask_seen: None,
+            mask_before_arm: None,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,

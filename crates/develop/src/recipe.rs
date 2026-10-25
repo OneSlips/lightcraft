@@ -325,6 +325,22 @@ fn counterpart(m: &Mask, masks: &[Mask]) -> Option<usize> {
         .or_else(|| masks.iter().position(|t| t.same_selection(m) && t.name == m.name))
 }
 
+/// Where mask `m` (at `index` in a list of `count` masks on another photo) is among `masks`: the
+/// same synced mask (the same selection, i.e. source and recipe, with the same id or name, else
+/// alone), else its Auto Sync counterpart by id and name, else the same name, else the same place
+/// in a list as long. Entering Masks on another photo selects it, so the
+/// photographer keeps working on that mask from photo to photo (test notes 2026-10-25 note 8).
+pub fn same_mask(m: &Mask, index: usize, count: usize, masks: &[Mask]) -> Option<usize> {
+    masks
+        .iter()
+        .position(|t| t.id == m.id && t.same_selection(m))
+        .or_else(|| masks.iter().position(|t| t.same_selection(m) && t.name == m.name))
+        .or_else(|| masks.iter().position(|t| t.same_selection(m)))
+        .or_else(|| counterpart(m, masks))
+        .or_else(|| masks.iter().position(|t| !m.name.trim().is_empty() && t.name == m.name))
+        .or_else(|| (masks.len() == count && index < count).then_some(index))
+}
+
 /// The fields of `new` that differ from `old`, set on `target` (each a whole value: an
 /// adjustment slider, a curve), so the other photo keeps the rest of its own.
 fn carry_fields<T: Serialize + serde::de::DeserializeOwned + Clone>(old: &T, new: &T, target: &T) -> T {

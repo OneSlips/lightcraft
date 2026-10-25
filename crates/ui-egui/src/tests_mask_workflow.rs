@@ -368,3 +368,142 @@ fn add_and_subtract_work_with_every_kind() {
         }
     }
 }
+
+/// Leave Masks (the Edit panel) and enter it again.
+fn reenter(h: &mut Headless) {
+    exec(h, "panel.edit", json!({}));
+    h.step();
+    assert_ne!(h.app.ui.right, crate::state::RightPanel::Masking);
+    exec(h, "panel.masking", json!({}));
+    h.step();
+    assert_eq!(h.app.ui.right, crate::state::RightPanel::Masking);
+}
+
+/// The id of the `n`-th mask of the active photo.
+fn nth(h: &Headless, n: usize) -> u32 {
+    develop(h).masks[n].id
+}
+
+/// Test notes 2026-10-25 note 8: entering Masks lands on a mask when the photo has any: the only
+/// one; the one selected last time on this photo (the third of five stays the third); else the
+/// first. It used to open with none selected although the photo had a mask.
+#[test]
+fn entering_masks_lands_on_a_mask() {
+    let mut h = masking();
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.3, 0.4], "rx": 0.1, "ry": 0.1}));
+    // (1) one mask: away to another photo (nothing selected there), back, into Masks
+    exec(&mut h, "panel.edit", json!({}));
+    exec(&mut h, "library.next", json!({}));
+    exec(&mut h, "library.previous", json!({}));
+    h.step();
+    assert_eq!(h.app.session.active_mask, None, "stepping photos selects no mask");
+    exec(&mut h, "panel.masking", json!({}));
+    h.step();
+    assert_eq!(h.app.session.active_mask, Some(nth(&h, 0)), "the only mask");
+    // (2) five masks, the third selected: leaving and coming back keeps it, also after a photo away
+    for x in [0.4, 0.5, 0.6, 0.7] {
+        exec(&mut h, "mask.add", json!({"kind": "radial", "center": [x, 0.6], "rx": 0.05, "ry": 0.05}));
+    }
+    assert_eq!(develop(&h).masks.len(), 5);
+    let third = nth(&h, 2);
+    exec(&mut h, "mask.select", json!({"id": third}));
+    h.step();
+    reenter(&mut h);
+    assert_eq!(h.app.session.active_mask, Some(third), "leaving and coming back keeps the third");
+    exec(&mut h, "panel.edit", json!({}));
+    exec(&mut h, "library.next", json!({}));
+    exec(&mut h, "library.previous", json!({}));
+    exec(&mut h, "panel.masking", json!({}));
+    h.step();
+    assert_eq!(h.app.session.active_mask, Some(third), "the one selected last time on this photo");
+    // (3) a photo with masks never selected: the first
+    exec(&mut h, "library.next", json!({}));
+    h.step();
+    assert_eq!(develop(&h).masks.len(), 0);
+    for x in [0.3, 0.6] {
+        exec(&mut h, "mask.add", json!({"kind": "linear", "start": [x, 0.2], "end": [x, 0.6]}));
+    }
+    exec(&mut h, "mask.select", json!({}));
+    h.app.ui.mask_memory.clear();
+    h.app.ui.mask_last = None;
+    reenter(&mut h);
+    assert_eq!(h.app.session.active_mask, Some(nth(&h, 0)), "the first");
+}
+
+/// Test notes 2026-10-25 note 8 (3): after Auto Sync gave the photos the same masks, moving to
+/// another photo in Masks keeps the SAME mask selected (the third of five on each), matched by the
+/// synced mask, not by its id on the first photo.
+#[test]
+fn the_same_synced_mask_stays_selected_from_photo_to_photo() {
+    let mut h = masking();
+    let ids: Vec<u64> = h.app.session.visible_cloned().iter().take(2).map(|p| p.0).collect();
+    // the second photo has a mask of its own first, so the synced ones sit at other ids there
+    exec(&mut h, "library.select", json!({"ids": [ids[1]]}));
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.1, 0.1], "rx": 0.05, "ry": 0.05}));
+    exec(&mut h, "library.select", json!({"ids": [ids[0], ids[1]], "active": ids[0]}));
+    exec(&mut h, "develop.autoSync", json!({"on": true}));
+    for x in [0.2, 0.35, 0.5, 0.65, 0.8] {
+        exec(&mut h, "mask.add", json!({"kind": "radial", "center": [x, 0.5], "rx": 0.05, "ry": 0.05}));
+    }
+    h.step();
+    let other = h.app.session.develop_of(lightcraft_catalog::PhotoId(ids[1])).unwrap();
+    assert_eq!(other.masks.len(), 6, "its own and the five synced");
+    let third = nth(&h, 2);
+    exec(&mut h, "mask.select", json!({"id": third}));
+    h.step();
+    exec(&mut h, "library.select", json!({"ids": [ids[0], ids[1]], "active": ids[1]}));
+    h.step();
+    let centre = |m: &lightcraft_develop::Mask| match m.components[0].shape {
+        MaskShape::Radial { center, .. } => (center.x, center.y),
+        _ => (-1.0, -1.0),
+    };
+    let d = develop(&h);
+    let sel = d.masks.iter().find(|m| Some(m.id) == h.app.session.active_mask).map(centre);
+    assert!(sel.is_some_and(|c| near(c, (0.5, 0.5))), "the synced third mask on the other photo too: {sel:?}");
+    // and back: the third again
+    exec(&mut h, "library.select", json!({"ids": [ids[0], ids[1]], "active": ids[0]}));
+    h.step();
+    assert_eq!(h.app.session.active_mask, Some(third));
+}
+
+/// Test notes 2026-10-25 note 9: arming a new mask tool deselects the selected mask, so the
+/// sliders set the NEW mask ("New mask" in the panel and the on-screen display); the mask drawn
+/// has them and is selected; arming again and Esc goes back to the mask selected before,
+/// unchanged. It used to move the selected (Sky) mask.
+#[test]
+fn arming_a_new_mask_tool_deselects_the_selected_mask() {
+    let mut h = masking();
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.1], "end": [0.5, 0.4], "name": "Top"}));
+    let top = h.app.session.active_mask.expect("selected");
+    let before = develop(&h).masks[0].clone();
+    click(&mut h, "maskNew:radial");
+    assert_eq!(h.app.ui.tool, "radial");
+    assert_eq!(h.app.session.active_mask, None, "arming deselects");
+    assert!(has(&h, "maskNextSettings"), "the panel says the sliders are for the new mask");
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 0.5}}));
+    assert_eq!(develop(&h).masks[0], before, "nothing moves on the old mask");
+    drag(&mut h, (0.3, 0.6), (0.4, 0.7));
+    let d = develop(&h);
+    assert_eq!(d.masks.len(), 2);
+    assert_eq!(d.masks[1].adjust.exposure, 0.5, "the new mask has the setting");
+    assert_eq!(h.app.session.active_mask, Some(d.masks[1].id), "and is selected");
+    assert_eq!(d.masks[0], before);
+    // arm again, Esc: back to the mask selected before
+    exec(&mut h, "mask.select", json!({"id": top}));
+    h.step();
+    click(&mut h, "maskNew:radial");
+    assert_eq!(h.app.session.active_mask, None);
+    let r = h.request("ui.key", json!({"key": "escape"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert_eq!(h.app.ui.tool, "", "Esc puts the tool away");
+    assert_eq!(h.app.session.active_mask, Some(top), "the mask selected before");
+    assert_eq!(develop(&h).masks[0], before, "unchanged");
+    // the tile again (put away without drawing) does the same
+    click(&mut h, "maskNew:linear");
+    assert_eq!(h.app.session.active_mask, None);
+    click(&mut h, "maskNew:linear");
+    h.step();
+    assert_eq!(h.app.session.active_mask, Some(top));
+}

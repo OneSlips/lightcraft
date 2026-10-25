@@ -1570,6 +1570,9 @@ impl LightcraftApp {
         self.sync_theme(ctx);
         // browsed photos show only in the Import tab (test notes 2026-10-25 note 3)
         import_tab::keep_in_step(self);
+        // the mask Masks has selected: one to work on, none while a new one is being made
+        // (test notes 2026-10-25 notes 8 and 9)
+        panels::masking::keep_selection(self);
         panels::notices::logic(self);
         // closing the window (or Quit) with changes only in memory: retry, else ask first
         if ctx.input(|i| i.viewport().close_requested()) && !panels::notices::may_close(self) {
