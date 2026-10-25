@@ -28,11 +28,12 @@ use lightcraft_segment::identity::Signature;
 use lightcraft_segment::{
     Encoded, Owl, OwlEncoded, SAM2_MASK_SIDE, Sam2, Sam2Encoded, Sam3,
     birefnet::{BIREFNET_SIDE, BiRefNet},
-    people::{Face, FaceModel, PeopleMap, PeopleModel, PeopleRequest, people_mask},
+    people::{Face, FaceModel, PeopleMap, PeopleModel, PeopleRequest, Surfaces, people_mask},
     remote::{self, Operation, Request, text_logits},
     scene::{Scene, SceneModel},
 };
 
+use super::people_cache::{self, Analysis};
 use super::{AutoKind, AutoModel, Input, Prompt, Tag};
 use crate::media::RenderJob;
 
@@ -125,6 +126,8 @@ pub struct Job {
     pub batch: Option<(u64, Arc<std::sync::Mutex<std::collections::HashSet<u64>>>)>,
     /// The batch's activity row: the slow steps' rows show under it (client note 34).
     pub parent: Option<u64>,
+    /// Where a photo's people analysis is kept on disk (the preview cache; `None`: memory only).
+    pub analyses: Option<Arc<lightcraft_preview::PreviewCache>>,
 }
 
 impl Job {
@@ -387,6 +390,18 @@ struct State {
     note: Option<String>,
     /// The job just run couldn't tell with confidence who the person it was asked about is.
     unsure: bool,
+    /// The last photos' people, analysed ([`people_cache`]; test notes 2026-10-25, note 10).
+    analyses: people_cache::Memory,
+    /// A group's per-person crops and their class maps (`crowd_cache` is them pasted).
+    crowd_crops: Option<(u64, Vec<[f32; 4]>, Vec<PeopleMap>)>,
+    /// Everyone's SAM 2.1 silhouette ([`person_instances`]).
+    silhouettes_cache: Option<(u64, Vec<Vec<f32>>)>,
+    /// Everyone EoMT sees as a person ([`scene_people`]).
+    figures_cache: Option<(u64, Vec<Vec<f32>>)>,
+    /// The floors and walls around them ([`scene_surfaces`]).
+    surfaces_cache: Option<(u64, Surfaces)>,
+    /// Each face's appearance signature, and whether it holds SAM 2.1's features.
+    signatures_cache: Option<(u64, bool, Vec<Option<Signature>>)>,
 }
 
 impl State {
@@ -412,6 +427,11 @@ impl State {
         self.faces_cache = None;
         self.crowd_cache = None;
         self.input_cache = None;
+        self.crowd_crops = None;
+        self.silhouettes_cache = None;
+        self.figures_cache = None;
+        self.surfaces_cache = None;
+        self.signatures_cache = None;
     }
 }
 
@@ -768,114 +788,11 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             Ok(Some(SegMask::from_logits(SCENE_SIDE, &logits)))
         }
         AutoModel::People { people, face, scene, sam2 } => {
-            let map = match &people {
-                Some(dir) => {
-                    ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
-                    Some(cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| {
-                        m.segment(&i.rgb, i.w, i.h)
-                    })?)
-                }
-                None => None,
-            };
-            if matches!(what, AutoKind::Subject | AutoKind::Background) {
-                // a person is the subject when there is one; else EoMT's most confident thing
-                let person_there = map.as_ref().is_some_and(|m| m.person_share() > 0.005);
-                if !person_there && let Some(scene) = scene {
-                    return auto(state, shared, job, what, AutoModel::Scene(scene), target);
-                }
-                let Some(map) = map else { return Ok(None) };
-                let req = PeopleRequest::parse(0, &[]).ok_or("people request")?;
-                let input = photo(&mut state.input_cache, job)?;
-                return Ok(people_mask(&req, &input.rgb, input.w, input.h, Some(map), &[]).map(|g| {
-                    let logits = if background { invert(g.logits) } else { g.logits };
-                    SegMask::from_logits(g.side, &logits)
-                }));
-            }
-            let AutoKind::People { person, parts, .. } = what else { return Err("not a People selection".into()) };
-            let mut req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
-            let faces: Vec<Face> = match &face {
-                Some(dir) => {
-                    ensure_face(&mut state.face, &mut state.faces_cache, shared, dir)?;
-                    // a face FaceMesh can't fit (3/4 view, small) stays when the class map sees a face there
-                    cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
-                        m.faces_confirmed(&i.rgb, i.w, i.h, map)
-                    })?
-                    .clone()
-                }
-                None => Vec::new(),
-            };
-            if let Target::Person { rect, known, sam2 } = target {
-                // by name or role: which of the faces it is (appearance features when the
-                // examples have them)
-                let wants = rect.is_none() && known.iter().any(|k| k.body.is_some() || k.face.is_some());
-                let emb = sam2_embedding(state, shared, job, sam2.clone(), wants && !faces.is_empty());
-                let map = match &people {
-                    Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
-                    None => None,
-                };
-                let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
-                match pick_face(&faces, *rect, known, map, input, emb.as_ref()) {
-                    Pick::Face(i) => {
-                        log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
-                        req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
-                    }
-                    Pick::Unsure => {
-                        state.unsure = true;
-                        return Ok(None);
-                    }
-                    Pick::Absent => return Ok(None),
-                }
-            }
-            // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
-            // others' left out), so what touches them — an arm round the bride — stays the other's;
-            // and everyone's figure (EoMT), so someone whose face wasn't found stays out too
-            let instances = if req.person > 0 && !faces.is_empty() {
-                let silhouettes = match &sam2 {
-                    Some(dir) if faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
-                    _ => None,
-                };
-                let figures = match &scene {
-                    Some(dir) => scene_people(state, shared, job, dir),
-                    None => Vec::new(),
-                };
-                let (w, h) = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map_or((0, 0), |(_, i)| (i.w, i.h));
-                lightcraft_segment::people::Instances::combine(SAM2_MASK_SIDE, silhouettes, &figures, &faces, w, h)
-            } else {
-                None
-            };
-            // Clothes: the floor, wall or table around the people (EoMT) is never the garment
-            let surfaces = match &scene {
-                Some(dir) if req.classes == [4] => scene_surfaces(state, shared, job, dir),
-                _ => None,
-            };
-            // a group: the class map again on each small person's crop, pasted back
-            if people.is_some() {
-                crowd_map(state, shared, job, &faces);
-            }
-            let crowd = state.crowd_cache.as_ref().filter(|(k, _)| *k == job.key).and_then(|(_, m)| m.as_ref());
-            let map = match &people {
-                Some(_) => crowd.or_else(|| state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m)),
-                None => None,
-            };
-            let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
-            let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
-            let Some(g) =
-                lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref(), surfaces.as_ref())
-            else {
-                return Ok(None);
-            };
-            if skin && face.is_none() {
-                state.note = Some("Skin includes eyes, brows and mouth: the MediaPipe faces model, which finds them, isn't installed.".into());
-            } else if skin && g.faces_without_features > 0 {
-                state.note = Some(format!(
-                    "Face skin: eyes and mouth couldn't be located on {} face(s) (seen in profile), so there only hair is left out.",
-                    g.faces_without_features
-                ));
-            }
-            Ok(Some(match g.rect {
-                Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
-                None => SegMask::from_logits(g.side, &g.logits),
-            }))
+            let models = people_cache::model_tag(&[people.as_deref(), face.as_deref(), scene.as_deref(), sam2.as_deref()]);
+            let before = recall_people(state, shared, job, people.as_deref(), face.as_deref(), models);
+            let out = people_auto(state, shared, job, what, AutoModel::People { people, face, scene, sam2 }, target);
+            keep_people(state, job, before.as_deref(), models);
+            out
         }
         AutoModel::Concept { sam2, people } => {
             let Target::Concept(examples) = target else { return Err("which remembered object?".into()) };
@@ -908,6 +825,239 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
             })
         }
     }
+}
+
+/// A People selection (with [`auto`]'s arguments; `model` is [`AutoModel::People`]).
+fn people_auto(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    what: &AutoKind,
+    model: AutoModel,
+    target: &Target,
+) -> Result<Option<SegMask>, String> {
+    let invert = |l: Vec<f32>| l.into_iter().map(|v| -v).collect::<Vec<f32>>();
+    let background = *what == AutoKind::Background;
+    let AutoModel::People { people, face, scene, sam2 } = model else { return Err("not a People model".into()) };
+    let map = match &people {
+        Some(dir) => {
+            ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load)?;
+            Some(cached(&state.people, &mut state.people_cache, &mut state.input_cache, shared, job, "MediaPipe people", |m, i| {
+                m.segment(&i.rgb, i.w, i.h)
+            })?)
+        }
+        None => None,
+    };
+    if matches!(what, AutoKind::Subject | AutoKind::Background) {
+        // a person is the subject when there is one; else EoMT's most confident thing
+        let person_there = map.as_ref().is_some_and(|m| m.person_share() > 0.005);
+        if !person_there && let Some(scene) = scene {
+            return auto(state, shared, job, what, AutoModel::Scene(scene), target);
+        }
+        let Some(map) = map else { return Ok(None) };
+        let req = PeopleRequest::parse(0, &[]).ok_or("people request")?;
+        let input = photo(&mut state.input_cache, job)?;
+        return Ok(people_mask(&req, &input.rgb, input.w, input.h, Some(map), &[]).map(|g| {
+            let logits = if background { invert(g.logits) } else { g.logits };
+            SegMask::from_logits(g.side, &logits)
+        }));
+    }
+    let AutoKind::People { person, parts, .. } = what else { return Err("not a People selection".into()) };
+    let mut req = PeopleRequest::parse(*person, parts).ok_or("unknown People part")?;
+    let faces: Vec<Face> = match &face {
+        Some(dir) => {
+            ensure_face(&mut state.face, &mut state.faces_cache, shared, dir)?;
+            // a face FaceMesh can't fit (3/4 view, small) stays when the class map sees a face there
+            cached(&state.face, &mut state.faces_cache, &mut state.input_cache, shared, job, "MediaPipe faces", |m, i| {
+                m.faces_confirmed(&i.rgb, i.w, i.h, map)
+            })?
+            .clone()
+        }
+        None => Vec::new(),
+    };
+    if let Target::Person { rect, known, sam2 } = target {
+        // by name or role: which of the faces it is (appearance features when the
+        // examples have them)
+        let wants = rect.is_none() && known.iter().any(|k| k.body.is_some() || k.face.is_some());
+        // (kept with the photo's analysis: SAM 2.1 needn't encode it again)
+        let kept = state
+            .signatures_cache
+            .as_ref()
+            .is_some_and(|(k, features, s)| *k == job.key && s.len() == faces.len() && (*features || !wants || sam2.is_none()));
+        if !known.is_empty() && !faces.is_empty() && !kept {
+            let emb = sam2_embedding(state, shared, job, sam2.clone(), wants);
+            let map = match &people {
+                Some(_) => state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m),
+                None => None,
+            };
+            let input = photo(&mut state.input_cache, job)?;
+            let sigs = face_signatures(&faces, map, input, emb.as_ref());
+            state.signatures_cache = Some((job.key, emb.is_some(), sigs));
+        }
+        let sigs = state.signatures_cache.as_ref().filter(|(k, _, _)| *k == job.key).map_or(&[][..], |(_, _, s)| s.as_slice());
+        let input = photo(&mut state.input_cache, job)?;
+        match pick_face(&faces, *rect, known, sigs, input) {
+            Pick::Face(i) => {
+                log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
+                req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
+            }
+            Pick::Unsure => {
+                state.unsure = true;
+                return Ok(None);
+            }
+            Pick::Absent => return Ok(None),
+        }
+    }
+    // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
+    // others' left out), so what touches them — an arm round the bride — stays the other's;
+    // and everyone's figure (EoMT), so someone whose face wasn't found stays out too
+    let instances = if req.person > 0 && !faces.is_empty() {
+        let silhouettes = match &sam2 {
+            Some(dir) if faces.len() > 1 => person_instances(state, shared, job, dir, &faces),
+            _ => None,
+        };
+        let figures = match &scene {
+            Some(dir) => scene_people(state, shared, job, dir),
+            None => Vec::new(),
+        };
+        let (w, h) = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map_or((0, 0), |(_, i)| (i.w, i.h));
+        lightcraft_segment::people::Instances::combine(SAM2_MASK_SIDE, silhouettes, &figures, &faces, w, h)
+    } else {
+        None
+    };
+    // Clothes: the floor, wall or table around the people (EoMT) is never the garment
+    let surfaces = match &scene {
+        Some(dir) if req.classes == [4] => scene_surfaces(state, shared, job, dir),
+        _ => None,
+    };
+    // a group: the class map again on each small person's crop, pasted back
+    if people.is_some() {
+        crowd_map(state, shared, job, &faces);
+    }
+    let crowd = state.crowd_cache.as_ref().filter(|(k, _)| *k == job.key).and_then(|(_, m)| m.as_ref());
+    let map = match &people {
+        Some(_) => crowd.or_else(|| state.people_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, m)| m)),
+        None => None,
+    };
+    let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
+    let skin = req.classes.iter().any(|c| matches!(c, 2 | 3));
+    let Some(g) =
+        lightcraft_segment::people::people_mask_with(&req, &input.rgb, input.w, input.h, map, &faces, instances.as_ref(), surfaces.as_ref())
+    else {
+        return Ok(None);
+    };
+    if skin && face.is_none() {
+        state.note = Some("Skin includes eyes, brows and mouth: the MediaPipe faces model, which finds them, isn't installed.".into());
+    } else if skin && g.faces_without_features > 0 {
+        state.note = Some(format!(
+            "Face skin: eyes and mouth couldn't be located on {} face(s) (seen in profile), so there only hair is left out.",
+            g.faces_without_features
+        ));
+    }
+    Ok(Some(match g.rect {
+        Some(r) => SegMask::from_logits_in(g.side, &g.logits, r),
+        None => SegMask::from_logits(g.side, &g.logits),
+    }))
+}
+
+/// What was analysed of `job`'s photo's people before (memory, else the disk), put back into the
+/// worker's caches so nothing of it runs again (test notes 2026-10-25, note 10); `None`: nothing.
+fn recall_people(
+    state: &mut State,
+    shared: &Shared,
+    job: &mut Job,
+    people: Option<&std::path::Path>,
+    face: Option<&std::path::Path>,
+    models: u64,
+) -> Option<Arc<Analysis>> {
+    if job.key == 0 {
+        return None;
+    }
+    // (loading a model forgets its photo: load them first)
+    if let Some(dir) = people {
+        let _ = ensure(&mut state.people, &mut state.people_cache, shared, dir, "MediaPipe people", PeopleModel::load);
+    }
+    if let Some(dir) = face {
+        let _ = ensure_face(&mut state.face, &mut state.faces_cache, shared, dir);
+    }
+    let k = job.key;
+    let a = match state.analyses.get(k) {
+        Some(a) => a,
+        None => {
+            let store = people_cache::Store { cache: job.analyses.clone()?, key: people_cache::key(k, models) };
+            let t = web_time::Instant::now();
+            let a = Arc::new(people_cache::read(&store)?);
+            log::info!("people: the photo's analysis read from the preview cache in {:?}", t.elapsed());
+            state.analyses.put(k, a.clone());
+            a
+        }
+    };
+    let mine = |c: Option<u64>| c != Some(k);
+    if let Some(f) = &a.faces
+        && mine(state.faces_cache.as_ref().map(|c| c.0))
+    {
+        state.faces_cache = Some((k, f.clone()));
+    }
+    if let Some(m) = &a.map
+        && mine(state.people_cache.as_ref().map(|c| c.0))
+    {
+        state.people_cache = Some((k, people_cache::copy_map(m)));
+        state.crowd_cache = None;
+    }
+    if let Some((boxes, crops)) = &a.crowd
+        && mine(state.crowd_crops.as_ref().map(|c| c.0))
+    {
+        state.crowd_crops = Some((k, boxes.clone(), crops.iter().map(people_cache::copy_map).collect()));
+    }
+    if let Some(Some(s)) = &a.silhouettes
+        && mine(state.silhouettes_cache.as_ref().map(|c| c.0))
+    {
+        state.silhouettes_cache = Some((k, s.clone()));
+    }
+    if let Some(f) = &a.figures
+        && mine(state.figures_cache.as_ref().map(|c| c.0))
+    {
+        state.figures_cache = Some((k, f.clone()));
+    }
+    if let Some(Some(s)) = &a.surfaces
+        && mine(state.surfaces_cache.as_ref().map(|c| c.0))
+    {
+        state.surfaces_cache = Some((k, people_cache::copy_surfaces(s)));
+    }
+    if let Some((features, sigs)) = &a.signatures
+        && mine(state.signatures_cache.as_ref().map(|c| c.0))
+    {
+        state.signatures_cache = Some((k, *features, sigs.clone()));
+    }
+    Some(a)
+}
+
+/// Keep what is now analysed of `job`'s photo's people (in memory, and on disk when there is a
+/// preview cache), when it holds more than `before` did.
+fn keep_people(state: &mut State, job: &Job, before: Option<&Analysis>, models: u64) {
+    let k = job.key;
+    if k == 0 {
+        return;
+    }
+    let mine = |c: Option<u64>| c == Some(k);
+    let now = Analysis {
+        faces: state.faces_cache.as_ref().filter(|c| c.0 == k).map(|c| c.1.clone()),
+        map: state.people_cache.as_ref().filter(|c| c.0 == k).map(|c| people_cache::copy_map(&c.1)),
+        crowd: state.crowd_crops.as_ref().filter(|c| mine(Some(c.0))).map(|c| (c.1.clone(), c.2.iter().map(people_cache::copy_map).collect())),
+        silhouettes: state.silhouettes_cache.as_ref().filter(|c| c.0 == k).map(|c| Some(c.1.clone())),
+        figures: state.figures_cache.as_ref().filter(|c| c.0 == k).map(|c| c.1.clone()),
+        surfaces: state.surfaces_cache.as_ref().filter(|c| c.0 == k).map(|c| Some(people_cache::copy_surfaces(&c.1))),
+        signatures: state.signatures_cache.as_ref().filter(|c| c.0 == k).map(|c| (c.1, c.2.clone())),
+    };
+    if !before.unwrap_or(&Analysis::default()).adds(&now) {
+        return;
+    }
+    if let Some(cache) = job.analyses.clone() {
+        let t = web_time::Instant::now();
+        people_cache::write(&people_cache::Store { cache, key: people_cache::key(k, models) }, &now);
+        log::info!("people: the photo's analysis kept in the preview cache in {:?}", t.elapsed());
+    }
+    state.analyses.put(k, Arc::new(now));
 }
 
 /// A [`Kind::Skin`] request: the skin of `area` (everyone's, or person `person`'s) as a stored
@@ -988,10 +1138,21 @@ fn crowd_map(state: &mut State, shared: &Shared, job: &mut Job, faces: &[Face]) 
         return;
     }
     state.crowd_cache = None;
+    // the crops kept with the photo's analysis: pasted again
+    if let (Some((k, boxes, crops)), Some((m, whole))) = (&state.crowd_crops, &state.people_cache)
+        && *k == job.key
+        && *m == job.key
+    {
+        let pasted = (!boxes.is_empty()).then(|| lightcraft_segment::people::paste_crops(whole, boxes, crops, CROWD_SIDE));
+        state.crowd_cache = Some((job.key, pasted));
+        return;
+    }
+    state.crowd_crops = None;
     let Some((w, h)) = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h)) else { return };
     let boxes = lightcraft_segment::people::person_boxes(faces, w, h);
     if boxes.is_empty() {
         state.crowd_cache = Some((job.key, None));
+        state.crowd_crops = Some((job.key, Vec::new(), Vec::new()));
         return;
     }
     let _busy = Flag::raise(&shared.encoding);
@@ -1012,7 +1173,10 @@ fn crowd_map(state: &mut State, shared: &Shared, job: &mut Job, faces: &[Face]) 
     let rendered = t.elapsed();
     let (Some((_, model)), Some((_, whole)), Some((_, input))) = (&state.people, &state.people_cache, &state.input_cache) else { return };
     let src = fine.as_ref().unwrap_or(input);
-    let out = model.segment_people(&src.rgb, src.w, src.h, whole, &boxes, CROWD_SIDE);
+    let out = model.segment_crops(&src.rgb, src.w, src.h, &boxes).map(|(kept, crops)| {
+        let pasted = lightcraft_segment::people::paste_crops(whole, &kept, &crops, CROWD_SIDE);
+        (kept, crops, pasted)
+    });
     log::info!(
         "people: {} small people cropped from {}×{} (render {:?}, crops {:?})",
         boxes.len(),
@@ -1022,7 +1186,10 @@ fn crowd_map(state: &mut State, shared: &Shared, job: &mut Job, faces: &[Face]) 
         t.elapsed().saturating_sub(rendered)
     );
     match out {
-        Ok(m) => state.crowd_cache = Some((job.key, Some(m))),
+        Ok((kept, crops, m)) => {
+            state.crowd_cache = Some((job.key, Some(m)));
+            state.crowd_crops = Some((job.key, kept, crops));
+        }
         Err(e) => {
             log::warn!("people: the group's crops failed ({e}); using the whole photo's map");
             state.crowd_cache = Some((job.key, None));
@@ -1036,17 +1203,24 @@ const CROWD_SIDE: usize = 1024;
 /// Everyone EoMT sees as a person on `job`'s photo, as `SAM2_MASK_SIDE²` logits each (empty, with
 /// a log line, when EoMT can't run).
 fn scene_people(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path) -> Vec<Vec<f32>> {
+    if let Some((k, f)) = &state.figures_cache
+        && *k == job.key
+    {
+        return f.clone();
+    }
     let scene = ensure(&mut state.scene, &mut state.scene_cache, shared, dir, "EoMT", SceneModel::load)
         .and_then(|()| cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h)));
     match scene {
         Ok(scene) => {
             let person = lightcraft_segment::scene::class_ids(|n| n == "person");
-            scene
+            let figures: Vec<Vec<f32>> = scene
                 .instances
                 .iter()
                 .filter(|i| person.contains(&i.class))
                 .map(|i| lightcraft_segment::grid::to_square_logits(&i.mask, scene.width, scene.height, SAM2_MASK_SIDE))
-                .collect()
+                .collect();
+            state.figures_cache = Some((job.key, figures.clone()));
+            figures
         }
         Err(e) => {
             log::warn!("people: no figures from EoMT ({e})");
@@ -1057,11 +1231,20 @@ fn scene_people(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::pa
 
 /// The floors, walls and tables EoMT sees on `job`'s photo, where no one is (`None`, with a log
 /// line, when EoMT can't run: the garment is then cut by the people model alone).
-fn scene_surfaces(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path) -> Option<lightcraft_segment::people::Surfaces> {
+fn scene_surfaces(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path) -> Option<Surfaces> {
+    if let Some((k, s)) = &state.surfaces_cache
+        && *k == job.key
+    {
+        return Some(people_cache::copy_surfaces(s));
+    }
     let scene = ensure(&mut state.scene, &mut state.scene_cache, shared, dir, "EoMT", SceneModel::load)
         .and_then(|()| cached(&state.scene, &mut state.scene_cache, &mut state.input_cache, shared, job, "EoMT", |m, i| m.segment(&i.rgb, i.w, i.h)));
     match scene {
-        Ok(scene) => Some(lightcraft_segment::people::Surfaces::from_scene(scene)),
+        Ok(scene) => {
+            let s = Surfaces::from_scene(scene);
+            state.surfaces_cache = Some((job.key, people_cache::copy_surfaces(&s)));
+            Some(s)
+        }
         Err(e) => {
             log::warn!("clothes: no floors or walls from EoMT ({e})");
             None
@@ -1073,6 +1256,12 @@ fn scene_surfaces(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::
 /// left out), so where people overlap a pixel goes to whoever's silhouette claims it most; `None`
 /// (with a log line) when SAM 2.1 can't give them.
 fn person_instances(state: &mut State, shared: &Shared, job: &mut Job, dir: &std::path::Path, faces: &[Face]) -> Option<Vec<Vec<f32>>> {
+    if let Some((k, s)) = &state.silhouettes_cache
+        && *k == job.key
+        && s.len() == faces.len()
+    {
+        return Some(s.clone());
+    }
     let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| (i.w, i.h))?;
     let (w, h) = (input.0.max(1) as f32, input.1.max(1) as f32);
     let centre = |f: &Face| {
@@ -1106,7 +1295,10 @@ fn person_instances(state: &mut State, shared: &Shared, job: &mut Job, dir: &std
     });
     job.dir = keep;
     match out {
-        Ok(people) => Some(people),
+        Ok(people) => {
+            state.silhouettes_cache = Some((job.key, people.clone()));
+            Some(people)
+        }
         Err(e) => {
             log::warn!("people: no silhouettes from SAM 2.1 ({e})");
             None
@@ -1211,14 +1403,7 @@ pub fn choose(c: &[Likeness], face_match: f32) -> Pick {
 
 /// Which of `faces` is the person: the one overlapping their named face box, else the one their
 /// examples recognise ([`choose`]).
-fn pick_face(
-    faces: &[Face],
-    rect: Option<[f64; 4]>,
-    known: &[Signature],
-    map: Option<&PeopleMap>,
-    input: &Input,
-    emb: Option<&(Vec<f32>, usize, usize)>,
-) -> Pick {
+fn pick_face(faces: &[Face], rect: Option<[f64; 4]>, known: &[Signature], sigs: &[Option<Signature>], input: &Input) -> Pick {
     if let Some(r) = rect {
         let centre = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
         let best = faces
@@ -1240,19 +1425,28 @@ fn pick_face(
         return Pick::Absent;
     }
     let likeness: Vec<Likeness> = (0..faces.len())
-        .map(|i| {
-            let Some(mut sig) = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h) else {
-                return Likeness::default();
-            };
-            if let Some((e, side, dim)) = emb {
-                (sig.body, sig.face) = lightcraft_segment::identity::features(e, *side, *dim, faces, i, map, input.w, input.h);
-            }
-            Likeness { face: None, look: look_score(&sig, known) }
+        .map(|i| match sigs.get(i) {
+            Some(Some(sig)) => Likeness { face: None, look: look_score(sig, known) },
+            _ => Likeness::default(),
         })
         .collect();
     let pick = choose(&likeness, 1.0);
     log::info!("people: likeness {:?} → {pick:?}", likeness.iter().map(|l| (l.face, l.look)).collect::<Vec<_>>());
     pick
+}
+
+/// Each face's appearance signature (`None` where there is none to take), with SAM 2.1's
+/// features from `emb` when there is one.
+fn face_signatures(faces: &[Face], map: Option<&PeopleMap>, input: &Input, emb: Option<&(Vec<f32>, usize, usize)>) -> Vec<Option<Signature>> {
+    (0..faces.len())
+        .map(|i| {
+            let mut sig = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h)?;
+            if let Some((e, side, dim)) = emb {
+                (sig.body, sig.face) = lightcraft_segment::identity::features(e, *side, *dim, faces, i, map, input.w, input.h);
+            }
+            Some(sig)
+        })
+        .collect()
 }
 
 /// How much `sig` looks like the examples `known` (appearance only): the mean of its two best
@@ -1754,7 +1948,189 @@ mod tests {
             activity: None,
             batch: None,
             parent: None,
+            analyses: None,
         }
+    }
+
+    fn face_at(x: f32, y: f32, size: f32) -> Face {
+        let d = lightcraft_segment::mediapipe::Detection {
+            x0: x - size / 2.0,
+            y0: y - size / 2.0,
+            x1: x + size / 2.0,
+            y1: y + size / 2.0,
+            score: 0.9,
+            keypoints: [
+                [x - size / 5.0, y - size / 8.0],
+                [x + size / 5.0, y - size / 8.0],
+                [x, y],
+                [x, y + size / 4.0],
+                [x - size / 2.0, y],
+                [x + size / 2.0, y],
+            ],
+        };
+        Face { detection: d, landmarks: None }
+    }
+
+    /// Test notes 2026-10-25, note 10: what a People selection computed of a photo's people is
+    /// kept — in memory, and on disk under the photo, its look and the models — and put back for
+    /// the next selection on it, after other photos and after a restart; another model set or a
+    /// damaged record is analysed again.
+    #[test]
+    fn a_photos_people_are_analysed_once_and_kept_on_disk() {
+        let d = std::env::temp_dir().join(format!("lc-people-analysis-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let cache = Arc::new(lightcraft_preview::PreviewCache::with_disk(1 << 20, &d, 1 << 30));
+        let (tx, _rx) = mpsc::channel();
+        let mut j = job(Tag::Wait, &tx);
+        j.key = 42;
+        j.analyses = Some(cache.clone());
+        let shared = Shared::default();
+        let mut st = State::default();
+        assert!(recall_people(&mut st, &shared, &mut j, None, None, 7).is_none(), "nothing yet");
+        st.faces_cache = Some((42, vec![face_at(100.0, 80.0, 40.0), face_at(300.0, 90.0, 36.0)]));
+        st.people_cache = Some((42, PeopleMap { side: 8, probs: vec![0.5; 8 * 8 * 6] }));
+        st.figures_cache = Some((42, vec![vec![3.0; 64]]));
+        st.silhouettes_cache = Some((42, vec![vec![-2.0; 64], vec![2.0; 64]]));
+        st.surfaces_cache = Some((42, Surfaces::from_grid(2, 2, vec![0.0, 1.0, 0.0, 1.0])));
+        st.signatures_cache = Some((42, false, vec![None, Some(Signature { hair: Some([0.1, 0.2, 0.3]), ..Default::default() })]));
+        st.crowd_crops = Some((42, vec![[0.1, 0.1, 0.4, 0.9]], vec![PeopleMap { side: 4, probs: vec![0.25; 4 * 4 * 6] }]));
+        keep_people(&mut st, &j, None, 7);
+        // another photo's selections in between: this one's is still in memory
+        assert!(st.analyses.get(42).is_some());
+        // a restart: nothing in memory, all of it read back from the disk
+        let mut fresh = State::default();
+        assert!(recall_people(&mut fresh, &shared, &mut j, None, None, 7).is_some());
+        assert_eq!(fresh.faces_cache.as_ref().map(|(k, f)| (*k, f.len())), Some((42, 2)));
+        assert_eq!(fresh.people_cache.as_ref().map(|(k, m)| (*k, m.side, m.probs.len())), Some((42, 8, 384)));
+        assert_eq!(fresh.figures_cache.as_ref().map(|(k, f)| (*k, f.len(), f[0][0])), Some((42, 1, 3.0)));
+        assert_eq!(fresh.silhouettes_cache.as_ref().map(|(_, s)| (s[0][0], s[1][63])), Some((-2.0, 2.0)));
+        assert_eq!(fresh.surfaces_cache.as_ref().map(|(_, s)| s.grid().2.to_vec()), Some(vec![0.0, 1.0, 0.0, 1.0]));
+        assert_eq!(fresh.signatures_cache.as_ref().map(|(_, f, s)| (*f, s.len(), s[1].is_some())), Some((false, 2, true)));
+        assert_eq!(fresh.crowd_crops.as_ref().map(|(_, b, c)| (b.len(), c[0].side)), Some((1, 4)));
+        // the group's crops are pasted again without the model
+        crowd_map(&mut fresh, &shared, &mut j, &[]);
+        assert!(fresh.crowd_cache.as_ref().is_some_and(|(k, m)| *k == 42 && m.as_ref().is_some_and(|m| m.side == CROWD_SIDE)));
+        // other models: analysed again
+        let mut other = State::default();
+        assert!(recall_people(&mut other, &shared, &mut j, None, None, 8).is_none());
+        // another look of the photo (another input key): analysed again
+        j.key = 43;
+        assert!(recall_people(&mut other, &shared, &mut j, None, None, 7).is_none());
+        // a damaged record is dropped, never a panic
+        cache.put_data(people_cache::key(43, 7), b"LCPA\x01\x00\x00\x00junk");
+        assert!(recall_people(&mut other, &shared, &mut j, None, None, 7).is_none());
+        assert!(cache.get_data(people_cache::key(43, 7)).is_none(), "dropped");
+        // a selection on an uncacheable input (a zoomed detail pass) keeps nothing
+        j.key = 0;
+        keep_people(&mut st, &j, None, 7);
+        assert!(st.analyses.get(0).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A synthetic group (three figures on a floor, a wall behind): skin-toned heads, dark and
+    /// pale clothes. The models' timings don't depend on what they find.
+    fn group_photo(w: usize, h: usize) -> (Input, Vec<Face>) {
+        let heads = [(0.25, 0.30), (0.50, 0.28), (0.75, 0.31)];
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let (u, v) = (x as f32 / w as f32, y as f32 / h as f32);
+                let mut c = if v > 0.8 { [150, 140, 125] } else { [200, 205, 210] };
+                for (k, (hx, hy)) in heads.iter().enumerate() {
+                    let (dx, dy) = ((u - hx) * w as f32 / h as f32, v - hy);
+                    if dx.hypot(dy) < 0.06 {
+                        c = [224, 172, 140];
+                    } else if dx.abs() < 0.09 && dy > 0.06 && dy < 0.62 {
+                        c = if k == 1 { [245, 245, 240] } else { [30, 32, 40] };
+                    }
+                }
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&c);
+            }
+        }
+        let faces = heads.iter().map(|(hx, hy)| face_at(hx * w as f32, hy * h as f32, 0.12 * h as f32)).collect();
+        (Input { rgb, w, h }, faces)
+    }
+
+    /// Note 10's measurement, with the real models (`LIGHTCRAFT_AI_MODELS_TEST_DIR`: a models folder
+    /// holding Selfie Multiclass, the MediaPipe face model, EoMT-S and SAM 2.1; skipped without):
+    /// "everyone's clothes minus one person's" on a batch — Everyone ▸ Clothes on photo A, then
+    /// on photo B (the worker moves on), then the subtraction on A, on B, on A again (another
+    /// person, or the recipe run again), Everyone on A again — timed the old way (only the last photo's model outputs kept) and
+    /// with the photo's analysis kept, and after a restart (read from the disk).
+    #[test]
+    fn subtracting_a_person_again_reuses_the_photos_analysis() {
+        let Some(root) = std::env::var_os("LIGHTCRAFT_AI_MODELS_TEST_DIR").map(PathBuf::from) else {
+            lightcraft_testkit::skip!(Model, "LIGHTCRAFT_AI_MODELS_TEST_DIR is not set: skipping the timing");
+            return;
+        };
+        let [people, face, scene, sam2] =
+            ["mediapipe-selfie-multiclass", "mediapipe-face-landmarker", "eomt-s-coco", "sam2.1-hiera-tiny"].map(|n| root.join(n));
+        if [&people, &face, &scene, &sam2].iter().any(|d| !d.is_dir()) {
+            lightcraft_testkit::skip!(Model, "the people, face, EoMT or SAM 2.1 model is not in LIGHTCRAFT_AI_MODELS_TEST_DIR");
+            return;
+        }
+        let model =
+            || AutoModel::People { people: Some(people.clone()), face: Some(face.clone()), scene: Some(scene.clone()), sam2: Some(sam2.clone()) };
+        let (photo, faces) = group_photo(1024, 683);
+        let everyone = AutoKind::People { person: 0, parts: vec!["Clothes".into()], who: None };
+        let her = AutoKind::People { person: 0, parts: vec!["Clothes".into()], who: Some(lightcraft_develop::recipe::Who::Role("bride".into())) };
+        let rect = norm_box(&faces[1], photo.w, photo.h);
+        let target = Target::Person { rect: Some(rect), known: Vec::new(), sam2: Some(sam2.clone()) };
+        let d = std::env::temp_dir().join(format!("lc-people-timing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        let cache = Arc::new(lightcraft_preview::PreviewCache::with_disk(1 << 20, &d, 1 << 30));
+        let shared = Shared::default();
+        let (tx, _rx) = mpsc::channel();
+        // one job on photo `key` (its input rendered already: the render costs the same either way)
+        let run = |st: &mut State, key: u64, what: &AutoKind, target: &Target, keep: bool| {
+            let mut j = job(Tag::Wait, &tx);
+            j.key = key;
+            j.analyses = keep.then(|| cache.clone());
+            if !keep {
+                // the old worker: only the last photo's model outputs, and no silhouettes kept
+                st.analyses = people_cache::Memory::default();
+                (st.crowd_crops, st.silhouettes_cache, st.figures_cache, st.surfaces_cache, st.signatures_cache) = (None, None, None, None, None);
+            }
+            if st.input_cache.as_ref().is_none_or(|(k, _)| *k != key) {
+                st.input_cache = Some((key, Input { rgb: photo.rgb.clone(), w: photo.w, h: photo.h }));
+            }
+            // the faces as the face model would find them on a real group (it finds none on this drawing)
+            ensure_face(&mut st.face, &mut st.faces_cache, &shared, &face).unwrap();
+            if st.faces_cache.as_ref().is_none_or(|(k, _)| *k != key) {
+                st.faces_cache = Some((key, faces.clone()));
+            }
+            let t = web_time::Instant::now();
+            let out = auto(st, &shared, &mut j, what, model(), target);
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            assert!(out.is_ok(), "{:?}", out.err());
+            ms
+        };
+        let mut report = Vec::new();
+        for keep in [false, true] {
+            let mut st = State::default();
+            // the models loaded first (on another photo): what follows is the photos' own cost
+            let _ = run(&mut st, 99, &everyone, &Target::None, false);
+            let _ = run(&mut st, 99, &her, &target, false);
+            let e_a = run(&mut st, 1, &everyone, &Target::None, keep);
+            let e_b = run(&mut st, 2, &everyone, &Target::None, keep);
+            let s1 = run(&mut st, 1, &her, &target, keep);
+            let _ = run(&mut st, 2, &her, &target, keep);
+            let s2 = run(&mut st, 1, &her, &target, keep);
+            let e_a2 = run(&mut st, 1, &everyone, &Target::None, keep);
+            report.push(format!(
+                "{}: Everyone A {e_a:.0} ms, Everyone B {e_b:.0} ms, first subtract on A {s1:.0} ms, (subtract on B), second subtract on A {s2:.0} ms, Everyone A again {e_a2:.0} ms",
+                if keep { "kept" } else { "old" }
+            ));
+            if keep {
+                // a restart: the analysis comes from the disk
+                let mut st = State::default();
+                let _ = run(&mut st, 99, &everyone, &Target::None, false);
+                let s3 = run(&mut st, 1, &her, &target, true);
+                report.push(format!("kept, after a restart (models loaded): subtract on A {s3:.0} ms"));
+            }
+        }
+        eprintln!("people analysis timings (1024×683, 3 people):\n  {}", report.join("\n  "));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

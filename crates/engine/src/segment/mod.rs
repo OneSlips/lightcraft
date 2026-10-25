@@ -24,6 +24,8 @@
 #[cfg(feature = "sam")]
 mod download;
 pub mod models;
+#[cfg(feature = "sam")]
+pub(crate) mod people_cache;
 mod retouch;
 mod skin;
 #[cfg(feature = "sam")]
@@ -893,6 +895,8 @@ impl Session {
             activity: Some(self.activity.clone()),
             batch: None,
             parent: None,
+            // (a People selection keeps the photo's people analysed there)
+            analyses: Some(self.media.rendered.clone()),
         })
     }
 

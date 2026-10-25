@@ -180,7 +180,10 @@ pub fn point_people(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let say = if faces.is_empty() {
             format!("{label}: {}", crate::i18n::tr("not found on this photo, and no faces were found to point at."))
         } else {
-            format!("{label}: {}", crate::i18n::tr("not found with confidence on this photo, so their part of the mask is left out. Click their face:"))
+            format!(
+                "{label}: {}",
+                crate::i18n::tr("not found with confidence on this photo, so their part of the mask is left out. Click their face:")
+            )
         };
         let r = ui.add(egui::Label::new(egui::RichText::new(say).color(t.text_label)).wrap());
         register(ui.ctx(), format!("maskPoint:{k}"), r.rect);

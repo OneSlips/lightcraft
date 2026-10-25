@@ -126,13 +126,21 @@ impl PeopleModel {
     /// fills the model's input. Where crops overlap they blend, fading out towards their inner
     /// edges; outside every crop the whole map stays. The crops run in parallel.
     pub fn segment_people(&self, rgb: &[u8], w: usize, h: usize, whole: &PeopleMap, boxes: &[[f32; 4]], side: usize) -> Result<PeopleMap> {
+        let (boxes, crops) = self.segment_crops(rgb, w, h, boxes)?;
+        Ok(paste_crops(whole, &boxes, &crops, side))
+    }
+
+    /// The class maps of `boxes` (normalized, at most [`MAX_CROPS`], malformed ones dropped) of
+    /// `rgb` (`w × h`), each on its own crop, in parallel: `(the boxes kept, their maps)`, for
+    /// [`paste_crops`] (kept apart so a photo's crops can be cached and pasted again later).
+    pub fn segment_crops(&self, rgb: &[u8], w: usize, h: usize, boxes: &[[f32; 4]]) -> Result<(Vec<[f32; 4]>, Vec<PeopleMap>)> {
         use rayon::prelude::*;
         let boxes: Vec<[f32; 4]> =
             boxes.iter().take(MAX_CROPS).copied().filter(|b| b.iter().all(|v| v.is_finite()) && b[2] > b[0] && b[3] > b[1]).collect();
         let (fw, fh) = (w as f32, h as f32);
         let crops: Vec<PeopleMap> =
             boxes.par_iter().map(|b| self.segment_crop(rgb, w, h, [b[0] * fw, b[1] * fh, b[2] * fw, b[3] * fh])).collect::<Result<Vec<_>>>()?;
-        Ok(paste_crops(whole, &boxes, &crops, side))
+        Ok((boxes, crops))
     }
 }
 
@@ -751,9 +759,14 @@ impl Surfaces {
         Surfaces { width: scene.width, height: scene.height, probs }
     }
 
-    /// From a `width × height` probability grid over the photo (tests).
+    /// From a `width × height` probability grid over the photo (tests, and a cached analysis).
     pub fn from_grid(width: usize, height: usize, probs: Vec<f32>) -> Surfaces {
         Surfaces { width, height, probs }
+    }
+
+    /// The probability grid: `(width, height, probabilities)` (for keeping it).
+    pub fn grid(&self) -> (usize, usize, &[f32]) {
+        (self.width, self.height, &self.probs)
     }
 
     /// The probability at normalized point `(u, v)` (bilinear; 0 for an empty or malformed grid).
