@@ -143,6 +143,11 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
     tab_strip(&mut frame, &t, tab);
     frame.add_space(8.0);
     register(frame.ctx(), "settings:content", frame.available_rect_before_wrap());
+    // (the room a page scrolls in, and below what the page took: wider than the room would mean a control is cut off)
+    register(frame.ctx(), "settings:pageRoom", frame.available_rect_before_wrap());
+    // A page that goes on below shows its scroll handle all the time: without it, a page a line or two
+    // too long looks cut off, not scrollable (upstream).
+    frame.spacing_mut().scroll.dormant_handle_opacity = 0.6;
     if tab == "slideshow" {
         // its settings scroll beside the slide preview, which stays in view
         slideshow_tab(app, &mut frame, &t);
@@ -164,6 +169,7 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
                 "controls" => super::controls::settings_tab(app, ui, &t),
                 _ => general_tab(app, ui, &t),
             }
+            register(ui.ctx(), "settings:page", ui.min_rect());
             ui.add_space(8.0);
         });
     }
@@ -1352,6 +1358,7 @@ fn slideshow_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                 super::slide_titles::sections(app, ui, t);
                 ui.add_space(6.0);
                 export_section(app, ui, t);
+                register(ui.ctx(), "settings:page", ui.min_rect());
             });
         });
         ui.add_space(12.0);

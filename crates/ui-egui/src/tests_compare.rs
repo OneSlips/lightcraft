@@ -237,7 +237,7 @@ fn invalid_or_deleted_reference_is_refused_without_replacing_the_pin() {
     let ids = h.app.session.visible_cloned();
     h.app.run("library.select", json!({"ids": [ids[0].0]})).unwrap();
     h.app.run("photo.setReference", json!({})).unwrap();
-    h.app.run("photo.delete", json!({"ids": [ids[1].0]})).unwrap();
+    h.app.run("photo.delete", json!({"ids": [ids[1].0], "recentlyDeleted": true})).unwrap();
     for id in [u64::MAX, ids[1].0] {
         let r = h.app.run("photo.setReference", json!({"id": id}));
         assert!(r.is_err(), "unavailable photo {id} must not be pinned");
@@ -270,7 +270,7 @@ fn deleting_the_pinned_reference_stops_drawing_it_and_reentry_uses_a_live_photo(
     let drawn = |h: &Headless| h.view.painted_shapes().iter().any(|s| matches!(s, egui::epaint::Shape::Mesh(mesh) if mesh.texture_id == texture));
     assert!(drawn(&h), "the live reference is shown before deletion");
     let active = h.app.session.active().unwrap();
-    h.app.run("photo.delete", json!({"ids": [reference.0]})).unwrap();
+    h.app.run("photo.delete", json!({"ids": [reference.0], "recentlyDeleted": true})).unwrap();
     h.settle(SETTLE);
     assert!(!drawn(&h), "Recently Deleted photos must not remain on the reference canvas");
     assert!(!h.app.renderer.textures.contains_key(&crate::render::Slot::Compare(0)), "the deleted reference's pane is released");

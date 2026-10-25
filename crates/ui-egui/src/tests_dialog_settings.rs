@@ -295,6 +295,7 @@ fn a_page_that_goes_on_below_shows_a_scroll_handle_without_the_pointer_on_it() {
 }
 
 #[test]
+#[ignore = "upstream Settings window (one page size, tabs above a page scroll) — this build keeps its own resizable Settings window (one tab row + More, each tab its own scroll); see HANDOVER-mainmerge.md"]
 fn a_window_too_short_for_a_page_of_its_own_scrolls_tabs_and_page_together() {
     // Given an app window far below the desktop minimum
     let mut h = demo([900.0, 220.0]);
@@ -318,6 +319,7 @@ fn a_window_too_short_for_a_page_of_its_own_scrolls_tabs_and_page_together() {
 }
 
 #[test]
+#[ignore = "upstream Settings window (one page size, tabs above a page scroll) — this build keeps its own resizable Settings window (one tab row + More, each tab its own scroll); see HANDOVER-mainmerge.md"]
 fn the_tabs_stay_put_while_a_page_scrolls() {
     // Given a page taller than the window has room for
     let mut h = demo([900.0, 560.0]);
@@ -343,6 +345,7 @@ fn the_tabs_stay_put_while_a_page_scrolls() {
 }
 
 #[test]
+#[ignore = "upstream Settings window (one page size, tabs above a page scroll) — this build keeps its own resizable Settings window (one tab row + More, each tab its own scroll); see HANDOVER-mainmerge.md"]
 fn each_tab_remembers_how_far_it_was_scrolled() {
     let mut h = demo([900.0, 560.0]);
     show(&mut h, "interface");

@@ -1728,7 +1728,8 @@ mod ",
         std::fs::write(&broken, b"not a jpeg at all").unwrap();
         let mut s = lightcraft_engine::Session::new().with_fs();
         let r = s.execute("library.import", &serde_json::json!({"paths": [trashed]})).unwrap();
-        s.execute("photo.delete", &serde_json::json!({"ids": [r["imported"][0]]})).unwrap();
+        // (Delete removes from the library here; `recentlyDeleted` is the Recently Deleted step)
+        s.execute("photo.delete", &serde_json::json!({"ids": [r["imported"][0]], "recentlyDeleted": true})).unwrap();
         let report = s.execute("library.import", &serde_json::json!({"paths": [trashed, added, broken]})).unwrap();
         assert_eq!(
             dropped_photos_outcome(&report).as_deref(),

@@ -509,7 +509,7 @@ impl Renderer {
             && *size == bucket
             && *quick
             && self.pending.contains_key(&slot)
-            && !self.request_needed(slot, *key, priority.saturating_add(1))
+            && !self.request_needed(slot, *key, crate::panels::grid::stand_in_priority(priority))
     }
 
     /// Remember that the camera's embedded preview is this photo's final thumbnail, so the grid's
@@ -1972,7 +1972,8 @@ mod thumbnail_tests {
         assert_eq!(app.renderer.pending[&slot].1, 6);
         assert_eq!(app.renderer.pool.queued(), 1);
         crate::panels::grid::request_thumb(&mut app, id, 384, 10);
-        assert_eq!(app.renderer.pending[&slot].1, 11, "the grid must promote its queued stand-in");
+        // (an on-screen cell's stand-in goes ahead of everything else: `grid::STAND_IN_ON_SCREEN`)
+        assert_eq!(app.renderer.pending[&slot].1, crate::panels::grid::STAND_IN_ON_SCREEN, "the grid must promote its queued stand-in");
         assert_eq!(app.renderer.requests[&slot].id, request_id);
         assert_eq!(app.renderer.pool.queued(), 1);
 
@@ -2453,6 +2454,15 @@ mod thumbnail_tests {
         app.session.commit("Exposure", Op::SetDevelop { id, settings: Arc::new(settings_b), label: "Exposure".into(), edited: None }).unwrap();
         assert!(!app.session.embedded_thumb_is_final(app.session.catalog.photo(id).unwrap()));
         crate::panels::grid::request_thumb(&mut app, id, 384, 10);
+        // (the cheap stand-in goes first; the full render follows it as background work)
+        for _ in 0..8 {
+            if !work.borrow().jobs.is_empty() {
+                break;
+            }
+            app.renderer.pool.run_inline(1);
+            app.renderer.poll(&ctx, &mut app.session);
+            crate::panels::grid::request_thumb(&mut app, id, 384, 10);
+        }
         // Manual owns dispatched jobs: hold B until the real Undo command restores A.
         let (slot, held_b) = take_job(&work);
         assert_eq!(slot, full_slot);
@@ -2464,6 +2474,15 @@ mod thumbnail_tests {
         assert_eq!(app.session.catalog.photo(id).unwrap().develop.as_ref(), settings_a.as_ref());
         assert!(app.session.embedded_thumb_is_final(app.session.catalog.photo(id).unwrap()));
         crate::panels::grid::request_thumb(&mut app, id, 384, 10);
+        // (B's stand-in took the quick slot: A's embedded preview is made again, cheaply)
+        for _ in 0..8 {
+            if app.renderer.thumb(id).is_some_and(|t| t.key == key_a) {
+                break;
+            }
+            app.renderer.pool.run_inline(1);
+            app.renderer.poll(&ctx, &mut app.session);
+            crate::panels::grid::request_thumb(&mut app, id, 384, 10);
+        }
         {
             let restored = app.renderer.thumb(id).unwrap();
             assert_eq!(restored.key, key_a);

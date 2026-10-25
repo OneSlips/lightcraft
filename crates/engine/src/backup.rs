@@ -578,7 +578,8 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "library.backUpNow",
             "Back Up Library Now",
-            ["File"],
+            // (the File menu's item is the UI's `app.backUpLibrary`, which runs this in the background)
+            [],
             None,
             "{background?: bool (on a thread, with a row in the activity stack: answers {running: true})} — copies the catalog (written from memory), the library's settings and profiles, and LightCraft's settings with the shared presets and profiles into a new folder in the backup destination; never photos, caches or API keys; checks the copy when Check backups is on and deletes the oldest beyond the number kept → {path, files, bytes, ms, verified, pruned}",
             has_library,

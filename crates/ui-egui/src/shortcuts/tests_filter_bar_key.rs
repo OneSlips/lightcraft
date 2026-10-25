@@ -55,8 +55,11 @@ fn backslash_toggles_the_filter_bar_in_the_grids() {
         assert!(app.ui.filter_bar, "{view:?}: \\ shows the Filter Bar");
         // the grid's \ is not Show Original: nothing is left switched on for Detail
         assert_eq!(app.ui.before_after, BeforeAfter::Off, "{view:?}");
+        // (the filters are always on the bottom bar here: \ opens its More filters popover, which the bar
+        // takes the next frame, and the next \ asks for it again)
+        app.ui.filter_bar = false;
         frame(&mut app, &ctx, Some(Key::Backslash), None);
-        assert!(!app.ui.filter_bar, "{view:?}: \\ hides it again");
+        assert!(app.ui.filter_bar, "{view:?}: \\ asks for More filters again");
         assert_eq!(app.ui.before_after, BeforeAfter::Off, "{view:?}");
         assert_eq!(app.ui.view, view);
     }

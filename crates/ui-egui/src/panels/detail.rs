@@ -3452,9 +3452,10 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 MaskShape::Radial { center, rx, ry, angle, feather, .. } if show_outline => {
                     // the outer edge (where the effect ends) and, inside it, the feather ring (where
                     // it is full): thin, so the photo shows between them
+                    // (thin on the selected mask, whose feather ring is drawn inside it; an outline of another is bolder)
                     p.add(egui::Shape::closed_line(
                         radial_ring(map, *center, *rx, *ry, *angle, 1.0),
-                        Stroke::new(1.0, Color32::from_white_alpha(stroke_a)),
+                        Stroke::new(if sel { 1.0 } else { 1.5 }, Color32::from_white_alpha(stroke_a)),
                     ));
                     if sel {
                         let inner = radial_inner(*feather);
