@@ -16,7 +16,7 @@ use std::collections::HashMap;
 
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::{Crop, DevelopSettings, Upright, WbMode};
-use lightcraft_geom::{CropGeometry, Homography, crop_fit_angle};
+use lightcraft_geom::{CropGeometry, Homography, MIN_CROP_FRACTION, Point, Rect, crop_fit_angle};
 use lightcraft_pipeline::SourceInfo;
 
 use crate::Session;
@@ -104,8 +104,12 @@ pub(crate) fn synced_wb(
 
 /// The crop a photo with frame `odims` (oriented width, height) gets when the active photo (frame
 /// `adims`) has crop `new`: the same aspect lock, flips and angle; on a frame of the same shape the
-/// same rectangle, on another shape the largest crop of the same shape (an uncropped photo: its own
-/// frame) at that angle, centred.
+/// same rectangle. On another shape (test notes 2026-10-25 note 15) the crop keeps its tightness and
+/// position: its shape is turned to the photo's own orientation (a landscape never gets a
+/// portrait-shaped crop, nor a vertical a landscape one), its size is the same fraction of the
+/// largest crop of that shape at that angle as on the active photo, and its centre keeps its
+/// normalized place in the frame, moved towards the middle only as far as it must to stay inside
+/// the rotated photo. An uncropped photo gives each photo its own whole frame at that angle.
 pub(crate) fn synced_crop(new: &Crop, adims: (f64, f64), odims: (f64, f64)) -> Crop {
     let (aw, ah) = (adims.0.max(1.0), adims.1.max(1.0));
     let (ow, oh) = (odims.0.max(1.0), odims.1.max(1.0));
@@ -113,22 +117,49 @@ pub(crate) fn synced_crop(new: &Crop, adims: (f64, f64), odims: (f64, f64)) -> C
     if (ar - or).abs() <= 0.005 * ar {
         return *new;
     }
-    // a portrait photo takes a landscape shape turned
-    let turned = (ar > 1.0) != (or > 1.0);
-    let aspect = new.aspect.map(|(x, y)| if turned { (y, x) } else { (x, y) });
+    let wide = or > 1.0;
+    // the shape turned to the photo's own orientation (a square stays a square)
+    let orient = |s: f64| if s != 1.0 && (s > 1.0) != wide { 1.0 / s } else { s };
+    let aspect = new.aspect.map(|(x, y)| if x != y && (x > y) != wide { (y, x) } else { (x, y) });
     let angle = new.geometry.angle;
     let full = crop_fit_angle(aw, ah, angle, None).rect;
     let r = new.geometry.rect;
     let close = |a: f64, b: f64| (a - b).abs() < 1e-3;
     let uncropped = new.aspect.is_none() && close(r.x0, full.x0) && close(r.y0, full.y0) && close(r.x1, full.x1) && close(r.y1, full.y1);
-    let shape = if uncropped {
-        None
-    } else {
-        let px = new.geometry.rect_px(aw, ah);
-        let s = aspect.map(|(x, y)| f64::from(x) / f64::from(y.max(1))).or(Some(px.width() / px.height()));
-        s.filter(|s| s.is_finite() && *s > 0.0).map(|s| if turned && aspect.is_none() { 1.0 / s } else { s })
+    let px = new.geometry.rect_px(aw, ah);
+    let own = new.aspect.map(|(x, y)| f64::from(x) / f64::from(y.max(1))).or(Some(px.width() / px.height()));
+    let own = own.filter(|s| s.is_finite() && *s > 0.0);
+    let (Some(own), false) = (own, uncropped) else {
+        return Crop { geometry: crop_fit_angle(ow, oh, angle, None), aspect, flip_h: new.flip_h, flip_v: new.flip_v };
     };
-    let geometry: CropGeometry = crop_fit_angle(ow, oh, angle, shape);
+    // tightness: the crop's size against the largest crop of its own shape on the active photo
+    let largest = crop_fit_angle(aw, ah, angle, Some(own)).rect_px(aw, ah);
+    let frac = (px.width() / largest.width()).clamp(MIN_CROP_FRACTION, 1.0);
+    let frac = if frac.is_finite() { frac } else { 1.0 };
+    let fit = crop_fit_angle(ow, oh, angle, Some(orient(own)));
+    let f = fit.rect_px(ow, oh);
+    let (cw, ch) = (f.width() * frac, f.height() * frac);
+    let at = |c: Point| CropGeometry { rect: Rect::from_center(c, cw, ch).scale(1.0 / ow, 1.0 / oh), angle };
+    let mid = f.center();
+    let want = px.center();
+    let want = Point::new(want.x / aw * ow, want.y / ah * oh);
+    let want = if want.x.is_finite() && want.y.is_finite() { want } else { mid };
+    // the centres where a crop of this size fits form a convex set holding the middle: the first
+    // point on the way from `want` to the middle that fits
+    let geometry = if at(want).is_within_image(ow, oh) {
+        at(want)
+    } else {
+        let (mut lo, mut hi) = (0.0_f64, 1.0_f64);
+        for _ in 0..40 {
+            let t = (lo + hi) / 2.0;
+            if at(want.lerp(mid, t)).is_within_image(ow, oh) {
+                hi = t;
+            } else {
+                lo = t;
+            }
+        }
+        at(want.lerp(mid, hi))
+    };
     Crop { geometry, aspect, flip_h: new.flip_h, flip_v: new.flip_v }
 }
 

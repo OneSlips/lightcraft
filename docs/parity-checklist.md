@@ -370,7 +370,7 @@ differences and missing bindings are in [ui-parity.md](ui-parity.md#shortcuts).
 | LR-SYNC-CHOOSE | Choose settings to copy | P0 | ✅ | `cmd:dialog.copySettings`, `cmd:develop.copy` (`groups`, `settings`) | the same per-setting tree as New Preset (groups open to their single settings, partial state); the ticks are remembered app-wide, in every library and after a restart |
 | LR-SYNC-PASTE | Paste to selection | P0 | ✅ | `cmd:develop.paste` | Paste Selected Settings… (⇧⌘V) offers what was copied, per setting; masks travel as recipes and their AI selections are computed on each photo |
 | LR-SYNC-SYNCBTN | Sync active → selected | P1 | ✅ | `cmd:develop.sync` (`groups`, `settings`), `cmd:dialog.syncSettings` | Edit ▸ Sync Settings… opens the per-setting tree (Lightroom's Synchronize Settings); its ticks are remembered app-wide, apart from Copy's |
-| LR-SYNC-PREVIOUS | Paste from previous / auto sync [Classic] | P2 | ✅ | `cmd:develop.pastePrevious`, `cmd:develop.autoSync` | ⌥⌘V pastes the previously active photo's settings (copy groups); Auto Sync (⌥⇧⌘A) |
+| LR-SYNC-PREVIOUS | Paste from previous / auto sync [Classic] | P2 | ✅ | `cmd:develop.pastePrevious`, `cmd:develop.autoSync` | ⌥⌘V pastes the previously active photo's settings (copy groups); Auto Sync (⌥⇧⌘A); a crop synced to photos of the other orientation keeps its tightness and place: the shape turned to each photo's own orientation (a landscape never gets a portrait crop, nor a vertical a landscape one, ratio locked or free, straightened, flipped), the same fraction of that photo's largest crop of the shape, its centre at the same normalized point, moved in only as far as the frame needs (test notes 2026-10-25 note 15) |
 
 ## O. Merge (MERGE)
 
