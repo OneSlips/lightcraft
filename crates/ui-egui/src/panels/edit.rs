@@ -1398,14 +1398,20 @@ pub(crate) const MIXER_GROUPS: [(&str, &str); 4] = [("Hue", "hue"), ("Saturation
 const BAND_NAMES: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 
 /// A Color Mixer targeted adjustment (`tat:hue|sat|lum`) whose button the mixer's layout no
-/// longer shows is put down: Point Color shows none, HSL only the chosen group's (all three in
+/// longer shows is put down: a B&W photo shows Luminance's only, Point Color none, HSL only the chosen group's (all three in
 /// All), Color mode all three. Dragging on the photo would otherwise change a hidden group.
 pub(crate) fn drop_hidden_mixer_tool(app: &mut LightcraftApp) {
     let Some(key) = app.ui.tool.strip_prefix("tat:") else { return };
     if !matches!(key, "hue" | "sat" | "lum") {
         return;
     }
-    let shown = app.ui.mixer_tab != "point" && (app.ui.mixer_adjust == "color" || app.ui.mixer_group == "all" || app.ui.mixer_group == key);
+    // a B&W photo's mixer is its B&W mix, with only the Luminance targeted adjustment
+    let bw = app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| crate::is_bw(&d));
+    let shown = if bw {
+        key == "lum"
+    } else {
+        app.ui.mixer_tab != "point" && (app.ui.mixer_adjust == "color" || app.ui.mixer_group == "all" || app.ui.mixer_group == key)
+    };
     if !shown {
         app.ui.tool.clear();
     }

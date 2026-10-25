@@ -151,3 +151,16 @@ fn point_colors_range_view_is_off_for_a_bw_photo() {
     d.treatment = lightcraft_develop::Treatment::Bw;
     assert!(!matches!(crate::panels::detail::view_overlay(&h.app, &d), lightcraft_pipeline::Overlay::PointColorRange(_)));
 }
+
+/// A B&W photo's mixer always shows its Luminance targeted adjustment: the command keeps it.
+#[test]
+fn a_bw_photos_luminance_targeted_adjustment_stays() {
+    let mut h = mixer();
+    run(&mut h, "develop.treatment", json!({"bw": true}));
+    h.app.ui.tool = "tat:lum".into();
+    run(&mut h, "view.colorMixer", json!({}));
+    assert_eq!(h.app.ui.tool, "tat:lum");
+    h.app.ui.tool = "tat:hue".into();
+    run(&mut h, "view.colorMixer", json!({}));
+    assert_eq!(h.app.ui.tool, "", "no Hue on a B&W photo");
+}
