@@ -1378,6 +1378,12 @@ impl Session {
         self.denoise.held.contains(&id)
     }
 
+    /// Photo `id` was cancelled by hand (`denoise.cancel {id}`): looking at it doesn't queue it again
+    /// until it is asked for, as with a cancelled batch's photos.
+    pub(crate) fn denoise_hold(&mut self, id: PhotoId) {
+        self.denoise.held.insert(id);
+    }
+
     /// Photos asked for again (the switch, `denoise.queue`): a cancelled batch no longer holds them back.
     pub(crate) fn denoise_release(&mut self, ids: &[PhotoId]) {
         for id in ids {

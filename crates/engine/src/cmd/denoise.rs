@@ -652,6 +652,9 @@ fn queue(s: &mut Session, p: &Value) -> Result<Value> {
 fn cancel(s: &mut Session, p: &Value) -> Result<Value> {
     let photo = super::photo_id(p, "denoise.cancel")?;
     let n = s.denoise_cancel(photo, bool_or(p, "all", photo.is_none()));
+    if let Some(id) = photo {
+        s.denoise_hold(id);
+    }
     Ok(json!({"cancelled": n}))
 }
 

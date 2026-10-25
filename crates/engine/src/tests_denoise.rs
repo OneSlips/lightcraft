@@ -1018,7 +1018,8 @@ fn browsing_a_folder_makes_no_ai_denoise_pictures() {
 #[test]
 fn an_import_larger_than_the_queue_makes_every_picture() {
     let mut x = setup("importbacklog", true);
-    x.s.execute("denoise.settings", &json!({"auto": false})).unwrap();
+    // (Auto on: the cancelled photo, selected, still isn't made until asked for)
+    x.s.execute("denoise.settings", &json!({"auto": true})).unwrap();
     x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 3200}})).unwrap();
     x.s.denoise.queue_cap = 1;
     let folder = x.dir.join("high-iso");
@@ -1036,6 +1037,7 @@ fn an_import_larger_than_the_queue_makes_every_picture() {
     // cancelling one waiting photo takes it out of the backlog too
     let last = x.s.catalog.photos().find(|p| p.file_name == "high-2.dng").map(|p| p.id).expect("imported");
     assert_eq!(x.s.execute("denoise.cancel", &json!({"id": last.0})).unwrap()["cancelled"], 1);
+    x.s.execute("library.select", &json!({"ids": [last.0]})).unwrap();
     pump_until_ready(&mut x.s, 2);
     for _ in 0..20 {
         x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
