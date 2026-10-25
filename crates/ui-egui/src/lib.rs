@@ -126,6 +126,8 @@ mod tests_drop_import;
 #[cfg(test)]
 mod tests_edit_layout;
 #[cfg(test)]
+mod tests_editing_flow;
+#[cfg(test)]
 mod tests_empty_library;
 #[cfg(test)]
 mod tests_error_kinds;
@@ -435,8 +437,13 @@ pub struct SlowFrame {
     pub at_ms: f64,
 }
 
-/// A frame this long or longer is logged and kept as [`LightcraftApp::slowest_frame`].
+/// A frame this long or longer is logged.
 pub const SLOW_FRAME_MS: f64 = 500.0;
+/// The slowest frame at least this long is kept as [`LightcraftApp::slowest_frame`] (with what ran
+/// in it): a frame over the 100 ms a step may take is worth explaining, logged or not.
+pub const SLOWEST_KEPT_MS: f64 = 100.0;
+/// A step of a frame taking this long or longer is named in its log with its time ([`LightcraftApp::lap`]).
+pub const STEP_NOTE_MS: f64 = 15.0;
 /// The most names a frame's log keeps.
 const FRAME_LOG_LEN: usize = 32;
 
@@ -508,6 +515,9 @@ pub struct LightcraftApp {
     /// The slowest frame since start that took [`SLOW_FRAME_MS`] or more (`ui.inspect` →
     /// `perf.slowestFrame`), with what ran in it.
     pub slowest_frame: Option<SlowFrame>,
+    /// Frames from this long on are candidates for [`Self::slowest_frame`] ([`SLOWEST_KEPT_MS`]; a
+    /// test lowers it to see what its longest frames ran).
+    pub slowest_kept_ms: f64,
     /// macOS: the host draws the traffic lights over our top bar.
     pub integrated_titlebar: bool,
     /// The host installed a native menu bar (no in-window menus then).
@@ -725,6 +735,7 @@ impl LightcraftApp {
             perf: Perf::default(),
             frame_log: Vec::new(),
             slowest_frame: None,
+            slowest_kept_ms: SLOWEST_KEPT_MS,
             caches: Caches::default(),
             integrated_titlebar: false,
             native_menu: false,
@@ -865,6 +876,13 @@ impl LightcraftApp {
     /// (offer a model's download, treat a cancel as one) instead of reading the message.
     pub fn run_typed(&mut self, id: &str, params: Value) -> Result<Value, CommandError> {
         self.note_ran(id);
+        let mut t = now_ms();
+        let r = self.run_typed_inner(id, params, &mut t);
+        self.lap(&mut t, &format!("{id} (after)"));
+        r
+    }
+
+    fn run_typed_inner(&mut self, id: &str, params: Value, t: &mut f64) -> Result<Value, CommandError> {
         if let Some(result) = model_setup::intercept(self, id, &params) {
             return result.map_err(CommandError::from);
         }
@@ -886,7 +904,9 @@ impl LightcraftApp {
         } else {
             params
         };
+        self.lap(t, &format!("{id} (before)"));
         let r = self.session.execute(id, &params).map_err(CommandError::from);
+        self.lap(t, &format!("{id} (engine)"));
         // Upright that found nothing to correct says why, whatever ran it (the panel, a console key,
         // a menu, an agent): under the photo, never over it (test notes 2026-10-24 notes 4 and 15)
         if id == "geometry.upright"
@@ -1536,12 +1556,27 @@ impl LightcraftApp {
         }
     }
 
+    /// Close the frame step that began at `t` (ms, [`now_ms`]): one that took [`STEP_NOTE_MS`] or
+    /// more is named in the frame's log with its time ([`SlowFrame::ran`]: "renderer.poll 812 ms"),
+    /// so a frozen frame tells which step froze it (note 2 of 2026-10-25: a 1.4 s logic pass with
+    /// nothing named). `t` moves on to now.
+    pub(crate) fn lap(&mut self, t: &mut f64, what: &str) {
+        let now = now_ms();
+        let ms = now - *t;
+        if ms >= STEP_NOTE_MS {
+            self.note_ran(&format!("{what} {ms:.0} ms"));
+        }
+        *t = now;
+    }
+
     /// Per-frame logic before layout (control channel, renders, shortcuts, drops).
     pub fn logic(&mut self, ctx: &egui::Context) {
         i18n::set_language(self.ui.language);
         self.frame_log.clear();
         let t0 = now_ms();
         panels::library_problem::logic(self, ctx);
+        let mut t = t0;
+        self.lap(&mut t, "libraryProblem");
         self.logic_inner(ctx);
         self.perf.logic_ms = now_ms() - t0;
     }
@@ -1567,8 +1602,11 @@ impl LightcraftApp {
         } else {
             self.fonts_ready = true;
         }
+        let mut t = now_ms();
         self.sync_theme(ctx);
+        self.lap(&mut t, "theme");
         panels::notices::logic(self);
+        self.lap(&mut t, "notices");
         // closing the window (or Quit) with changes only in memory: retry, else ask first
         if ctx.input(|i| i.viewport().close_requested()) && !panels::notices::may_close(self) {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1583,27 +1621,45 @@ impl LightcraftApp {
             }
             self.last_time = now;
             self.drain_control(ctx);
+            self.lap(&mut t, "control");
             surface::tick(self, ctx);
+            self.lap(&mut t, "surface");
         }
         self.apply_settings(ctx);
+        self.lap(&mut t, "settings");
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
         }
         self.renderer.poll(ctx, &mut self.session);
+        self.lap(&mut t, "renderer.poll");
         merge::poll(self, ctx);
+        self.lap(&mut t, "merge.poll");
         import::poll_scan(self, ctx);
+        self.lap(&mut t, "import.scan");
         sync::poll(self, ctx);
+        self.lap(&mut t, "sync.poll");
         sync::poll_run(self, ctx);
+        self.lap(&mut t, "sync.run");
         import::tick(self, ctx);
+        self.lap(&mut t, "import.tick");
         lightroom_import::tick(self, ctx);
+        self.lap(&mut t, "lightroomImport.tick");
         recheck::tick(self);
+        self.lap(&mut t, "recheck");
         lens_db::tick(self);
+        self.lap(&mut t, "lensDb");
         tasks::poll(self, ctx);
+        self.lap(&mut t, "tasks.poll");
         self.preview_build_status(ctx);
+        self.lap(&mut t, "previewBuild.status");
         self.save_status(ctx);
+        self.lap(&mut t, "save.status");
         self.slideshow_tick(ctx);
+        self.lap(&mut t, "slideshow");
         panels::faces::pump(self, ctx);
+        self.lap(&mut t, "faces.pump");
         self.eye_cull_pump(ctx);
+        self.lap(&mut t, "eyes.pump");
         // back from an external editor: pick up the files it saved
         let focused = ctx.input(|i| i.focused);
         if focused && !self.ui.was_focused && !self.ui.external_edits.is_empty() {
@@ -1615,6 +1671,7 @@ impl LightcraftApp {
             }
         }
         self.ui.was_focused = focused;
+        self.lap(&mut t, "externalEdits");
         // auto import: list the watched folder every few seconds (on a worker thread: it may be on
         // a network share), then import what's new like any import (also on a worker thread)
         #[cfg(not(target_arch = "wasm32"))]
@@ -1679,6 +1736,7 @@ impl LightcraftApp {
             }
             self.ui.sidecars_waiting = waiting;
         }
+        self.lap(&mut t, "sidecars");
         // Settings → Import: open the import review when a camera or card is connected
         #[cfg(not(target_arch = "wasm32"))]
         if self.session.import_defaults.show_on_card {
@@ -1690,6 +1748,7 @@ impl LightcraftApp {
             self.ui.known_cards = None;
         }
         self.session.persist_if_dirty();
+        self.lap(&mut t, "catalog.persist");
         // a backup that ran in the background says how it went
         if let Some(r) = self.session.poll_backup() {
             let text = match r {
@@ -1698,16 +1757,26 @@ impl LightcraftApp {
             };
             self.toast(ctx, text);
         }
+        self.lap(&mut t, "backup");
         panels::denoise::pump(self, ctx);
+        self.lap(&mut t, "denoise.pump");
         panels::right::dust_pump(self, ctx);
+        self.lap(&mut t, "dust.pump");
         model_setup::pump(self, ctx);
+        self.lap(&mut t, "models.pump");
         panels::faces::pump(self, ctx);
+        self.lap(&mut t, "faces.pump");
         self.eye_cull_pump(ctx);
+        self.lap(&mut t, "eyes.pump");
         focus_scan::pump(self, ctx);
+        self.lap(&mut t, "focusScan.pump");
         self.collect_screenshots(ctx);
+        self.lap(&mut t, "screenshots.collect");
         self.issue_screenshots(ctx);
+        self.lap(&mut t, "screenshots.issue");
         if self.fonts_ready {
             shortcuts::handle(self, ctx);
+            self.lap(&mut t, "shortcuts");
         }
         #[cfg(not(target_arch = "wasm32"))]
         self.handle_dropped_files(ctx);
@@ -1981,15 +2050,17 @@ impl LightcraftApp {
         self.perf.update_ms = self.perf.logic_ms + self.perf.frame_ms;
         self.perf.max_update_ms = self.perf.max_update_ms.max(self.perf.update_ms);
         // (the first frames load fonts and open the library: slow by design)
-        if self.perf.update_ms >= SLOW_FRAME_MS && ctx.cumulative_pass_nr() > 10 {
+        if self.perf.update_ms >= self.slowest_kept_ms && ctx.cumulative_pass_nr() > 10 {
             let ran = std::mem::take(&mut self.frame_log);
-            log::warn!(
-                "slow frame: {:.0} ms on the UI thread (logic {:.0} ms, layout {:.0} ms); ran: {}",
-                self.perf.update_ms,
-                self.perf.logic_ms,
-                self.perf.frame_ms,
-                if ran.is_empty() { "nothing named".to_string() } else { ran.join(", ") }
-            );
+            if self.perf.update_ms >= SLOW_FRAME_MS {
+                log::warn!(
+                    "slow frame: {:.0} ms on the UI thread (logic {:.0} ms, layout {:.0} ms); ran: {}",
+                    self.perf.update_ms,
+                    self.perf.logic_ms,
+                    self.perf.frame_ms,
+                    if ran.is_empty() { "nothing named".to_string() } else { ran.join(", ") }
+                );
+            }
             if self.slowest_frame.as_ref().is_none_or(|s| s.ms < self.perf.update_ms) {
                 self.slowest_frame =
                     Some(SlowFrame { ms: self.perf.update_ms, logic_ms: self.perf.logic_ms, layout_ms: self.perf.frame_ms, ran, at_ms: now_ms() });
@@ -2069,10 +2140,12 @@ impl LightcraftApp {
         }
         panels::dialogs::prepare(self, ui);
         let t0 = now_ms();
+        let mut t = t0;
         if std::mem::take(&mut self.ui.quit) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
         }
         self.library_changed(&ctx);
+        self.lap(&mut t, "libraryChanged");
         // (a tool panel opened some other way still remembers the panel it took the place of)
         self.ui.note_right();
         // a picker armed in another tab or panel than the one on show is put away (note 8)
@@ -2082,9 +2155,12 @@ impl LightcraftApp {
         // (and the mask row or pin under the pointer: the overlay shows that mask)
         self.ui.mask_hover_prev = self.ui.mask_hover.take();
         self.ai_mask_detail(&ctx);
+        self.lap(&mut t, "aiMaskDetail");
         self.background_prep(&ctx);
+        self.lap(&mut t, "backgroundPrep");
         crate::panels::genfill::frame(self, &ctx);
         self.place_names_outcome(&ctx);
+        self.lap(&mut t, "genfill+names");
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default()
@@ -2104,23 +2180,28 @@ impl LightcraftApp {
         // Order matters: earlier panels take the full edge (top bar spans the window; the tool strip,
         // right panels and left panel run to the bottom; the bottom bar sits between them).
         panels::topbar::show(self, ui);
+        self.lap(&mut t, "layout.topbar");
         panels::library_problem::banner(self, ui);
         panels::strip::show(self, ui);
+        self.lap(&mut t, "layout.strip");
         // filled: the gaps the dock leaves between its panes show chrome, not the dark clear colour
         let chrome = theme::Tokens::get(&ctx).chrome;
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(chrome)).show(ui, |ui| docking::show(self, ui));
+        self.lap(&mut t, "layout.panels");
         self.lights_out(&ctx);
         panels::second::show(self, &ctx);
         panels::notices::show(self, &ctx);
         panels::smart_people::roles_window(self, &ctx);
         panels::dialogs::show(self, &ctx);
         panels::library_problem::show(self, &ctx);
+        self.lap(&mut t, "layout.windows");
         export_task::poll(self, &ctx);
         machine_test::poll(self, &ctx);
         slideshow_export::poll(self, &ctx);
         panels::activity::show(self, &ctx);
         export_task::poll_photos(self, &ctx);
         pick::poll(self, &ctx);
+        self.lap(&mut t, "polls");
         panels::grid::drag_feedback(self, &ctx);
         panels::left::album_drag_feedback(self, &ctx);
         panels::left::section_drag_feedback(self, &ctx);

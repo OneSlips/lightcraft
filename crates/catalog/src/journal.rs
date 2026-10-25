@@ -194,6 +194,9 @@ pub struct Journal {
     /// A failed append may have left part of its records after `log_bytes`, and cutting them off
     /// failed too: the next append cuts the log back to `log_bytes` first.
     tail_dirty: bool,
+    /// An append failed: records handed to the store before it may not be in the log (natively it
+    /// writes on a thread of its own), so the next chance writes a snapshot, which holds them all.
+    snapshot_due: bool,
 }
 
 /// A background snapshot in flight.
@@ -382,6 +385,7 @@ impl Journal {
             pending: None,
             retry_at_records: 0,
             tail_dirty: false,
+            snapshot_due: false,
         };
         let log = log.unwrap_or_default();
 
@@ -515,6 +519,7 @@ impl Journal {
             self.tail_dirty = false;
         }
         if let Err(e) = self.store.append(LOG, buf.as_bytes()) {
+            self.snapshot_due = true;
             // Part of the batch may be in the file. Cut it back to the last whole record, so the
             // retry (same seqs) starts on a clean line instead of after a fragment that would
             // read back as damage.
@@ -686,6 +691,7 @@ impl Journal {
     }
 
     fn record_snapshot(&mut self, t: SnapshotTiming) {
+        self.snapshot_due = false;
         self.stats.snapshots += 1;
         self.stats.last_snapshot = t;
         self.stats.max_snapshot_ms = self.stats.max_snapshot_ms.max(t.total_ms);
@@ -705,6 +711,13 @@ impl Journal {
         }
     }
 
+    /// Wait until every appended record is in the file and synced (natively the store writes the
+    /// log on a thread of its own, [`crate::FsStore`]): before the files are read or copied from
+    /// outside.
+    pub fn flush(&mut self) {
+        self.store.flush();
+    }
+
     /// Where persistence time went so far.
     pub fn stats(&self) -> PersistStats {
         PersistStats { snapshot_running: self.pending.is_some(), ..self.stats }
@@ -714,7 +727,7 @@ impl Journal {
     pub fn wants_snapshot(&self) -> bool {
         self.pending.is_none()
             && self.log_records >= self.retry_at_records
-            && (self.log_records >= self.policy.max_records || self.log_bytes >= self.policy.max_bytes)
+            && (self.snapshot_due || self.log_records >= self.policy.max_records || self.log_bytes >= self.policy.max_bytes)
     }
 
     pub fn seq(&self) -> u64 {
