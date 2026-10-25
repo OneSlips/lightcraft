@@ -338,8 +338,12 @@ fn color_mixer_layout(app: &mut LightcraftApp, p: &Value) -> Result<Value, Strin
     if let Some(v) = band {
         app.ui.mixer_mode = v;
     }
+    crate::panels::edit::drop_hidden_mixer_tool(app);
     app.ui.right = RightPanel::Edit;
     app.ui.view = ViewMode::Detail;
+    // (full-screen preview shows only the photo: the mixer would not appear)
+    app.ui.fullscreen = false;
+    app.ui.slideshow = None;
     if !app.ui.section_open("color") {
         app.ui.toggle_section("color");
     }

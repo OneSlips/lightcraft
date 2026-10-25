@@ -1397,11 +1397,26 @@ pub(crate) const MIXER_GROUPS: [(&str, &str); 4] = [("Hue", "hue"), ("Saturation
 /// The mixer bands' names, as the HSL sliders are labelled (parallel to `MIXER_BANDS`).
 const BAND_NAMES: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 
+/// A Color Mixer targeted adjustment (`tat:hue|sat|lum`) whose button the mixer's layout no
+/// longer shows is put down: Point Color shows none, HSL only the chosen group's (all three in
+/// All), Color mode all three. Dragging on the photo would otherwise change a hidden group.
+pub(crate) fn drop_hidden_mixer_tool(app: &mut LightcraftApp) {
+    let Some(key) = app.ui.tool.strip_prefix("tat:") else { return };
+    if !matches!(key, "hue" | "sat" | "lum") {
+        return;
+    }
+    let shown = app.ui.mixer_tab != "point" && (app.ui.mixer_adjust == "color" || app.ui.mixer_group == "all" || app.ui.mixer_group == key);
+    if !shown {
+        app.ui.tool.clear();
+    }
+}
+
 /// The Color Mixer, laid out as in Lightroom Classic: "Mixer | Point Color" tabs; the Mixer
 /// adjusts by HSL (Hue | Saturation | Luminance | All: eight colour sliders per group, each group
 /// with its targeted adjustment) or by Color (one colour at a time). The same develop controls
 /// (`mixer.<band>.<hue|sat|lum>`) either way; a B&W photo shows its B&W mix.
 fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
+    // (the B&W mix keeps its own Luminance targeted adjustment)
     if crate::is_bw(d) {
         mixer_by_color(app, ui, d);
         return;
@@ -1417,6 +1432,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
     if let Some(k) = pick(ui, "mixerTab", &MIXER_TABS, &app.ui.mixer_tab) {
         app.ui.mixer_tab = k;
     }
+    drop_hidden_mixer_tool(app);
     if app.ui.mixer_tab == "point" {
         point_color(app, ui, d);
         return;
@@ -1427,6 +1443,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
     });
     if let Some(k) = pick(ui, "mixerAdjust", &MIXER_ADJUST, &app.ui.mixer_adjust) {
         app.ui.mixer_adjust = k;
+        drop_hidden_mixer_tool(app);
     }
     if app.ui.mixer_adjust == "color" {
         mixer_by_color(app, ui, d);
@@ -1439,6 +1456,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
             for (label, key) in MIXER_GROUPS {
                 if group_tab(ui, &format!("mixerGroup-{key}"), crate::i18n::tr(label), app.ui.mixer_group == key).clicked() {
                     app.ui.mixer_group = key.to_string();
+                    drop_hidden_mixer_tool(app);
                 }
             }
         });

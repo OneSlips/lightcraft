@@ -115,3 +115,39 @@ fn the_choice_is_remembered_and_point_color_is_a_tab() {
     let r = h.request("engine.execute", json!({"command": "view.colorMixer", "params": {"group": "chroma"}}), T);
     assert_eq!(r["ok"], false, "{r}");
 }
+
+/// A Color Mixer targeted adjustment whose button the layout no longer shows is put down (it would
+/// change a hidden group); the command leaves full-screen preview, where the mixer can't be seen.
+#[test]
+fn a_hidden_groups_targeted_adjustment_is_put_down_and_the_command_shows_the_mixer() {
+    let mut h = mixer();
+    click(&mut h, "icon:tatMixer-hue");
+    assert_eq!(h.app.ui.tool, "tat:hue");
+    click(&mut h, "button:mixerGroup-all");
+    assert_eq!(h.app.ui.tool, "tat:hue", "All shows the Hue group's button too");
+    click(&mut h, "button:mixerGroup-sat");
+    assert_eq!(h.app.ui.tool, "", "Saturation hides Hue's");
+    click(&mut h, "icon:tatMixer-sat");
+    run(&mut h, "view.colorMixer", json!({"adjust": "color"}));
+    assert_eq!(h.app.ui.tool, "tat:sat", "Color mode shows all three");
+    run(&mut h, "view.colorMixer", json!({"tab": "point"}));
+    assert_eq!(h.app.ui.tool, "", "Point Color shows none");
+    h.app.ui.fullscreen = true;
+    run(&mut h, "view.colorMixer", json!({"tab": "mixer"}));
+    assert!(!h.app.ui.fullscreen);
+}
+
+/// A B&W photo's mixer shows its B&W mix: Point Color's range view can't stay on the photo.
+#[test]
+fn point_colors_range_view_is_off_for_a_bw_photo() {
+    let mut h = mixer();
+    run(&mut h, "view.colorMixer", json!({"tab": "point"}));
+    h.app.ui.point_color_visualize = true;
+    h.app.ui.point_color = 0;
+    let id = h.app.session.active().expect("a photo");
+    let mut d = (*h.app.session.develop_of(id).expect("settings")).clone();
+    d.point_colors.push(Default::default());
+    assert!(matches!(crate::panels::detail::view_overlay(&h.app, &d), lightcraft_pipeline::Overlay::PointColorRange(0)));
+    d.treatment = lightcraft_develop::Treatment::Bw;
+    assert!(!matches!(crate::panels::detail::view_overlay(&h.app, &d), lightcraft_pipeline::Overlay::PointColorRange(_)));
+}
