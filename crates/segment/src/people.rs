@@ -581,6 +581,12 @@ fn refine(grid: &Grid, cov: &mut Vec<f32>, rgb: &[u8], fill: bool) {
 const SKIN: [usize; 2] = [2, 3];
 /// What a garment never includes: hair, body skin, face skin.
 const NOT_GARMENT: [usize; 3] = [1, 2, 3];
+/// The classes that make a head: hair and face skin.
+const HEAD: [usize; 2] = [1, 3];
+/// A figure shows a head when at least this many of its cells are hair or face skin…
+const HEAD_CELLS: usize = 4;
+/// …and at least one in this many of them.
+const HEAD_SHARE: usize = 40;
 
 /// The photo's colours at the grid's cell centres (0..1, interleaved RGB), the guide of
 /// [`matte::guided_filter_rgb`]; `None` when `rgb` isn't the grid's photo.
@@ -681,10 +687,15 @@ pub struct Surfaces {
     probs: Vec<f32>,
 }
 
-/// The scene model's classes that are surfaces around people, never what they wear.
+/// The scene model's classes that are surfaces around people, never what they wear: floors,
+/// grounds, walls, tables, and what people sit on (a dark chair back above a seated bride is not
+/// her clothes: test notes 2026-10-25, note 12).
 pub fn is_surface(label: &str) -> bool {
     const PREFIXES: [&str; 12] = ["floor", "pavement", "grass", "dirt", "road", "wall", "table", "counter", "ceiling", "building", "rug", "window"];
-    const NAMES: [&str; 15] = [
+    const NAMES: [&str; 18] = [
+        "chair",
+        "couch",
+        "bench",
         "dining table",
         "sand",
         "gravel",
@@ -1087,6 +1098,8 @@ struct Figures {
     faces_on: Vec<Vec<usize>>,
     /// The figure each face stands on.
     figure_of: Vec<Option<u32>>,
+    /// Each figure shows a head (hair or face skin): a person even when their face wasn't found.
+    head: Vec<bool>,
     /// Face centres (normalized) and the photo's aspect, for "nearest face" within a figure.
     centres: Vec<[f32; 2]>,
     aspect: f32,
@@ -1148,8 +1161,22 @@ impl Figures {
             }
             figure_of.push(fig);
         }
+        // a head on each figure: hair or face skin over a share of it (a person turned away, or whose
+        // face the detector missed, still has one; a clothes-coloured patch of grass or brick hasn't)
+        let (mut cells, mut heads) = (vec![0usize; count], vec![0usize; count]);
+        for (c, l) in label.iter().enumerate() {
+            let Some(n) = cells.get_mut(*l as usize) else { continue };
+            *n += 1;
+            let (u, v) = norm(c % side, c / side);
+            if map.at(&HEAD, u, v) > 0.5
+                && let Some(k) = heads.get_mut(*l as usize)
+            {
+                *k += 1;
+            }
+        }
+        let head = cells.iter().zip(&heads).map(|(n, k)| *k >= HEAD_CELLS.max(n / HEAD_SHARE)).collect();
         let centres = faces.iter().map(|f| f.detection.center()).map(|[x, y]| [x / fw, y / fh]).collect();
-        Some(Figures { label, faces_on, figure_of, centres, aspect: fw / fh })
+        Some(Figures { label, faces_on, figure_of, head, centres, aspect: fw / fh })
     }
 
     /// Whether every face of `chosen` stands on a figure (else the figures can't be trusted for
@@ -1170,6 +1197,12 @@ impl Figures {
     /// before a forehead's hairline; the face's own rules decide there).
     fn faceless(&self, cell: usize) -> bool {
         self.label.get(cell).is_some_and(|l| *l != u32::MAX) && self.faces_at(cell).is_empty()
+    }
+
+    /// Whether `cell` is on a figure that is nobody at all: no face stands on it and it shows no
+    /// head ([`Figures::faceless`] less the people whose face wasn't found).
+    fn nobody(&self, cell: usize) -> bool {
+        self.faceless(cell) && self.label.get(cell).is_some_and(|l| !self.head.get(*l as usize).copied().unwrap_or(false))
     }
 
     /// Whether `cell` is on any figure.
@@ -1357,8 +1390,10 @@ pub fn people_mask_with(
                         _ => theirs(owner(u, v)),
                     }
                 } else {
-                    // everyone: the whole person keeps every figure (a back turned to the camera)
-                    whole || figures.as_ref().is_none_or(|f| !f.faceless(cell))
+                    // everyone: the whole person keeps every figure (a back turned to the camera); the
+                    // parts keep every figure with a face or a head on it (someone standing whose face
+                    // wasn't found is still someone: test notes 2026-10-25, note 12)
+                    whole || figures.as_ref().is_none_or(|f| !f.nobody(cell))
                 };
                 if !allowed {
                     if let Some(m) = mine.get_mut(cell) {
@@ -2045,6 +2080,141 @@ mod tests {
         (rgb, PeopleMap { side, probs })
     }
 
+    /// Two women standing apart on a grey wall (200 × 200): each with hair, a face and blue
+    /// pyjamas down to y 190, the left one at x 20..70, the right one at x 130..180; and between
+    /// them a blue patch (x 88..112, y 150..190) the class map calls clothes, with no head. Only
+    /// the right one's face is found (the left one's is turned away). → (rgb, map, faces).
+    fn two_standing_one_face_found() -> (Vec<u8>, PeopleMap, Vec<Face>) {
+        let (w, h) = (200usize, 200usize);
+        // what is at photo pixel (x, y): 0 wall, 1 hair, 3 face skin, 4 clothes
+        let at = |x: usize, y: usize| -> usize {
+            let person = (20..70).contains(&x) || (130..180).contains(&x);
+            let inner = (32..58).contains(&x) || (142..168).contains(&x);
+            if person && (20..36).contains(&y) || inner && (36..44).contains(&y) {
+                1
+            } else if inner && (44..60).contains(&y) {
+                3
+            } else if person && (60..190).contains(&y) || (88..112).contains(&x) && (150..190).contains(&y) {
+                4
+            } else {
+                0
+            }
+        };
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let p = match at(x, y) {
+                    1 => [70, 48, 30],
+                    3 => [222, 170, 142],
+                    4 => [60, 90, 200],
+                    _ => [128, 128, 130],
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&p);
+            }
+        }
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i * w + w / 2) / side, (j * h + h / 2) / side);
+                probs[(j * side + i) * 6 + at(x, y)] = 1.0;
+            }
+        }
+        let face = Face { detection: Detection { x0: 142.0, y0: 40.0, x1: 168.0, y1: 60.0, score: 0.9, keypoints: [[0.0; 2]; 6] }, landmarks: None };
+        (rgb, PeopleMap { side, probs }, vec![face])
+    }
+
+    /// Regression (test notes 2026-10-25, note 12): Everyone ▸ Clothes left out a whole standing
+    /// woman whose face wasn't found (her figure counted as nobody's, like a patch of grass). A
+    /// figure with a head is someone: her pyjamas are in; the headless blue patch stays out.
+    #[test]
+    fn everyones_clothes_keep_a_person_whose_face_wasnt_found() {
+        let (rgb, map, faces) = two_standing_one_face_found();
+        let req = PeopleRequest::parse(0, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, 200, 200, Some(&map), &faces, None, None).unwrap();
+        for (x, y) in [(45, 100), (40, 170), (155, 100), (150, 170)] {
+            assert!(clothes_at(&m, x, y) > 0.5, "pyjamas at {x},{y} are clothes: {}", clothes_at(&m, x, y));
+        }
+        for (x, y) in [(100, 170), (100, 160), (100, 100)] {
+            assert!(clothes_at(&m, x, y) < 0.5, "the headless patch / wall at {x},{y} is not: {}", clothes_at(&m, x, y));
+        }
+        // one person of the two (the found face) still never takes the other's clothes
+        let one = people_mask_with(&PeopleRequest::parse(1, &["Clothes".into()]).unwrap(), &rgb, 200, 200, Some(&map), &faces, None, None).unwrap();
+        assert!(clothes_at(&one, 155, 100) > 0.5 && clothes_at(&one, 45, 100) < 0.5);
+    }
+
+    /// Regression (test notes 2026-10-25, note 12): the bride seated in an armchair, its dark back
+    /// rising above her shoulders; the people model's blurred "clothes" spills onto the chair back
+    /// and Clothes tinted it. The scene model sees a chair there: never clothes; her dress stays.
+    #[test]
+    fn the_chair_back_behind_a_seated_bride_is_not_clothes() {
+        use crate::scene::{CLASSES, Scene, class_ids};
+        let (w, h) = (200usize, 200usize);
+        // 0 the wall, 3 her face (x 88..112, y 44..66), 4 her dress (x 70..130, y 66..190), 5 the
+        // chair back (x 50..150, y 30..66, and its sides down to y 150)
+        let at = |x: usize, y: usize| -> u8 {
+            if (88..112).contains(&x) && (44..66).contains(&y) {
+                3
+            } else if (70..130).contains(&x) && (66..190).contains(&y) {
+                4
+            } else if (50..150).contains(&x) && (30..66).contains(&y) || ((50..70).contains(&x) || (130..150).contains(&x)) && (30..150).contains(&y)
+            {
+                5
+            } else {
+                0
+            }
+        };
+        let mut rgb = vec![0u8; w * h * 3];
+        for y in 0..h {
+            for x in 0..w {
+                let p = match at(x, y) {
+                    3 => [222, 170, 142],
+                    4 => [236, 236, 238],
+                    5 => [38, 30, 28],
+                    _ => [150, 146, 140],
+                };
+                rgb[(y * w + x) * 3..(y * w + x) * 3 + 3].copy_from_slice(&p);
+            }
+        }
+        // the people model: the dress is clothes, and so (its blur) is the chair back
+        let side = 64;
+        let mut probs = vec![0f32; side * side * 6];
+        for j in 0..side {
+            for i in 0..side {
+                let (x, y) = ((i * w + w / 2) / side, (j * h + h / 2) / side);
+                let class = match at(x, y) {
+                    3 => 3,
+                    4 | 5 => 4,
+                    _ => 0,
+                };
+                probs[(j * side + i) * 6 + class] = 1.0;
+            }
+        }
+        let map = PeopleMap { side, probs };
+        // the scene model: the chair where it shows, the person over the dress and face
+        let (sw, sh) = (40usize, 40usize);
+        let n = sw * sh;
+        let id = |name: &str| class_ids(|l| l == name)[0];
+        let mut sp = vec![0f32; CLASSES * n];
+        for c in 0..n {
+            let (x, y) = ((c % sw) * w / sw + 2, (c / sw) * h / sh + 2);
+            match at(x, y) {
+                5 => sp[id("chair") * n + c] = 0.9,
+                3 | 4 => sp[id("person") * n + c] = 0.95,
+                _ => sp[id("wall-other-merged") * n + c] = 0.9,
+            }
+        }
+        let surfaces = Surfaces::from_scene(&Scene { width: sw, height: sh, probs: sp, instances: Vec::new() });
+        let req = PeopleRequest::parse(0, &["Clothes".into()]).unwrap();
+        let m = people_mask_with(&req, &rgb, w, h, Some(&map), &[], None, Some(&surfaces)).unwrap();
+        for (x, y) in [(100, 40), (60, 50), (140, 50), (60, 110)] {
+            assert!(clothes_at(&m, x, y) < 0.5, "the chair at {x},{y} is not clothes: {}", clothes_at(&m, x, y));
+        }
+        for (x, y) in [(100, 100), (85, 150), (115, 180)] {
+            assert!(clothes_at(&m, x, y) > 0.5, "the dress at {x},{y} is clothes: {}", clothes_at(&m, x, y));
+        }
+    }
+
     /// The Clothes mask at photo pixel `(x, y)` of a 200 × 200 photo.
     fn clothes_at(m: &MaskGrid, x: usize, y: usize) -> f32 {
         let c = (y * m.side / 200) * m.side + x * m.side / 200;
@@ -2150,7 +2320,9 @@ mod tests {
         for (x, y) in [(70, 185), (100, 190)] {
             assert!(clothes_at(&m, x, y) < 0.5, "the floor at {x},{y} is not clothes: {}", clothes_at(&m, x, y));
         }
-        // a dining table in front of the couple is a surface too; a malformed scene is none
+        // a dining table in front of the couple is a surface too, and the chair or sofa they sit
+        // on; a malformed scene is none
+        assert!(is_surface("chair") && is_surface("couch") && is_surface("bench"));
         assert!(is_surface("dining table") && !is_surface("boat"));
         let empty = Surfaces::from_scene(&Scene { width: 3, height: 3, probs: vec![f32::NAN; 5], instances: Vec::new() });
         assert_eq!(empty.at(0.5, 0.5), 0.0);
