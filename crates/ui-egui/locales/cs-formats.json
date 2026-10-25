@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "Přidáno {n} předvoleb z vašich dalších knihoven.",
   "Spots on this photo: {n}": "Retušované oblasti na této fotografii: {n}",
   "From Remove Dust (outlined in amber): {n}": "Z odstranění prachu (jantarově obtažené): {n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Profil konzole {profile}: stránky Maskování a Maska jsou nyní jedna stránka Masky, zobrazená vždy, když je otevřený panel Masky. Bez vybrané masky její ovládací prvky nastavují další masku. Vaše vlastní změny zůstaly."
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Profil konzole {profile}: stránky Maskování a Maska jsou nyní jedna stránka Masky, zobrazená vždy, když je otevřený panel Masky. Bez vybrané masky její ovládací prvky nastavují další masku. Vaše vlastní změny zůstaly.",
+  "Inside: {names}": "Uvnitř: {names}",
+  "Listing folders — folders: {folders}, files: {files}": "Procházení složek – složky: {folders}, soubory: {files}",
+  "Drop to review {n} item{} for import": "Pusťte pro kontrolu před importem (položek: {n}){:.0}",
+  "Drop to import {n} item{}": "Pusťte pro import (položek: {n}){:.0}",
+  "Drop to import {n} preset{}": "Pusťte pro import přednastavení: {n}{:.0}",
+  "Could not read {name}: {e}": "Soubor {name} se nepodařilo přečíst: {e}",
+  "Added {n} photo{}": "Přidáno fotografií: {n}{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Kam má jít katalog Lightroomu „{catalog}“?",
+  "Merge into the open library “{library}” ({count} photo{})": "Sloučit s otevřenou knihovnou „{library}“ (fotografie: {count}{:.0})"
 }

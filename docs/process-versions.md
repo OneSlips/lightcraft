@@ -9,7 +9,7 @@ stronger Light sliders, issue #196) without changing a single photo someone has 
 |---|---|
 | **V1** | LightCraft's rendering from before process versions existed. Frozen. |
 | **V2** | Highlights and Shadows keep fine detail (issue #632): their base layer (`local::tone_base`) is the edge-aware filter of a separable median of log luminance (radius 0.15 % of the long edge, at most 24 px, `local::BASE_DETAIL`) instead of log luminance itself, so twigs, lines and texture take their surroundings' shift and keep their contrast; region edges stay sharp. CPU (`local::prepare`) and GPU prepare branch on `local::tone_base_detail` (0 = no median under V1); the base plane is cached per process (`local::BaseKey`). Renders without Highlights or Shadows (global or local) are the same as V1's. Tone map unchanged. |
-| **V3** (the latest) | Two changes, one process (in this integration build: upstream PR #762 and PR #1060 each proposed V3 on its own). **Pixel-scale sharpening** (issue #757): Radius uses the original photo’s pixels, Detail controls halo damping, and downsized sources retain a response-matched sharpening band; the sharpen plane is keyed by radius and process and invalidated after noise-reduction changes (`local::pixel_sharpen`, `crates/pipeline/src/tests_sharpen.rs`). **Film grain as clumps of irregular particles** (`crates/pipeline/src/grain.rs`, [grain.md](grain.md)): a filtered Boolean model, resolution independent, with Size Variation, Shape, Clumping, Color and Response; `finish::GrainModel::new` picks the model per process (`crates/pipeline/tests/grain_process.rs`). V1 and V2 keep texture-band sharpening and their two-octave value-noise grain exactly (`finish::ValueGrain`; on the GPU `F_GRAIN_MODEL` 0). Photos updated to V3 for the sharpening get the particle grain too (only visible where Grain Amount is above 0). The Highlights/Shadows base and tone map are unchanged from V2. |
+| **V3** (the latest) | Two changes, one process (in this integration build: upstream PR #762 and PR #1060 each proposed V3 on its own). **Pixel-scale sharpening** (issue #757): Radius uses the original photo’s pixels, Detail controls halo damping, and downsized sources retain a response-matched sharpening band; the sharpen plane is keyed by radius and process and invalidated after noise-reduction changes (`local::pixel_sharpen`, `crates/pipeline/src/tests_sharpen.rs`). **Film grain as clumps of irregular particles** (`crates/pipeline/src/grain.rs`, [grain.md](grain.md)): a filtered Boolean model, resolution independent, with Size Variation, Shape, Clumping, Color and Response; `finish::GrainModel::new` picks the model per process (`crates/pipeline/tests/it/grain_process.rs`). V1 and V2 keep texture-band sharpening and their two-octave value-noise grain exactly (`finish::ValueGrain`; on the GPU `F_GRAIN_MODEL` 0). Photos updated to V3 for the sharpening get the particle grain too (only visible where Grain Amount is above 0). The Highlights/Shadows base and tone map are unchanged from V2. |
 
 ## The rule
 
@@ -22,6 +22,11 @@ stronger Light sliders, issue #196) without changing a single photo someone has 
   error, CPU and GPU disagreeing) are not looks and can land in place, as before.
 - Changes to how a file is decoded or which camera colour it gets change the source, not how settings
   are interpreted; the process doesn't reach that stage today.
+
+**Neutral display tone map** (JPEG, PNG and other display-referred sources with Contrast, Whites and
+Blacks at 0) is the identity up to white: the SDR shoulder no longer pulls 1.0 down to 0.9875 (8-bit
+255 to 254, issue #1945). It landed in place as a bug fix, since the tone map promised identity at
+neutral settings; edited curves keep the shoulder and their V1 look.
 
 ## Adding a process
 

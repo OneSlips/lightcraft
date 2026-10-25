@@ -145,7 +145,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         if resp.double_clicked() {
             app.ui.renaming_mask = Some((m.id, m.name.clone()));
         }
-        resp.context_menu(|ui| super::masking::mask_menu(app, ui, m.id, &m.name, m.visible, index, count));
+        crate::widgets::context_menu(&resp, |ui| super::masking::mask_menu(app, ui, m.id, &m.name, m.visible, index, count));
         if sel {
             children(app, ui, id, d, m);
         }
@@ -244,7 +244,7 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         if resp.double_clicked() {
             app.ui.renaming_component = Some((m.id, i, label.clone()));
         }
-        resp.context_menu(|ui| super::masking::component_row_menu(app, ui, m.id, i, &label, m.components.len()));
+        crate::widgets::context_menu(&resp, |ui| super::masking::component_row_menu(app, ui, m.id, i, &label, m.components.len()));
         super::masking::range_controls(app, ui, i, &c.shape);
     }
     // Add / Subtract / Intersect (menus of what to combine) and Invert, compact under the children

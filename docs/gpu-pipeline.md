@@ -4,6 +4,10 @@ The CPU pipeline (`crates/pipeline`) is the reference ("oracle"). `lightcraft-gp
 evaluates the same stages with wgpu compute shaders (WGSL) on Metal / Vulkan / DX12. Everything is
 pure Rust (wgpu, naga); the drivers are the system's. No GL backend is compiled in.
 
+CPU fast guided-filter allocation measurements and reproduction commands are documented in
+[guided-filter-memory.md](guided-filter-memory.md). That optimization retains the full-size base
+and does not change the GPU's coefficient buffers.
+
 Warped geometry uses a CPU-computed coverage bit mask for the source boundary.
 The CPU reference evaluates that boundary in double precision; GPU float
 rounding otherwise can turn a blank edge pixel into a photo pixel. The mask
@@ -57,6 +61,13 @@ chooses; with `dxc`, put `dxcompiler.dll` *and* `dxil.dll` (DXC ≥ 1.8.2502) ne
 FXC builds the compute kernels somewhat slower than DXC (≈ 9 s vs 7.5 s for the GPU test suite on an
 RTX 4080), off the startup path.
 
+FXC merges stores to neighbouring elements of a storage array into one wider store. NVIDIA's DX12 driver ran
+the 16-byte store it made of a denoise convolution's output wrong on a GTX 1070 (every second pixel's channels
+shifted; DXC and Vulkan were right), so `nn_conv.wgsl` steps those stores by `1 + zero` from its uniform and FXC
+leaves them apart. The transposed convolution's merged store ran right on that card, but it steps the same way.
+`nn::tests::a_layer_stores_every_pixels_channels_where_the_next_reads_them` catches the fault on such a card;
+`a_transposed_convolution_stores_every_pixels_channels_where_the_next_reads_them` checks the other store exactly.
+
 **Off the startup path.** The compute device is created on a background thread once the window is
 up (`gpu::warm_up` from the first frame's settings), and never while GPU rendering is off: with
 Settings ▸ Performance ▸ *Use the GPU for rendering* unchecked (applied before the window opens),
@@ -94,7 +105,8 @@ or worked around with `LIGHTCRAFT_GPU_BACKEND`.
 **The window's renderer and its fallback (Windows).** Before the window opens, each renderer is probed in
 order: DX12, Vulkan, GL, then eframe's OpenGL renderer (glow). A probe creates a device and builds egui's
 pipeline inside wgpu error scopes, so a driver that cannot compile egui's shaders ("The parameter is
-incorrect. (0x80070057)" in `egui_pipeline`) is logged and skipped instead of killing the app. The renderer
+incorrect. (0x80070057)" in `egui_pipeline`) is logged and skipped instead of killing the app; no pop-up
+unless that renderer was forced (#1624). The renderer
 that worked is remembered in the settings folder (`window-renderer`); a start that dies before the window is up
 leaves `window-init.marker`, and the next start (relaunched automatically, at most 4 times) tries that
 renderer last. `LIGHTCRAFT_GPU_BACKEND=dx12 | vulkan | gl | glow` (or `WGPU_BACKEND`) forces one; DX12 stays
@@ -131,7 +143,7 @@ walks the drive.
   available. Thumbnails (grid, filmstrip, preset and profile previews, faces) render on the GPU
   once the device is ready (`lightcraft_gpu::ready()`) and on the CPU until then, so they never
   wait for device creation at startup. Six workers rendering 256 px thumbnails: 3.6 ms each on an
-  RTX 5070 vs 4.3–5.2 ms on 32 CPU threads (`crates/gpu/tests/thumbs_bench.rs`), and the cores stay
+  RTX 5070 vs 4.3–5.2 ms on 32 CPU threads (`crates/gpu/tests/it/thumbs_bench.rs`), and the cores stay
   free for raw decoding.
 - Every 8-bit render takes the GPU path whatever its settings: LUT profiles (the `.cube` table
   rides in the kernel's `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with
@@ -175,10 +187,12 @@ walks the drive.
 - Smooth Skin (`skin` module: `skin_lab`, `skin_reduce`, `skin_combine`, with the box Gaussian on
   4-channel bands) runs on the device from the CPU's plan (`skin::plan`: the coverage over the
   skin's box, the faces grouped by size and each group's region), the same fast log / exp as the
-  CPU (`crates/gpu/tests/skin_gpu.rs`: max 1 LSB). Before, a photo with Smooth Skin had its whole
+  CPU (`crates/gpu/tests/it/skin_gpu.rs`: max 1 LSB). Before, a photo with Smooth Skin had its whole
   linear image read back, smoothed on the processor and uploaded again (a 45 MP export spent ~0.8 s
   of its GPU turn on that). The retouch of people's parts still runs on the CPU (read back, uploaded),
   and so does Smooth Skin when a region is over the device's buffer limit.
+- Soft proofing against an output space (`RenderRequest::proof`, with its destination and display gamut
+  warnings) runs in `finish`; a proof against an output-device profile (its 3D table) renders on the CPU.
 - Per-stage hybrid: the camera's local tone mapping (ProRAW gain tables, off by default) runs the
   scene-linear stage on the CPU and uploads; heuristic mask shapes (Sky, Subject, Background, …), brushes with pen pressure and
   brushes of more than 65 536 dabs (or whose tile lists would pass 8 M words) are evaluated on the CPU and uploaded. The
@@ -257,7 +271,7 @@ render keeps one submission queued at a time, so the window's frames slot in bet
 ("Failed to wait for GPU to come idle"), and readbacks that waited for the whole queue timed out
 and turned the GPU off. A gain map export renders its float HDR rendition on the GPU too
 (`OutputDepth::F32Hdr`: `finish.wgsl` keeps colour up to the peak, continues curves above SDR
-white with slope 1 and writes 4 floats a pixel; `crates/gpu/tests/hdr_gpu.rs`: linear max 0.02 %,
+white with slope 1 and writes 4 floats a pixel; `crates/gpu/tests/it/hdr_gpu.rs`: linear max 0.02 %,
 8-bit max 1 LSB from `finish_deep`), from the stages the SDR render left on the device, with both
 renditions in one turn at the GPU (`lightcraft_gpu::in_one_turn`), so another export can't take
 the memory those stages hold in between. When the export renders on the CPU, the SDR render
@@ -279,7 +293,7 @@ each file of an `app.export` batch result has `gpuFallback` when its render fell
 **Reproducing a smaller GPU:** `LIGHTCRAFT_GPU_LIMITS=webgpu` (or `downlevel`) creates the device
 with 128 MiB storage bindings / 256 MiB buffers, `LIGHTCRAFT_GPU_LIMITS=<n>` with n MiB / 2n MiB;
 the window's device, when adopted, is capped the same way.
-Tests inject failures with `lightcraft_gpu::inject_fault` (`crates/gpu/tests/fallback.rs`,
+Tests inject failures with `lightcraft_gpu::inject_fault` (`crates/gpu/tests/it/fallback.rs`,
 `export_falls_back_to_the_cpu_when_gpu_work_is_lost`). The fault is thread-local, and so are its
 consequences: a simulated fatal failure stops GPU use on the injecting thread only (`available()`
 false, `unavailable_reason()` set there), until `reset_failures()`, which undoes nothing else — a
@@ -287,7 +301,7 @@ real failure stops the GPU for the whole process until a new device replaces it 
 `last_fallback()`, so it can run beside other tests rendering on the GPU (issue #675).
 
 ## Correctness: CPU oracle and equivalence tests
-`crates/gpu/tests/equivalence.rs` renders the same settings on both and compares 8-bit sRGB:
+`crates/gpu/tests/it/equivalence.rs` renders the same settings on both and compares 8-bit sRGB:
 bounds **mean |Δ| < 0.5 LSB and max |Δ| ≤ 3 LSB** per channel. Measured (Apple M4 Pro, Metal):
 **max 1 LSB, mean ≤ 0.0003 LSB** for every case — 27 settings cases (all tone/colour/effects tools,
 3 vignette styles, grain (fine, and coarse with colour grain), curves, grading, B&W, WB, NR, crop/straighten/flip, lens + perspective,
@@ -304,12 +318,19 @@ cut back after the readback. The tests skip (pass with a note) when no adapter e
 non-Apple GPU verified: all 16 tests pass, 135 compared cases. 124 differ by max 1 LSB, 10 are
 bit-identical, and one (the point colour range overlay) has max 2 LSB on 0.0002% of pixels. Worst
 mean 0.0003 LSB. That is the same picture as on Metal, inside the bounds
-(`cargo test -p lightcraft-gpu --release --test equivalence -- --nocapture`).
+(`cargo test -p lightcraft-gpu --release --test it equivalence:: -- --nocapture`).
 
 Remaining differences come from f32 vs f64 coordinate math, fast-math transcendental functions on
 Metal and summation order in the box filters — all far below one 8-bit step.
 
 ## Measurements
+**In the app:** Help ▸ Debug ▸ Frame Rate (`view.frameRate`, `{show?}`; `LIGHTCRAFT_FPS=1`
+starts with it on, never saved) draws frames per second, each frame's UI CPU time against its
+time spent waiting (for vsync, or for the GPU), the latest whole-frame and zoom-window render
+times, the render queue, renders thrown away as superseded, the GPU adapter and its memory, and a
+graph of the last frames with a tick where a render arrived. Once a second it logs the same
+numbers (`fps-hud:`), so a scripted drag (`ui.dragWidget`) can be measured from the log.
+
 `render_bench` on `corpus/raw/arw-sony-a7m3-compressed.arw` (24 MP; loupe = 2560 px preview →
 1920×1280), min of 7 runs, wall clock, on a heavily shared machine (load average 60–110 on 14 cores,
 so CPU numbers are pessimistic; the GPU numbers are less affected):

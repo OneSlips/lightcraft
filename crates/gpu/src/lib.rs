@@ -676,14 +676,14 @@ pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &R
 
 /// Whether the GPU renders requests of this kind at all (a given render can still fall back to
 /// the CPU): the kernel writes 8-bit output and float HDR (a gain map's HDR rendition, without
-/// an overlay), so 16-bit and linear float exports and soft proofs to an output device's profile
-/// (`proofed`; one to a colour space renders on the GPU) render on the CPU, and so does Visualize
-/// HDR. [`try_render`] follows it, and the loupe sizes its slider-drag drafts by it (issue #330),
-/// so the two can't drift apart.
-pub fn handles(depth: lightcraft_pipeline::OutputDepth, proofed: bool, overlay: lightcraft_pipeline::Overlay) -> bool {
+/// an overlay), so 16-bit and linear float exports render on the CPU, and so do soft proofs against
+/// an output-device profile (`device_proof`: its 3D table is CPU-side; one to a colour space renders
+/// on the GPU) and Visualize HDR. [`try_render`] follows it, and the loupe sizes its slider-drag
+/// drafts by it (issue #330), so the two can't drift apart.
+pub fn handles(depth: lightcraft_pipeline::OutputDepth, device_proof: bool, overlay: lightcraft_pipeline::Overlay) -> bool {
     use lightcraft_pipeline::{OutputDepth, Overlay};
     let depth_ok = depth == OutputDepth::U8 || (depth == OutputDepth::F32Hdr && overlay == Overlay::None);
-    depth_ok && !proofed && overlay != Overlay::HdrRange
+    depth_ok && !device_proof && overlay != Overlay::HdrRange
 }
 
 /// [`render`], reporting why this render made no GPU image: [`Fallback::NotTried`] when the GPU
@@ -796,9 +796,8 @@ fn run(
         // sections switched off with their eye render as if at their defaults (issue #316)
         let effective = s.effective();
         let s: &DevelopSettings = &effective;
-        // (8-bit output only; soft proofs to a colour space render on the GPU too, one to an output-device
-        // profile's table does not: the CPU renders it)
-        if !allowed() || !handles(req.depth, req.proof.is_some_and(|p| p.profile != 0), req.overlay) {
+        let device_proof = req.proof.is_some_and(|p| lightcraft_pipeline::proof_profile(p.profile).is_some());
+        if !allowed() || !handles(req.depth, device_proof, req.overlay) {
             return Err(Fallback::NotTried);
         }
         let s = &*lightcraft_pipeline::settings_for(s, req);

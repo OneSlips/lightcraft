@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "თქვენი სხვა ბიბლიოთეკებიდან დაემატა {n} პრესეტი.",
   "Spots on this photo: {n}": "ლაქა ამ ფოტოზე: {n}",
   "From Remove Dust (outlined in amber): {n}": "მტვრის მოცილებიდან (ქარვისფრად შემოხაზული): {n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "კონსოლის პროფილი {profile}: Masking და Mask გვერდები ახლა ერთი Masks გვერდია, რომელიც ჩანს, როცა ნიღბების პანელი ღიაა. არჩეული ნიღბის გარეშე მისი მართვის ელემენტები შემდეგი ნიღბის პარამეტრებს აყენებს. თქვენი ცვლილებები შენარჩუნდა."
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "კონსოლის პროფილი {profile}: Masking და Mask გვერდები ახლა ერთი Masks გვერდია, რომელიც ჩანს, როცა ნიღბების პანელი ღიაა. არჩეული ნიღბის გარეშე მისი მართვის ელემენტები შემდეგი ნიღბის პარამეტრებს აყენებს. თქვენი ცვლილებები შენარჩუნდა.",
+  "Inside: {names}": "შიგნით: {names}",
+  "Listing folders — folders: {folders}, files: {files}": "საქაღალდეების ჩამოთვლა — საქაღალდეები: {folders}, ფაილები: {files}",
+  "Drop to review {n} item{} for import": "ჩააგდეთ იმპორტამდე გადასახედად (ელემენტები: {n}){:.0}",
+  "Drop to import {n} item{}": "ჩააგდეთ იმპორტისთვის (ელემენტები: {n}){:.0}",
+  "Drop to import {n} preset{}": "ჩააგდეთ პრესეტების იმპორტისთვის: {n}{:.0}",
+  "Could not read {name}: {e}": "ვერ წაიკითხა {name}: {e}",
+  "Added {n} photo{}": "დაემატა ფოტო: {n}{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "სად გადავიტანოთ Lightroom-ის კატალოგი „{catalog}“?",
+  "Merge into the open library “{library}” ({count} photo{})": "გაერთიანება ღია ბიბლიოთეკასთან „{library}“ (ფოტოები: {count}){:.0}"
 }

@@ -332,7 +332,8 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
         p.fs("LUT_MIN", &l.domain_min);
         p.fs("LUT_MAX", &l.domain_max);
     }
-    if let Some(pp) = &fp.proof {
+    // (a proof to an output device's table is rendered on the CPU: see `handles`)
+    if let Some(pp) = fp.proof.as_ref().filter(|pp| pp.table.is_none()) {
         p.b("PROOF", true);
         p.fs("PROOF_M", pp.to_proof.as_flattened());
         p.fs("PROOF_Y", &pp.luma);

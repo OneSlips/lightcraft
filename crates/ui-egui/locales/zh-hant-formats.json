@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "已從其他圖庫加入 {n} 個預設集。",
   "Spots on this photo: {n}": "此相片的斑點：{n}",
   "From Remove Dust (outlined in amber): {n}": "來自「去除灰塵」（琥珀色輪廓）：{n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "主控台設定檔 {profile}：Masking 與 Mask 頁面現已合併為一個 Masks 頁面，只要開啟遮色片面板就會顯示。未選取遮色片時，其控制項會設定下一個遮色片。您自己的變更已保留。"
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "主控台設定檔 {profile}：Masking 與 Mask 頁面現已合併為一個 Masks 頁面，只要開啟遮色片面板就會顯示。未選取遮色片時，其控制項會設定下一個遮色片。您自己的變更已保留。",
+  "Inside: {names}": "其中：{names}",
+  "Listing folders — folders: {folders}, files: {files}": "正在列出資料夾 — 資料夾：{folders}，檔案：{files}",
+  "Drop to review {n} item{} for import": "放開滑鼠以在匯入前檢查 {n} 個項目{:.0}",
+  "Drop to import {n} item{}": "放開滑鼠以匯入 {n} 個項目{:.0}",
+  "Drop to import {n} preset{}": "放開滑鼠以匯入 {n} 個預設集{:.0}",
+  "Could not read {name}: {e}": "無法讀取 {name}：{e}",
+  "Added {n} photo{}": "已加入 {n} 張照片{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Lightroom 目錄「{catalog}」要匯入到哪裡？",
+  "Merge into the open library “{library}” ({count} photo{})": "合併到目前開啟的照片庫「{library}」（{count} 張照片）{:.0}"
 }

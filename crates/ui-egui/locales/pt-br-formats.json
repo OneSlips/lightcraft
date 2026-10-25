@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "{n} predefinições das suas outras bibliotecas foram adicionadas.",
   "Spots on this photo: {n}": "Pontos nesta foto: {n}",
   "From Remove Dust (outlined in amber): {n}": "De “Remover poeira” (contorno âmbar): {n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Perfil do console {profile}: as páginas Masking e Mask agora são uma única página Masks, mostrada sempre que o painel Máscaras está aberto. Sem máscara selecionada, seus controles ajustam a próxima máscara. Suas próprias alterações foram mantidas."
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Perfil do console {profile}: as páginas Masking e Mask agora são uma única página Masks, mostrada sempre que o painel Máscaras está aberto. Sem máscara selecionada, seus controles ajustam a próxima máscara. Suas próprias alterações foram mantidas.",
+  "Inside: {names}": "Dentro: {names}",
+  "Listing folders — folders: {folders}, files: {files}": "Listando pastas — pastas: {folders}, arquivos: {files}",
+  "Drop to review {n} item{} for import": "Solte para revisar antes de importar (itens: {n}){:.0}",
+  "Drop to import {n} item{}": "Solte para importar (itens: {n}){:.0}",
+  "Drop to import {n} preset{}": "Solte para importar predefinições: {n}{:.0}",
+  "Could not read {name}: {e}": "Não foi possível ler {name}: {e}",
+  "Added {n} photo{}": "{n} foto{0} adicionada{0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Para onde vai o catálogo do Lightroom “{catalog}”?",
+  "Merge into the open library “{library}” ({count} photo{})": "Mesclar na biblioteca aberta “{library}” ({count} foto{})"
 }

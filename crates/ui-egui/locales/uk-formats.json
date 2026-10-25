@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "Додано пресетів з інших бібліотек: {n}.",
   "Spots on this photo: {n}": "Ділянок на цьому фото: {n}",
   "From Remove Dust (outlined in amber): {n}": "Від «Видалити пил» (обведені бурштиновим): {n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Профіль консолі {profile}: сторінки Masking і Mask тепер одна сторінка Masks, вона показується щоразу, коли відкрито панель «Маски». Якщо маску не вибрано, її елементи задають налаштування наступної маски. Ваші зміни збережено."
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "Профіль консолі {profile}: сторінки Masking і Mask тепер одна сторінка Masks, вона показується щоразу, коли відкрито панель «Маски». Якщо маску не вибрано, її елементи задають налаштування наступної маски. Ваші зміни збережено.",
+  "Inside: {names}": "Усередині: {names}",
+  "Listing folders — folders: {folders}, files: {files}": "Перегляд тек — тек: {folders}, файлів: {files}",
+  "Drop to review {n} item{} for import": "Відпустіть для перегляду перед імпортом (елементів: {n}){:.0}",
+  "Drop to import {n} item{}": "Відпустіть для імпорту (елементів: {n}){:.0}",
+  "Drop to import {n} preset{}": "Відпустіть для імпорту наборів налаштувань: {n}{:.0}",
+  "Could not read {name}: {e}": "Не вдалося прочитати {name}: {e}",
+  "Added {n} photo{}": "Додано фото: {n}{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Куди імпортувати каталог Lightroom «{catalog}»?",
+  "Merge into the open library “{library}” ({count} photo{})": "Об’єднати з відкритою бібліотекою «{library}» (фото: {count}){:.0}"
 }

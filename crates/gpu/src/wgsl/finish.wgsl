@@ -732,8 +732,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // --- dehaze (scene linear)
     let dz = pf(F_DEHAZE) + lt[10];
     if (dz != 0.0 && pu(F_HAS_DARK) != 0u) {
-        let d = clamp(dark[i] / pf(F_AIR_PRE), 0.0, 1.0);
+        // the dark channel is a blur, not a patch minimum: never attribute more veil than the
+        // pixel's own minimum channel, or dark pixels next to bright ones crush to black (#2504)
         let air = pf(F_AIR);
+        let cmin = min(c.x, min(c.y, c.z));
+        let d = clamp(min(select(0.0, dark[i] / pf(F_AIR_PRE), pf(F_AIR_PRE) > 0.0), select(0.0, cmin / air, air > 0.0)), 0.0, 1.0);
         if (dz > 0.0) {
             let t = max(1.0 - 0.95 * min(dz, 1.0) * d, 0.12);
             c = max((c - air * (1.0 - t)) / t, vec3<f32>(0.0));
@@ -989,6 +992,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         out[o + 2u] = bitcast<u32>(clamp(srgb_to_lin(max(e.z, 0.0)), 0.0, peak));
         out[o + 3u] = bitcast<u32>(1.0);
         return;
+    }
+    if (warn == 1u) {
+        e = vec3<f32>(1.0, 0.0, 0.0);
+    } else if (warn == 2u) {
+        e = vec3<f32>(0.0, 0.25, 1.0);
     }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x) | (enc8(e.y) << 8u) | (enc8(e.z) << 16u) | (255u << 24u);

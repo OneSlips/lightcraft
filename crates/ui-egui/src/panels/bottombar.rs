@@ -15,7 +15,7 @@ use crate::LightcraftApp;
 use crate::icons::{Icon, paint};
 use crate::state::{ViewMode, Zoom};
 use crate::theme::{Tokens, label_color};
-use crate::widgets::{icon_button, register, stars};
+use crate::widgets::{icon_button, register};
 
 const VIEW_MODES: &[(&str, Icon, ViewMode, &str)] = &[
     ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid (G)"),
@@ -211,14 +211,10 @@ fn flags_on(f: &lightcraft_catalog::Filter) -> Vec<Flag> {
 }
 
 /// The colour labels the filter shows (empty: any).
+/// The labels lit: those `label` and `labels` both let through (they AND), so a click starts from
+/// what is filtered, not their union.
 fn labels_on(f: &lightcraft_catalog::Filter) -> Vec<ColorLabel> {
-    let mut v = f.labels.clone();
-    if let Some(l) = f.label
-        && !v.contains(&l)
-    {
-        v.push(l);
-    }
-    v
+    f.labels_shown().unwrap_or_default()
 }
 
 const FLAG_FILTERS: [(Flag, &str, &str); 3] =
@@ -417,7 +413,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
         }
         Part::Stars => {
             let mut c = row_ui(ui, r, 1.0);
-            if let Some(n) = stars(&mut c, "bottom", x.rating, STAR) {
+            if let Some(n) = crate::rating::Rating::new("bottom", x.rating).cell(STAR).show(&mut c) {
                 let mut params = json!({"rating": n});
                 crate::panels::compare::target_active(app, &mut params);
                 let _ = app.run("photo.rate", params);

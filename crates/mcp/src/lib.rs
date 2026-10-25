@@ -14,6 +14,8 @@
 //! Entry points: [`Server::serve_stdio`] (process stdin), [`Server::serve`] (caller-managed
 //! streams), and [`Server::handle_line`] (one message).
 #![forbid(unsafe_code)]
+// the export tool's schema is one `json!` literal deeper than the default limit allows
+#![recursion_limit = "256"]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod backend;

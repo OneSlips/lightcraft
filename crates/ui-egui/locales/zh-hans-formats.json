@@ -460,5 +460,14 @@
   "{n} presets from your other libraries were added.": "已从其他图库添加 {n} 个预设。",
   "Spots on this photo: {n}": "此照片上的污点：{n}",
   "From Remove Dust (outlined in amber): {n}": "来自“去除灰尘”（琥珀色轮廓）：{n}",
-  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "控制台配置 {profile}：Masking 和 Mask 页面现已合并为一个 Masks 页面，只要打开蒙版面板就会显示。未选择蒙版时，其控件设置下一个蒙版。您自己的更改已保留。"
+  "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.": "控制台配置 {profile}：Masking 和 Mask 页面现已合并为一个 Masks 页面，只要打开蒙版面板就会显示。未选择蒙版时，其控件设置下一个蒙版。您自己的更改已保留。",
+  "Inside: {names}": "其中：{names}",
+  "Listing folders — folders: {folders}, files: {files}": "正在列出文件夹 — 文件夹：{folders}，文件：{files}",
+  "Drop to review {n} item{} for import": "松开鼠标以在导入前检查 {n} 个项目{:.0}",
+  "Drop to import {n} item{}": "松开鼠标以导入 {n} 个项目{:.0}",
+  "Drop to import {n} preset{}": "松开鼠标以导入 {n} 个预设{:.0}",
+  "Could not read {name}: {e}": "无法读取 {name}：{e}",
+  "Added {n} photo{}": "已添加 {n} 张照片{:.0}",
+  "Where should the Lightroom catalog “{catalog}” go?": "Lightroom 目录“{catalog}”要导入到哪里？",
+  "Merge into the open library “{library}” ({count} photo{})": "合并到当前打开的图库“{library}”（{count} 张照片）{:.0}"
 }

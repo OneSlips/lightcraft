@@ -42,7 +42,7 @@ impl DcpProfile {
             baseline_exposure: color.baseline_exposure + self.color.baseline_exposure,
             baseline_sharpness: color.baseline_sharpness,
             profile: crate::profile::ProfileLook { gain_table_map: color.profile.gain_table_map.clone(), ..self.color.profile.clone() },
-            kelvin_presets: color.kelvin_presets,
+            kelvin_presets: color.kelvin_presets.clone(),
         }
     }
 }

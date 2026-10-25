@@ -41,13 +41,20 @@ pub(crate) fn display_label(chip: &FilterChip, filter: &lightcraft_catalog::Filt
         return format!("{}: {}", tr("Rules"), rules_label(rules, catalog));
     }
     if chip.clear.get("label").is_some() {
-        let mut labels = filter.labels.clone();
-        labels.extend(filter.label.filter(|label| !labels.contains(label)));
-        let mut names = labels.iter().map(|label| crate::i18n::color_label(catalog, *label)).collect::<Vec<_>>();
+        let name = |label: &lightcraft_catalog::ColorLabel| crate::i18n::color_label(catalog, *label);
+        let or = |labels: &[lightcraft_catalog::ColorLabel]| labels.iter().map(name).collect::<Vec<_>>().join(&format!(" {} ", tr("or")));
+        let mut names = match filter.labels_shown() {
+            None => String::new(),
+            Some(shown) if shown.is_empty() => {
+                let plural = if filter.labels.len() > 1 { format!("({})", or(&filter.labels)) } else { or(&filter.labels) };
+                format!("{} {} {plural}", filter.label.as_ref().map(name).unwrap_or_default(), tr("and"))
+            }
+            Some(shown) => or(&shown),
+        };
         if filter.unlabeled {
-            names.push(tr("No Label").to_string());
+            names = if names.is_empty() { tr("No Label").to_string() } else { format!("{names} {} {}", tr("or"), tr("No Label")) };
         }
-        return format!("{}: {}", tr("Label"), names.join(&format!(" {} ", tr("or"))));
+        return format!("{}: {names}", tr("Label"));
     }
     if chip.clear.get("flags").is_some() {
         let names: Vec<&str> = filter
@@ -70,7 +77,7 @@ pub(crate) fn display_label(chip: &FilterChip, filter: &lightcraft_catalog::Filt
         };
     }
     if chip.clear.get("only").is_some() {
-        return format!("{} {}", tr("Only"), crate::i18n::tr_format!("{n} photos", n = filter.only.len()));
+        return format!("{} {}", tr("Only"), crate::i18n::tr_format!("{n} photos", n = if filter.only_none { 0 } else { filter.only.len() }));
     }
     if let Some((prefix, value)) = chip.label.split_once(": ") {
         let value = if matches!(prefix, "Flag" | "Type") {
