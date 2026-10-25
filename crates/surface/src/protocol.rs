@@ -115,16 +115,17 @@ impl Pairing {
         self.requests.retain(|r| (now_ms.saturating_sub(r.created_ms) as f64) < REQUEST_TTL_MS);
     }
 
-    /// A client asks to pair (`surface.pair {client, name}`): its open request, or a new one.
+    /// A client asks to pair (`surface.pair {client, name}`): a new request. One that client id
+    /// already had waiting is withdrawn, its id and code with it: a request's id and code go
+    /// only to the caller that made it, so another program asking under the same client id can't
+    /// pick up the token, and the user sees the code change.
     pub fn ask(&mut self, client: &str, name: &str, now_ms: u64) -> Result<PairRequest, String> {
         self.expire(now_ms);
         let client = clean(client);
         if client.is_empty() {
             return Err("surface.pair: give a `client` id".into());
         }
-        if let Some(r) = self.requests.iter().find(|r| r.client == client && matches!(r.state, PairState::Pending { .. })) {
-            return Ok(r.clone());
-        }
+        self.requests.retain(|r| !(r.client == client && matches!(r.state, PairState::Pending { .. })));
         if self.waiting().count() >= MAX_PENDING {
             return Err("surface.pair: too many pairing requests are waiting; answer them in Settings ▸ Controls first".into());
         }
@@ -217,7 +218,12 @@ mod tests {
         let mut s = SurfaceSettings::default();
         let r = p.ask("lightcraft-logi", "Logi Actions plugin", 0).unwrap();
         assert_eq!(r.code.len(), 6);
-        assert_eq!(p.ask("lightcraft-logi", "again", 1).unwrap().request, r.request, "one open request per client");
+        // asking again withdraws the open request: its id and code never go to a second caller
+        let again = p.ask("lightcraft-logi", "again", 1).unwrap();
+        assert_ne!(again.request, r.request);
+        assert_eq!(p.poll(&r.request, 2), None, "the first request is withdrawn");
+        assert_eq!(p.waiting().count(), 1, "one open request per client");
+        let r = again;
         assert_eq!(p.poll(&r.request, 2), Some(PairState::Pending { code: r.code.clone() }));
         let token = p.approve(&r.request, &mut s, 100).unwrap();
         assert_eq!(token.len(), 64);

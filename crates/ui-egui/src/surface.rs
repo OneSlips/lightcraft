@@ -158,6 +158,8 @@ fn seed() -> Vec<u8> {
         h.write_u128(web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0));
         out.extend_from_slice(&h.finish().to_le_bytes());
     }
+    // (the web build has no process id: std panics there)
+    #[cfg(not(target_arch = "wasm32"))]
     out.extend_from_slice(&std::process::id().to_le_bytes());
     out
 }

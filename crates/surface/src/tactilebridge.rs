@@ -874,7 +874,8 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
                     let pname = page.get("displayName").and_then(Value::as_str).unwrap_or("Page").to_string();
                     let mut bindings = BTreeMap::new();
                     for ctl in page.get("controls").and_then(Value::as_array).into_iter().flatten().take(64) {
-                        let Some(id) = ctl.get("controlId").and_then(Value::as_u64) else { continue };
+                        // (an id from the file: only one some device has is taken)
+                        let Some(id) = ctl.get("controlId").and_then(Value::as_u64).filter(|n| *n < 64) else { continue };
                         let action = ctl.get(if rotate { "rotateAction" } else { "pressAction" }).and_then(Value::as_str).unwrap_or("");
                         // "$<Plugin>___<Action class>___<key>"
                         let Some(key) = action.rsplit("___").next().filter(|k| !k.is_empty() && *k != action) else { continue };
@@ -886,6 +887,9 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
                             (false, "Loupedeck71", n) => format!("pad.{}", n + 1),
                             (false, _, n) => format!("key.{}", n + 1),
                         };
+                        if crate::devices::find_control(&slot).is_none() {
+                            continue;
+                        }
                         if let Some(b) = report.note(format!("{pname}: {slot} ({key})"), key) {
                             bindings.insert(slot, b);
                         }
@@ -1045,6 +1049,16 @@ mod tests {
             // encoder 0 (Highlight) is the roller, encoder 1 (Shadow) the big dial
             ([PageGroup::Dials].as_slice(), &Binding::value("light.shadows"), &Binding::value("light.highlights"))
         );
+        // ids no device has (or that overflow) are left out, not wrapped round or panicked on
+        let hostile = lp5(
+            "Loupedeck70",
+            json!([{"displayName": "Junk", "controls": [
+                {"controlId": u64::MAX, "pressAction": "$CaptureOne___CaptureOneCmd___PreviousImage"},
+                {"controlId": 99, "pressAction": "$CaptureOne___CaptureOneCmd___PreviousImage"}]}]),
+            json!([{"displayName": "Junk dials", "controls": [{"controlId": u64::MAX, "rotateAction": "$CaptureOne___CaptureOneAdj___Highlight"}]}]),
+        );
+        let (p, _) = import_lp5(&hostile).unwrap();
+        assert!(p.pages.iter().all(|pg| pg.bindings.is_empty()), "{:?}", p.pages);
         assert!(import_lp5(b"not a zip").is_err());
         assert!(import_lp5(&make_zip(&[("ProfileInfo.json", b"{\"layout\": 5}", false)])).is_err());
     }

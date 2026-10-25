@@ -683,3 +683,28 @@ fn a_dial_refuses_a_one_press_action_dropped_on_it() {
     assert_eq!(*h.app.surface.settings(), before, "nothing changed");
     assert!(h.app.surface.editor.message.as_deref().is_some_and(|m| m.contains("dial")), "{:?}", h.app.surface.editor.message);
 }
+
+/// Profiles are found by name: Duplicate twice makes two names, a typed name that is taken gets a
+/// number, and deleting the active profile makes another one active instead of leaving none.
+#[test]
+fn duplicated_profiles_get_their_own_names_and_deleting_one_keeps_one_active() {
+    use crate::panels::controls::{delete_profile, duplicate_profile, unique_name};
+    let mut s = lightcraft_surface::SurfaceSettings::default();
+    let first = s.profile.clone();
+    assert!(duplicate_profile(&mut s, ""));
+    assert!(duplicate_profile(&mut s, ""));
+    let names: Vec<&str> = s.profiles.iter().map(|p| p.name.as_str()).collect();
+    let unique: std::collections::BTreeSet<&str> = names.iter().copied().collect();
+    assert_eq!(unique.len(), names.len(), "{names:?}");
+    assert!(duplicate_profile(&mut s, &first));
+    assert_eq!(s.profile, format!("{first} 2"));
+    assert!(s.active_profile().is_some());
+    delete_profile(&mut s);
+    assert!(s.active_profile().is_some(), "another profile is active: {}", s.profile);
+    while s.profiles.len() > 1 {
+        delete_profile(&mut s);
+    }
+    delete_profile(&mut s);
+    assert_eq!(s.profiles.len(), 1, "the last profile stays");
+    assert_eq!(unique_name("Page 1", |n| n == "Page 1" || n == "Page 1 2"), "Page 1 3");
+}

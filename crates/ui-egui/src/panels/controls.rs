@@ -505,7 +505,17 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
     );
     ui.horizontal_wrapped(|ui| {
         // Loupedeck's own profiles on this computer, the last changed first: pick one, Import
-        let found = crate::surface::loupedeck_profiles();
+        // (listed once, then again every 10 s at most: the folders aren't read every frame)
+        let now = ui.ctx().input(|i| i.time);
+        let cache = egui::Id::new("surfaceLoupedeckFound");
+        let found = match ui.ctx().data(|d| d.get_temp::<(f64, Vec<(String, std::path::PathBuf)>)>(cache)) {
+            Some((at, found)) if now - at < 10.0 && now >= at => found,
+            _ => {
+                let found = crate::surface::loupedeck_profiles();
+                ui.ctx().data_mut(|d| d.insert_temp(cache, (now, found.clone())));
+                found
+            }
+        };
         if !found.is_empty() {
             let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
             ui.label(RichText::new(tr("Loupedeck profile")).color(t.text_label));
@@ -1270,6 +1280,8 @@ fn pages_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         if button(ui, "surfaceAddPage", "Add page") {
             let name = app.surface.editor.new_name.trim().to_string();
             let name = if name.is_empty() { format!("Page {}", profile.pages.len() + 1) } else { name };
+            // (pages are found by name: a second one of the same name could never be edited)
+            let name = unique_name(&name, |n| profile.page(n).is_some());
             edit_profile(app, |p| p.pages.push(ls::Page { name: name.clone(), groups: vec![PageGroup::Keys], ..Default::default() }));
             app.surface.editor.new_name.clear();
         }
@@ -1431,6 +1443,38 @@ fn connection(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     }
 }
 
+/// `base`, or `base 2`, `base 3`… : the first that isn't `taken` (profiles and pages are found by
+/// name, so two of one name would leave the second unreachable).
+pub(crate) fn unique_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_string();
+    }
+    (2..1000).map(|n| format!("{base} {n}")).find(|n| !taken(n)).unwrap_or_else(|| format!("{base} {}", 1000))
+}
+
+/// Duplicate the active profile as `name` (or "<name> copy"), made unique, and make it active.
+pub(crate) fn duplicate_profile(s: &mut ls::SurfaceSettings, name: &str) -> bool {
+    let Some(mut p) = s.active_profile().cloned() else { return false };
+    let base = if name.is_empty() { format!("{} copy", p.name) } else { name.to_string() };
+    p.name = unique_name(&base, |n| s.profiles.iter().any(|q| q.name == n));
+    p.description.clear();
+    s.profile = p.name.clone();
+    s.profiles.push(p);
+    true
+}
+
+/// Delete the active profile; the first one left becomes active (the last one is kept).
+pub(crate) fn delete_profile(s: &mut ls::SurfaceSettings) {
+    if s.profiles.len() < 2 {
+        return;
+    }
+    let cur = s.profile.clone();
+    s.profiles.retain(|p| p.name != cur);
+    if let Some(first) = s.profiles.first() {
+        s.profile = first.name.clone();
+    }
+}
+
 fn profiles(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     heading(ui, t, "Profiles");
     let names: Vec<String> = app.surface.settings().profiles.iter().map(|p| p.name.clone()).collect();
@@ -1441,12 +1485,7 @@ fn profiles(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         crate::text_field::TextField::singleline("field:surfaceProfileName", &mut app.surface.editor.new_name).hint(tr("Name")).width(160.0).show(ui);
         if button(ui, "surfaceDuplicate", "Duplicate") {
             let name = app.surface.editor.new_name.trim().to_string();
-            let s = app.surface.runtime.settings_mut();
-            if let Some(mut p) = s.active_profile().cloned() {
-                p.name = if name.is_empty() { format!("{} copy", p.name) } else { name };
-                p.description.clear();
-                s.profile = p.name.clone();
-                s.profiles.push(p);
+            if duplicate_profile(app.surface.runtime.settings_mut(), &name) {
                 app.surface.editor.new_name.clear();
                 app.surface.changed();
             }
@@ -1465,9 +1504,7 @@ fn profiles(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
         }
         if names.len() > 1 && button(ui, "surfaceDeleteProfile", "Delete") {
-            let s = app.surface.runtime.settings_mut();
-            let cur = s.profile.clone();
-            s.profiles.retain(|p| p.name != cur);
+            delete_profile(app.surface.runtime.settings_mut());
             app.surface.changed();
         }
         if button(ui, "surfaceRestore", "Add the built-in profiles") {

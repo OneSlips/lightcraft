@@ -546,7 +546,9 @@ impl Runtime {
         if is_encoder(control) {
             // a dial press: its own binding (`dial.press`), else reset what the dial moves
             let own = format!("{control}.press");
-            if let Some(b) = self.binding(&own, None) {
+            // (its own binding only: the dial focus moves the dial, it doesn't bind its press)
+            let bound = self.profile().and_then(|p| p.binding(&own, &self.pages).cloned()).or_else(|| crate::loupedeck::default_binding(&own));
+            if let Some(b) = bound {
                 return self.perform(&own, &b, now_ms);
             }
             return match self.binding(control, None) {
@@ -960,6 +962,12 @@ mod tests {
         assert_eq!(r.input(turn("dial", 1), 10.0), [Effect::Begin { target: "light.contrast".into() }]);
         r.input(press("key.2"), 20.0);
         assert_eq!(r.focus(), None);
+        // pressing the dial resets the value on it, and keeps it there
+        r.input(press("key.2"), 25.0);
+        // (the turn still open goes to the photo first)
+        assert_eq!(r.input(press("dial"), 26.0).last(), Some(&Effect::Reset { target: "light.contrast".into() }));
+        assert_eq!(r.focus(), Some("light.contrast"));
+        r.input(press("key.2"), 27.0);
         // a context change drops the focus too
         r.input(press("key.2"), 30.0);
         r.set_context("crop");

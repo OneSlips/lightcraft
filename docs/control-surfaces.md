@@ -163,7 +163,7 @@ clamped into range on reading.
 
 ```jsonc
 {
-  "version": 1,                 // format version
+  "version": 3,                 // format version
   "enabled": true,              // surfaces may connect (the listener runs)
   "port": 7981,
   "profile": "Wedding",         // the profile in use
@@ -239,7 +239,7 @@ In-process requests (headless scripts, tests) count as paired.
 | Method | Params | Result | Paired? |
 |---|---|---|---|
 | `surface.hello` | `{protocol: 1, client, name?, token?}` | `{protocol, app, version, paired, enabled, devices: [{id, name, controls: [{id, kind, label}]}]}`; a valid token pairs this connection | no |
-| `surface.pair` | `{client, name}` → new or open request; `{request}` → poll | `{status: "pending", request, code}` / `{status: "approved", token}` (once) / `{status: "denied"}` | no |
+| `surface.pair` | `{client, name}` → a new request (one the same client id had waiting is withdrawn); `{request}` → poll | `{status: "pending", request, code}` / `{status: "approved", token}` (once) / `{status: "denied"}` | no |
 | `surface.icons` | `{names?: [..]}` (all when omitted) | `{name: svg}` | no |
 | `surface.catalog` | — | `{groups: [..], entries: [{key, group, label, icon, value}]}`: every action in categories, labels in the app's language (`lightcraft_surface::catalog`); `key` is stable (`v.light.exposure`, `c.photo.rate.rating-5`, `s.applyToSelected`) | no |
 | `surface.subscribe` | `{device?: "mx-creative-console"}` | `{layout}`; then `surface.layout` events whenever it changes | yes |
