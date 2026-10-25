@@ -864,6 +864,11 @@ impl Progress {
     pub(crate) fn cancel_now(&self) {
         self.cancel.store(true, Ordering::Relaxed);
     }
+
+    /// Has the job been asked to stop?
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
 }
 
 /// The loaded model, loading it first when it is not (kept for the next photo).
@@ -1339,6 +1344,11 @@ impl Session {
         added
     }
 
+    /// Was photo `id` waiting in a batch that was cancelled? It is then not made until asked for again.
+    pub fn denoise_held(&self, id: PhotoId) -> bool {
+        self.denoise.held.contains(&id)
+    }
+
     /// Photos asked for again (the switch, `denoise.queue`): a cancelled batch no longer holds them back.
     pub(crate) fn denoise_release(&mut self, ids: &[PhotoId]) {
         for id in ids {
@@ -1601,6 +1611,12 @@ impl Session {
             self.denoise_cancel(None, true);
             self.denoise.photo_task = None;
             self.denoise.task = None;
+            return;
+        }
+        // a job told to stop, with nothing waiting after it, is no new batch while it winds down
+        let stopping = self.denoise.queue.is_empty() && self.denoise.running.as_ref().is_some_and(|r| r.progress.cancelled());
+        if stopping && self.denoise.task.is_none() {
+            self.denoise.photo_task = None;
             return;
         }
         let task = self.denoise.task.get_or_insert_with(|| self.activity.start_batch("denoise", "AI Denoise", crate::activity::Cancel::Yes));

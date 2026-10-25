@@ -943,6 +943,74 @@ fn a_cancelled_denoise_batch_stays_cancelled_until_asked_again() {
     let _ = std::fs::remove_dir_all(x.dir);
 }
 
+/// A job told to stop by the batch row's ✕ winds down on its own thread: until it has, no new batch row
+/// appears for it. The photo it was making waits until asked for again.
+#[test]
+fn a_cancelled_batch_does_not_come_back_while_its_job_winds_down() {
+    let mut x = setup("cancelrunning", true);
+    // a model that does not load until let go: the job is running all that while
+    let gate = Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+    let (g, runs) = (gate.clone(), x.runs.clone());
+    x.s.denoise.loader = Arc::new(move |_, _| {
+        let (open, wake) = &*g;
+        let mut open = open.lock().unwrap();
+        while !*open {
+            open = wake.wait(open).unwrap();
+        }
+        Ok(Arc::new(Dim { runs: runs.clone() }) as Arc<dyn Model>)
+    });
+    x.s.execute("denoise.settings", &json!({"auto": true})).unwrap();
+    set_amount(&mut x.s, 100.0);
+    x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+    let batches = |s: &Session| s.activity.list().into_iter().filter(|t| t.kind == "denoise" && t.batch).count();
+    let batch = x.s.activity.list().into_iter().find(|t| t.kind == "denoise" && t.batch).expect("a batch row");
+    x.s.activity.cancel(batch.id).unwrap();
+    for _ in 0..3 {
+        x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+        assert!(x.s.denoise_busy(), "the job is still winding down");
+        assert_eq!(batches(&x.s), 0, "no new batch row for a job that is stopping");
+    }
+    assert!(x.s.denoise_held(photo(&x.s)), "the photo waits until asked for again");
+    let (open, wake) = &*gate;
+    *open.lock().unwrap() = true;
+    wake.notify_all();
+    for _ in 0..200 {
+        x.s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+        if !x.s.denoise_busy() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!x.s.denoise_busy(), "stopped");
+    assert_eq!(batches(&x.s), 0);
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// Browsing a folder imports nothing: "AI Denoise from ISO N" makes no pictures for the photos browsed.
+#[test]
+fn browsing_a_folder_makes_no_ai_denoise_pictures() {
+    let mut x = setup("browsedenoise", true);
+    // (not made because it is looked at either)
+    x.s.execute("denoise.settings", &json!({"auto": false})).unwrap();
+    x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 3200}})).unwrap();
+    let folder = x.dir.join("browsed");
+    std::fs::create_dir_all(&folder).unwrap();
+    let data: Vec<u16> = (0..192 * 160).map(|i| 600 + (i % 192) as u16 * 30).collect();
+    let meta = lightcraft_meta::Metadata { iso: Some(6400), ..Default::default() };
+    std::fs::write(folder.join("high.dng"), synthetic_dng_of(192, 160, "RGGB", data, None, meta)).unwrap();
+    x.s.execute("library.browse", &json!({"path": folder.to_string_lossy()})).unwrap();
+    for _ in 0..3 {
+        x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
+    }
+    assert!(!x.s.denoise_busy(), "{}", x.s.execute("denoise.status", &json!({})).unwrap());
+    // imported, the same file is queued
+    x.s.execute("library.import", &json!({"paths": [folder.join("high.dng").to_string_lossy()]})).unwrap();
+    assert!(x.s.denoise_busy(), "imported at ISO 6400: queued");
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
 /// "AI Denoise from ISO N" at import switches it on for new raw photos shot at that ISO or above (part of
 /// the look they start from), and leaves the others alone.
 #[test]
