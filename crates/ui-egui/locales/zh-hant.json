@@ -3062,5 +3062,7 @@
   "Import dropped files without review": "不經檢查直接匯入拖放的檔案",
   "An import is running. Drop photos when it has finished": "正在匯入。匯入完成後再拖放照片",
   "Finish Lightroom catalog import before adding photos": "新增照片前，請先完成 Lightroom 目錄的匯入",
-  "Console: Masking and Mask are now one Masks page": "控制台：兩個遮色片頁面現已合併為一個「遮色片」頁面"
+  "Console: Masking and Mask are now one Masks page": "控制台：兩個遮色片頁面現已合併為一個「遮色片」頁面",
+  "All masks shown · O to hide": "顯示所有遮色片 · 按 O 隱藏",
+  "Click to hide the overlay": "按一下以隱藏疊加"
 }

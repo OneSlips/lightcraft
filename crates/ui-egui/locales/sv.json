@@ -2427,5 +2427,7 @@
   "Dropped Files": "Släppta filer",
   "Finish Lightroom catalog import before adding photos": "Slutför importen av Lightroom-katalogen innan du lägger till foton",
   "Import dropped files without review": "Importera släppta filer utan granskning",
-  "Console: Masking and Mask are now one Masks page": "Konsol: Maskering och Mask är nu en sida, Masker"
+  "Console: Masking and Mask are now one Masks page": "Konsol: Maskering och Mask är nu en sida, Masker",
+  "All masks shown · O to hide": "Alla masker visas · O döljer",
+  "Click to hide the overlay": "Klicka för att dölja överlägget"
 }

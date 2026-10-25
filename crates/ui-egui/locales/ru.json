@@ -3259,5 +3259,7 @@
   "Import dropped files without review": "Импортировать перетащенные файлы без проверки",
   "An import is running. Drop photos when it has finished": "Импорт уже выполняется. Перетащите фото, когда он закончится",
   "Finish Lightroom catalog import before adding photos": "Завершите импорт каталога Lightroom, прежде чем добавлять фото",
-  "Console: Masking and Mask are now one Masks page": "Пульт: две страницы масок теперь одна страница «Маски»"
+  "Console: Masking and Mask are now one Masks page": "Пульт: две страницы масок теперь одна страница «Маски»",
+  "All masks shown · O to hide": "Показаны все маски · O — скрыть",
+  "Click to hide the overlay": "Щёлкните, чтобы скрыть наложение"
 }

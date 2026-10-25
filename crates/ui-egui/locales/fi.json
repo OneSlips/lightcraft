@@ -2325,5 +2325,7 @@
   "Dropped Files": "Pudotetut tiedostot",
   "Finish Lightroom catalog import before adding photos": "Viimeistele Lightroom-luettelon tuonti ennen kuvien lisäämistä",
   "Import dropped files without review": "Tuo pudotetut tiedostot ilman tarkistusta",
-  "Console: Masking and Mask are now one Masks page": "Konsoli: Maskaus ja Maski ovat nyt yksi Maskit-sivu"
+  "Console: Masking and Mask are now one Masks page": "Konsoli: Maskaus ja Maski ovat nyt yksi Maskit-sivu",
+  "All masks shown · O to hide": "Kaikki maskit näkyvissä · O piilottaa",
+  "Click to hide the overlay": "Piilota peittokuva napsauttamalla"
 }

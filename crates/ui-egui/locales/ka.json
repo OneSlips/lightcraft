@@ -2820,5 +2820,7 @@
   "An import is running": "იმპორტი მიმდინარეობს",
   "An import is running. Drop photos when it has finished": "იმპორტი მიმდინარეობს. ფოტოები ჩააგდეთ, როცა დასრულდება",
   "Finish Lightroom catalog import before adding photos": "ფოტოების დამატებამდე დაასრულეთ Lightroom-ის კატალოგის იმპორტი",
-  "Console: Masking and Mask are now one Masks page": "კონსოლი: ნიღბვის ორი გვერდი ახლა ერთი გვერდია „ნიღბები“"
+  "Console: Masking and Mask are now one Masks page": "კონსოლი: ნიღბვის ორი გვერდი ახლა ერთი გვერდია „ნიღბები“",
+  "All masks shown · O to hide": "ყველა ნიღაბი ნაჩვენებია · O დასამალად",
+  "Click to hide the overlay": "დააწკაპუნეთ ზედდების დასამალად"
 }

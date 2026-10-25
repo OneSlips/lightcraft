@@ -634,7 +634,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         app.ui.spots_threshold = v as f32;
     }
     padded(ui, |ui| {
-        tool_overlay_options(app, ui);
+        tool_overlay_options(app, ui, false);
         ui.add_space(4.0);
         // one command: one undo step and one render, however many spots
         if !d.spots.is_empty()
@@ -666,23 +666,34 @@ pub fn dust_pump(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 /// Tool Overlay: when the spot and mask pins show on the photo (Auto / Always / Selected / Never;
 /// Shift+H steps through them). Remove and Masking panels.
-pub(crate) fn tool_overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+/// When pins show (Auto / Always / Selected / Never; Shift+H): a drop-down in a panel; in a menu
+/// (`rows`) plain choices, since a drop-down inside a popup menu closed the whole menu on its click
+/// (test notes 2026-10-25 note 14).
+pub(crate) fn tool_overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui, rows: bool) {
     use crate::state::ToolOverlay;
     let t = Tokens::get(ui.ctx());
+    let current = app.ui.tool_overlay;
+    let pick = |app: &mut LightcraftApp, ui: &mut egui::Ui| {
+        for m in ToolOverlay::ALL {
+            let item =
+                if rows { ui.radio(m == current, crate::i18n::tr(m.label())) } else { ui.selectable_label(m == current, crate::i18n::tr(m.label())) };
+            register(ui.ctx(), format!("toolOverlay:{}", m.name()), item.rect);
+            if item.clicked() {
+                let _ = app.run("view.toolOverlay", json!({"mode": m.name()}));
+            }
+        }
+    };
+    if rows {
+        ui.label(egui::RichText::new(crate::i18n::tr("Tool Overlay")).color(t.text_dim))
+            .on_hover_text(crate::i18n::tr("When pins show on the photo (Shift+H cycles)"));
+        pick(app, ui);
+        return;
+    }
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Tool Overlay")).color(t.text_dim));
-        let current = app.ui.tool_overlay;
         let r = crate::widgets::dropdown(ui, "toolOverlay", crate::i18n::tr(current.label()), t.font(12.5), t.text_label)
             .on_hover_text(crate::i18n::tr("When pins show on the photo (Shift+H cycles)"));
-        egui::Popup::menu(&r).show(|ui| {
-            for m in ToolOverlay::ALL {
-                let item = ui.selectable_label(m == current, crate::i18n::tr(m.label()));
-                register(ui.ctx(), format!("toolOverlay:{}", m.name()), item.rect);
-                if item.clicked() {
-                    let _ = app.run("view.toolOverlay", json!({"mode": m.name()}));
-                }
-            }
-        });
+        egui::Popup::menu(&r).show(|ui| pick(app, ui));
     });
 }
 

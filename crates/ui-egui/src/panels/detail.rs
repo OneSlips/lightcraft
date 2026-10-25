@@ -1216,6 +1216,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     if !fullscreen {
         filter_pill(app, ui, canvas);
+        super::mask_tree::all_masks_pill(app, ui, canvas, img_rect);
     }
     if app.ui.face_boxes {
         // a name box left open on another photo is dropped

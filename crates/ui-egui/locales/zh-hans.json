@@ -3107,5 +3107,7 @@
   "Import dropped files without review": "不经检查直接导入拖入的文件",
   "An import is running. Drop photos when it has finished": "正在导入。导入完成后再拖放照片",
   "Finish Lightroom catalog import before adding photos": "添加照片前，请先完成 Lightroom 目录的导入",
-  "Console: Masking and Mask are now one Masks page": "控制台：两个蒙版页面现已合并为一个“蒙版”页面"
+  "Console: Masking and Mask are now one Masks page": "控制台：两个蒙版页面现已合并为一个“蒙版”页面",
+  "All masks shown · O to hide": "显示所有蒙版 · 按 O 隐藏",
+  "Click to hide the overlay": "点击隐藏叠加显示"
 }

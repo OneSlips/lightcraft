@@ -2792,5 +2792,7 @@
   "Import dropped files without review": "Importa i file rilasciati senza revisione",
   "An import is running. Drop photos when it has finished": "Un'importazione è in corso. Trascina le foto quando è finita",
   "Finish Lightroom catalog import before adding photos": "Termina l'importazione del catalogo Lightroom prima di aggiungere foto",
-  "Console: Masking and Mask are now one Masks page": "Console: Mascheratura e Maschera ora sono un’unica pagina Maschere"
+  "Console: Masking and Mask are now one Masks page": "Console: Mascheratura e Maschera ora sono un’unica pagina Maschere",
+  "All masks shown · O to hide": "Tutte le maschere visibili · O per nascondere",
+  "Click to hide the overlay": "Fai clic per nascondere la sovrapposizione"
 }
