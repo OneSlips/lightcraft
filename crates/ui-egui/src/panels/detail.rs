@@ -1563,6 +1563,70 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
     }
 }
 
+/// Whether a slider is adjusting the photo right now. Then the mask overlay, its lines, handles
+/// and pins hide so the effect itself can be judged, even an overlay switched on with O; they come
+/// back as they were when the slider is let go. Sliders that shape the mask itself (Refine,
+/// Smoothness, Feather, a range's edges) keep them.
+pub(crate) fn adjusting(app: &LightcraftApp) -> bool {
+    app.ui.dragging_control.as_deref().is_some_and(|c| !shapes_graphics(c))
+}
+
+/// Slider ids that change what the mask graphics show rather than the photo's look.
+fn shapes_graphics(id: &str) -> bool {
+    matches!(id, "refine" | "smoothness" | "edge" | "feather")
+}
+
+/// The mask the overlay shows, if any. One rule:
+/// overlay = O / Always, OR (the pointer on the mask's pin or row AND not adjusting), OR (Auto AND
+/// the mask has no settings). "Adjusting" is a slider at work ([`adjusting`], which hides every
+/// overlay in [`view_overlay`]) or a mask gesture (a handle or the gradient dragged, a brush
+/// stroke): hovering never shows the overlay while one runs, even with the pointer over the pin
+/// being dragged. A mask with settings (its own, or a preset's) never shows by itself, so its effect
+/// can be judged while it is placed or picked; a mask without settings shows what it selects, also
+/// while it is drawn (there is no effect to see yet). This replaces showing the overlay again on
+/// every new, picked or duplicated mask (#1800): that covered the photo exactly when the user
+/// judges a mask's effect; hovering its row or pin, or O, shows it on request.
+pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> Option<&'a lightcraft_develop::Mask> {
+    if !mask_gesture(app)
+        && let Some(m) = app.ui.mask_hover.or(app.ui.mask_hover_prev).and_then(|id| d.masks.iter().find(|m| m.id == id))
+    {
+        return Some(m);
+    }
+    let m = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))?;
+    overlay_shown(app, m).then_some(m)
+}
+
+/// Whether the selected mask `m`'s overlay shows (without hovering): O / Always, or Auto and `m`
+/// has no settings ([`overlay_mask`] has the whole rule).
+pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
+    if app.ui.mask_overlay {
+        return true;
+    }
+    if app.ui.mask_overlay_hidden == Some(m.id) {
+        return false;
+    }
+    !mask_has_settings(m)
+}
+
+/// Whether mask `m` changes the photo by itself: any adjustment off its default. (Its shape, Refine
+/// Edges included, is not a setting: it is what the overlay is for.)
+pub(crate) fn mask_has_settings(m: &lightcraft_develop::Mask) -> bool {
+    m.adjust != lightcraft_develop::LocalAdjustments::default()
+}
+
+/// Whether a mask is being shaped on the photo right now: a handle or the gradient dragged, a brush
+/// stroke.
+pub(crate) fn mask_gesture(app: &LightcraftApp) -> bool {
+    matches!(app.gesture, Some(Gesture::MaskHandle { .. } | Gesture::Brush { .. }))
+}
+
+/// Whether the selected mask `m` has an AI selection (an Object click or a description) still
+/// being computed. Meanwhile no overlay shows for it: a stand-in would look like the result.
+pub(crate) fn ai_computing(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
+    app.session.segmenter.busy()
+        && m.components.iter().any(|c| matches!(&c.shape, MaskShape::Prompt { seg: None, .. } | MaskShape::Object { seg: None, .. }))
+}
+
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
 /// Visualize Spots).
 pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcraft_pipeline::Overlay {
@@ -1570,19 +1634,22 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     if app.ui.fullscreen {
         return Overlay::None;
     }
+    // a slider at work: the effect shows, not the overlay (it returns afterwards)
+    let shown = !adjusting(app);
     // Show every visible mask's region at once (Ctrl+Shift+O / Cmd+Shift+O), ahead of the selected-mask overlay
-    // so the shortcut is not shadowed by the always-on single-mask overlay.
-    if app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
+    // so the shortcut is not shadowed by the single-mask overlay.
+    if shown && app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
         return Overlay::AllMasks {
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
             opacity: app.ui.mask_overlay_opacity.clamp(0.0, 100.0).round() as u8,
         };
     }
-    if app.ui.right == RightPanel::Masking
-        && app.ui.mask_overlay
-        && let Some(m) = app.session.active_mask.and_then(|id| d.masks.iter().find(|m| m.id == id))
+    if shown
+        && app.ui.right == RightPanel::Masking
+        && let Some(m) = overlay_mask(app, d)
         && !m.components.is_empty()
+        && !ai_computing(app, m)
     {
         return Overlay::Mask {
             id: m.id.min(u16::MAX as u32) as u16,
@@ -2337,7 +2404,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let long = (map.rect.width().max(map.rect.height())) as f64;
     let active = app.session.active_mask;
     let clip = app.canvas_rect.unwrap_or(map.rect);
-    let p = &ui.painter_at(clip);
+    let mut painter = ui.painter_at(clip);
+    // a slider at work: no lines, handles or pins over the effect
+    if adjusting(app) {
+        painter.set_invisible();
+    }
+    let p = &painter;
     // (mask, component, handle, screen position) of everything that can be grabbed
     let mut grips: Vec<(u32, usize, u8, Pos2)> = Vec::new();
     // pins follow Show Pins and the Tool Overlay mode (Shift+H); Auto hides them while brushing
@@ -2418,6 +2490,12 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 grips.push((m.id, ci, 0, q));
             }
         }
+    }
+    // the pointer on a pin shows that mask's overlay (as Lightroom Classic)
+    if let Some(h) = resp.hover_pos()
+        && let Some((mid, ..)) = grips.iter().find(|(_, _, handle, q)| *handle == 0 && q.distance(h) < 9.0)
+    {
+        app.ui.mask_hover = Some(*mid);
     }
     mask_keys(app, ui, map, d, &grips);
     // Object selections (SAM 3) of the selected mask: each click, green to include, red to exclude

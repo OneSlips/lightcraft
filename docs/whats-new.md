@@ -1,5 +1,16 @@
 # What's new in LightCraft
 
+## 2026-10-25
+
+### The mask overlay shows when it helps
+- One rule now decides when a mask's overlay covers the photo: when you switch it on with **O** (or the eye by the
+  Masks title), while the pointer is on the mask's row or pin, or by itself for a mask that has no settings yet, so
+  you see what it selects. A mask with settings (its own or a preset's) never shows the overlay by itself, so you can
+  judge its effect: picking, creating, duplicating or adding to such a mask no longer covers the photo. While a
+  slider, a mask drag or a brush stroke is at work nothing covers the photo, not even an overlay switched on with O;
+  it comes back when you let go. While an Object click or a description is still being computed, no stand-in
+  overlay shows.
+
 ## 2026-10-24
 
 ### Relative-date filters and smart albums follow the clock

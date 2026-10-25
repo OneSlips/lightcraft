@@ -195,9 +195,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Masks")).font(t.semibold(13.0)).color(t.text_label));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // lit while the overlay is on to stay; a click does what O does
                 let on = app.ui.mask_overlay;
-                if icon_button(ui, "maskOverlay", Icon::Eye, vec2(24.0, 24.0), on, true, "Show overlay (O)").clicked() {
-                    app.ui.mask_overlay = !on;
+                if icon_button(ui, "maskOverlay", Icon::Eye, vec2(24.0, 24.0), on, true, "Show overlay (O)").clicked()
+                    && let Err(e) = app.run("view.maskOverlay", json!({}))
+                {
+                    app.toast(ui.ctx(), e);
                 }
                 let all = app.ui.mask_overlay_all;
                 let all_mac = ui.ctx().os() == egui::os::OperatingSystem::Mac;
@@ -260,6 +263,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             register(ui.ctx(), format!("maskName:{}", m.id), Rect::from_min_size(at, g.size()));
             ui.painter().galley(at, g, color);
             let resp = if elided { resp.on_hover_text(&m.name) } else { resp };
+            // the pointer on a mask's row shows that mask's overlay (as Lightroom Classic)
+            if ui.rect_contains_pointer(r) {
+                app.ui.mask_hover = Some(m.id);
+            }
             // show / hide on hover (and always while hidden)
             // (the pointer test, not `hovered`: over the eye, the row itself no longer counts as hovered)
             if ui.rect_contains_pointer(r) || !m.visible {

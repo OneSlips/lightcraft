@@ -1082,8 +1082,18 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.maskOverlay" => {
-            app.ui.mask_overlay = p.get("show").and_then(Value::as_bool).unwrap_or(!app.ui.mask_overlay);
-            Ok(json!({"maskOverlay": app.ui.mask_overlay}))
+            // O shows or hides what is on screen now: an overlay that showed by itself (a mask
+            // without settings yet) is hidden for that mask
+            let selected = app.session.active().and_then(|id| app.session.develop_of(id)).and_then(|d| {
+                app.session
+                    .active_mask
+                    .and_then(|mid| d.masks.iter().find(|m| m.id == mid).map(|m| (mid, crate::panels::detail::overlay_shown(app, m))))
+            });
+            let shown = selected.is_some_and(|s| s.1) || (selected.is_none() && app.ui.mask_overlay);
+            let show = p.get("show").and_then(Value::as_bool).unwrap_or(!shown);
+            app.ui.mask_overlay = show;
+            app.ui.mask_overlay_hidden = if show { None } else { selected.map(|s| s.0) };
+            Ok(json!({"maskOverlay": show}))
         }
         "view.maskOverlayAll" => {
             app.ui.mask_overlay_all = !app.ui.mask_overlay_all;
@@ -1363,7 +1373,6 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                             return Some(Err(e));
                         }
                         app.ui.brush_erase = false;
-                        app.ui.mask_overlay = true;
                     }
                     app.ui.right = RightPanel::Masking;
                     app.ui.view = ViewMode::Detail;

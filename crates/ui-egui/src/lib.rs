@@ -695,16 +695,8 @@ impl LightcraftApp {
             // menu), it must not keep a search that no longer applies (issue #1648)
             self.ui.search.clear();
         }
-        if r.is_ok() && id == "mask.adjust" {
-            // Judge local adjustments on the photo, without the selection overlay obscuring them.
-            // Keep it hidden after release; O / the overlay eye can show it again.
-            self.ui.mask_overlay = false;
-        }
-        if r.is_ok() && matches!(id, "mask.add" | "mask.addComponent" | "mask.duplicate" | "mask.select") {
-            // A new or newly picked mask shows its overlay again, as in Lightroom: hidden by a slider
-            // drag above, it stayed hidden while the Overlay menu still named a mode (issue #1800).
-            self.ui.mask_overlay = true;
-        }
+        // (a mask's sliders don't switch the overlay off, and creating or picking a mask doesn't
+        // switch it on: one rule decides when it shows, see `panels::detail::overlay_mask`)
         if r.is_ok() {
             // These commands finish synchronously, so their completion would otherwise
             // be invisible once the activity stack is gone. Never show success on error.
@@ -907,8 +899,8 @@ impl LightcraftApp {
             ctx.request_repaint();
         }
         if let Some(mask) = polled.refine {
-            // a new selection from a click or a description: show it, as `run` does for new masks
-            self.ui.mask_overlay = true;
+            // (a new selection from a click or a description shows by the overlay rule while its
+            // mask has no settings: `panels::detail::overlay_mask`)
             self.ui.detail_due = Some((now + 0.3, mask));
         }
         if let Some(e) = polled.messages.into_iter().last() {
@@ -1583,6 +1575,8 @@ impl LightcraftApp {
         self.library_changed(&ctx);
         // panels set it again this frame while the pointer rests on a preset or profile
         self.hover_preview = None;
+        // (and the mask row or pin under the pointer: the overlay shows that mask)
+        self.ui.mask_hover_prev = self.ui.mask_hover.take();
         self.ai_mask_detail(&ctx);
         self.place_names_outcome(&ctx);
         if self.ui.fullscreen {
