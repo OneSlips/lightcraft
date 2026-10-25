@@ -230,17 +230,16 @@ fn settings_tab_learn_and_edit_a_key() {
         "button:surfaceControl-key.1",
         "button:surfaceDevice-dialpad",
         "button:surfaceSection-feel",
-        "button:surfaceLearn",
+        "check:surface.touchFind",
         "check:surface.enabled",
         "combo:surfaceProfile",
     ] {
         assert!(h.app.widgets.iter().any(|(w, _)| w == id), "{id}");
     }
-    // Learn, then touch key 5 on the surface: it is selected, and nothing runs
-    let clip = h.app.widgets.iter().find(|(w, _)| w == "button:surfaceLearn").map(|(_, r)| *r).unwrap();
-    assert!(clip.bottom() < 900.0, "Learn is on screen: {clip:?}");
-    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceLearn"}), T)["ok"], true);
-    h.settle(T);
+    // Touch to find (on while this page is open): touch key 5 on the surface: it is selected,
+    // and nothing runs
+    let clip = h.app.widgets.iter().find(|(w, _)| w == "check:surface.touchFind").map(|(_, r)| *r).unwrap();
+    assert!(clip.bottom() < 900.0, "Touch to find is on screen: {clip:?}");
     assert!(h.app.surface.runtime.learning());
     let before = h.app.session.active();
     assert_eq!(input(&mut h, json!([{"control": "key.5", "press": true}]))["ok"], true);
@@ -248,12 +247,14 @@ fn settings_tab_learn_and_edit_a_key() {
     assert_eq!(h.app.surface.editor.control.as_deref(), Some("key.5"));
     assert_eq!(h.app.session.active(), before, "a learnt press doesn't act");
     assert!(h.app.widgets.iter().any(|(w, _)| w == "field:surfaceActionSearch"), "the selected key's editor");
-    // learning a dial switches the drawing to the Dialpad
-    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceLearn"}), T)["ok"], true);
-    h.settle(T);
+    // touching a dial switches the drawing to the Dialpad, and the photo doesn't change
+    let exposure_before = exposure(&h);
     assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 1}]))["ok"], true);
+    assert_eq!(input(&mut h, json!([{"control": "dial", "ticks": 3}]))["ok"], true);
     h.settle(T);
     assert_eq!(h.app.surface.editor.device, "dialpad");
+    assert_eq!(h.app.surface.editor.control.as_deref(), Some("dial"));
+    assert_eq!(exposure(&h), exposure_before, "a touched dial is found, not turned");
     assert!(h.app.widgets.iter().any(|(w, _)| w == "button:surfaceControl-dial"), "the Dialpad is drawn");
     // pick an action from the list: search, click
     h.app.surface.editor.filter = "Highlights".into();
@@ -281,8 +282,12 @@ fn settings_tab_learn_and_edit_a_key() {
     h.settle(T);
     assert!(h.painted_text().iter().any(|t| t == "Contrast"), "the key shows its new label");
     h.app.ui.dialog = None;
-    // (the keypad follows the dialog's page until the next frame)
+    // (the keypad follows the dialog's page until the next frame; Touch to find ends with the page)
     h.settle(T);
+    for _ in 0..40 {
+        h.step();
+    }
+    assert!(!h.app.surface.runtime.learning(), "Touch to find stopped with the page");
     // press it: the dial moves Contrast until pressed again
     assert_eq!(input(&mut h, json!([{"control": "key.5", "press": true}, {"control": "dial", "ticks": 4}]))["ok"], true);
     finish_gesture(&mut h);
@@ -646,4 +651,84 @@ fn a_loupedeck_plus_works_as_labelled_and_takes_a_loupedeck_profile() {
     let r = h.request("engine.execute", json!({"command": "surface.import", "params": {"path": path.to_string_lossy()}}), T);
     assert_eq!(r["ok"], false);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn widget(h: &Headless, id: &str) -> egui::Rect {
+    h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("{id} is drawn"))
+}
+
+#[test]
+fn the_dialpad_is_drawn_like_the_device() {
+    let mut h = demo();
+    assert_eq!(h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "controls"}}), T)["ok"], true);
+    h.app.surface.editor.device = "dialpad".into();
+    h.settle(T);
+    let r = |id: &str| widget(&h, &format!("button:surfaceControl-{id}"));
+    let (b1, b2, roller, dial, b3, b4) = (r("pad.1"), r("pad.2"), r("roller"), r("dial"), r("pad.3"), r("pad.4"));
+    // buttons 1 and 2 top left, the roller top right
+    assert!(b1.center().x < b2.center().x && b2.center().x < roller.center().x, "{b1:?} {b2:?} {roller:?}");
+    assert!((b1.center().y - b2.center().y).abs() < 2.0 && (b2.center().y - roller.center().y).abs() < 4.0);
+    assert!(roller.width() > roller.height(), "the roller is a horizontal wheel");
+    // the big dial in the middle, the biggest control
+    assert!(dial.top() > b1.bottom() && dial.bottom() < b3.bottom(), "{dial:?}");
+    assert!(dial.width() > 2.0 * b1.width());
+    // button 3 bottom left, button 4 bottom right
+    assert!(b3.center().x < dial.center().x && b4.center().x > dial.center().x);
+    assert!((b3.center().y - b4.center().y).abs() < 2.0 && b3.top() > dial.center().y);
+    for a in [b1, b2, roller, dial, b3, b4] {
+        for b in [b1, b2, roller, dial, b3, b4] {
+            if a != b {
+                assert!(!a.shrink(1.0).intersects(b.shrink(1.0)), "controls don't overlap: {a:?} {b:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_actions_ring_takes_actions_dragged_onto_its_slots() {
+    let mut h = demo();
+    assert_eq!(h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "controls"}}), T)["ok"], true);
+    h.settle(T);
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceDevice-ring"}), T)["ok"], true);
+    h.settle(T);
+    // eight slots around a ring, with the built-in actions
+    let slots: Vec<egui::Rect> = (1..=8).map(|i| widget(&h, &format!("button:surfaceControl-ring.{i}"))).collect();
+    let centre = slots.iter().fold(egui::Vec2::ZERO, |a, r| a + r.center().to_vec2()) / 8.0;
+    let radii: Vec<f32> = slots.iter().map(|r| (r.center().to_vec2() - centre).length()).collect();
+    assert!(radii.iter().all(|r| (r - radii[0]).abs() < 2.0 && *r > 40.0), "on a circle: {radii:?}");
+    assert!(slots[0].center().y < centre.y - 30.0, "slot 1 at the top");
+    let base = |h: &Headless, c: &str| h.app.surface.settings().active_profile().unwrap().base.get(c).cloned();
+    assert_eq!(base(&h, "ring.1"), Some(lightcraft_surface::Binding::command("edit.undo")), "zero setup: the ring has actions");
+    // drag "Next photo"-like action from the list onto slot 3
+    h.app.surface.editor.filter = "Highlights".into();
+    h.settle(T);
+    let item = "item:surfaceAction-v.light.highlights";
+    let to = widget(&h, "button:surfaceControl-ring.3").center();
+    let r = h.request("ui.dragWidget", json!({"id": item, "toX": to.x, "toY": to.y, "steps": 12}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    assert_eq!(base(&h, "ring.3"), Some(lightcraft_surface::Binding::value("light.highlights")), "dropped on slot 3");
+    assert_eq!(h.app.surface.editor.control.as_deref(), Some("ring.3"), "and selected");
+    // the plugin sees the ring's slots in the layout
+    let layout = serde_json::to_value(crate::surface::layout(&h.app, &lightcraft_surface::devices::MX_CREATIVE_CONSOLE)).unwrap();
+    let buttons = layout["buttons"].as_array().cloned().unwrap_or_default();
+    assert!(buttons.iter().any(|b| b["control"] == "ring.3" && b["binding"]["target"] == "light.highlights"), "{layout}");
+}
+
+#[test]
+fn a_dial_refuses_a_one_press_action_dropped_on_it() {
+    let mut h = demo();
+    assert_eq!(h.request("engine.execute", json!({"command": "app.settings", "params": {"tab": "controls"}}), T)["ok"], true);
+    h.app.surface.editor.device = "dialpad".into();
+    h.app.surface.editor.control = Some("pad.1".into());
+    h.app.surface.editor.filter = "edit.undo".into();
+    h.settle(T);
+    let before = h.app.surface.settings().clone();
+    let key = lightcraft_surface::catalog::key_of(&lightcraft_surface::Binding::command("edit.undo"));
+    let to = widget(&h, "button:surfaceControl-dial").center();
+    let r = h.request("ui.dragWidget", json!({"id": format!("item:surfaceAction-{key}"), "toX": to.x, "toY": to.y, "steps": 12}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    assert_eq!(*h.app.surface.settings(), before, "nothing changed");
+    assert!(h.app.surface.editor.message.as_deref().is_some_and(|m| m.contains("dial")), "{:?}", h.app.surface.editor.message);
 }

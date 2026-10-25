@@ -1,6 +1,6 @@
 # Control surfaces
 
-> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-16 · **Change:** minor (Erase while held; destructive keys need a hold; no Delete on built-in layouts; lit keys say why they are lit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
+> **Last reviewed:** 2026-10-16 · **Last updated:** 2026-10-17 · **Change:** minor (the overlay reports every change, from any source, with mode and size settings; the Dialpad drawn as the device; the Actions Ring set up in LightCraft with drag and drop; Touch to find; the Loupedeck+ drawn by zones and set up with no driver steps); previously minor (Erase while held; destructive keys need a hold; no Delete on built-in layouts; lit keys say why they are lit) · **Target:** Adobe Lightroom Classic 15.5 / Lightroom 9.6
 
 Hardware dials, keys and buttons that drive LightCraft: the **Logitech MX Creative Console** (Keypad + Dialpad) first,
 MIDI controllers and Tangent panels later. LightCraft owns the whole engine — layouts, what each control does, dial
@@ -53,7 +53,15 @@ What happens then:
   spot size; a dialog OK / Cancel. Leaving the tool brings back the page you chose. Any page can be mapped to any
   context in Settings ▸ Controls ▸ *Pages that follow the app*.
 - **The on-screen readout** (TactileBridge's OSD) shows the value being turned (name, value, a bar) or the command a
-  key ran, at the top or bottom of the photo, with its opacity, colour and display time.
+  key ran, at the top or bottom of the photo, with its opacity, colour and display time. The same pill reports **every
+  change from anywhere** as Lightroom's overlay does (`panels::surface_osd`, fed by
+  `lightcraft_engine::change_report` in the shared command dispatch): a slider moved (*Exposure +0.33*, the running
+  value while dragging), a rating, flag or colour label (*3 stars*, *on 12 photos*), a profile applied (*Profile X
+  applied to 350 photos*), an undo (*Undo: Exposure*), with the count of photos when Auto Sync or a selection changed
+  more than one. Background work never shows. Settings ▸ Interface ▸ On-Screen Overlay (also under Readout and Look):
+  **Show changes** Off / Control surface only / Always (the default), size (0.5–2×), opacity, display time, position
+  (Down, Down Low, Up, Up High) and background colour, one set for every overlay; each is a command (`osd.settings`,
+  `osd.mode` steps to the next mode for a console key, `osd.state`).
 - **The surface** shows each key's icon (TactileBridge's hand-drawn pack), label and live value. A key is lit for one
   of three reasons, each drawn its own way by the plugin: its value is on the dial (`focus`: the white key), it is
   held down (`held`: a held modifier, or Erase), or a mode it switches is on (`on`: the brush, Before / After, Auto
@@ -82,20 +90,20 @@ pairing request (with its code, **Approve** / **Deny**) and, when Logi Options+ 
 
 | Surface | What it shows |
 |---|---|
-| MX Creative Keypad | a drawing of the 3 × 3 keys and the page buttons; connected / offline |
-| MX Creative Dialpad | the dial, the roller and the four buttons; connected / offline |
-| Actions Ring | set up in Logi Options+ with LightCraft's actions (see above) |
-| Loupedeck+ | every knob and button, what each does, Loupedeck's profiles found on this computer to import (see [Loupedeck+](#loupedeck)) |
+| MX Creative Keypad | a drawing of the 3 × 3 keys and the two page buttons at its lower corners; connected / offline |
+| MX Creative Dialpad | drawn as the device: buttons 1 and 2 top left, the roller top right, the big dial in the middle, button 3 bottom left, button 4 bottom right; connected / offline |
+| Actions Ring | its eight slots around a ring (`ring.1`–`ring.8`, the same on every page), with undo, redo, pick, reject, previous / next photo, before / after and fit to start with; the plugin puts its pass-through on the ring's slots in Logi Options+ (`DefaultProfile72.lp5`) |
+| Loupedeck+ | drawn in zones as on the console: the colour knobs P1–P8 (one colour mode at a time, Hue / Sat / Lum / B&W) with the mode buttons, the tone knobs, the Control Dial with the arrows, C1–C6 and L1–L3, then the buttons; a knob's press is the small chip at its corner; Loupedeck's profiles found on this computer to import (see [Loupedeck+](#loupedeck)) |
 | Loupedeck Live / CT, MIDI controllers, Tangent panels | coming later |
 
 The sections under the device bar:
 
 | Section | What it holds |
 |---|---|
-| Keys and Dials | page tabs (the device's pages, **All pages** for what a control does wherever a page leaves it empty, tool pages in a menu); the drawing — every control shows its icon and name, a control a page leaves empty shows the All pages one dimmed; click a control (or **Learn** and touch it on the surface) and its editor opens beside the drawing: what it does now, **Clear**, a value's own speed and acceleration, a command's JSON parameters (advanced), and the **action picker** — every action in categories with icons and a search box (keys list their one-press actions first, then the values they can put on the dial; dials list values and paging); show a page, switch profile and every other command of the app are there too. Narrow windows put the editor under the drawing |
+| Keys and Dials | page tabs (the device's pages, **All pages** for what a control does wherever a page leaves it empty, tool pages in a menu); the drawing — every control shows its icon and name, a control a page leaves empty shows the All pages one dimmed; click a control, drag an action from the list onto it, or **touch it on the device** (*Touch to find*, on while this page is open: the control touched is selected here, and the device doesn't change the photo meanwhile; it acts again the moment the page closes; switched off, **Learn** does it once) and its editor opens beside the drawing: what it does now, **Clear**, a value's own speed and acceleration, a command's JSON parameters (advanced), and the **action picker** — every action in categories with icons and a search box (keys list their one-press actions first, then the values they can put on the dial; dials list values and paging); show a page, switch profile and every other command of the app are there too. Narrow windows put the editor under the drawing |
 | Pages and Tools | each page's groups (Keys / Dials) and *Tool page*, Rename / Delete, Add page; *Pages that follow the app*: on / off, one page per context |
 | Dial Feel | global speed, acceleration, fine and big step factors, invert; one value's speed, acceleration, slow / fast turning (floor / ceiling), fast / slow thresholds, invert; TactileBridge's presets for every value (Wedding, Real Estate, Fashion, Landscape) |
-| Readout and Look | apply to every selected photo, when a turn ends, how often movement is applied, steady readout while turning; the on-screen readout (on / off, also for key presses, opacity, display time, position, background colour); keys: values on the device, haptics, key colours |
+| Readout and Look | apply to every selected photo, when a turn ends, how often movement is applied, steady readout while turning; the on-screen readout for key presses, then the On-Screen Overlay (what it shows, size, opacity, display time, position, background colour: the same settings as Settings ▸ Interface); keys: values on the device, haptics, key colours |
 | Profiles and Setup | the Logi Options+ plugin (found / installed version / connected; Install, Update, Reinstall, Remove); profiles (Duplicate / Rename / Delete, Add the built-in profiles, **Bring over my TactileBridge setup** when `%LOCALAPPDATA%\TactileBridge\settings.json` exists, Import… `settings.json` / `.lp5` / `.lcsurface`, Export… `.lcsurface`, the last import's report); connection (port, connected surfaces, paired surfaces with Forget) |
 
 Profiles are shared by the Keypad and the Dialpad (one MX Creative Console); surfaces that come later get their own.
@@ -108,7 +116,12 @@ the console's Hue / Sat / Lum / B&W mode; the labelled knobs 33–47; the Contro
 knob's press is its number; C1–C6 49–54; the rating keys 66–70, with Fn 71–75; the arrows 78 / 79; P1–P8's presses
 80–87; Copy, Paste, Undo, Redo, Screen Mode, Hue, Sat, Lum, Col/BW and Before/After 92–102; Custom Mode 110; L1–L3
 114–116). The plugin's `DefaultProfile15.lp5` forwards every one of them, and is picked whenever LightCraft is the app
-in front.
+in front. The Logi service uses a plugin's default profile only when it first makes the app's profile, so a LightCraft
+profile made by an older plugin stays empty and nothing reached LightCraft until each control was assigned by hand in
+the driver: the plugin (1.0.7) fills such a profile with its pass-through actions when it loads, before the service
+reads it (controls with no action, or one of LightCraft's own value actions assigned as that workaround; any other
+action stays; the original is kept in `PluginDataLightCraftprofile-backups`). The Actions Ring's profile gets the
+same.
 
 **No setup:** a control nothing binds does what its label says (Loupedeck's own default layout: the Exposure knob
 moves Exposure, P1–P8 the colour mixer, Undo undoes, the rating keys rate …). **Import:** Settings ▸ Controls ▸
@@ -315,7 +328,7 @@ out, and why. Tuning is kept as it was; LightCraft's slider units differ from Ca
 | Echo suppression (`EnableEchoSuppression`, `EchoSuppressionMs`) | `transport.echoSuppression(Ms)`: pushes held while the turned value catches up | ✅ |
 | Flush interval (`Bridge.FlushIntervalMs`, defined but unused in TactileBridge) | `transport.flushMs`: ticks coalesced, applied once per interval | ✅ (implemented) |
 | Idle reconcile, state retention, periodic value poll, coalescing diagnostics (`Bridge.*`) | — | 🔁 LightCraft's values are authoritative and pushed on change: nothing to poll or reconcile |
-| On-screen display (`OsdOverlay`: pill, title, value, bar, icon; enabled, opacity, colour, display time, 4 positions, fade) | `panels::surface_osd` in the window; `osd.*` | ✅ (no icon in the readout; the keys show the icons) |
+| On-screen display (`OsdOverlay`: pill, title, value, bar, icon; enabled, opacity, colour, display time, 4 positions, fade) | `panels::surface_osd` in the window; `osd.*` | ✅ (with the icon; plus a size setting and a mode, and it reports every change in the app, not only the console's) |
 | Plugin colours (`PluginColors`) | `look.background`, `look.foreground`, pushed live | ✅ (no plugin redeploy needed) |
 | Haptic feedback switch | `look.haptics`: the plugin raises Logi plugin events (key pressed, value reset, value at its limit) Options+ can map to haptics | ✅ (TactileBridge had the switch only) |
 | LED value indicator | `look.showValues` | ✅ |
@@ -641,6 +654,7 @@ every dropped action says why).
 |---|---|---|
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
+| 2026-10-17 | minor | The overlay reports every change (`change_report`, `osd.*`, mode and size); Dialpad drawn as the device, Keypad page buttons at its corners, Loupedeck+ in zones; Actions Ring slots set in LightCraft; drag and drop from the action list; Touch to find; plugin 1.0.7: one input request in flight with merged ticks, only changed keys redrawn, default profiles filled in for profiles made earlier |
 | 2026-10-16 | minor | Loupedeck+: a device of its own (`ld.r<n>` / `ld.b<n>`), works as labelled with no setup, imports a Loupedeck profile's layout (`surface.import`, Settings ▸ Controls ▸ Loupedeck+) |
 | 2026-10-16 | minor | 13 icons of LightCraft's own in the pack's style for functions that shared a generic icon |
 | 2026-10-16 | minor | Erase while held (`brush.erase`), key states (focus / held / on), destructive keys need a 0.7 s hold, no Delete key on built-in layouts, Previous / Next Mask, the brush page's size and feather keys; settings format 3 |

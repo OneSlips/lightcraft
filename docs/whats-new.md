@@ -1,5 +1,18 @@
 # What's new in LightCraft
 
+## 2026-10-17
+
+### Settings ▸ Controls
+- **The Dialpad is drawn as the device**: buttons 1 and 2 top left, the roller top right, the big dial in the middle,
+  buttons 3 and 4 at the bottom corners. The Keypad's page buttons sit at its lower corners.
+- **The Actions Ring** has its eight slots in LightCraft, with useful actions to start with. **Drag an action** from
+  the list onto any slot, key, button or dial.
+- **Touch to find**: while Settings ▸ Controls is open, touch a knob or press a button on the device and it is
+  selected in the editor. The photo doesn't change meanwhile.
+- **Loupedeck+**: drawn in zones as on the console (colour knobs with their mode, tone knobs, the Control Dial with
+  its buttons, the rest of the buttons). With the new plugin it works without assigning anything in the Logi or
+  Loupedeck software.
+
 ## 2026-10-16
 
 ### Presets Manager

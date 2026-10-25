@@ -14,11 +14,10 @@
 
 use egui::{Color32, CornerRadius, FontId, Rect, RichText, Sense, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_surface as ls;
-use ls::settings::OsdPosition;
 use ls::{Binding, PageGroup};
 use serde_json::{Value, json};
 
-use super::settings::{check, choices, heading, hint, row};
+use super::settings::{check, heading, hint, row};
 use crate::LightcraftApp;
 use crate::i18n::tr;
 use crate::theme::Tokens;
@@ -31,8 +30,8 @@ use crate::widgets::register;
 enum Drawing {
     Keypad,
     Dialpad,
-    /// Set up in its maker's app with LightCraft's actions.
-    Elsewhere,
+    /// The Actions Ring of Logi Options+: eight slots, set on All pages.
+    Ring,
     /// The Loupedeck+: knobs and buttons without pages, Loupedeck's own numbers.
     LoupedeckPlus,
     /// Support is still to come.
@@ -43,7 +42,7 @@ enum Drawing {
 const DEVICES: &[(&str, &str, Drawing)] = &[
     ("keypad", "MX Creative Keypad", Drawing::Keypad),
     ("dialpad", "MX Creative Dialpad", Drawing::Dialpad),
-    ("ring", "Actions Ring", Drawing::Elsewhere),
+    ("ring", "Actions Ring", Drawing::Ring),
     ("loupedeck-plus", "Loupedeck+", Drawing::LoupedeckPlus),
     ("loupedeck", "Loupedeck Live / CT", Drawing::Later),
     ("midi", "MIDI controllers", Drawing::Later),
@@ -52,6 +51,7 @@ const DEVICES: &[(&str, &str, Drawing)] = &[
 
 const KEYPAD: [&str; 9] = ["key.1", "key.2", "key.3", "key.4", "key.5", "key.6", "key.7", "key.8", "key.9"];
 const DIALPAD: [&str; 6] = ["dial", "roller", "pad.1", "pad.2", "pad.3", "pad.4"];
+const RING: [&str; 8] = ["ring.1", "ring.2", "ring.3", "ring.4", "ring.5", "ring.6", "ring.7", "ring.8"];
 
 /// The device bar entry a control belongs to.
 fn device_of(control: &str) -> &'static str {
@@ -59,6 +59,8 @@ fn device_of(control: &str) -> &'static str {
         "keypad"
     } else if control.starts_with("ld.") {
         "loupedeck-plus"
+    } else if control.starts_with("ring.") {
+        "ring"
     } else {
         "dialpad"
     }
@@ -77,7 +79,7 @@ fn console_connected(app: &LightcraftApp) -> bool {
 /// (connected, status text) of a device bar entry.
 fn device_status(app: &LightcraftApp, drawing: Drawing) -> (bool, &'static str) {
     match drawing {
-        Drawing::Keypad | Drawing::Dialpad | Drawing::LoupedeckPlus => {
+        Drawing::Keypad | Drawing::Dialpad | Drawing::LoupedeckPlus | Drawing::Ring => {
             if !app.surface.settings().enabled {
                 (false, "Off")
             } else if console_connected(app) {
@@ -85,10 +87,6 @@ fn device_status(app: &LightcraftApp, drawing: Drawing) -> (bool, &'static str) 
             } else {
                 (false, "Offline")
             }
-        }
-        Drawing::Elsewhere => {
-            let installed = app.surface.plugin.status.as_ref().is_some_and(|s| s.installed.is_some());
-            (installed && console_connected(app), if installed { "In Logi Options+" } else { "Offline" })
         }
         Drawing::Later => (false, "Coming later"),
     }
@@ -150,7 +148,20 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if let Some(c) = app.surface.runtime.take_learned() {
         app.surface.editor.device = device_of(&c).to_string();
         app.surface.editor.section = "layout".into();
+        // a Loupedeck+ colour knob: show the colour mode it was turned in
+        if let Some(n) = c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).filter(|n| (1..=32).contains(n)) {
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("surfaceLoupedeckMode"), (n - 1) / 8));
+        }
         app.surface.editor.control = Some(c);
+        app.surface.editor.params_text.clear();
+    }
+    // Touch to find: while this page is open, a control touched on the device is selected here
+    // and does nothing to the photo (`surface::tick` stops it once the page is gone)
+    if !app.surface.editor.touch_find_off && app.surface.settings().enabled {
+        app.surface.editor.touch_find = Some(app.surface.now());
+        if !app.surface.runtime.learning() {
+            app.surface.runtime.arm_learn();
+        }
     }
     crate::surface_plugin::refresh(app, false);
     top_bar(app, ui, t);
@@ -176,7 +187,9 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             egui::ScrollArea::vertical().id_salt("surfaceFeel").max_height(max_h).show(ui, |ui| feel(app, ui, t));
         }
         "readout" => {
-            egui::ScrollArea::vertical().id_salt("surfaceReadout").max_height(max_h).show(ui, |ui| timing_and_readout(app, ui, t));
+            egui::ScrollArea::vertical().id_salt("surfaceReadout").max_height(max_h).show(ui, |ui| {
+                timing_and_readout(app, ui, t);
+            });
         }
         "setup" => {
             egui::ScrollArea::vertical().id_salt("surfaceSetup").max_height(max_h).show(ui, |ui| {
@@ -320,13 +333,8 @@ fn group_of(drawing: Drawing) -> PageGroup {
 fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h: f32) {
     let (_, name, drawing) = current_device(app);
     match drawing {
-        Drawing::Elsewhere => {
-            heading(ui, t, name);
-            hint(
-                ui,
-                t,
-                "The Actions Ring is set up in Logi Options+: open LightCraft's actions there and drag them onto the ring. Every LightCraft action and value is listed there in its category, with its icon.",
-            );
+        Drawing::Ring => {
+            ring_section(app, ui, t, max_h);
             return;
         }
         Drawing::Later => {
@@ -436,6 +444,8 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         app.surface.editor.control = Some(c);
         app.surface.editor.params_text.clear();
     }
+    apply_drop(app, ui, &page_key);
+    drag_preview(ui, t);
     if step != 0 && !own.is_empty() {
         let i = own.iter().position(|p| p.name == page_key).map_or(0, |i| i as i32);
         let n = own.len() as i32;
@@ -492,49 +502,131 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
     let Some(profile) = app.surface.settings().active_profile().cloned() else { return };
     let selected = app.surface.editor.control.clone();
     let mut clicked: Option<String> = None;
-    let sections: [(&str, &dyn Fn(&str) -> bool); 6] = [
-        ("Knobs", &|c: &str| ls::devices::is_encoder(c) && c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| n > 32)),
-        ("P1–P8 (Hue)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (1..=8).contains(&n))),
-        ("P1–P8 (Sat)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (9..=16).contains(&n))),
-        ("P1–P8 (Lum)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (17..=24).contains(&n))),
-        ("P1–P8 (B&W)", &|c: &str| c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).is_some_and(|n| (25..=32).contains(&n))),
-        ("Buttons", &|c: &str| c.starts_with("ld.b")),
-    ];
+    // the P1–P8 knobs send other numbers in each of the console's colour modes: show one mode
+    let mode_id = egui::Id::new("surfaceLoupedeckMode");
+    let mut mode = ui.ctx().data(|d| d.get_temp::<u32>(mode_id)).unwrap_or(0).min(3);
     let mut grid = |app: &LightcraftApp, ui: &mut egui::Ui| {
-        for (title, keep) in &sections {
-            ui.label(RichText::new(tr(title)).font(t.semibold(12.0)).color(t.text_label));
+        let cell = |ui: &mut egui::Ui, id: &str, size: f32, clicked: &mut Option<String>| {
+            let Some(c) = ls::devices::find_control(id) else { return };
+            let own = profile.base.get(c.id).cloned();
+            let inherited = own.is_none();
+            let b = own.or_else(|| ls::loupedeck::default_binding(c.id));
+            let label = b.as_ref().map(|b| short_label(app, b)).unwrap_or_default();
+            let icon = b.as_ref().and_then(ls::icons::icon_for);
+            let (area, _) = ui.allocate_exact_size(vec2(size, size + 16.0), Sense::hover());
+            let face = Rect::from_min_size(area.min, vec2(size, size));
+            if draw_control(ui, t, face, c.id, (&label, icon, inherited), selected.as_deref() == Some(c.id), c.kind == ls::ControlKind::Encoder) {
+                *clicked = Some(c.id.to_string());
+            }
+            // a knob's press is its own control: a small chip under it
+            let press = c.id.strip_prefix("ld.r").map(|n| format!("ld.b{n}")).filter(|p| ls::devices::find_control(p).is_some());
+            let name_rect = Rect::from_min_size(pos2(area.left(), face.bottom() + 1.0), vec2(size, 14.0));
+            if let Some(p) = press {
+                let chip = Rect::from_center_size(pos2(face.right() - 9.0, face.bottom() - 6.0), vec2(16.0, 12.0));
+                let r = ui.interact(chip, ui.id().with(("surfacePress", &p)), Sense::click());
+                register(ui.ctx(), format!("button:surfaceControl-{p}"), chip);
+                let on = selected.as_deref() == Some(p.as_str());
+                let has = profile.base.contains_key(&p) || ls::loupedeck::default_binding(&p).is_some();
+                ui.painter().rect_filled(
+                    chip,
+                    CornerRadius::same(3),
+                    if on {
+                        t.accent
+                    } else if r.hovered() {
+                        Color32::from_gray(90)
+                    } else {
+                        Color32::from_gray(60)
+                    },
+                );
+                ui.painter().circle_filled(chip.center(), 2.5, if has { Color32::WHITE } else { Color32::from_gray(140) });
+                let press_label = ls::devices::find_control(&p).map_or("", |c| c.label);
+                if r.on_hover_text(tr(press_label)).clicked() {
+                    *clicked = Some(p.clone());
+                }
+            }
+            // P1–P8 by their number (the mode is chosen above them)
+            let p_knob = c.id.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).filter(|n| (1..=32).contains(n));
+            let caption = p_knob.map_or_else(|| tr(c.label).to_string(), |n| format!("P{}", (n - 1) % 8 + 1));
+            ui.painter().text(name_rect.center(), egui::Align2::CENTER_CENTER, caption, FontId::proportional(9.5), t.text_dim);
+        };
+        let zone = |ui: &mut egui::Ui, title: &str, add: &mut dyn FnMut(&mut egui::Ui)| {
+            egui::Frame::new()
+                .fill(Color32::from_gray(40))
+                .stroke(Stroke::new(1.0, Color32::from_gray(70)))
+                .corner_radius(10.0)
+                .inner_margin(8.0)
+                .show(ui, |ui| {
+                    ui.label(RichText::new(tr(title)).font(t.semibold(12.0)).color(t.text_label));
+                    add(ui);
+                });
+            ui.add_space(6.0);
+        };
+        zone(ui, "Colour knobs P1–P8", &mut |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
-                for c in ls::loupedeck::CONTROLS.iter().filter(|c| keep(c.id)) {
-                    let own = profile.base.get(c.id).cloned();
-                    let inherited = own.is_none();
-                    let b = own.or_else(|| ls::loupedeck::default_binding(c.id));
-                    let label = b.as_ref().map(|b| short_label(app, b)).unwrap_or_default();
-                    let icon = b.as_ref().and_then(ls::icons::icon_for);
-                    let (cell, _) = ui.allocate_exact_size(vec2(64.0, 80.0), Sense::hover());
-                    let face = Rect::from_min_size(cell.min, vec2(64.0, 64.0));
-                    if draw_control(
-                        ui,
-                        t,
-                        face,
-                        c.id,
-                        (&label, icon, inherited),
-                        selected.as_deref() == Some(c.id),
-                        c.kind == ls::ControlKind::Encoder,
-                    ) {
-                        clicked = Some(c.id.to_string());
+                ui.spacing_mut().item_spacing.x = 4.0;
+                for (i, m) in ["Hue", "Sat", "Lum", "B&W"].iter().enumerate() {
+                    if crate::widgets::text_button(ui, &format!("surfaceLoupedeckMode-{i}"), m, mode == i as u32).clicked() {
+                        mode = i as u32;
                     }
-                    ui.painter().text(
-                        pos2(cell.center().x, cell.bottom() - 7.0),
-                        egui::Align2::CENTER_CENTER,
-                        tr(c.label),
-                        FontId::proportional(9.5),
-                        t.text_dim,
-                    );
+                }
+                hint(ui, t, "The console's Hue, Sat, Lum and Col/BW buttons switch what P1–P8 send.");
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                for k in 1..=8 {
+                    cell(ui, &format!("ld.r{}", mode * 8 + k), 64.0, &mut clicked);
                 }
             });
-            ui.add_space(4.0);
-        }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                for b in [98, 99, 100, 101] {
+                    cell(ui, &format!("ld.b{b}"), 46.0, &mut clicked);
+                }
+            });
+        });
+        zone(ui, "Tone knobs", &mut |ui| {
+            for row in [[46, 33, 45, 40, 44, 35, 34], [38, 39, 37, 36, 41, 42, 47]] {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                    for n in row {
+                        cell(ui, &format!("ld.r{n}"), 64.0, &mut clicked);
+                    }
+                });
+            }
+        });
+        zone(ui, "Control Dial and arrows", &mut |ui| {
+            ui.horizontal_top(|ui| {
+                cell(ui, "ld.r48", 92.0, &mut clicked);
+                ui.vertical(|ui| {
+                    for row in [&[78, 79, 110][..], &[49, 50, 51, 52, 53, 54], &[114, 115, 116]] {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                            for n in row {
+                                cell(ui, &format!("ld.b{n}"), 44.0, &mut clicked);
+                            }
+                        });
+                    }
+                });
+            });
+        });
+        zone(ui, "Buttons", &mut |ui| {
+            let rows: [&[u32]; 3] = [&[66, 67, 68, 69, 70, 91, 102, 97], &[71, 72, 73, 74, 75, 95, 96, 92, 93, 88], &[76, 77, 89, 90, 94, 103, 104]];
+            for row in rows {
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                    for n in row {
+                        cell(ui, &format!("ld.b{n}"), 44.0, &mut clicked);
+                    }
+                });
+            }
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(6.0, 4.0);
+                ui.label(RichText::new(tr("P1–P8 pressed")).size(11.0).color(t.text_dim));
+                for n in 80..=87 {
+                    cell(ui, &format!("ld.b{n}"), 40.0, &mut clicked);
+                }
+            });
+        });
     };
     let wide = ui.available_width() >= 760.0;
     if wide {
@@ -552,9 +644,77 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
         ui.add_space(6.0);
         editor_panel(app, ui, t, BASE, max_h);
     }
+    ui.ctx().data_mut(|d| d.insert_temp(mode_id, mode));
     if let Some(c) = clicked {
         app.surface.editor.control = Some(c);
         app.surface.editor.params_text.clear();
+    }
+    apply_drop(app, ui, BASE);
+    drag_preview(ui, t);
+}
+
+/// The Actions Ring (Logi Options+' on-screen ring, opened from a button of the mouse or the
+/// console): eight slots around a circle, the same on every page. Drag an action from the list
+/// onto a slot, or click a slot and pick one.
+fn ring_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h: f32) {
+    heading(ui, t, "Actions Ring");
+    hint(ui, t, "Drag an action from the list onto a slot, or click a slot and choose its action. The ring is the same on every page.");
+    let Some(profile) = app.surface.settings().active_profile().cloned() else { return };
+    let views: Vec<View> = RING
+        .iter()
+        .map(|c| {
+            let b = profile.base.get(*c);
+            ((*c).to_string(), false, b.map(|b| short_label(app, b)).unwrap_or_default(), b.and_then(ls::icons::icon_for))
+        })
+        .collect();
+    let mut clicked: Option<String> = None;
+    let selected = app.surface.editor.control.clone();
+    let wide = ui.available_width() >= 640.0;
+    let draw_w = if wide { 300.0 } else { ui.available_width().min(300.0) };
+    if wide {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(draw_w);
+                draw_ring(ui, t, draw_w, &views, selected.as_deref(), &mut clicked);
+            });
+            ui.add_space(10.0);
+            ui.vertical(|ui| editor_panel(app, ui, t, BASE, max_h));
+        });
+    } else {
+        draw_ring(ui, t, draw_w, &views, selected.as_deref(), &mut clicked);
+        ui.add_space(6.0);
+        editor_panel(app, ui, t, BASE, max_h);
+    }
+    if let Some(c) = clicked {
+        app.surface.editor.control = Some(c);
+        app.surface.editor.params_text.clear();
+    }
+    apply_drop(app, ui, BASE);
+    drag_preview(ui, t);
+}
+
+/// The ring's centre and the angle of slot `i` (0-based): slot 1 at the top, then clockwise.
+pub fn ring_slot_angle(i: usize) -> f32 {
+    -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::TAU / 8.0
+}
+
+fn draw_ring(ui: &mut egui::Ui, t: &Tokens, w: f32, slots: &[View], selected: Option<&str>, clicked: &mut Option<String>) {
+    let side = w.min(300.0);
+    let (cell, _) = ui.allocate_exact_size(vec2(w, side), Sense::hover());
+    let center = cell.center();
+    let p = ui.painter();
+    p.circle_filled(center, side * 0.48, Color32::from_gray(36));
+    p.circle_stroke(center, side * 0.48, Stroke::new(1.0, Color32::from_gray(70)));
+    p.circle_filled(center, side * 0.16, Color32::from_gray(52));
+    p.text(center, egui::Align2::CENTER_CENTER, tr("LightCraft"), FontId::proportional(11.0), t.text_dim);
+    let slot = side * 0.24;
+    for (i, (c, inherited, label, icon)) in slots.iter().enumerate() {
+        let a = ring_slot_angle(i);
+        let at = center + vec2(a.cos(), a.sin()) * side * 0.34;
+        let r = Rect::from_center_size(at, vec2(slot, slot));
+        if draw_control(ui, t, r, c, (label, *icon, *inherited), selected == Some(c.as_str()), true) {
+            *clicked = Some(c.clone());
+        }
     }
 }
 
@@ -565,9 +725,20 @@ fn draw_control(ui: &mut egui::Ui, t: &Tokens, rect: Rect, control: &str, view: 
     let id = ui.id().with(("surfaceControl", control));
     let r = ui.interact(rect, id, Sense::click());
     register(ui.ctx(), format!("button:surfaceControl-{control}"), rect);
+    // an action dragged from the list onto this control: it does that from now on
+    let dragging = r.dnd_hover_payload::<DragAction>().is_some();
+    if let Some(p) = r.dnd_release_payload::<DragAction>() {
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(DROP_ID), (control.to_string(), (*p).clone())));
+    }
     let p = ui.painter();
-    let fill = if r.hovered() { Color32::from_gray(42) } else { Color32::from_gray(26) };
-    let stroke = if selected { Stroke::new(2.0, t.accent) } else { Stroke::new(1.0, Color32::from_gray(70)) };
+    let fill = if r.hovered() || dragging { Color32::from_gray(42) } else { Color32::from_gray(26) };
+    let stroke = if dragging {
+        Stroke::new(2.5, ok_color())
+    } else if selected {
+        Stroke::new(2.0, t.accent)
+    } else {
+        Stroke::new(1.0, Color32::from_gray(70))
+    };
     if round {
         p.circle_filled(rect.center(), rect.width() / 2.0, fill);
         p.circle_stroke(rect.center(), rect.width() / 2.0, stroke);
@@ -603,6 +774,54 @@ fn draw_control(ui: &mut egui::Ui, t: &Tokens, rect: Rect, control: &str, view: 
 /// (control, inherited from All pages, label, icon).
 type View = (String, bool, String, Option<&'static str>);
 
+/// An action being dragged from the action list onto a control.
+#[derive(Clone, Debug, PartialEq)]
+struct DragAction {
+    binding: Binding,
+    label: String,
+    icon: Option<&'static str>,
+}
+
+/// Where a drop on a control waits for the page to apply it: (control, action).
+const DROP_ID: &str = "surfaceDrop";
+
+/// The action being dragged, drawn under the pointer.
+fn drag_preview(ui: &egui::Ui, t: &Tokens) {
+    let Some(d) = egui::DragAndDrop::payload::<DragAction>(ui.ctx()) else { return };
+    let Some(at) = ui.ctx().pointer_latest_pos() else { return };
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("surfaceDragPreview")));
+    let galley = painter.layout_no_wrap(d.label.clone(), FontId::proportional(12.0), t.text);
+    let rect = Rect::from_min_size(at + vec2(14.0, 6.0), vec2(galley.size().x + 36.0, 26.0));
+    painter.rect_filled(rect, CornerRadius::same(5), t.inset);
+    painter.rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.accent), StrokeKind::Inside);
+    if let Some(icon) = d.icon {
+        crate::surface_icons::paint_with(ui.ctx(), &painter, icon, Rect::from_min_size(rect.min + vec2(5.0, 4.0), vec2(18.0, 18.0)), Color32::WHITE);
+    }
+    painter.galley(pos2(rect.left() + 28.0, rect.center().y - galley.size().y / 2.0), galley, t.text);
+}
+
+/// An action dropped on a control this frame: set it (on `page`) and select the control. A dial
+/// takes only values and page turns.
+fn apply_drop(app: &mut LightcraftApp, ui: &egui::Ui, page: &str) {
+    let id = egui::Id::new(DROP_ID);
+    let Some((control, d)) = ui.ctx().data_mut(|m| {
+        let v = m.get_temp::<(String, DragAction)>(id);
+        m.remove::<(String, DragAction)>(id);
+        v
+    }) else {
+        return;
+    };
+    let turns = matches!(d.binding, Binding::Value { .. } | Binding::PageNext { .. } | Binding::PagePrevious { .. });
+    if ls::devices::is_encoder(&control) && !turns {
+        app.surface.editor.message = Some(tr("A dial turns values: drop a value (or a page turn) on it.").to_string());
+        return;
+    }
+    set_binding(app, page, &control, Some(d.binding));
+    app.surface.editor.control = Some(control);
+    app.surface.editor.params_text.clear();
+    app.surface.editor.message = None;
+}
+
 fn draw_keypad(ui: &mut egui::Ui, t: &Tokens, w: f32, keys: &[View], selected: Option<&str>, clicked: &mut Option<String>, step: &mut i32) {
     let pad = 14.0;
     let gap = 8.0;
@@ -618,10 +837,12 @@ fn draw_keypad(ui: &mut egui::Ui, t: &Tokens, w: f32, keys: &[View], selected: O
             *clicked = Some(c.clone());
         }
     }
-    // the page buttons under the keys
+    // the two page buttons under the keys, at the left and right corners (as on the Keypad)
     let y = body.top() + pad + 3.0 * key + 3.0 * gap;
+    let bw = (key * 0.55).max(36.0);
     for (i, (s, glyph)) in [(-1, "‹"), (1, "›")].into_iter().enumerate() {
-        let r = Rect::from_min_size(pos2(body.left() + pad + i as f32 * (key + gap), y), vec2(key, 26.0));
+        let x = if s < 0 { body.left() + pad } else { body.right() - pad - bw };
+        let r = Rect::from_min_size(pos2(x, y), vec2(bw, 26.0));
         let resp = ui.interact(r, ui.id().with(("surfacePageButton", i)), Sense::click());
         register(ui.ctx(), format!("button:surfaceKeypadPage-{}", if s < 0 { "previous" } else { "next" }), r);
         ui.painter().rect_filled(r, CornerRadius::same(6), if resp.hovered() { Color32::from_gray(42) } else { Color32::from_gray(30) });
@@ -632,37 +853,32 @@ fn draw_keypad(ui: &mut egui::Ui, t: &Tokens, w: f32, keys: &[View], selected: O
     }
 }
 
+/// Where each control of the MX Creative Dialpad sits, as fractions of its square body (the real
+/// device, seen from above): buttons 1 and 2 top left, the roller top right, the big dial in the
+/// middle, button 3 bottom left and button 4 bottom right. (control, centre x, centre y, width,
+/// height, round).
+pub const DIALPAD_PLACES: [(&str, f32, f32, f32, f32, bool); 6] = [
+    ("pad.1", 0.16, 0.16, 0.2, 0.2, true),
+    ("pad.2", 0.39, 0.16, 0.2, 0.2, true),
+    ("roller", 0.79, 0.16, 0.3, 0.19, false),
+    ("dial", 0.5, 0.55, 0.52, 0.52, true),
+    ("pad.3", 0.15, 0.87, 0.19, 0.19, true),
+    ("pad.4", 0.85, 0.87, 0.19, 0.19, true),
+];
+
 fn draw_dialpad(ui: &mut egui::Ui, t: &Tokens, w: f32, controls: &[View], selected: Option<&str>, clicked: &mut Option<String>) {
-    let pad = 14.0;
-    let gap = 8.0;
-    let dial = (w * 0.5).min(150.0);
-    let btn_w = (w - 2.0 * pad - 3.0 * gap) / 4.0;
-    let btn_h = 48.0;
-    let body_h = pad * 2.0 + dial + gap * 2.0 + btn_h;
-    let (body, _) = ui.allocate_exact_size(vec2(w, body_h), Sense::hover());
-    ui.painter().rect_filled(body, CornerRadius::same(18), Color32::from_gray(52));
-    ui.painter().rect_stroke(body, CornerRadius::same(18), Stroke::new(1.0, Color32::from_gray(80)), StrokeKind::Inside);
+    let side = w.min(320.0);
+    let (cell, _) = ui.allocate_exact_size(vec2(w, side), Sense::hover());
+    let body = Rect::from_center_size(cell.center(), vec2(side, side));
+    let corner = CornerRadius::same((side * 0.1) as u8);
+    ui.painter().rect_filled(body, corner, Color32::from_gray(52));
+    ui.painter().rect_stroke(body, corner, Stroke::new(1.0, Color32::from_gray(80)), StrokeKind::Inside);
     let find = |id: &str| controls.iter().find(|v| v.0 == id);
-    // the roller on the left, the dial on the right
-    if let Some((c, inherited, label, icon)) = find("roller") {
-        let r = Rect::from_min_size(pos2(body.left() + pad, body.top() + pad), vec2((w - 2.0 * pad - dial - gap * 2.0).max(60.0), dial));
-        if draw_control(ui, t, r, c, (label, *icon, *inherited), selected == Some(c.as_str()), false) {
+    for (id, x, y, cw, ch, round) in DIALPAD_PLACES {
+        let Some((c, inherited, label, icon)) = find(id) else { continue };
+        let r = Rect::from_center_size(pos2(body.left() + x * side, body.top() + y * side), vec2(cw * side, ch * side));
+        if draw_control(ui, t, r, c, (label, *icon, *inherited), selected == Some(c.as_str()), round) {
             *clicked = Some(c.clone());
-        }
-    }
-    if let Some((c, inherited, label, icon)) = find("dial") {
-        let r = Rect::from_min_size(pos2(body.right() - pad - dial, body.top() + pad), vec2(dial, dial));
-        if draw_control(ui, t, r, c, (label, *icon, *inherited), selected == Some(c.as_str()), true) {
-            *clicked = Some(c.clone());
-        }
-    }
-    for i in 0..4 {
-        let id = format!("pad.{}", i + 1);
-        if let Some((c, inherited, label, icon)) = find(&id) {
-            let r = Rect::from_min_size(pos2(body.left() + pad + i as f32 * (btn_w + gap), body.top() + pad + dial + gap * 2.0), vec2(btn_w, btn_h));
-            if draw_control(ui, t, r, c, (label, *icon, *inherited), selected == Some(c.as_str()), false) {
-                *clicked = Some(c.clone());
-            }
         }
     }
 }
@@ -672,8 +888,12 @@ fn short_label(_app: &LightcraftApp, b: &Binding) -> String {
         Binding::Command { command, params } => {
             let s = ls::icons::command_label(command, params);
             if s == *command {
-                // the registry's own name
-                crate::menus::ui_commands().find(|c| c.0 == command).map_or_else(|| s.clone(), |c| tr(c.1).to_string())
+                // the registry's own name (a UI command's, else the engine's)
+                crate::menus::ui_commands()
+                    .find(|c| c.0 == command)
+                    .map(|c| tr(c.1).to_string())
+                    .or_else(|| lightcraft_engine::find_command(command).map(|c| tr(c.label).to_string()))
+                    .unwrap_or_else(|| s.clone())
             } else {
                 tr(&s).to_string()
             }
@@ -718,21 +938,54 @@ fn set_binding(app: &mut LightcraftApp, page: &str, control: &str, b: Option<Bin
 /// The panel beside the drawing: what the selected control does, and the action picker.
 fn editor_panel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, page: &str, max_h: f32) {
     ui.horizontal_wrapped(|ui| {
-        let learning = app.surface.runtime.learning();
-        if button(ui, "surfaceLearn", if learning { "Cancel learning" } else { "Learn: touch a control" }) {
-            if learning {
+        let mut on = !app.surface.editor.touch_find_off;
+        if check(ui, "surface.touchFind", &mut on, "Touch to find") {
+            app.surface.editor.touch_find_off = !on;
+            if !on {
+                app.surface.editor.touch_find = None;
                 app.surface.runtime.cancel_learn();
-            } else {
-                app.surface.runtime.arm_learn();
             }
         }
-        if learning {
-            hint(ui, t, "Turn a dial or press a key on the surface…");
+        if on {
+            hint(
+                ui,
+                t,
+                "Touch a key, button or dial on the device to select it here. While this page is open, the device doesn't change your photo.",
+            );
+        } else {
+            let learning = app.surface.runtime.learning();
+            if button(ui, "surfaceLearn", if learning { "Cancel learning" } else { "Learn: touch a control" }) {
+                if learning {
+                    app.surface.runtime.cancel_learn();
+                } else {
+                    app.surface.runtime.arm_learn();
+                }
+            }
+            if learning {
+                hint(ui, t, "Turn a dial or press a key on the surface…");
+            }
         }
     });
+    // (the Loupedeck+ page shows its import messages above its drawing)
+    if current_device(app).2 != Drawing::LoupedeckPlus
+        && let Some(m) = app.surface.editor.message.clone()
+    {
+        ui.label(RichText::new(m).color(warn_color()));
+    }
     let Some(control) = app.surface.editor.control.clone().filter(|c| device_of(c) == current_device(app).0) else {
         ui.add_space(6.0);
-        hint(ui, t, "Click a key, button or dial on the drawing (or use Learn) to choose what it does.");
+        hint(
+            ui,
+            t,
+            "Drag an action from the list onto a key, button or dial of the drawing, or click one (or touch it on the device) to choose what it does.",
+        );
+        ui.add_space(4.0);
+        crate::text_field::TextField::singleline("field:surfaceActionSearch", &mut app.surface.editor.filter)
+            .hint(tr("Search actions"))
+            .width(240.0)
+            .show(ui);
+        // nothing selected: the list is there to drag from (a key's list: every action)
+        let _ = action_picker(app, ui, t, "", None, max_h - 80.0);
         return;
     };
     let current = {
@@ -907,9 +1160,11 @@ fn action_picker(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, control
                         if let Some(name) = icon {
                             crate::surface_icons::paint(ui, name, ir, Color32::WHITE);
                         }
-                        ui.add(egui::Button::selectable(selected, label.as_str()))
+                        ui.add(egui::Button::selectable(selected, label.as_str())).interact(Sense::click_and_drag())
                     });
                     register(ui.ctx(), format!("item:surfaceAction-{key}"), resp.inner.rect);
+                    // drag it onto a key, button or dial of the drawing
+                    resp.inner.dnd_set_drag_payload(DragAction { binding: b.clone(), label: label.clone(), icon });
                     if resp.inner.clicked() {
                         picked = Some(b.clone());
                     }

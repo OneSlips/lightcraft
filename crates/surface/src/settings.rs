@@ -344,6 +344,15 @@ impl SurfaceSettings {
         if self.profiles.is_empty() {
             self.profiles = crate::defaults::profiles();
         }
+        // the Actions Ring came later: profiles saved before it get its default slots (once: a
+        // ring set up anywhere is the user's own)
+        if !self.profiles.iter().any(|p| p.base.keys().any(|c| c.starts_with("ring."))) {
+            for p in &mut self.profiles {
+                for (c, b) in crate::defaults::ring() {
+                    p.base.entry(c).or_insert(b);
+                }
+            }
+        }
         let mut seen = std::collections::BTreeSet::new();
         for (i, p) in self.profiles.iter_mut().enumerate() {
             if p.name.trim().is_empty() {
