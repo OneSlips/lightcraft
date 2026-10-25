@@ -11,7 +11,7 @@ workspace = true
 [features]
 default = []
 rawnind-model = []
-# Offers LightCraft's own model (`known::LIGHTCRAFT_BAYER_URL`) for download; on once the file is hosted.
+# Offers LightCraft's own model for download (`known::LIGHTCRAFT_BAYER_URL`, then `known::LIGHTCRAFT_BAYER_FALLBACK_URL`).
 lightcraft-model = []
 
 [dependencies]

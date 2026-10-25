@@ -1,5 +1,15 @@
 # What's new in LightCraft
 
+## 2026-10-25
+
+### AI Denoise with LightCraft's own model
+- Settings ▸ AI Denoise offers **LightCraft Denoise (Bayer) 0.1.0**, a model trained by LightCraft contributors on
+  CC0 raw photos and licensed MIT OR Apache-2.0 like LightCraft, so commercial work is fine. It downloads once
+  (31 MB) after its terms are shown, from the project's release, or from the trainer's site when that fails; the
+  file is checked against its SHA-256 whichever site served it.
+- Without a model the panel says so plainly and points to Luminance and Color under Detail; a model you were
+  given installs with **Install from file…**.
+
 ## 2026-10-24
 
 ### Relative-date filters and smart albums follow the clock
@@ -290,11 +300,6 @@
 - While photos are imported into a large library, the grid takes in each batch as it arrives instead of reading
   every photo of the view again: at about 180,000 photos a batch cost the window a tenth of a second, over and over
   for as long as the import ran. Changing one photo's capture time or crop is quicker too.
-
-### AI Denoise
-- When no AI Denoise model is available, Settings ▸ AI Denoise says so plainly: LightCraft's own
-  model is still being trained, there is nothing to download or install yet, and Luminance and
-  Color under Detail reduce noise meanwhile.
 
 ## 2026-10-15
 

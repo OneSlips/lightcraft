@@ -50,6 +50,7 @@ fn rawnind_bayer() -> Known {
     let download = Download {
         id: manifest.id.clone(),
         url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel".into(),
+        fallbacks: Vec::new(),
         file_name: "rawdenoise-nind.dtmodel".into(),
         size_bytes: 57_700_134,
         sha256: "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af".into(),
@@ -57,24 +58,28 @@ fn rawnind_bayer() -> Known {
     Known { manifest, download: Some(download), entry: Some("model_bayer.onnx") }
 }
 
-/// Where LightCraft's own model is downloaded from by default: radfilms.com.au, the trainer's site (the maintainers'
-/// decision, 2026-10-17). `LIGHTCRAFT_DENOISE_MODEL_URL` (an `https://` address) replaces it, so a build or a
-/// maintainer can host the same file elsewhere; the size and SHA-256 below are checked wherever it comes from.
-pub const LIGHTCRAFT_BAYER_URL: &str = "https://radfilms.com.au/lightcraft/models/lightcraft-bayer-0.1.0.onnx";
+/// Where LightCraft's own model is downloaded from first: a release asset of the project (the maintainers upload the
+/// file there; until they do, this address fails and the next one is used).
+pub const LIGHTCRAFT_BAYER_URL: &str = "https://github.com/storytold/lightcraft/releases/download/denoise-model-0.1.0/lightcraft-bayer-0.1.0.onnx";
 
-/// The environment variable that replaces [`LIGHTCRAFT_BAYER_URL`].
+/// The second source, used when the first fails: radfilms.com.au, the trainer's site, serving the same file. Its size
+/// and SHA-256 (below) are checked whichever source served it.
+pub const LIGHTCRAFT_BAYER_FALLBACK_URL: &str = "https://radfilms.com.au/lightcraft/models/lightcraft-bayer-0.1.0.onnx";
+
+/// The environment variable that replaces both sources with one (an `https://` address), so a build or a maintainer
+/// can host the same file elsewhere. There is no other source.
 pub const LIGHTCRAFT_BAYER_URL_ENV: &str = "LIGHTCRAFT_DENOISE_MODEL_URL";
 
-/// The address LightCraft's own model is fetched from: [`LIGHTCRAFT_BAYER_URL_ENV`] when it holds an `https://`
-/// address, else [`LIGHTCRAFT_BAYER_URL`].
-pub fn lightcraft_bayer_url() -> String {
-    url_or_default(std::env::var(LIGHTCRAFT_BAYER_URL_ENV).ok().as_deref())
+/// The addresses LightCraft's own model is fetched from, in order: [`LIGHTCRAFT_BAYER_URL_ENV`] alone when it holds
+/// an `https://` address, else [`LIGHTCRAFT_BAYER_URL`] then [`LIGHTCRAFT_BAYER_FALLBACK_URL`].
+pub fn lightcraft_bayer_urls() -> Vec<String> {
+    urls_or_default(std::env::var(LIGHTCRAFT_BAYER_URL_ENV).ok().as_deref())
 }
 
-fn url_or_default(set: Option<&str>) -> String {
+fn urls_or_default(set: Option<&str>) -> Vec<String> {
     match set.map(str::trim) {
-        Some(u) if u.starts_with("https://") && u.len() > "https://".len() && !u.contains(char::is_whitespace) => u.to_string(),
-        _ => LIGHTCRAFT_BAYER_URL.to_string(),
+        Some(u) if u.starts_with("https://") && u.len() > "https://".len() && !u.contains(char::is_whitespace) => vec![u.to_string()],
+        _ => vec![LIGHTCRAFT_BAYER_URL.to_string(), LIGHTCRAFT_BAYER_FALLBACK_URL.to_string()],
     }
 }
 /// SHA-256 and size of that `.onnx` (`tools/denoise-train/export.py` prints both).
@@ -114,9 +119,11 @@ fn lightcraft_bayer() -> Known {
         overlap: 64,
         gain: Gain::None,
     };
+    let mut urls = lightcraft_bayer_urls().into_iter();
     let download = Download {
         id: manifest.id.clone(),
-        url: lightcraft_bayer_url(),
+        url: urls.next().unwrap_or_else(|| LIGHTCRAFT_BAYER_URL.to_string()),
+        fallbacks: urls.collect(),
         file_name: "lightcraft-bayer-0.1.0.onnx".into(),
         size_bytes: LIGHTCRAFT_BAYER_BYTES,
         sha256: LIGHTCRAFT_BAYER_SHA256.into(),
@@ -196,12 +203,21 @@ mod tests {
     }
 
     #[test]
-    fn the_model_address_can_be_replaced_with_another_https_one() {
-        assert_eq!(url_or_default(None), LIGHTCRAFT_BAYER_URL);
-        assert_eq!(url_or_default(Some("https://example.org/m.onnx")), "https://example.org/m.onnx");
-        assert_eq!(url_or_default(Some("http://example.org/m.onnx")), LIGHTCRAFT_BAYER_URL, "only https");
-        assert_eq!(url_or_default(Some("https://")), LIGHTCRAFT_BAYER_URL);
-        assert_eq!(url_or_default(Some("https://a b")), LIGHTCRAFT_BAYER_URL);
+    fn the_model_comes_from_the_project_then_its_mirror_or_one_address_given() {
+        let both = vec![LIGHTCRAFT_BAYER_URL.to_string(), LIGHTCRAFT_BAYER_FALLBACK_URL.to_string()];
+        assert_eq!(urls_or_default(None), both);
+        assert_eq!(host(LIGHTCRAFT_BAYER_URL), "github.com");
+        assert_eq!(host(LIGHTCRAFT_BAYER_FALLBACK_URL), "radfilms.com.au");
+        // one address given replaces both: no silent second source
+        assert_eq!(urls_or_default(Some("https://example.org/m.onnx")), vec!["https://example.org/m.onnx".to_string()]);
+        assert_eq!(urls_or_default(Some("http://example.org/m.onnx")), both, "only https");
+        assert_eq!(urls_or_default(Some("https://")), both);
+        assert_eq!(urls_or_default(Some("https://a b")), both);
+        let k = lightcraft_bayer();
+        let d = k.download.as_ref().unwrap();
+        assert_eq!((d.url.as_str(), d.fallbacks.as_slice()), (LIGHTCRAFT_BAYER_URL, &[LIGHTCRAFT_BAYER_FALLBACK_URL.to_string()][..]));
+        // the same file wherever it comes from: both end in its name
+        assert!(both.iter().all(|u| u.ends_with(&format!("/{}", d.file_name))));
         assert!(!lightcraft_bayer().manifest.licence.notice.contains("  "), "one space between words");
     }
 }
@@ -210,6 +226,9 @@ mod tests {
 pub struct Download {
     pub id: String,
     pub url: String,
+    /// Further sources of the same file, tried in order when the one before fails (unreachable, refused, or a file
+    /// whose size or SHA-256 isn't this one's). The file is kept only when its SHA-256 is [`Download::sha256`].
+    pub fallbacks: Vec<String>,
     /// The name the file is kept under while it waits for the user to accept its terms.
     pub file_name: String,
     pub size_bytes: u64,

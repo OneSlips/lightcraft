@@ -31,10 +31,18 @@ CC0, with synthetic sensor noise calibrated on real cameras (numbers only). Its 
 **MIT OR Apache-2.0**, like LightCraft, so any use, commercial work included, is allowed. The `lightcraft-model`
 Cargo feature offers it as a download (Settings ▸ AI Denoise); the desktop app turns that feature on.
 
-It is downloaded from `https://radfilms.com.au/lightcraft/models/lightcraft-bayer-0.1.0.onnx` (the trainer's
-site; a decision of 2026-10-17). `LIGHTCRAFT_DENOISE_MODEL_URL` replaces that address with another `https://`
-one, for maintainers who host the same file themselves; the pinned size (31,091,398 bytes) and SHA-256
-(`abd3c4cd…3247dea9`) are checked wherever the file comes from.
+It is downloaded from two sources, tried in order (a decision of 2026-10-25):
+
+1. the project's release asset,
+   `https://github.com/storytold/lightcraft/releases/download/denoise-model-0.1.0/lightcraft-bayer-0.1.0.onnx`
+   (a maintainer uploads the file there: until then this source fails and the next one is used);
+2. `https://radfilms.com.au/lightcraft/models/lightcraft-bayer-0.1.0.onnx`, the trainer's site, with the same file.
+
+A source that can't be reached, refuses, or sends a file of another size or SHA-256 is passed over for the next;
+a wrong file is never kept, whichever source sent it, and with both failing the message names each. The pinned
+size (31,091,398 bytes) and SHA-256 (`abd3c4cd…3247dea9`) are checked wherever the file comes from. There is no
+third source: `LIGHTCRAFT_DENOISE_MODEL_URL` (an `https://` address) replaces both with that one address, for
+maintainers who host the same file themselves.
 
 Measured on held-out pictures (PSNR in tone space): ISO 800 43.4 dB, ISO 3200 42.4 dB, ISO 12800 40.6 dB, a dark
 ISO 25600 36.4 dB (demosaicing without noise reduction: 38.1 / 36.9 / 33.1 / 22.8 dB). On a 45 MP EOS R5 C photo
