@@ -177,11 +177,13 @@ impl Drop for Downloads {
 }
 
 /// What went wrong, in words the user can act on.
-/// A source's site, as the message names it.
+/// A source's site, as the message names it: its host, without any user name or password the
+/// address carries (the message is shown and returned to scripts).
 #[cfg(not(target_arch = "wasm32"))]
 fn source_name(url: &str) -> &str {
     let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://")).unwrap_or(url);
-    rest.split('/').next().unwrap_or(rest)
+    let site = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    site.rsplit('@').next().unwrap_or(site)
 }
 
 /// One source's failure, in a few words.
@@ -268,6 +270,13 @@ mod tests {
     use lightcraft_denoise::hash::sha256_hex;
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn a_source_is_named_by_its_host_without_its_credentials() {
+        assert_eq!(source_name("https://user:secret@mirror.example/models/a.onnx"), "mirror.example");
+        assert_eq!(source_name("https://token@mirror.example?x=1"), "mirror.example");
+        assert_eq!(source_name("https://github.com/storytold/lightcraft/releases"), "github.com");
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lc-denoise-dl-{name}-{}", std::process::id()));
