@@ -181,7 +181,8 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 
 /// Keys and Dials: the drawn device and its editor, in a resizable window of its own (opened
 /// from Settings ▸ Controls; widget `window:surfaceEditor`). It stays open while Settings is.
-pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context) {
+/// `blocked`: a prompt is up; the window is shown but takes no input.
+pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool) {
     if !app.surface.editor.window {
         return;
     }
@@ -202,6 +203,9 @@ pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context) {
         .default_size(vec2((screen.width() - 80.0).clamp(320.0, 980.0), (screen.height() - 120.0).clamp(240.0, 680.0)))
         .max_size(vec2((screen.width() - 32.0).max(320.0), (screen.height() - 32.0).max(240.0)))
         .show(ctx, |ui| {
+            if blocked {
+                ui.disable();
+            }
             learn_and_listen(app, ui.ctx());
             device_bar(app, ui, &t);
             ui.separator();
@@ -211,7 +215,7 @@ pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context) {
     if let Some(r) = r {
         register(ctx, "window:surfaceEditor", r.response.rect);
     }
-    if !open {
+    if !open && !blocked {
         app.surface.editor.window = false;
     }
 }
