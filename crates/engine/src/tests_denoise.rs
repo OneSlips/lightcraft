@@ -991,8 +991,8 @@ fn a_cancelled_batch_does_not_come_back_while_its_job_winds_down() {
 #[test]
 fn browsing_a_folder_makes_no_ai_denoise_pictures() {
     let mut x = setup("browsedenoise", true);
-    // (not made because it is looked at either)
-    x.s.execute("denoise.settings", &json!({"auto": false})).unwrap();
+    // (not made because it is looked at either: it is the open photo, and pictures are made on their own)
+    x.s.execute("denoise.settings", &json!({"auto": true})).unwrap();
     x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 3200}})).unwrap();
     let folder = x.dir.join("browsed");
     std::fs::create_dir_all(&folder).unwrap();
@@ -1000,6 +1000,8 @@ fn browsing_a_folder_makes_no_ai_denoise_pictures() {
     let meta = lightcraft_meta::Metadata { iso: Some(6400), ..Default::default() };
     std::fs::write(folder.join("high.dng"), synthetic_dng_of(192, 160, "RGGB", data, None, meta)).unwrap();
     x.s.execute("library.browse", &json!({"path": folder.to_string_lossy()})).unwrap();
+    let browsed = x.s.catalog.photos().find(|p| p.local).map(|p| p.id).expect("the browsed photo");
+    x.s.execute("library.select", &json!({"ids": [browsed.0]})).unwrap();
     for _ in 0..3 {
         x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
     }
@@ -1007,6 +1009,31 @@ fn browsing_a_folder_makes_no_ai_denoise_pictures() {
     // imported, the same file is queued
     x.s.execute("library.import", &json!({"paths": [folder.join("high.dng").to_string_lossy()]})).unwrap();
     assert!(x.s.denoise_busy(), "imported at ISO 6400: queued");
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// An import that switches AI Denoise on for more photos than the queue holds loses none: the rest
+/// wait and are queued as it drains.
+#[test]
+fn an_import_larger_than_the_queue_makes_every_picture() {
+    let mut x = setup("importbacklog", true);
+    x.s.execute("denoise.settings", &json!({"auto": false})).unwrap();
+    x.s.execute("library.preferences", &json!({"import": {"denoiseAboveIso": 3200}})).unwrap();
+    x.s.denoise.queue_cap = 1;
+    let folder = x.dir.join("high-iso");
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut paths = Vec::new();
+    for i in 0..3u16 {
+        let data: Vec<u16> = (0..192 * 160).map(|j| 600 + (j % 192) as u16 * 30 + i * 7).collect();
+        let meta = lightcraft_meta::Metadata { iso: Some(6400), ..Default::default() };
+        let path = folder.join(format!("high-{i}.dng"));
+        std::fs::write(&path, synthetic_dng_of(192, 160, "RGGB", data, None, meta)).unwrap();
+        paths.push(path.to_string_lossy().into_owned());
+    }
+    x.s.execute("library.import", &json!({"paths": paths})).unwrap();
+    assert!(x.s.denoise_busy());
+    pump_until_ready(&mut x.s, 3);
     drop(x.s);
     let _ = std::fs::remove_dir_all(x.dir);
 }

@@ -1555,7 +1555,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
         let on: Vec<PhotoId> =
             report.imported.iter().map(|i| PhotoId(*i)).filter(|id| s.develop_of(*id).is_some_and(|d| d.denoise_amount() > 0.0)).collect();
         if !on.is_empty() {
-            s.denoise_enqueue(&on, false, false);
+            s.denoise_enqueue_all(&on);
         }
     }
     Ok(report)

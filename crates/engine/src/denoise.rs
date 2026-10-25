@@ -1095,6 +1095,11 @@ pub(crate) struct State {
     /// Photos whose batch was cancelled (the row's cancel): looking at them doesn't queue them again; asking for them
     /// does (the switch, `denoise.queue`, an export).
     held: HashSet<PhotoId>,
+    /// Photos an import switched AI Denoise on for that didn't fit in the queue: queued as it
+    /// drains (a big import of high-ISO raws doesn't lose any).
+    backlog: VecDeque<PhotoId>,
+    /// How many photos the queue holds (tests make it small).
+    pub(crate) queue_cap: usize,
 }
 
 impl Default for State {
@@ -1117,6 +1122,8 @@ impl Default for State {
             task: None,
             photo_task: None,
             held: HashSet::new(),
+            backlog: VecDeque::new(),
+            queue_cap: MAX_QUEUE,
         }
     }
 }
@@ -1137,6 +1144,7 @@ impl State {
             r.progress.cancel_now();
         }
         self.queue.clear();
+        self.backlog.clear();
         self.failed.clear();
         self.held.clear();
         self.dirty = true;
@@ -1325,7 +1333,7 @@ impl Session {
             if !eligible(&p) || self.media.denoise.spec(*id).is_some() || self.denoise.queue.contains(id) {
                 continue;
             }
-            if self.denoise.running.as_ref().is_some_and(|r| r.photo == *id) || self.denoise.queue.len() >= MAX_QUEUE {
+            if self.denoise.running.as_ref().is_some_and(|r| r.photo == *id) || self.denoise.queue.len() >= self.denoise.queue_cap {
                 continue;
             }
             let Some((_, key)) = self.denoise_spec(&p) else { continue };
@@ -1342,6 +1350,27 @@ impl Session {
             added += 1;
         }
         added
+    }
+
+    /// Queue photos that should all be made (an import's): what doesn't fit in the queue waits in
+    /// the backlog and is queued as the queue drains.
+    pub(crate) fn denoise_enqueue_all(&mut self, ids: &[PhotoId]) {
+        let room = self.denoise.queue_cap.saturating_sub(self.denoise.queue.len());
+        let (now, later) = ids.split_at(room.min(ids.len()));
+        self.denoise_enqueue(now, false, false);
+        for id in later {
+            if !self.denoise.backlog.contains(id) {
+                self.denoise.backlog.push_back(*id);
+            }
+        }
+    }
+
+    /// Move backlog photos into the queue while it has room.
+    fn denoise_refill(&mut self) {
+        while self.denoise.queue.len() < self.denoise.queue_cap {
+            let Some(id) = self.denoise.backlog.pop_front() else { break };
+            self.denoise_enqueue(&[id], false, false);
+        }
     }
 
     /// Was photo `id` waiting in a batch that was cancelled? It is then not made until asked for again.
@@ -1368,7 +1397,10 @@ impl Session {
         let before = self.denoise.queue.len();
         match photo {
             Some(p) => self.denoise.queue.retain(|q| *q != p),
-            None if all => self.denoise.queue.clear(),
+            None if all => {
+                self.denoise.queue.clear();
+                self.denoise.backlog.clear();
+            }
             None => {}
         }
         n + before - self.denoise.queue.len()
@@ -1381,7 +1413,8 @@ impl Session {
             .iter()
             .chain(ids.iter().take(AUTO_LOOK))
             .copied()
-            .filter(|id| self.catalog.photo(*id).is_some_and(|p| p.develop.denoise_amount() > 0.0))
+            // (a photo of a folder being browsed isn't imported: its picture is made when asked for)
+            .filter(|id| self.catalog.photo(*id).is_some_and(|p| !p.local && p.develop.denoise_amount() > 0.0))
             .collect()
     }
 
@@ -1554,6 +1587,7 @@ impl Session {
         if self.denoise.active.is_none() || self.denoise_products_dir().is_none() {
             return;
         }
+        self.denoise_refill();
         let (cap, auto) = (self.denoise.settings.threads, self.denoise.settings.auto());
         let wanted = self.denoise_wanted();
         for id in &wanted {
@@ -1590,7 +1624,7 @@ impl Session {
 
     /// Is a picture being made, or waiting for its turn with a model to make it? (Headless runs wait for this.)
     pub fn denoise_busy(&self) -> bool {
-        self.denoise.running.is_some() || (!self.denoise.queue.is_empty() && self.denoise.active.is_some())
+        self.denoise.running.is_some() || ((!self.denoise.queue.is_empty() || !self.denoise.backlog.is_empty()) && self.denoise.active.is_some())
     }
 
     /// Keep AI Denoise's rows in the activity stack up to date (each `denoise.pump`). One batch row while a photo is
@@ -1606,7 +1640,8 @@ impl Session {
         }
         if self.denoise.task.as_ref().is_some_and(|t| t.is_cancelled()) {
             // what was waiting stays put until asked for again (not re-queued by looking at it)
-            let held: Vec<PhotoId> = self.denoise.queue.iter().copied().chain(self.denoise.running.as_ref().map(|r| r.photo)).collect();
+            let held: Vec<PhotoId> =
+                self.denoise.queue.iter().chain(self.denoise.backlog.iter()).copied().chain(self.denoise.running.as_ref().map(|r| r.photo)).collect();
             self.denoise.held.extend(held);
             self.denoise_cancel(None, true);
             self.denoise.photo_task = None;
@@ -1614,13 +1649,14 @@ impl Session {
             return;
         }
         // a job told to stop, with nothing waiting after it, is no new batch while it winds down
-        let stopping = self.denoise.queue.is_empty() && self.denoise.running.as_ref().is_some_and(|r| r.progress.cancelled());
+        let stopping =
+            self.denoise.queue.is_empty() && self.denoise.backlog.is_empty() && self.denoise.running.as_ref().is_some_and(|r| r.progress.cancelled());
         if stopping && self.denoise.task.is_none() {
             self.denoise.photo_task = None;
             return;
         }
         let task = self.denoise.task.get_or_insert_with(|| self.activity.start_batch("denoise", "AI Denoise", crate::activity::Cancel::Yes));
-        let left = self.denoise.queue.len() as u64 + u64::from(self.denoise.running.is_some());
+        let left = (self.denoise.queue.len() + self.denoise.backlog.len()) as u64 + u64::from(self.denoise.running.is_some());
         let done = task.done();
         task.progress(done, done.saturating_add(left));
         match &self.denoise.running {
