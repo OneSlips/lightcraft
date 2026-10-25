@@ -548,7 +548,9 @@ mod tests {
         assert!(app.importing() && app.eye_focus_on(), "on while importing at first");
         assert_eq!(app.run("view.eyeFocus", serde_json::json!({})).unwrap()["on"], false);
         assert!(!app.ui.eye_focus_import);
-        app.session.source = lightcraft_engine::LibrarySource::All;
+        // (a library view is the Library tab: browsed photos show only in the Import tab)
+        app.run("library.source", serde_json::json!({"kind": "all"})).unwrap();
+        assert!(!app.importing());
         assert_eq!(app.run("view.eyeFocus", serde_json::json!({})).unwrap()["on"], true);
         assert!(app.ui.eye_focus && !app.ui.eye_focus_import, "each side keeps its own");
     }

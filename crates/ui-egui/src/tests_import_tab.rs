@@ -222,3 +222,41 @@ fn the_import_settings_fit_a_narrow_panel() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Test notes 2026-10-25 note 3 (the user's decision): browsed photos show only in the Import
+/// tab, as in Lightroom. A browsed folder the app reopens on with the Library tab saved (the view
+/// at quit) opens in the Import tab, with its bar and Import button; the Library tab's views never
+/// list a browsed photo. It used to reopen in the Library tab, where nothing said "not imported".
+#[test]
+fn a_browsed_folder_never_shows_in_the_library_tab() {
+    let mut h = app();
+    h.settle(SETTLE);
+    let dir = folder("reopen", 3);
+    run(&mut h, "library.browse", json!({"path": dir.to_string_lossy()})).unwrap();
+    let browsed = h.app.session.visible_cloned();
+    assert_eq!(browsed.len(), 3);
+    exec(&mut h, "photo.flag", json!({"ids": [browsed[0].0], "flag": "pick"}));
+    // the app reopens: the session is back on the folder, the saved UI on the Library tab
+    h.app.ui.tab = Tab::Library;
+    h.app.ui.right = RightPanel::Edit;
+    h.settle(SETTLE);
+    assert_eq!(h.app.ui.tab, Tab::Import, "a browsed folder is the Import tab");
+    assert_eq!(h.app.ui.right, RightPanel::Import);
+    assert!(widget(&h, "button:importNow"), "with the Import button");
+    // a tool at work keeps its panel
+    h.app.ui.tab = Tab::Library;
+    h.app.ui.right = RightPanel::Crop;
+    h.settle(SETTLE);
+    assert_eq!(h.app.ui.tab, Tab::Import);
+    assert_eq!(h.app.ui.right, RightPanel::Crop);
+    // the Library tab's views: imported photos only
+    run(&mut h, "view.libraryTab", json!({})).unwrap();
+    assert_eq!(h.app.ui.tab, Tab::Library);
+    for kind in ["all", "recentlyAdded", "picks"] {
+        let _ = run(&mut h, "library.source", json!({"kind": kind}));
+        assert_eq!(h.app.ui.tab, Tab::Library, "{kind}");
+        let shown = h.app.session.visible_cloned();
+        assert!(browsed.iter().all(|id| !shown.contains(id)), "{kind}: no browsed photo in the Library tab");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

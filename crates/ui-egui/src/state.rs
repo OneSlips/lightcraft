@@ -939,6 +939,10 @@ pub struct UiState {
     /// O hid the automatic overlay of this mask (until another mask is selected).
     #[serde(skip)]
     pub mask_overlay_hidden: Option<u32>,
+    /// The Import tab came up by itself for a browsed folder on show in the Library tab
+    /// ([`crate::import_tab::keep_in_step`]): back to Library once the view is the library's again.
+    #[serde(skip)]
+    pub import_moved: bool,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -1895,6 +1899,7 @@ impl Default for UiState {
             mask_menu_for: None,
             mask_hover_prev: None,
             mask_overlay_hidden: None,
+            import_moved: false,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,

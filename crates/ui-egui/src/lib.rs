@@ -1568,6 +1568,8 @@ impl LightcraftApp {
             self.fonts_ready = true;
         }
         self.sync_theme(ctx);
+        // browsed photos show only in the Import tab (test notes 2026-10-25 note 3)
+        import_tab::keep_in_step(self);
         panels::notices::logic(self);
         // closing the window (or Quit) with changes only in memory: retry, else ask first
         if ctx.input(|i| i.viewport().close_requested()) && !panels::notices::may_close(self) {
