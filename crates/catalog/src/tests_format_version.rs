@@ -110,7 +110,11 @@ fn v9_ai_masks_load_without_a_segmentation_and_are_upgraded() {
     let mut p = Photo::new(id, Source::File { path: "/p/a.jpg".into() }, "a.jpg", "JPEG", 4, 3, "2026-01-01");
     let mut d = (*p.develop).clone();
     d.masks.push(Mask { id: 1, components: vec![comp(MaskShape::Subject { seg: None })], ..Default::default() });
-    d.masks.push(Mask { id: 2, components: vec![comp(MaskShape::People { person: 0, parts: vec!["Face Skin".into()], seg: None })], ..Default::default() });
+    d.masks.push(Mask {
+        id: 2,
+        components: vec![comp(MaskShape::People { person: 0, parts: vec!["Face Skin".into()], seg: None })],
+        ..Default::default()
+    });
     p.develop = std::sync::Arc::new(d.clone());
     c.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
     let snap = c.to_snapshot();
