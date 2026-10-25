@@ -2721,5 +2721,8 @@
   "Finish Lightroom catalog import before adding photos": "Zakończ import katalogu Lightrooma, zanim dodasz zdjęcia",
   "Console: Masking and Mask are now one Masks page": "Konsola: Maskowanie i Maska to teraz jedna strona Maski",
   "All masks shown · O to hide": "Wszystkie maski widoczne · O, aby ukryć",
-  "Click to hide the overlay": "Kliknij, aby ukryć nakładkę"
+  "Click to hide the overlay": "Kliknij, aby ukryć nakładkę",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "To miejsce jest zbyt jasne, by odczytać jego kolor: kliknij nieco ciemniejszy neutralny obszar",
+  "This spot is too dark to read its colour: click a brighter neutral area": "To miejsce jest zbyt ciemne, by odczytać jego kolor: kliknij jaśniejszy neutralny obszar",
+  "This spot can't be read": "Tego miejsca nie da się odczytać"
 }

@@ -64,6 +64,7 @@ pub mod text_field;
 pub mod theme;
 pub mod thumb_first;
 pub mod titlebar;
+mod wb_loupe;
 pub mod widgets;
 pub mod window_place;
 

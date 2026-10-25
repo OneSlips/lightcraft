@@ -2071,4 +2071,6 @@ mod tests_upright;
 #[cfg(test)]
 mod tests_view_follow;
 #[cfg(test)]
+mod tests_wb_pick;
+#[cfg(test)]
 mod tests_xmp;

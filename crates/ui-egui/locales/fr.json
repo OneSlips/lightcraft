@@ -3302,5 +3302,8 @@
   "This library couldn't be checked:": "Impossible de vérifier cette bibliothèque :",
   "Console: Masking and Mask are now one Masks page": "Console : Masquage et Masque ne forment plus qu’une page Masques",
   "All masks shown · O to hide": "Tous les masques affichés · O pour masquer",
-  "Click to hide the overlay": "Cliquer pour masquer l'incrustation"
+  "Click to hide the overlay": "Cliquer pour masquer l'incrustation",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Ce point est trop clair pour lire sa couleur : cliquez sur une zone neutre un peu plus sombre",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Ce point est trop sombre pour lire sa couleur : cliquez sur une zone neutre plus claire",
+  "This spot can't be read": "Ce point ne peut pas être lu"
 }

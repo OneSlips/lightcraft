@@ -3266,5 +3266,8 @@
   "Finish Lightroom catalog import before adding photos": "Завершіть імпорт каталогу Lightroom, перш ніж додавати фото",
   "Console: Masking and Mask are now one Masks page": "Пульт: Маскування й Маска тепер одна сторінка «Маски»",
   "All masks shown · O to hide": "Показано всі маски · O — сховати",
-  "Click to hide the overlay": "Клацніть, щоб сховати накладання"
+  "Click to hide the overlay": "Клацніть, щоб сховати накладання",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Це місце надто світле, щоб прочитати його колір: клацніть трохи темнішу нейтральну ділянку",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Це місце надто темне, щоб прочитати його колір: клацніть світлішу нейтральну ділянку",
+  "This spot can't be read": "Це місце не вдається прочитати"
 }

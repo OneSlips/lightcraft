@@ -2429,5 +2429,8 @@
   "Import dropped files without review": "Importera släppta filer utan granskning",
   "Console: Masking and Mask are now one Masks page": "Konsol: Maskering och Mask är nu en sida, Masker",
   "All masks shown · O to hide": "Alla masker visas · O döljer",
-  "Click to hide the overlay": "Klicka för att dölja överlägget"
+  "Click to hide the overlay": "Klicka för att dölja överlägget",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Den här punkten är för ljus för att läsa dess färg: klicka på ett något mörkare neutralt område",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Den här punkten är för mörk för att läsa dess färg: klicka på ett ljusare neutralt område",
+  "This spot can't be read": "Den här punkten går inte att läsa"
 }

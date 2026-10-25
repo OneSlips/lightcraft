@@ -1563,6 +1563,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                         app.ui.brush_erase = false;
                     }
                 }
+                // W again puts the selector away without sampling (test notes 2026-10-25 note 13)
+                "wbPicker" if app.ui.tool == "wbPicker" => app.ui.tool.clear(),
                 "wbPicker" => {
                     app.ui.right = RightPanel::Edit;
                     app.ui.view = ViewMode::Detail;

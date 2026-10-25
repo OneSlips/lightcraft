@@ -992,6 +992,9 @@ pub struct UiState {
     /// true` without the user choosing it, so only a choice made since is kept.
     #[serde(rename = "faceBoxesOn")]
     pub face_boxes: bool,
+    /// The White Balance Selector's sample, its side in screen pixels (odd; the mouse wheel
+    /// changes it while the selector is armed: test notes 2026-10-25 note 13).
+    pub wb_sample: u32,
     /// The left sidebar's sections: their order, which are hidden and which are folded shut.
     pub sidebar: crate::sidebar::SidebarLayout,
     /// Presets panel groups folded shut (by group name), the same in every library (note 52).
@@ -1932,6 +1935,7 @@ impl Default for UiState {
             grid_info: "filename".into(),
             show_counts: true,
             face_boxes: false,
+            wb_sample: crate::wb_loupe::DEFAULT_SAMPLE,
             sidebar: Default::default(),
             collapsed_sidebar: Vec::new(),
             folded_preset_groups: Vec::new(),
