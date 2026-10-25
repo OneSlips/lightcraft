@@ -426,8 +426,10 @@ impl PrefsWriter {
         // the settings hold is checked first: a script may have set it (`ui.set`)
         let remembered = app.ui.window.and_then(lightcraft_ui_egui::window_place::WindowPlace::checked);
         let at = self.window_since.get_or_insert_with(std::time::Instant::now).elapsed().as_secs_f64();
+        // (while the window is being placed it is not remembered: it may not be as it will be)
+        let placing = self.start.is_some();
         if let Some(start) = &mut self.start {
-            for command in start.step(&seen, at) {
+            for command in start.step(&seen, at, zoom) {
                 ctx.send_viewport_cmd(command);
             }
             match start.waits() {
@@ -435,7 +437,9 @@ impl PrefsWriter {
                 None => self.start = None,
             }
         }
-        app.ui.window = self.window.note(remembered, &seen, at);
+        if !placing {
+            app.ui.window = self.window.note(remembered, &seen, at);
+        }
         if let Some(wait) = self.window.waits(at) {
             // (a size is only remembered once the window has rested at it: look again then, though
             // nothing else asks for a frame)
