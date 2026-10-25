@@ -1881,7 +1881,7 @@ fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error:
         );
     }
     let r = ui.link(crate::i18n::tr("Read the licence")).on_hover_text(&m.license_url);
-    crate::widgets::register(ui.ctx(), "link:aiModelLicense", r.rect);
+    crate::widgets::register(ui, "link:aiModelLicense", r.rect);
     if r.clicked() {
         let _ = crate::links::open(app, &m.license_url);
     }
@@ -1891,9 +1891,9 @@ fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error:
         let frac = if d.total > 0 { d.done as f64 / d.total as f64 } else { 0.0 };
         let text = format!("{:.0} / {:.0} MB", mb(d.done), mb(d.total));
         let r = ui.add(egui::ProgressBar::new(frac as f32).text(text));
-        crate::widgets::register(ui.ctx(), "progress:aiModelDownload", r.rect);
+        crate::widgets::register(ui, "progress:aiModelDownload", r.rect);
         let r = ui.button(crate::i18n::tr("Cancel Download"));
-        crate::widgets::register(ui.ctx(), "button:aiModelCancel", r.rect);
+        crate::widgets::register(ui, "button:aiModelCancel", r.rect);
         if r.clicked()
             && let Err(e) = app.run("ai.models.cancel", json!({"id": model}))
         {

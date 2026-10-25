@@ -765,13 +765,13 @@ fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         let r = ui.selectable_label(person == 0, crate::i18n::tr("Everyone"));
-        register(ui.ctx(), "maskPeople:person:0", r.rect);
+        register(ui, "maskPeople:person:0", r.rect);
         if r.clicked() {
             person = 0;
         }
         for n in 1..=4u32 {
             let r = ui.selectable_label(person == n, crate::i18n::tr_format!("Person {n}", n = n));
-            register(ui.ctx(), format!("maskPeople:person:{n}"), r.rect);
+            register(ui, format!("maskPeople:person:{n}"), r.rect);
             if r.clicked() {
                 person = n;
             }
@@ -782,7 +782,7 @@ fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let whole = part == "Entire Person";
             let mut on = if whole { parts.is_empty() } else { parts.iter().any(|p| p == part) };
             let r = ui.checkbox(&mut on, crate::i18n::tr(part));
-            register(ui.ctx(), format!("maskPeople:part:{part}"), r.rect);
+            register(ui, format!("maskPeople:part:{part}"), r.rect);
             if r.changed() {
                 if whole {
                     parts.clear();
@@ -795,7 +795,7 @@ fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     });
     let create = ui.button(crate::i18n::tr("Create Mask"));
-    register(ui.ctx(), "maskPeople:create", create.rect);
+    register(ui, "maskPeople:create", create.rect);
     if create.clicked() {
         app.ui.people_pick = None;
         add_auto(app, ui.ctx(), json!({"kind": "people", "person": person, "parts": parts}), None);
@@ -821,7 +821,7 @@ fn landscape_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             ("artificialGround", "Artificial Ground"),
         ] {
             let b = ui.button(crate::i18n::tr(label));
-            register(ui.ctx(), format!("maskLandscape:{class}"), b.rect);
+            register(ui, format!("maskLandscape:{class}"), b.rect);
             if b.clicked() {
                 app.ui.landscape_pick = false;
                 add_auto(app, ui.ctx(), json!({"kind": "landscape", "class": class}), None);
@@ -892,7 +892,7 @@ fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         .desired_width(ui.available_width() - 70.0)
                         .text(format!("{title}: {} %", (pct * 100.0).floor())),
                 );
-                register(ui.ctx(), format!("maskAiProgress:{key}"), r.rect);
+                register(ui, format!("maskAiProgress:{key}"), r.rect);
                 if text_button(ui, &format!("maskAiDetails:{key}"), crate::i18n::tr("Details"), false).clicked() {
                     app.offer_ai_model(&key, None);
                 }
