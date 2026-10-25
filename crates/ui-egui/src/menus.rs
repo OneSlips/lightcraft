@@ -181,6 +181,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("tool.none", "No Tool", None, ""),
     // brush size / feather of the active brush (Masking brush, Remove tool and its selected spot)
     ("brush.smaller", "Decrease Brush Size", Some("["), "Window>Tools"),
+    // the brush's Erase mode; {on} sets it (a console key holds it like Alt), none toggles
+    ("brush.erase", "Erase", None, ""),
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
@@ -287,6 +289,26 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.captureTime", "Edit Capture Time…", None, "Photo"),
     ("photo.tagFromTracklog", "Auto-Tag from Tracklog…", None, "Photo"),
     ("app.exportPrevious", "Export with Previous", Some("Cmd+Alt+Shift+E"), "File"),
+    // control surfaces (`surface`): what their keys run, and their settings for agents
+    ("surface.maskPrevious", "Select Previous Mask", None, ""),
+    ("surface.maskNext", "Select Next Mask", None, ""),
+    ("surface.dialogConfirm", "Confirm Dialog", None, ""),
+    ("surface.dialogCancel", "Cancel Dialog", None, ""),
+    ("surface.pageNext", "Next Surface Page", None, ""),
+    ("surface.pagePrevious", "Previous Surface Page", None, ""),
+    ("surface.page", "Show Surface Page", None, ""),
+    ("surface.profile", "Control Surface Profile", None, ""),
+    ("surface.applyToSelected", "Dials Change All Selected Photos", None, ""),
+    ("surface.followContext", "Surface Pages Follow the App", None, ""),
+    ("surface.input", "Control Surface Input", None, ""),
+    ("surface.state", "Control Surface State", None, ""),
+    ("surface.settings", "Control Surface Settings", None, ""),
+    ("surface.forget", "Forget a Paired Surface", None, ""),
+    ("surface.import", "Import Control Surface Setup", None, ""),
+    ("surface.export", "Export Control Surface Layout", None, ""),
+    ("surface.plugin", "Surface Plugin Status", None, ""),
+    ("surface.installPlugin", "Install the Surface Plugin", None, ""),
+    ("surface.uninstallPlugin", "Remove the Surface Plugin", None, ""),
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
@@ -440,6 +462,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         // the app's own context: a fresh one's repaints reach no window and its clock starts at zero
         let ctx = app.tasks.repaint.clone().unwrap_or_default();
         return Some(crate::lightroom_import::command(app, id, p, &ctx));
+    }
+    if id.starts_with("surface.")
+        && let Some(r) = crate::surface::command(app, id, p)
+    {
+        return Some(r);
     }
     if id == "photo.reload" {
         // the files are read in the background (a raw's decode takes a second or more)
@@ -1125,6 +1152,17 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             let [r, g, b] = app.ui.mask_overlay_color;
             Ok(json!({"color": format!("#{r:02x}{g:02x}{b:02x}"), "opacity": app.ui.mask_overlay_opacity}))
+        }
+        "brush.erase" => {
+            let on = p.get("on").and_then(Value::as_bool).unwrap_or(!app.ui.brush_erase);
+            if on && app.ui.tool != "brush" {
+                // erasing needs the brush: pick it up on the selected mask
+                if let Err(e) = app.run("tool.brush", json!({})) {
+                    return Some(Err(e));
+                }
+            }
+            app.ui.brush_erase = on;
+            Ok(json!({"on": on}))
         }
         "brush.smaller" | "brush.larger" | "brush.featherLess" | "brush.featherMore" => {
             let (k, df) = match id {
@@ -2315,6 +2353,10 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         }
         "app.showInFolders" => show_in_folders_enabled(app, None),
         "app.openSamModelFolder" => app.session.segmenter.dir.is_some() && app.services.open_with.is_some(),
+        "surface.maskPrevious" | "surface.maskNext" => {
+            app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| !d.masks.is_empty())
+        }
+        "surface.dialogConfirm" | "surface.dialogCancel" => app.ui.dialog.is_some(),
         "file.exportPresets" => app.session.presets.iter().any(|p| !p.builtin),
         "file.exportMaskEffects" => !app.session.mask_effects.is_empty(),
         "dialog.saveMaskEffect" => app.session.active().is_some() && app.session.active_mask.is_some(),
