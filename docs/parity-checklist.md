@@ -31,10 +31,10 @@ cited here still exists. Formerly docs/parity.md.
 | C. Views & navigation (VIEW) | 17 | 1 | 1 | 0 | 9/9 (100%) | 5/5 (100%) |
 | D. Search & filter (FILT) | 11 | 1 | 1 | 0 | 4/4 (100%) | 4/4 (100%) |
 | E. Metadata (META) | 5 | 1 | 0 | 0 | 2/2 (100%) | 2/2 (100%) |
-| F. Edit panel — global adjustments (EDIT) | 44 | 2 | 3 | 1 | 28/28 (100%) | 13/14 (93%) |
-| G. Profiles (PROF) | 7 | 1 | 3 | 0 | 3/4 (75%) | 3/3 (100%) |
-| H. Crop & rotate (CROP) | 10 | 1 | 0 | 1 | 8/8 (100%) | 2/3 (67%) |
-| I. Remove / healing (REM) | 8 | 1 | 2 | 2 | 4/4 (100%) | 2/3 (67%) |
+| F. Edit panel — global adjustments (EDIT) | 44 | 3 | 3 | 1 | 28/28 (100%) | 13/15 (87%) |
+| G. Profiles (PROF) | 11 | 1 | 3 | 0 | 3/4 (75%) | 5/5 (100%) |
+| H. Crop & rotate (CROP) | 10 | 1 | 1 | 0 | 8/8 (100%) | 2/3 (67%) |
+| I. Remove / healing (REM) | 11 | 3 | 2 | 0 | 4/4 (100%) | 2/3 (67%) |
 | J. Red eye (EYE) | 2 | 0 | 0 | 0 | — | 1/1 (100%) |
 | K. Masking (MASK) | 17 | 11 | 2 | 0 | 8/9 (89%) | 8/9 (89%) |
 | L. Presets (PRE) | 6 | 1 | 0 | 1 | 2/2 (100%) | 2/2 (100%) |
@@ -52,10 +52,10 @@ cited here still exists. Formerly docs/parity.md.
 | X. Cross-cutting behaviours (BEHAV) | 23 | 7 | 1 | 1 | 8/8 (100%) | 7/10 (70%) |
 | Y. Menus | 85 | 0 | 4 | 8 | 47/47 (100%) | 23/23 (100%) |
 | Z. Keyboard shortcuts (desktop) | 78 | 4 | 2 | 1 | 49/52 (94%) | 24/26 (92%) |
-| Lightroom Classic extras | 41 | 25 | 21 | 8 | — | 24/26 (92%) |
-| **Total** | 421 | 65 | 57 | 35 | 196/203 (97%) | 146/161 (91%) |
+| Lightroom Classic extras | 43 | 26 | 21 | 8 | — | 26/29 (90%) |
+| **Total** | 443 | 77 | 54 | 32 | 199/206 (97%) | 158/176 (90%) |
 
-Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **83.5%** of 543 in-scope rows — P0 98.3% of 203 · P1 94.4% of 161 · P2 56.7% of 178.
+Weighted completion (✅ = 1, 🟡 = ½, 🚫 left out): **83.9%** of 574 in-scope rows — P0 98.3% of 206 · P1 94.0% of 176 · P2 58.9% of 191.
 <!-- /parity:summary -->
 
 ## Top gaps and shortcut notes
