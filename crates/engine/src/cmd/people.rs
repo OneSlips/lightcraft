@@ -699,5 +699,73 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"deleted": deleted, "photos": photos}))
             }
         ),
+        cmd!(
+            query "people.toPoint",
+            "People to Point At",
+            [],
+            None,
+            "{id?} — the named people and roles the photo's masks couldn't find (not with confidence, or not at all), so their part of the mask is left out there → {id, people: [{who: {name}|{role}, label}]}",
+            always,
+            |s, p| {
+                let id = photo_param(s, p, "people.toPoint")?;
+                let people: Vec<Value> = s.people_to_point(id).iter().map(|w| json!({"who": who_json(w), "label": w.label()})).collect();
+                Ok(json!({"id": id.0, "people": people}))
+            }
+        ),
+        cmd!(
+            "people.pointAt",
+            "Point at Person",
+            [],
+            None,
+            "{id?, face: index (from people.faces), who: {name} | {role}} — the photographer shows who a mask's named person or role is on this photo: that face is named as them (one more example of how they look, so other photos match better) and their parts of the photo's masks are computed again; one undo step → {named, name, recomputed, masks}",
+            always,
+            |s, p| {
+                let c = "people.pointAt";
+                let id = photo_param(s, p, c)?;
+                let who = who_param(p, c)?;
+                let face = p.get("face").and_then(Value::as_u64).and_then(|v| usize::try_from(v).ok()).ok_or_else(|| bad(c, "missing `face`"))?;
+                let ctx = s.photo_context(id);
+                let name = match &who {
+                    lightcraft_develop::recipe::Who::Name(n) => n.trim().to_string(),
+                    lightcraft_develop::recipe::Who::Role(r) => s
+                        .people_store()
+                        .role_for(r, &ctx)
+                        .map(str::to_string)
+                        .ok_or_else(|| bad(c, format!("No {} is set for this shoot: set it in the People picker (Roles…)", r.trim())))?,
+                };
+                #[cfg(feature = "sam")]
+                {
+                    let (named, _) = faces::name(s, &[(id, face)], &name, c)?;
+                    s.pointed(id, &who);
+                    let (recomputed, masks) = s.recompute_person(id, &name);
+                    Ok(json!({"named": named, "name": name, "recomputed": recomputed, "masks": masks}))
+                }
+                #[cfg(not(feature = "sam"))]
+                {
+                    let _ = (face, name);
+                    Err(no_ai(c))
+                }
+            }
+        ),
     ]
+}
+
+/// A mask's person as JSON: `{name}` or `{role}`.
+fn who_json(w: &lightcraft_develop::recipe::Who) -> Value {
+    match w {
+        lightcraft_develop::recipe::Who::Name(n) => json!({"name": n}),
+        lightcraft_develop::recipe::Who::Role(r) => json!({"role": r}),
+    }
+}
+
+/// `who: {name} | {role}`.
+fn who_param(p: &Value, c: &str) -> Result<lightcraft_develop::recipe::Who> {
+    let w = p.get("who").ok_or_else(|| bad(c, "missing `who`"))?;
+    if w.get("name").is_some() {
+        return Ok(lightcraft_develop::recipe::Who::Name(name_param(w, "name", c)?));
+    }
+    if w.get("role").is_some() {
+        return Ok(lightcraft_develop::recipe::Who::Role(name_param(w, "role", c)?));
+    }
+    Err(bad(c, "`who` is {name} or {role}"))
 }

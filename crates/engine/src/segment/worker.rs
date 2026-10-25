@@ -242,6 +242,9 @@ pub enum Payload {
     Example(Box<lightcraft_segment::concept::Example>),
     /// The parts a [`Kind::Retouch`] request asked for, each found or not.
     Retouch(Vec<lightcraft_develop::RetouchMask>),
+    /// A selection of a named person found nothing because who they are on this photo couldn't
+    /// be told with confidence ([`Pick::Unsure`]).
+    Unsure,
 }
 
 /// Counters the session reads without locking.
@@ -382,6 +385,8 @@ struct State {
     found: Option<Vec<super::FoundFace>>,
     /// A note about the job just run, for its outcome.
     note: Option<String>,
+    /// The job just run couldn't tell with confidence who the person it was asked about is.
+    unsure: bool,
 }
 
 impl State {
@@ -810,11 +815,15 @@ fn auto(state: &mut State, shared: &Shared, job: &mut Job, what: &AutoKind, mode
                 };
                 let input = state.input_cache.as_ref().filter(|(k, _)| *k == job.key).map(|(_, i)| i).ok_or("the photo is not available")?;
                 match pick_face(&faces, *rect, known, map, input, emb.as_ref()) {
-                    Some(i) => {
+                    Pick::Face(i) => {
                         log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
                         req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
                     }
-                    None => return Ok(None),
+                    Pick::Unsure => {
+                        state.unsure = true;
+                        return Ok(None);
+                    }
+                    Pick::Absent => return Ok(None),
                 }
             }
             // one person of several: their silhouette (SAM 2.1, clicked on their face and body, the
@@ -1122,10 +1131,86 @@ fn iou(a: [f64; 4], b: [f64; 4]) -> f64 {
 
 /// Faces whose appearance scores at least this against a person's examples are taken for them.
 pub const PERSON_MATCH: f32 = 0.55;
+/// …and only when they look this much more like them than anyone else on the photo does (a
+/// mother and her daughter in the same pyjamas: test notes 2026-10-25, note 12).
+pub const LOOK_MARGIN: f32 = 0.15;
+/// Someone looking at least this much like them makes the photo "not sure" rather than "not
+/// there".
+pub const LOOK_UNSURE: f32 = 0.35;
+/// A face's identity (cosine of face-recognition embeddings) must lead the next face's by this.
+pub const FACE_MARGIN: f32 = 0.08;
+/// How far below the recognition model's match threshold a face still makes the photo "not
+/// sure".
+pub const FACE_UNSURE: f32 = 0.12;
 
-/// Which of `faces` (index) is the person: the one overlapping their named face box, else the
-/// one that looks most like their examples. `None`: they aren't on this photo (as far as can be
-/// told).
+/// How sure the pick of a named person among a photo's faces is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    /// This face (index) is them.
+    Face(usize),
+    /// Someone may be them, but not clearly more than someone else: no guess.
+    Unsure,
+    /// Nobody here looks like them.
+    Absent,
+}
+
+/// How much one face is like the person: by the face itself (`face`: cosine similarity of
+/// face-recognition embeddings, `None` without a recognition model or an example it embedded),
+/// and by appearance (`look`: hair, clothes, build; 0..1).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Likeness {
+    pub face: Option<f32>,
+    pub look: f32,
+}
+
+/// Who of the faces (`c`, one likeness each) the person is. The face decides when it can (a
+/// recognition model's cosine of at least `face_match`, ahead of the next face's by
+/// [`FACE_MARGIN`]); appearance only breaks a tie between faces alike by face, or decides alone
+/// without a recognition model (at least [`PERSON_MATCH`], ahead by [`LOOK_MARGIN`]). Never a
+/// guess: someone close but not clearly the one is [`Pick::Unsure`].
+pub fn choose(c: &[Likeness], face_match: f32) -> Pick {
+    let finite = |v: f32| if v.is_finite() { v } else { 0.0 };
+    let by_look = |a: &(usize, &Likeness), b: &(usize, &Likeness)| finite(b.1.look).total_cmp(&finite(a.1.look));
+    if c.iter().any(|l| l.face.is_some_and(f32::is_finite)) {
+        let face = |l: &Likeness| finite(l.face.unwrap_or(-1.0));
+        let mut ranked: Vec<(usize, &Likeness)> = c.iter().enumerate().collect();
+        ranked.sort_by(|a, b| face(b.1).total_cmp(&face(a.1)));
+        let Some(&(best, top)) = ranked.first() else { return Pick::Absent };
+        let next = ranked.get(1).map_or(-1.0, |(_, l)| face(l));
+        if face(top) >= face_match {
+            if face(top) - next >= FACE_MARGIN {
+                return Pick::Face(best);
+            }
+            // alike by face (twins, a blurred pair): their looks may tell them apart
+            let mut close: Vec<(usize, &Likeness)> = ranked.iter().copied().filter(|(_, l)| face(top) - face(l) < FACE_MARGIN).collect();
+            close.sort_by(by_look);
+            return match (close.first(), close.get(1)) {
+                (Some((i, a)), Some((_, b))) if finite(a.look) - finite(b.look) >= LOOK_MARGIN => Pick::Face(*i),
+                _ => Pick::Unsure,
+            };
+        }
+        // nobody clearly them by face: a face that came close, or a face the model couldn't read
+        // (a profile) that looks like them, keeps the photo open
+        let near = face(top) >= face_match - FACE_UNSURE;
+        let unread = c.iter().any(|l| l.face.is_none() && finite(l.look) >= LOOK_UNSURE);
+        return if near || unread { Pick::Unsure } else { Pick::Absent };
+    }
+    let mut ranked: Vec<(usize, &Likeness)> = c.iter().enumerate().collect();
+    ranked.sort_by(by_look);
+    let Some(&(best, top)) = ranked.first() else { return Pick::Absent };
+    let next = ranked.get(1).map_or(0.0, |(_, l)| finite(l.look));
+    let look = finite(top.look);
+    if look >= PERSON_MATCH && look - next >= LOOK_MARGIN {
+        Pick::Face(best)
+    } else if look >= LOOK_UNSURE {
+        Pick::Unsure
+    } else {
+        Pick::Absent
+    }
+}
+
+/// Which of `faces` is the person: the one overlapping their named face box, else the one their
+/// examples recognise ([`choose`]).
 fn pick_face(
     faces: &[Face],
     rect: Option<[f64; 4]>,
@@ -1133,7 +1218,7 @@ fn pick_face(
     map: Option<&PeopleMap>,
     input: &Input,
     emb: Option<&(Vec<f32>, usize, usize)>,
-) -> Option<usize> {
+) -> Pick {
     if let Some(r) = rect {
         let centre = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
         let best = faces
@@ -1148,25 +1233,40 @@ fn pick_face(
         if let Some((i, s)) = best
             && s >= 0.2
         {
-            return Some(i);
+            return Pick::Face(i);
         }
     }
-    if known.is_empty() {
-        return None;
+    if known.is_empty() || faces.is_empty() {
+        return Pick::Absent;
     }
-    let scored: Vec<(usize, f32)> = (0..faces.len())
-        .filter_map(|i| {
-            let mut sig = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h)?;
+    let likeness: Vec<Likeness> = (0..faces.len())
+        .map(|i| {
+            let Some(mut sig) = lightcraft_segment::identity::signature(faces, i, map, &input.rgb, input.w, input.h) else {
+                return Likeness::default();
+            };
             if let Some((e, side, dim)) = emb {
                 (sig.body, sig.face) = lightcraft_segment::identity::features(e, *side, *dim, faces, i, map, input.w, input.h);
             }
-            let mut s: Vec<f32> = known.iter().map(|k| lightcraft_segment::identity::similarity(&sig, k)).collect();
-            s.sort_by(|a, b| b.total_cmp(a));
-            let top: Vec<f32> = s.into_iter().take(2).collect();
-            (!top.is_empty()).then(|| (i, top.iter().sum::<f32>() / top.len() as f32))
+            Likeness { face: None, look: look_score(&sig, known) }
         })
         .collect();
-    scored.into_iter().filter(|(_, s)| *s >= PERSON_MATCH).max_by(|a, b| a.1.total_cmp(&b.1)).map(|(i, _)| i)
+    let pick = choose(&likeness, 1.0);
+    log::info!("people: likeness {:?} → {pick:?}", likeness.iter().map(|l| (l.face, l.look)).collect::<Vec<_>>());
+    pick
+}
+
+/// How much `sig` looks like the examples `known` (appearance only): the mean of its two best
+/// scores (robust to one odd example).
+fn look_score(sig: &Signature, known: &[Signature]) -> f32 {
+    let probe = Signature { embedding: None, ..sig.clone() };
+    let mut s: Vec<f32> = known
+        .iter()
+        // (an example's identity embedding is the face's business, not the look's)
+        .map(|k| lightcraft_segment::identity::similarity(&probe, &Signature { embedding: None, ..k.clone() }))
+        .collect();
+    s.sort_by(|a, b| b.total_cmp(a));
+    let top: Vec<f32> = s.into_iter().take(2).collect();
+    if top.is_empty() { 0.0 } else { top.iter().sum::<f32>() / top.len() as f32 }
 }
 
 /// The faces of `job`'s photo with their appearance signatures (`people.faces`).
@@ -1430,7 +1530,12 @@ fn remote_job(state: &mut State, shared: &Shared, job: &mut Job, endpoint: &str)
 fn run_job(state: &mut State, shared: &Shared, job: &mut Job, placement: Placement, payload: &mut Payload) -> Result<Option<SegMask>, Failure> {
     if let Kind::Auto { what, model, target } = &job.kind {
         let (what, model, target) = (what.clone(), model.clone(), target.clone());
-        return Ok(auto(state, shared, job, &what, model, &target)?);
+        state.unsure = false;
+        let out = auto(state, shared, job, &what, model, &target)?;
+        if std::mem::take(&mut state.unsure) {
+            *payload = Payload::Unsure;
+        }
+        return Ok(out);
     }
     if let Kind::Faces { face, people, sam2 } = &job.kind {
         let (face, people, sam2) = (face.clone(), people.clone(), sam2.clone());
@@ -1588,6 +1693,49 @@ fn sam2_job(state: &mut State, shared: &Shared, job: &mut Job) -> Result<Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn look(v: f32) -> Likeness {
+        Likeness { face: None, look: v }
+    }
+
+    fn both(face: f32, look: f32) -> Likeness {
+        Likeness { face: Some(face), look }
+    }
+
+    /// Regression (test notes 2026-10-25, note 12): a mother and her daughter, alike in looks, both
+    /// scored above the match bar and the higher one was taken (the wrong one). A pick must lead
+    /// the next face clearly; otherwise the photo is "not sure" and nothing is guessed.
+    #[test]
+    fn a_look_alike_is_not_guessed() {
+        // the old rule took face 1 (0.68 ≥ 0.55): it is barely ahead of face 2
+        assert_eq!(choose(&[look(0.2), look(0.68), look(0.62)], 0.4), Pick::Unsure);
+        // clearly ahead: taken
+        assert_eq!(choose(&[look(0.2), look(0.81), look(0.4)], 0.4), Pick::Face(1));
+        // a portrait whose look changed (closer framing): nobody at the bar, someone near it
+        assert_eq!(choose(&[look(0.45), look(0.1)], 0.4), Pick::Unsure);
+        // nobody like them at all, or nobody there
+        assert_eq!(choose(&[look(0.1), look(0.2)], 0.4), Pick::Absent);
+        assert_eq!(choose(&[], 0.4), Pick::Absent);
+        // one face, like them: taken (nothing to confuse it with)
+        assert_eq!(choose(&[look(0.7)], 0.4), Pick::Face(0));
+        // hostile numbers are no one
+        assert_eq!(choose(&[look(f32::NAN), look(f32::INFINITY)], 0.4), Pick::Absent);
+    }
+
+    /// The face decides before the look: the daughter in the same pyjamas looks more like the
+    /// examples, but the recognition model knows the mother's face.
+    #[test]
+    fn the_face_decides_and_the_look_only_breaks_ties() {
+        assert_eq!(choose(&[both(0.71, 0.6), both(0.22, 0.75)], 0.4), Pick::Face(0));
+        // alike by face: the look breaks the tie when it clearly can, else no guess
+        assert_eq!(choose(&[both(0.55, 0.85), both(0.52, 0.4)], 0.4), Pick::Face(0));
+        assert_eq!(choose(&[both(0.55, 0.6), both(0.52, 0.58)], 0.4), Pick::Unsure);
+        // nobody recognised: near the bar is "not sure", far below it "not there"…
+        assert_eq!(choose(&[both(0.33, 0.2), both(0.1, 0.2)], 0.4), Pick::Unsure);
+        assert_eq!(choose(&[both(0.1, 0.9), both(0.05, 0.2)], 0.4), Pick::Absent);
+        // …unless a face the model couldn't read (a profile) looks like them
+        assert_eq!(choose(&[both(0.1, 0.2), look(0.7)], 0.4), Pick::Unsure);
+    }
 
     fn job(tag: Tag, reply: &mpsc::Sender<Outcome>) -> Job {
         // an empty folder: loading fails with an error (no model files)

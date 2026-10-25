@@ -13,7 +13,7 @@
 // (without the AI models — the CLI and web builds — the recipes stay approximate)
 #![cfg_attr(not(feature = "sam"), allow(dead_code, unused_imports))]
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use lightcraft_catalog::{Op, PhotoId};
@@ -46,6 +46,15 @@ struct Batch {
     total: usize,
     guard: Option<crate::activity::TaskGuard>,
     notes: BTreeSet<String>,
+    /// The photos where a named person or role wasn't found, by its label.
+    missing: BTreeMap<String, Missing>,
+}
+
+/// Where a named person wasn't found in a batch: not told apart with confidence, or not there.
+#[derive(Default)]
+struct Missing {
+    unsure: BTreeSet<PhotoId>,
+    absent: BTreeSet<PhotoId>,
 }
 
 impl SmartState {
@@ -81,6 +90,10 @@ pub struct SmartState {
     preview_batch: u64,
     /// A store that couldn't be read, once per library (kept from being overwritten).
     blocked: HashSet<&'static str>,
+    /// Photos where a mask's named person or role wasn't found (not with confidence, or not at
+    /// all), so their part of the mask is left out there: the Masks panel asks the photographer
+    /// to point at them (`people.pointAt`).
+    pub(crate) to_point: BTreeMap<PhotoId, Vec<Who>>,
 }
 
 /// A recipe that couldn't be computed, in words for the photographer.
@@ -484,10 +497,10 @@ impl Session {
             // shows under it
             let guard = self.activity.start_batch("ai", "Updating AI masks", crate::activity::Cancel::Yes);
             guard.progress(0, submitted.len() as u64);
-            self.segmenter
-                .smart
-                .batches
-                .insert(batch, Batch { photos, pending: 0, total: submitted.len(), guard: Some(guard), notes: BTreeSet::new() });
+            self.segmenter.smart.batches.insert(
+                batch,
+                Batch { photos, pending: 0, total: submitted.len(), guard: Some(guard), notes: BTreeSet::new(), missing: BTreeMap::new() },
+            );
         }
         for (photo, kind, tag) in submitted {
             if background {
@@ -655,6 +668,15 @@ impl Session {
     pub(crate) fn apply_recipe_outcome(&mut self, o: crate::segment::worker::Outcome, polled: &mut crate::segment::Polled) -> bool {
         let crate::segment::Tag::Recipe { photo, mask, comp, part, batch, key } = o.tag else { return false };
         let finished = self.finish_batch_job(batch, o.superseded);
+        let unsure = matches!(o.payload, crate::segment::worker::Payload::Unsure);
+        let who = match &part {
+            Part::Seg(AutoKind::People { who: Some(w), .. }) => Some(w.clone()),
+            _ => None,
+        };
+        if let (Some(w), Ok(Some(_)), false) = (&who, &o.result, o.superseded) {
+            // found this time: nothing to point at for them here
+            self.pointed(photo, w);
+        }
         if let Some(note) = o.note.clone().filter(|_| !o.superseded) {
             self.batch_note(batch, note, polled);
         }
@@ -665,12 +687,19 @@ impl Session {
             let seg = match o.result {
                 Ok(Some(seg)) => seg,
                 Ok(None) => {
-                    let note = match &part {
-                        Part::Seg(k) => missing_note(k),
-                        Part::Anchor => "The gradient's subject wasn't found, so it spans the whole photo".to_string(),
-                        _ => "Nothing was selected on this photo".to_string(),
-                    };
-                    self.batch_note(batch, note, polled);
+                    match &who {
+                        // a named person: which photos, said once for the batch, and kept so the
+                        // photographer can point at them there
+                        Some(w) => self.person_missing(batch, photo, w, unsure, polled),
+                        None => {
+                            let note = match &part {
+                                Part::Seg(k) => missing_note(k),
+                                Part::Anchor => "The gradient's subject wasn't found, so it spans the whole photo".to_string(),
+                                _ => "Nothing was selected on this photo".to_string(),
+                            };
+                            self.batch_note(batch, note, polled);
+                        }
+                    }
                     // settled: nothing there (a gradient: the whole photo), not asked again on every
                     // later preset (Update AI Masks with `force` asks again)
                     SegMask::from_logits(1, &[if part == Part::Anchor { 8.0 } else { -8.0 }])
@@ -739,12 +768,128 @@ impl Session {
 
     fn close_batch(&mut self, batch: u64, polled: &mut crate::segment::Polled) {
         if let Some(b) = self.segmenter.smart.batches.remove(&batch) {
-            for n in b.notes {
+            let people: Vec<String> = b.missing.iter().flat_map(|(label, m)| self.missing_notes(label, m)).collect();
+            for n in b.notes.into_iter().chain(people) {
                 if !polled.messages.contains(&n) {
                     polled.messages.push(n);
                 }
             }
         }
+    }
+
+    /// The named person `who` wasn't found on `photo` by a job of `batch` (`unsure`: not told
+    /// apart with confidence from someone else there): kept for pointing at them, and said.
+    fn person_missing(&mut self, batch: u64, photo: PhotoId, who: &Who, unsure: bool, polled: &mut crate::segment::Polled) {
+        let list = self.segmenter.smart.to_point.entry(photo).or_default();
+        if !list.contains(who) {
+            list.push(who.clone());
+        }
+        let mut missing = Missing::default();
+        if unsure { &mut missing.unsure } else { &mut missing.absent }.insert(photo);
+        match self.segmenter.smart.batches.get_mut(&batch) {
+            Some(b) => {
+                let m = b.missing.entry(who.label()).or_default();
+                m.unsure.extend(missing.unsure);
+                m.absent.extend(missing.absent);
+            }
+            None => {
+                for n in self.missing_notes(&who.label(), &missing) {
+                    if !polled.messages.contains(&n) {
+                        polled.messages.push(n);
+                    }
+                }
+            }
+        }
+    }
+
+    /// `who` was found on (or pointed at on) `photo`: nothing left to point at for them there.
+    pub(crate) fn pointed(&mut self, photo: PhotoId, who: &Who) {
+        if let Some(list) = self.segmenter.smart.to_point.get_mut(&photo) {
+            list.retain(|w| w != who);
+            if list.is_empty() {
+                self.segmenter.smart.to_point.remove(&photo);
+            }
+        }
+    }
+
+    /// A batch of `total` jobs over `photos`, as a preset application opens one (tests).
+    #[cfg(test)]
+    pub(crate) fn open_test_batch(&mut self, photos: &[PhotoId], total: usize) -> u64 {
+        let st = &mut self.segmenter.smart;
+        st.next_batch = st.next_batch.wrapping_add(1);
+        let batch = st.next_batch;
+        st.batches.insert(
+            batch,
+            Batch { photos: photos.iter().copied().collect(), pending: total, total, guard: None, notes: BTreeSet::new(), missing: BTreeMap::new() },
+        );
+        batch
+    }
+
+    /// The people masks on photo `id` couldn't find (not with confidence, or not at all), for the
+    /// Masks panel's "point at them" box.
+    pub fn people_to_point(&self, id: PhotoId) -> Vec<Who> {
+        self.segmenter.smart.to_point.get(&id).cloned().unwrap_or_default()
+    }
+
+    /// Compute again the parts of photo `id`'s masks that select the person called `name` (by
+    /// that name, or by a role that is them on this photo): after the photographer pointed at
+    /// them. Completes the step already in the history. → (parts recomputed, `compute_masks`).
+    pub(crate) fn recompute_person(&mut self, id: PhotoId, name: &str) -> (usize, Value) {
+        let Some(mut d) = self.develop_of(id).map(|d| (*d).clone()) else { return (0, json!({})) };
+        let ctx = self.photo_context(id);
+        let store = self.people_store().clone();
+        let them = |w: &Who| match w {
+            Who::Name(n) => n.trim().eq_ignore_ascii_case(name.trim()),
+            Who::Role(r) => store.role_for(r, &ctx).is_some_and(|n| n.trim().eq_ignore_ascii_case(name.trim())),
+        };
+        let mut stripped = 0usize;
+        for m in &mut d.masks {
+            for c in &mut m.components {
+                if let MaskShape::People { who: Some(w), .. } = &c.shape
+                    && them(w)
+                {
+                    if c.shape.has_seg() {
+                        c.shape = c.shape.recipe();
+                    }
+                    stripped += 1;
+                }
+            }
+        }
+        if stripped == 0 {
+            return (0, json!({"queued": 0, "updated": 0}));
+        }
+        self.amend_develop(id, d);
+        (stripped, self.compute_masks(&[id], false))
+    }
+
+    /// What the photographer is told about `label` not found on the photos of `m`, in plain
+    /// words with the photos' names.
+    fn missing_notes(&self, label: &str, m: &Missing) -> Vec<String> {
+        let names = |ids: &BTreeSet<PhotoId>| {
+            let mut v: Vec<String> =
+                ids.iter().take(4).map(|id| self.catalog.photo(*id).map_or_else(|| format!("photo {}", id.0), |p| p.file_name.clone())).collect();
+            if ids.len() > 4 {
+                v.push(format!("{} more", ids.len() - 4));
+            }
+            v.join(", ")
+        };
+        let photos = |n: usize| if n == 1 { "1 photo".to_string() } else { format!("{n} photos") };
+        let mut out = Vec::new();
+        if !m.unsure.is_empty() {
+            out.push(format!(
+                "{label} wasn't found with confidence on {} ({}), so their part of the mask is left out there: click their face in the Masks panel to point them out",
+                photos(m.unsure.len()),
+                names(&m.unsure)
+            ));
+        }
+        if !m.absent.is_empty() {
+            out.push(format!(
+                "{label} wasn't found on {} ({}): if they are there, click their face in the Masks panel to point them out",
+                photos(m.absent.len()),
+                names(&m.absent)
+            ));
+        }
+        out
     }
 
     /// Cancel the batches still computing for any of `photos` (their step was undone); the

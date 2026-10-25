@@ -838,6 +838,7 @@ fn landscape_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 /// openly licensed model downloads while their dialog is closed.
 fn ai_notes(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    super::smart_people::point_people(app, ui);
     if let Some(model) = app.ui.ai_hint.clone() {
         if app.session.segmenter.model_installed(&model) {
             app.ui.ai_hint = None;

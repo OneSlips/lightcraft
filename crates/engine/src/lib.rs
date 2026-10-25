@@ -2032,6 +2032,8 @@ mod tests_naming;
 mod tests_organize;
 #[cfg(all(test, feature = "sam"))]
 mod tests_people_persist;
+#[cfg(all(test, feature = "sam"))]
+mod tests_people_point;
 #[cfg(test)]
 mod tests_persist;
 #[cfg(test)]

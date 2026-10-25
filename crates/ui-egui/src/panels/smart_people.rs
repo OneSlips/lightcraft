@@ -56,7 +56,7 @@ pub fn people_picker(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 }
                 for (i, f) in list.iter().enumerate() {
                     let selected = app.ui.people_face == Some(i);
-                    if face_tile(app, ui, photo, i, f, selected) {
+                    if face_tile(app, ui, "maskPeople:face", photo, i, f, selected) {
                         app.ui.people_face = Some(i);
                         person = u32::try_from(i + 1).unwrap_or(u32::MAX);
                         let named = f.get("person").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -151,11 +151,66 @@ fn first_role(f: &Value) -> Option<String> {
     f.get("roles").and_then(Value::as_array).and_then(|r| r.first()).and_then(Value::as_str).map(str::to_string)
 }
 
-/// A face thumbnail with its name (or role, or suggestion) under it; true when clicked.
-fn face_tile(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: lightcraft_catalog::PhotoId, i: usize, f: &Value, selected: bool) -> bool {
+/// The people this photo's masks couldn't find with confidence (a look-alike beside the bride, a
+/// portrait framed closer than where she was named: test notes 2026-10-25, note 12): their part
+/// of the mask is left out here, and one click on their face among the photo's faces points at
+/// them (`people.pointAt`: their face named, the mask computed again).
+pub fn point_people(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    let Some(photo) = app.session.active() else { return };
+    let who = app.session.people_to_point(photo);
+    if who.is_empty() || !lightcraft_engine::segment::Segmenter::AVAILABLE {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let faces = match app.session.faces_here(photo) {
+        Ok(Some(f)) => f,
+        Ok(None) => {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(egui::RichText::new(crate::i18n::tr("Finding faces…")).color(t.text_dim));
+            });
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(150));
+            return;
+        }
+        Err(_) => return,
+    };
+    for (k, w) in who.iter().enumerate() {
+        let label = w.label();
+        ui.add_space(6.0);
+        let say = if faces.is_empty() {
+            format!("{label}: {}", crate::i18n::tr("not found on this photo, and no faces were found to point at."))
+        } else {
+            format!("{label}: {}", crate::i18n::tr("not found with confidence on this photo, so their part of the mask is left out. Click their face:"))
+        };
+        let r = ui.add(egui::Label::new(egui::RichText::new(say).color(t.text_label)).wrap());
+        register(ui.ctx(), format!("maskPoint:{k}"), r.rect);
+        let mut clicked = None;
+        ui.horizontal_wrapped(|ui| {
+            for (i, f) in faces.iter().enumerate() {
+                if face_tile(app, ui, &format!("maskPoint:{k}:face"), photo, i, f, false) {
+                    clicked = Some(i);
+                }
+            }
+        });
+        if let Some(i) = clicked {
+            let who = match w {
+                lightcraft_develop::recipe::Who::Name(n) => json!({"name": n}),
+                lightcraft_develop::recipe::Who::Role(r) => json!({"role": r}),
+            };
+            match app.run("people.pointAt", json!({"id": photo.0, "face": i, "who": who})) {
+                Ok(_) => app.toast(ui.ctx(), format!("{label}: {}", crate::i18n::tr("pointed out; the mask is updating"))),
+                Err(e) => app.toast_error(ui.ctx(), e),
+            }
+        }
+    }
+}
+
+/// A face thumbnail with its name (or role, or suggestion) under it, registered as `<id>:<i>`;
+/// true when clicked.
+fn face_tile(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, photo: lightcraft_catalog::PhotoId, i: usize, f: &Value, selected: bool) -> bool {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(FACE, FACE + 16.0), Sense::click());
-    register(ui.ctx(), format!("maskPeople:face:{i}"), r);
+    register(ui.ctx(), format!("{id}:{i}"), r);
     let pic = Rect::from_min_size(r.min, vec2(FACE, FACE));
     ui.painter().rect_filled(pic, 3.0, t.canvas);
     let rect = f.get("rect").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<f64>>()).unwrap_or_default();
@@ -257,7 +312,7 @@ fn naming(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: lightcraft_catalog:
                     app.ui.people_by_role = !app.ui.people_role.trim().is_empty();
                     app.toast(ui.ctx(), crate::i18n::tr_format!("Named {name}", name = app.ui.people_name.trim()));
                 }
-                Err(e) => app.toast(ui.ctx(), e),
+                Err(e) => app.toast_error(ui.ctx(), e),
             }
         }
     });
