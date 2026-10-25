@@ -96,6 +96,44 @@ fn pasted_upright_is_analysed_on_the_photo_it_lands_on() {
     assert_ne!(gb.upright_transform, transform(&s, a), "not a's");
 }
 
+/// Decision 2026-10-25 (item 12): Guided Upright is drawn on one photo's lines, so syncing it is skipped: Auto
+/// Sync, Paste and presets leave the other photos with the Upright they have (mode, correction, guides); the
+/// Transform sliders still travel.
+#[test]
+fn guided_upright_is_not_synced_the_other_photos_keep_their_own() {
+    let (mut s, [a, b, c]) = three(false);
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    s.execute("library.select", &json!({"ids": [b.0], "active": b.0})).unwrap();
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    let gb = s.develop_of(b).unwrap().geometry.clone();
+    assert!(gb.upright_transform.is_some());
+    // Auto Sync: Guided on a, b keeps Vertical with its own correction, c stays Off
+    s.execute("library.select", &json!({"ids": [a.0, b.0, c.0], "active": a.0})).unwrap();
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    s.execute("geometry.guides", &json!({"guides": [[0.2, 0.1, 0.25, 0.9], [0.8, 0.1, 0.75, 0.9]]})).unwrap();
+    s.execute("develop.set", &json!({"control": "geometry.rotate", "value": 2.0})).unwrap();
+    assert_eq!(s.develop_of(a).unwrap().geometry.upright, Upright::Guided);
+    let g = s.develop_of(b).unwrap().geometry.clone();
+    assert_eq!((g.upright, g.upright_transform, g.guides.len()), (Upright::Vertical, gb.upright_transform, 0), "b keeps its own");
+    assert_eq!(g.rotate, 2.0, "the Transform sliders still travel");
+    assert_eq!(s.develop_of(c).unwrap().geometry.upright, Upright::Off, "c keeps Off");
+    // Copy / Paste (and presets: the same recipe rule) of a Guided photo
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
+    s.execute("library.select", &json!({"ids": [a.0], "active": a.0})).unwrap();
+    s.execute("develop.copy", &json!({"groups": ["geometry"]})).unwrap();
+    s.execute("library.select", &json!({"ids": [b.0], "active": b.0})).unwrap();
+    s.execute("develop.paste", &json!({})).unwrap();
+    let g = s.develop_of(b).unwrap().geometry.clone();
+    assert_eq!((g.upright, g.upright_transform, g.guides.len()), (Upright::Vertical, gb.upright_transform, 0), "paste keeps b's own");
+    // a mode that isn't Guided still travels
+    s.execute("library.select", &json!({"ids": [a.0], "active": a.0})).unwrap();
+    s.execute("geometry.upright", &json!({"mode": "level"})).unwrap();
+    s.execute("develop.copy", &json!({"groups": ["geometry"]})).unwrap();
+    s.execute("library.select", &json!({"ids": [c.0], "active": c.0})).unwrap();
+    s.execute("develop.paste", &json!({})).unwrap();
+    assert_eq!(s.develop_of(c).unwrap().geometry.upright, Upright::Level);
+}
+
 /// Note 6 and decision 2026-10-25 (item 11): a second click on the mode that is on analyses it afresh and
 /// (Guided) clears the guides, one undo step; the Transform sliders the photographer set stay.
 #[test]

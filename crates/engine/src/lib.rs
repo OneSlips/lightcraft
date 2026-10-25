@@ -1420,15 +1420,17 @@ impl Session {
                 if wb_changed {
                     sync_same::synced_wb(&ainfo, &old, new, &self.source_info(x), &d, own.wb.get(&x).copied(), &mut synced);
                 }
-                if upright_changed {
+                if new.geometry.upright == lightcraft_develop::Upright::Guided {
+                    // Guided is drawn on one photo's lines: the others keep their own Upright (decision
+                    // 2026-10-25, item 12)
+                    synced.geometry.upright = d.geometry.upright;
+                    synced.geometry.upright_transform = d.geometry.upright_transform;
+                    synced.geometry.guides = d.geometry.guides.clone();
+                } else if upright_changed {
                     synced.geometry.upright = new.geometry.upright;
                     // its own analysis, worked out after the commit (in the background in the app:
-                    // `upright_jobs`); Guided's guides belong to the photo they were drawn on
+                    // `upright_jobs`)
                     synced.geometry.upright_transform = None;
-                    if new.geometry.upright == lightcraft_develop::Upright::Guided {
-                        synced.geometry.guides =
-                            if d.geometry.upright == lightcraft_develop::Upright::Guided { d.geometry.guides.clone() } else { Vec::new() };
-                    }
                 }
                 if crop_changed {
                     synced.crop = sync_same::synced_crop(&new.crop, adims, cmd::develop::crop_dims(self, x));

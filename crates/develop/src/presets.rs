@@ -630,11 +630,18 @@ impl Preset {
 
 /// `partial`'s masks and Upright as recipes: no segmentation computed for one photo, no Object clicks (they
 /// point at that photo's pixels: the object is picked again on each photo), no provisional tag, no Upright
-/// correction found on one photo, no Guided guides (what presets, copy and paste carry).
+/// correction found on one photo, no Guided guides, and no Guided Upright at all: the photos it lands on keep
+/// their own Upright (what presets, copy and paste carry).
 pub fn to_recipes(partial: &mut Value) {
     // Upright is a recipe too (test notes 2026-10-24 note 4): the mode travels, each photo finds its own
-    // correction; Guided's guides were drawn on one photo's lines and stay there
+    // correction; Guided's guides were drawn on one photo's lines and stay there, and so does Guided itself
+    // (decision 2026-10-25, item 12): the other photos keep the Upright they have
     if let Some(g) = partial.get_mut("geometry").and_then(Value::as_object_mut) {
+        if g.get("upright").and_then(Value::as_str) == Some("guided") {
+            for k in ["upright", "upright_transform", "guides"] {
+                g.remove(k);
+            }
+        }
         if g.contains_key("upright_transform") {
             g.insert("upright_transform".into(), Value::Null);
         }
