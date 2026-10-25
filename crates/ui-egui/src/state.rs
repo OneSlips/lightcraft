@@ -848,9 +848,9 @@ pub struct UiState {
     pub mask_hover: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
     #[serde(skip)]
     pub mask_hover_prev: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
-    /// O hid the automatic overlay of this mask of this photo (until O shows it again).
+    /// The masks (of their photos) whose automatic overlay O hid, each until O shows it again.
     #[serde(skip)]
-    pub mask_overlay_hidden: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
+    pub mask_overlay_hidden: Vec<(lightcraft_engine::catalog::PhotoId, u32)>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -1522,7 +1522,7 @@ impl Default for UiState {
             mask_overlay: false,
             mask_hover: None,
             mask_hover_prev: None,
-            mask_overlay_hidden: None,
+            mask_overlay_hidden: Vec::new(),
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,

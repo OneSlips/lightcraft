@@ -1093,7 +1093,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             let show = p.get("show").and_then(Value::as_bool).unwrap_or(!shown);
             app.ui.mask_overlay = show;
             let photo = app.session.active();
-            app.ui.mask_overlay_hidden = if show { None } else { selected.and_then(|s| photo.map(|p| (p, s.0))) };
+            if let Some(key) = selected.and_then(|s| photo.map(|p| (p, s.0))) {
+                // each hidden mask stays hidden until O shows it again (not until another is hidden)
+                app.ui.mask_overlay_hidden.retain(|k| *k != key);
+                if !show {
+                    app.ui.mask_overlay_hidden.push(key);
+                }
+            }
             Ok(json!({"maskOverlay": show}))
         }
         "view.maskOverlayAll" => {

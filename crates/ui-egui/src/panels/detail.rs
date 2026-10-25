@@ -1604,7 +1604,7 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
     if app.ui.mask_overlay {
         return true;
     }
-    if app.session.active().is_some_and(|photo| app.ui.mask_overlay_hidden == Some((photo, m.id))) {
+    if app.session.active().is_some_and(|photo| app.ui.mask_overlay_hidden.contains(&(photo, m.id))) {
         return false;
     }
     !mask_has_settings(m)

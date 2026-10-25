@@ -244,6 +244,32 @@ fn a_mask_shows_its_overlay_by_itself_only_without_settings() {
     h.settle(SETTLE);
 }
 
+/// O hides a mask's automatic overlay until O shows it again: hiding another mask's doesn't bring
+/// the first one's back.
+#[test]
+fn each_mask_hidden_with_o_stays_hidden() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    let a = h.app.session.active_mask.unwrap();
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h), "A hidden");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.4, 0.5], "rx": 0.2, "ry": 0.2}));
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(shown(&h), "B, new, shows");
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h), "B hidden");
+    exec(&mut h, "mask.select", json!({"id": a}));
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(!shown(&h), "A is still hidden");
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(shown(&h), "O shows A again");
+    h.settle(SETTLE);
+}
+
 /// The pointer on a mask's row, and O hiding a mask's automatic overlay, belong to that photo: on
 /// another photo a mask with the same id is another mask.
 #[test]
@@ -257,7 +283,7 @@ fn a_mask_hovered_or_hidden_on_one_photo_says_nothing_about_another() {
     // O hides the fresh mask's overlay on this photo
     h.request("ui.key", json!({"key": "o"}), T);
     assert!(!shown(&h));
-    assert_eq!(h.app.ui.mask_overlay_hidden, Some((first, mask)));
+    assert_eq!(h.app.ui.mask_overlay_hidden, vec![(first, mask)]);
     // another photo with a fresh mask of the same id still shows it
     let other = h.app.session.visible_cloned().into_iter().find(|p| *p != first).unwrap();
     exec(&mut h, "library.select", json!({"ids": [other.0]}));
