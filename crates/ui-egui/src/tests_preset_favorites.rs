@@ -72,14 +72,12 @@ fn user_groups_named_favorites_keep_their_own_header() {
     }
     let section = rect(&h, "presetFavorites").unwrap();
     // (a group name differing only in case is the same group here: New Preset puts it in the one that exists)
-    for group in ["Favorites"] {
-        let id = format!("presetGroup:{group}");
-        let user = rect(&h, &id).unwrap_or_else(|| {
-            let shown: Vec<&String> = h.app.widgets.iter().map(|(w, _)| w).filter(|w| w.starts_with("presetGroup:")).collect();
-            panic!("the user's {group:?} group is listed: {shown:?}")
-        });
-        assert_ne!(user, section, "{id} is its own row");
-        assert_eq!(h.app.widgets.iter().filter(|(w, _)| *w == id).count(), 1, "{id} names one row");
-    }
+    let id = "presetGroup:Favorites";
+    let user = rect(&h, id).unwrap_or_else(|| {
+        let shown: Vec<&String> = h.app.widgets.iter().map(|(w, _)| w).filter(|w| w.starts_with("presetGroup:")).collect();
+        panic!("the user's Favorites group is listed: {shown:?}")
+    });
+    assert_ne!(user, section, "{id} is its own row");
+    assert_eq!(h.app.widgets.iter().filter(|(w, _)| *w == id).count(), 1, "{id} names one row");
     assert_eq!(h.app.widgets.iter().filter(|(w, _)| w == "presetFavorites").count(), 1);
 }
