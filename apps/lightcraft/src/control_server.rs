@@ -314,9 +314,9 @@ fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -
 
 /// Methods whose requests are pipelined: the next line is read (and handed to the app) without
 /// waiting for this one's reply, so a control surface's dial ticks never queue up one per frame in
-/// the socket (TEST-NOTES 2026-10-16 item 8: a knob turned quickly sent ticks faster than the app
-/// drew frames, and they drained seconds late, presses included). The app still runs them in
-/// order, and their replies go out in order, after the replies to every earlier request.
+/// the socket (a knob turned quickly sent ticks faster than the app drew frames, and they drained
+/// seconds late, presses included). The app still runs them in order, and their replies go out in
+/// order, after the replies to every earlier request.
 pub const PIPELINED: &[&str] = &["surface.input"];
 
 /// Requests of one connection handed to the app but not answered yet, at most (the reader waits
@@ -717,12 +717,11 @@ mod tests {
         stop.store(true, Ordering::SeqCst);
     }
 
-    /// TEST-NOTES 2026-10-16 item 8: a knob turned fast sends a tick per request, faster than the
-    /// app draws frames. Ticks used to wait for a frame each (the connection read its next request
-    /// only after the reply), so they queued in the socket and were applied seconds late, a press
-    /// behind them "clicking itself" later. Now hundreds of ticks sent at once, with slow frames
-    /// (40 ms), are all applied within a few frames, the value is their sum, and a press sent
-    /// after them runs in the same breath.
+    /// A knob turned fast sends a tick per request, faster than the app draws frames. Ticks used to
+    /// wait for a frame each (the connection read its next request only after the reply), so they
+    /// queued in the socket and were applied seconds late, a press behind them "clicking itself"
+    /// later. Now hundreds of ticks sent at once, with slow frames (40 ms), are all applied within a
+    /// few frames, the value is their sum, and a press sent after them runs in the same breath.
     #[test]
     fn a_burst_of_dial_ticks_is_applied_within_a_few_frames_without_a_backlog() {
         use std::time::Instant;
