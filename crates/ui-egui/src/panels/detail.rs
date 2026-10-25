@@ -1399,7 +1399,7 @@ fn navigator(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, img: Rect
     let p = ui.painter_at(canvas);
     p.rect_filled(frame.expand(5.0), 4.0, Color32::from_black_alpha(190));
     match tex {
-        Some(t) => p.image(t.tex.id(), frame, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE),
+        Some(t) => p.image(t.id(), frame, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE),
         None => p.rect_filled(frame, 0.0, Tokens::get(ui.ctx()).skeleton),
     };
     // the visible part of the photo, in normalized image coordinates
