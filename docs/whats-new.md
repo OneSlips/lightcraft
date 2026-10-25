@@ -1,5 +1,13 @@
 # What's new in LightCraft
 
+## 2026-10-26
+
+### Panels come back as they were
+- Close Masking, Crop, Remove or Red Eye and the panel you came from is there again, at the same width and scroll
+  position, and the photo doesn't move; if the panel was hidden, it stays hidden. Pressing a panel key a second time
+  (I for Info, M for Masking, C for Crop, H for Remove) or its tool-strip button puts back exactly what the right
+  column showed before: Edit → I → I is Edit again, Masks → I → I is Masks, and a closed panel stays closed.
+
 ## 2026-10-24
 
 ### Relative-date filters and smart albums follow the clock
