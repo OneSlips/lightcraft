@@ -1871,8 +1871,10 @@ fn ai_model_body(app: &mut LightcraftApp, ui: &mut egui::Ui, model: &str, error:
         crate::widgets::register(ui.ctx(), "progress:aiModelDownload", r.rect);
         let r = ui.button(crate::i18n::tr("Cancel Download"));
         crate::widgets::register(ui.ctx(), "button:aiModelCancel", r.rect);
-        if r.clicked() {
-            app.session.segmenter.cancel_model_download(model);
+        if r.clicked()
+            && let Err(e) = app.run("ai.models.cancel", json!({"id": model}))
+        {
+            app.toast_error(ui.ctx(), e);
         }
         ui.label(egui::RichText::new(crate::i18n::tr("You can close this: the download continues, and resumes if interrupted.")).color(t.text_dim));
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));

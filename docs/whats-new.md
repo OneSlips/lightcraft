@@ -89,7 +89,9 @@
   guesses, and **Object** works without Meta's SAM 3: each model is downloaded once, when you first
   need it, after a dialog that shows its size and licence. Without its model, Subject, Background and
   Sky are made the old way and the Masking panel says the mask is approximate, with a button to get
-  the model; Object offers SAM 2.1, and the People parts need their models.
+  the model; Object offers SAM 2.1, and the People parts need their models. The models' own
+  licences are open (MIT, Apache-2.0); whether BiRefNet-portrait's and EoMT-S's training data allow
+  shipping them is still a maintainer decision (see the parity checklist's mask rows).
 - **People**: pick everyone or one person and the parts — face skin, body skin, hair, clothes,
   eyebrows, eye whites, irises, lips, teeth.
 - **Entire Person** includes the eyes, brows, mouth, hair and what the person holds, with no square

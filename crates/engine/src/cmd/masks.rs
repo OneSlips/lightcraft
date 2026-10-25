@@ -604,7 +604,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mid = mask_id(p, s.active_mask, c)?;
                 let d = s.develop_of(photo).ok_or_else(|| bad(c, "no active photo"))?;
                 let m = d.masks.iter().find(|m| m.id == mid).ok_or_else(|| bad(c, format!("no mask {mid}")))?;
-                let wanted = p.get("component").and_then(Value::as_u64).map(|k| k as usize);
+                // a malformed index is an error, not "every component" (each one is a model run)
+                let wanted = optional_index(p, "component", c)?;
                 let todo: Vec<(usize, AutoKind)> = m
                     .components
                     .iter()

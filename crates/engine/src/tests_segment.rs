@@ -411,6 +411,24 @@ fn automatic_masks_without_their_model_are_approximate() {
     }
 }
 
+/// `mask.recompute` with a malformed `component` is an error: it never falls back to recomputing
+/// every automatic selection of the mask (one model run each).
+#[test]
+fn recomputing_a_malformed_component_is_refused() {
+    let mut s = Session::with_demo();
+    s.segmenter.models_root = Some(tmp("recompute-bad"));
+    s.segmenter.dir = Some(tmp("recompute-bad-sam3"));
+    let seg = serde_json::to_value(lightcraft_develop::SegMask::from_logits(2, &[4.0, -4.0, 4.0, -4.0])).unwrap();
+    s.execute("mask.add", &json!({"kind": "sky", "seg": seg})).unwrap();
+    for component in [json!(-1), json!("0"), json!(0.5)] {
+        let e = s.execute("mask.recompute", &json!({"component": component})).unwrap_err().to_string();
+        assert!(e.contains("component"), "{component}: {e}");
+    }
+    // the stored segmentation is untouched
+    let d = s.develop_of(s.active().unwrap()).unwrap();
+    assert!(d.masks.iter().any(|m| matches!(m.components[0].shape, lightcraft_develop::MaskShape::Sky { seg: Some(_) })));
+}
+
 /// A model whose files are in place but unusable: an error, never a crash or a stuck worker; in
 /// the app the mask is added at once (heuristic) and the failure comes back as a message.
 #[cfg(feature = "sam")]
