@@ -228,7 +228,7 @@ clamped into range on reading.
 
 Settings format 4 merged format 3's two Masks panel pages ("Masking": no mask selected, `masking`; "Mask": a mask
 selected, `masking.mask` / `masking.mask.gradient`) into the Masks page, keeping each control the user had changed
-("Mask"'s first) and saying so once; a page of the user's own mapped there stays in charge. While Settings ▸ Controls
+("Mask"'s first) and saying so once in a toast ("Console: Masking and Mask are now one Masks page"; never the settings-problem window); a page of the user's own mapped there stays in charge. While Settings ▸ Controls
 edits a page the console shows it (the editor says so), and the page for what LightCraft shows comes back when Settings
 closes. The tool page menu names when each page shows ("Masks · Masks panel").
 
@@ -667,6 +667,7 @@ every dropped action says why).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | patch | Test notes 2026-10-25 note 1: the one-time Masks page merge says so in a short toast, not in the "Settings file problem" window |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 14): key 7 of the built-in Masks page shows / hides the mask overlay instead of Temp; saved layouts keep their own keys |
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |

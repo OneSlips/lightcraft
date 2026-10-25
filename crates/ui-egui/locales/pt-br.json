@@ -3109,5 +3109,6 @@
   "Dropped Files": "Arquivos soltos",
   "Import dropped files without review": "Importar arquivos soltos sem revisão",
   "An import is running. Drop photos when it has finished": "Uma importação está em andamento. Solte as fotos quando ela terminar",
-  "Finish Lightroom catalog import before adding photos": "Conclua a importação do catálogo do Lightroom antes de adicionar fotos"
+  "Finish Lightroom catalog import before adding photos": "Conclua a importação do catálogo do Lightroom antes de adicionar fotos",
+  "Console: Masking and Mask are now one Masks page": "Console: as páginas de máscara agora são uma só página Máscaras"
 }

@@ -122,6 +122,9 @@ pub struct SurfaceHost {
     pub osd_seq: u64,
     /// The overlay was kept off the photo in the last frame: an on-photo tool is in use (note 15).
     pub osd_held: bool,
+    /// What loading the settings changed, to say once as a toast (information, not a problem: test notes
+    /// 2026-10-25 note 1).
+    pub info: Option<String>,
 }
 
 /// Load the control-surface settings (they hold the overlay's too) if nothing has yet.
@@ -156,6 +159,7 @@ impl Default for SurfaceHost {
             action: None,
             osd_seq: 0,
             osd_held: false,
+            info: None,
         }
     }
 }
@@ -555,6 +559,9 @@ pub fn tick(app: &mut LightcraftApp, ctx: &egui::Context) {
         app.surface.loaded = true;
         load(app);
     }
+    if let Some(text) = app.surface.info.take() {
+        app.toast_for(ctx, text, 8.0);
+    }
     // Touch to find ends with the page that started it: the console acts on photos again
     let controls_open = matches!(&app.ui.dialog, Some(crate::state::Dialog::Settings { tab }) if tab == "controls");
     if app.surface.editor.touch_find.is_some_and(|at| !controls_open || now - at > TOUCH_FIND_GRACE) {
@@ -630,12 +637,9 @@ fn load(app: &mut LightcraftApp) {
                 let merged = s.merged_mask_pages.clone();
                 app.surface.runtime.replace_settings(s);
                 if !merged.is_empty() {
-                    for m in &merged {
-                        app.notices.push(crate::i18n::tr_format!(
-                            "Console profile {profile}: the Masking and Mask pages are now one Masks page, shown whenever the Masks panel is open. With no mask selected its controls set the next mask's settings. Your own changes were kept.",
-                            profile = m.profile
-                        ));
-                    }
+                    // information, not a problem with the file: a toast, never the problem window (test notes
+                    // 2026-10-25 note 1)
+                    app.surface.info = Some(crate::i18n::tr("Console: Masking and Mask are now one Masks page").to_string());
                     app.surface.changed();
                 }
             }

@@ -835,3 +835,25 @@ fn in_masks_one_page_and_with_no_mask_the_dial_sets_the_next_masks_settings() {
     h.settle(T);
     assert_eq!(state(&mut h)["keyPage"], "Masks", "back to the page for the Masks panel");
 }
+
+/// Test notes 2026-10-25 note 1: loading a format 3 file merges its two Masks panel pages and says so once as a
+/// toast in plain words; the "Settings file problem" window is for problems only, and nothing was wrong.
+#[test]
+fn an_old_file_merging_its_mask_pages_says_so_in_a_toast_not_the_problem_window() {
+    let mut v = serde_json::to_value(lightcraft_surface::SurfaceSettings { enabled: true, ..Default::default() }).unwrap();
+    v["version"] = json!(3);
+    v["profiles"][0]["contexts"]["masking.mask"] = json!(["Mask"]);
+    let store = MemStore::default();
+    store.save(&v.to_string()).unwrap();
+    let services = Services { png: None, surface_store: Some(Box::new(store.clone())), ..Default::default() };
+    let mut h = Headless::new(LightcraftApp::new(lightcraft_engine::Session::with_demo(), services), [1400.0, 900.0], 1.0);
+    for _ in 0..3 {
+        h.step();
+    }
+    assert!(h.app.notices.is_empty(), "no problem window: {:?}", h.app.notices);
+    assert!(!h.painted_text().iter().any(|t| t.contains("Settings file problem")), "{:?}", h.painted_text());
+    assert!(h.painted_text().iter().any(|t| t.contains("Console: Masking and Mask are now one Masks page")), "{:?}", h.painted_text());
+    assert!(h.app.surface.load_error.is_none());
+    h.settle(T);
+    assert!(store.load().unwrap().is_some_and(|t| t.contains("\"version\": 4") || t.contains("\"version\":4")), "saved in the new form");
+}

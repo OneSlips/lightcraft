@@ -828,6 +828,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | patch | Test notes 2026-10-25 note 1: control surfaces: the one-time console Masks page merge is told in a toast ("Console: Masking and Mask are now one Masks page", all languages), not in the settings-problem window |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 16): LR-IMP-DRAGDROP: dropped photos and folders import without review by default (Settings ▸ Import ▸ Import dropped files without review on); a saved choice is kept, off still opens the review |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 14): control surfaces: key 7 of the built-in console Masks page shows / hides the mask overlay instead of Temp (saved layouts keep theirs) |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 12): LR-EDIT-GEOM-UPRIGHT: syncing Guided Upright (Auto Sync, Sync, Paste, presets) is skipped; the other photos keep their own Upright, other modes still travel as a recipe analysed on each photo |

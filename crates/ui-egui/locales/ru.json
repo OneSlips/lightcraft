@@ -3258,5 +3258,6 @@
   "Dropped Files": "Перетащенные файлы",
   "Import dropped files without review": "Импортировать перетащенные файлы без проверки",
   "An import is running. Drop photos when it has finished": "Импорт уже выполняется. Перетащите фото, когда он закончится",
-  "Finish Lightroom catalog import before adding photos": "Завершите импорт каталога Lightroom, прежде чем добавлять фото"
+  "Finish Lightroom catalog import before adding photos": "Завершите импорт каталога Lightroom, прежде чем добавлять фото",
+  "Console: Masking and Mask are now one Masks page": "Пульт: две страницы масок теперь одна страница «Маски»"
 }
