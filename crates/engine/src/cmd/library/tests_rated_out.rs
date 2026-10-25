@@ -126,7 +126,8 @@ fn an_open_edit_ends_before_the_selection_moves_on() {
         s.execute(command, &params).unwrap();
         assert_eq!(s.active(), Some(PhotoId(83)), "{command}");
         assert!(s.interaction.is_none(), "{command}: the drag ended with the move");
-        if command != "photo.deletePermanently" {
+        // (Delete removes the photo from the library here, as Lightroom's Remove from Catalog: client note 7)
+        if command == "photo.rate" {
             assert_eq!(exposure(&s, 82), Some(1.5), "{command}");
         }
         // undo: the rating or the photo comes back first, with the edit; then the edit goes
