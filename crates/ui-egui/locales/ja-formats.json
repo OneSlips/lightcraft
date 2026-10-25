@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "このコンピューターから「{name}」を外しますか？",
   "default for {bodies}": "{bodies} の既定",
   "{n} built-in items are taken off this computer (Restore brings them back).": "内蔵の {n} 項目がこのコンピューターから外されます（復元で戻せます）。",
-  "{n} of your own: delete them, or move them to another group.": "自分の {n} 項目：削除するか、別のグループに移動します。"
+  "{n} of your own: delete them, or move them to another group.": "自分の {n} 項目：削除するか、別のグループに移動します。",
+  "on {n} photos": "{n} 枚の写真",
+  "Undo: {what}": "取り消し：{what}",
+  "Redo: {what}": "やり直し：{what}",
+  "Profile {name} applied to {n} photos": "プロファイル {name} を {n} 枚の写真に適用",
+  "Profile {name}": "プロファイル {name}",
+  "{n} stars": "{n}つ星",
+  "Label: {name}": "ラベル：{name}"
 }

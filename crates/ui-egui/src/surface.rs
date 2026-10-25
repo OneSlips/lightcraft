@@ -117,6 +117,17 @@ pub struct SurfaceHost {
     listen_retry_at: f64,
     /// The surface plugin's install state (Settings ▸ Controls).
     pub plugin: crate::surface_plugin::PluginState,
+    /// The change the overlay reports (`panels::surface_osd`), and the last report taken.
+    pub action: Option<crate::panels::surface_osd::ActionShown>,
+    pub osd_seq: u64,
+}
+
+/// Load the control-surface settings (they hold the overlay's too) if nothing has yet.
+pub fn ensure_loaded(app: &mut LightcraftApp) {
+    if !app.surface.loaded {
+        app.surface.loaded = true;
+        load(app);
+    }
 }
 
 impl Default for SurfaceHost {
@@ -140,6 +151,8 @@ impl Default for SurfaceHost {
             listen_error: None,
             listen_retry_at: 0.0,
             plugin: Default::default(),
+            action: None,
+            osd_seq: 0,
         }
     }
 }

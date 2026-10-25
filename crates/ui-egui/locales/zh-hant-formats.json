@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "從此電腦移除「{name}」？",
   "default for {bodies}": "{bodies} 的預設值",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} 個內建項目將從此電腦移除（可還原）。",
-  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。"
+  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 項：刪除，或移到其他群組。",
+  "on {n} photos": "共 {n} 張相片",
+  "Undo: {what}": "復原：{what}",
+  "Redo: {what}": "重做：{what}",
+  "Profile {name} applied to {n} photos": "已將描述檔 {name} 套用到 {n} 張相片",
+  "Profile {name}": "描述檔 {name}",
+  "{n} stars": "{n} 星",
+  "Label: {name}": "標籤：{name}"
 }

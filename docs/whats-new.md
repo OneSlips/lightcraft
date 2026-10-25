@@ -2,6 +2,14 @@
 
 ## 2026-10-17
 
+### A note over the photo for every change
+- Whatever you change, with a key, the mouse, a menu, a slider or the console, a short note over the photo says
+  what changed: **Exposure +0.33** (the running value while you drag), **Picked**, **3 stars on 12 photos**,
+  **Profile X applied to 350 photos**, **Undo: Exposure**. With Auto Sync or several photos selected it says how many
+  photos changed.
+- **Settings ▸ Interface ▸ On-Screen Overlay**: show changes **Always**, for the **Control surface only**, or **Off**;
+  its size, opacity, how long it stays, where it sits and its colour. The console's readout uses the same look.
+
 ### Settings ▸ Controls
 - **The Dialpad is drawn as the device**: buttons 1 and 2 top left, the roller top right, the big dial in the middle,
   buttons 3 and 4 at the bottom corners. The Keypad's page buttons sit at its lower corners.

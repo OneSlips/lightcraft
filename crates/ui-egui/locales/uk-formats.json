@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "Прибрати «{name}» з цього комп’ютера?",
   "default for {bodies}": "типовий для {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} вбудованих елементів буде прибрано з цього комп’ютера (їх можна відновити).",
-  "{n} of your own: delete them, or move them to another group.": "{n} ваших: видалити їх або перенести до іншої групи."
+  "{n} of your own: delete them, or move them to another group.": "{n} ваших: видалити їх або перенести до іншої групи.",
+  "on {n} photos": "на {n} фото",
+  "Undo: {what}": "Скасовано: {what}",
+  "Redo: {what}": "Повторено: {what}",
+  "Profile {name} applied to {n} photos": "Профіль {name} застосовано до {n} фото",
+  "Profile {name}": "Профіль {name}",
+  "{n} stars": "Зірки: {n}",
+  "Label: {name}": "Мітка: {name}"
 }

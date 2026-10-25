@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "从此电脑移除“{name}”？",
   "default for {bodies}": "{bodies} 的默认值",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} 个内置项将从此电脑移除（可恢复）。",
-  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 项：删除，或移到其他分组。"
+  "{n} of your own: delete them, or move them to another group.": "你自己的 {n} 项：删除，或移到其他分组。",
+  "on {n} photos": "共 {n} 张照片",
+  "Undo: {what}": "撤销：{what}",
+  "Redo: {what}": "重做：{what}",
+  "Profile {name} applied to {n} photos": "已将配置文件 {name} 应用到 {n} 张照片",
+  "Profile {name}": "配置文件 {name}",
+  "{n} stars": "{n} 星",
+  "Label: {name}": "标签：{name}"
 }

@@ -425,5 +425,12 @@
   "Take “{name}” off this computer?": "Togliere «{name}» da questo computer?",
   "default for {bodies}": "predefinito per {bodies}",
   "{n} built-in items are taken off this computer (Restore brings them back).": "{n} elementi integrati vengono tolti da questo computer (Ripristina li riporta).",
-  "{n} of your own: delete them, or move them to another group.": "{n} tuoi: eliminarli o spostarli in un altro gruppo."
+  "{n} of your own: delete them, or move them to another group.": "{n} tuoi: eliminarli o spostarli in un altro gruppo.",
+  "on {n} photos": "su {n} foto",
+  "Undo: {what}": "Annulla: {what}",
+  "Redo: {what}": "Ripeti: {what}",
+  "Profile {name} applied to {n} photos": "Profilo {name} applicato a {n} foto",
+  "Profile {name}": "Profilo {name}",
+  "{n} stars": "{n} stelle",
+  "Label: {name}": "Etichetta: {name}"
 }

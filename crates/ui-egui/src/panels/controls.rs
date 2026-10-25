@@ -189,6 +189,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         "readout" => {
             egui::ScrollArea::vertical().id_salt("surfaceReadout").max_height(max_h).show(ui, |ui| {
                 timing_and_readout(app, ui, t);
+                super::surface_osd::settings_section(app, ui, t);
             });
         }
         "setup" => {
@@ -1585,30 +1586,8 @@ fn timing_and_readout(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     });
     check(ui, "surface.echo", &mut s.transport.echo_suppression, "Keep the surface's readout steady while turning");
     heading(ui, t, "On-Screen Readout");
-    check(ui, "surface.osd", &mut s.osd.enabled, "Show the value or command in the window");
     check(ui, "surface.osdCommands", &mut s.osd.show_commands, "Also for key presses");
-    row(ui, t, "Opacity", |ui| {
-        slider(ui, "surface.osdOpacity", &mut s.osd.opacity, 0.1..=1.0, 2, "");
-    });
-    row(ui, t, "Shown for", |ui| {
-        slider_u32(ui, "surface.osdTime", &mut s.osd.display_ms, 500..=10_000, " ms");
-    });
-    row(ui, t, "Position", |ui| {
-        choices(
-            ui,
-            "surfaceOsdPosition",
-            &[
-                (OsdPosition::TopEdge, "Top edge"),
-                (OsdPosition::Top, "Top"),
-                (OsdPosition::Bottom, "Bottom"),
-                (OsdPosition::BottomEdge, "Bottom edge"),
-            ],
-            &mut s.osd.position,
-        );
-    });
-    row(ui, t, "Background", |ui| {
-        crate::text_field::TextField::singleline("field:surfaceOsdColor", &mut s.osd.background).width(90.0).show(ui);
-    });
+    hint(ui, t, "Its look is set under On-Screen Overlay below (also in Settings, Interface).");
     heading(ui, t, "Keys");
     check(ui, "surface.showValues", &mut s.look.show_values, "Show values on the keys and the dial display");
     check(ui, "surface.haptics", &mut s.look.haptics, "Haptic feedback (where the device has it)");
