@@ -1218,7 +1218,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         filter_pill(app, ui, canvas);
         super::mask_tree::all_masks_pill(app, ui, canvas, img_rect);
     }
-    if app.ui.face_boxes {
+    if super::faces::face_boxes_shown(app) {
         // a name box left open on another photo is dropped
         if app.ui.name_edit.as_ref().is_some_and(|e| e.photo != id.0) {
             app.ui.name_edit = None;
