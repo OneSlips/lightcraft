@@ -732,3 +732,30 @@ fn upright_vertical_leaves_a_gown_without_structure_alone() {
     assert!(a.vertical_vp.is_none(), "folds are not structure: {:?}", a.vertical_vp);
     assert!(crate::upright::shortfall(Upright::Vertical, &a).is_some(), "and it says why");
 }
+
+/// Auto's note follows what Auto did: a tilted horizon it won't fix (over 5°) and a vertical correction too steep
+/// to make both say why, while a level horizon it accepts says nothing.
+#[test]
+fn upright_auto_says_why_whenever_it_leaves_the_photo_alone() {
+    use crate::upright::{Analysis, Reject, Segment, shortfall, solve};
+    use lightcraft_develop::Upright;
+    use lightcraft_geom::Homography;
+    let line = |deg: f64, y: f64| {
+        let (s, c) = deg.to_radians().sin_cos();
+        Segment { a: Point::new(-0.4 * c, y - 0.4 * s), b: Point::new(0.4 * c, y + 0.4 * s) }
+    };
+    // a level horizon: Auto accepts a zero-degree correction, so it has nothing to explain
+    let level = Analysis { horizontal: vec![line(0.0, -0.2), line(0.0, 0.2)], ..Analysis::default() };
+    assert_eq!(shortfall(Upright::Auto, &level), None);
+    // a horizon 10° off: Auto leaves it alone, and says so
+    let tilted = Analysis { horizontal: vec![line(10.0, -0.2), line(10.0, 0.2)], ..Analysis::default() };
+    assert_eq!(solve(Upright::Auto, &tilted), Homography::IDENTITY);
+    assert_eq!(shortfall(Upright::Auto, &tilted), Some(Reject::TooFew.message()));
+    // lines meeting just below the photo: too steep for Auto, which says so; Vertical still corrects them
+    let steep = Analysis { vertical_vp: Some([0.0, 0.3, 1.0]), ..Analysis::default() };
+    assert_eq!(solve(Upright::Auto, &steep), Homography::IDENTITY);
+    assert_eq!(shortfall(Upright::Auto, &steep), Some(Reject::TooSteep.message()));
+    assert_ne!(solve(Upright::Vertical, &steep), Homography::IDENTITY);
+    // Level with no lines at all says there are too few, not that they disagree
+    assert_eq!(shortfall(Upright::Level, &Analysis::default()), Some(Reject::TooFew.message()));
+}

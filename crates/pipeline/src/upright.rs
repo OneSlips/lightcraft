@@ -457,6 +457,8 @@ pub enum Reject {
     Disagree,
     /// They meet inside or near the photo: a scene feature (a road, rays), not a tilted camera.
     MeetInside,
+    /// Correcting them would turn the camera too far to be a tilt (Auto leaves it to Vertical).
+    TooSteep,
 }
 
 impl Reject {
@@ -468,6 +470,7 @@ impl Reject {
             Reject::OneObject => "the straight lines are all on one object",
             Reject::Disagree => "the long lines lean different ways",
             Reject::MeetInside => "the lines meet inside the photo (a floor or a road, not a tilted camera)",
+            Reject::TooSteep => "the lines lean too far to be a tilted camera (Vertical corrects them anyway)",
         }
     }
 }
@@ -679,10 +682,11 @@ pub fn shortfall(mode: Upright, a: &Analysis) -> Option<&'static str> {
     match mode {
         Upright::Vertical | Upright::Full if a.vertical_vp.is_none() => Some(a.vertical_why.unwrap_or(Reject::TooFew).message()),
         Upright::Full if a.horizontal_vp.is_none() => Some(a.horizontal_why.unwrap_or(Reject::TooFew).message()),
-        Upright::Level if level_angle(&a.vertical, &a.horizontal).is_none() => Some(Reject::Disagree.message()),
-        Upright::Auto if a.vertical_vp.is_none() && level_angle(&a.vertical, &a.horizontal).is_none() => {
-            Some(a.vertical_why.unwrap_or(Reject::TooFew).message())
+        Upright::Level if level_angle(&a.vertical, &a.horizontal).is_none() => {
+            let why = if a.vertical.is_empty() && a.horizontal.is_empty() { Reject::TooFew } else { Reject::Disagree };
+            Some(why.message())
         }
+        Upright::Auto => auto(a).err().map(Reject::message),
         _ => None,
     }
 }
@@ -704,28 +708,41 @@ pub fn solve(mode: Upright, a: &Analysis) -> Homography {
             Some((r, f)) => recentre(&rotation_homography(&r, f)),
             None => vertical().map(|r| recentre(&rotation_homography(&r, DEFAULT_FOCAL))).unwrap_or_else(level),
         },
-        Upright::Auto => {
-            // A vertical family that implies a camera roll must be confirmed by the horizontals (a real roll tilts
-            // both); otherwise it is scene structure (e.g. the same-side flanks of many conical trees).
-            if let Some(v) = a.vertical_vp {
-                let (x, y) = if v[1] < 0.0 { (-v[0], -v[1]) } else { (v[0], v[1]) };
-                let roll = x.atan2(y).to_degrees();
-                let confirmed = roll.abs() <= 3.0 || level_angle(&[], &a.horizontal).is_some_and(|h| (h - roll).abs() <= 3.0);
-                if !confirmed {
-                    let weaker = Analysis { vertical_vp: None, horizontal_vp: None, vertical_why: Some(Reject::Disagree), ..a.clone() };
-                    return solve(Upright::Auto, &weaker);
-                }
-            }
-            // balanced: full correction only when it is moderate, else vertical, else level
-            if let Some((r, f)) = full().filter(|(r, _)| rotation_angle(r) < 20f64.to_radians()) {
-                return recentre(&rotation_homography(&r, f));
-            }
-            match vertical().filter(|r| rotation_angle(r) < 25f64.to_radians()) {
-                Some(r) => recentre(&rotation_homography(&r, DEFAULT_FOCAL)),
-                // conservative: only small horizon fixes; bigger tilts are usually intentional or scene lines
-                None => level_angle(&a.vertical, &a.horizontal).filter(|d| d.abs() <= 5.0).map(rot_z_h).unwrap_or(Homography::IDENTITY),
-            }
+        Upright::Auto => auto(a).unwrap_or(Homography::IDENTITY),
+    }
+}
+
+/// What Auto does with an analysis: the correction it applies, or why it applies none. [`solve`] and
+/// [`shortfall`] both ask it, so the note always matches the correction.
+fn auto(a: &Analysis) -> Result<Homography, Reject> {
+    // A vertical family that implies a camera roll must be confirmed by the horizontals (a real roll tilts
+    // both); otherwise it is scene structure (e.g. the same-side flanks of many conical trees).
+    if let Some(v) = a.vertical_vp {
+        let (x, y) = if v[1] < 0.0 { (-v[0], -v[1]) } else { (v[0], v[1]) };
+        let roll = x.atan2(y).to_degrees();
+        let confirmed = roll.abs() <= 3.0 || level_angle(&[], &a.horizontal).is_some_and(|h| (h - roll).abs() <= 3.0);
+        if !confirmed {
+            let weaker = Analysis { vertical_vp: None, horizontal_vp: None, vertical_why: Some(Reject::Disagree), ..a.clone() };
+            return auto(&weaker);
         }
+    }
+    // balanced: full correction only when it is moderate, else vertical, else level
+    if let Some((v, h)) = a.vertical_vp.zip(a.horizontal_vp) {
+        let f = focal_from_vps(v, h).unwrap_or(DEFAULT_FOCAL);
+        let r = solve_full(v, h, f);
+        if rotation_angle(&r) < 20f64.to_radians() {
+            return Ok(recentre(&rotation_homography(&r, f)));
+        }
+    }
+    let vertical = a.vertical_vp.map(|v| solve_vertical(v, DEFAULT_FOCAL));
+    if let Some(r) = vertical.filter(|r| rotation_angle(r) < 25f64.to_radians()) {
+        return Ok(recentre(&rotation_homography(&r, DEFAULT_FOCAL)));
+    }
+    // conservative: only small horizon fixes; bigger tilts are usually intentional or scene lines
+    match level_angle(&a.vertical, &a.horizontal) {
+        Some(d) if d.abs() <= 5.0 => Ok(rot_z_h(d)),
+        _ if vertical.is_some() => Err(Reject::TooSteep),
+        _ => Err(a.vertical_why.unwrap_or(Reject::TooFew)),
     }
 }
 
