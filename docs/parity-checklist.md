@@ -828,6 +828,7 @@ Latin stays upright. Advanced Japanese composition remains open. Regression cove
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | patch | Decision of 2026-10-25 (item 14): control surfaces: key 7 of the built-in console Masks page shows / hides the mask overlay instead of Temp (saved layouts keep theirs) |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 12): LR-EDIT-GEOM-UPRIGHT: syncing Guided Upright (Auto Sync, Sync, Paste, presets) is skipped; the other photos keep their own Upright, other modes still travel as a recipe analysed on each photo |
 | 2026-10-25 | patch | Decision of 2026-10-25 (item 11): LR-EDIT-GEOM-UPRIGHT: a second click on the Upright mode that is on only analyses it afresh (and refits a crop Constrain Crop made); the Transform sliders are kept; Guided's guides are still cleared |
 | 2026-10-25 | patch | Upstream main (releases 0.11–0.13, integration batch 44) merged into the integration build: rows changed on both sides merged (both sides' evidence and notes kept); the integration tests added here moved into each crate's `tests/it` binary, their paths updated |

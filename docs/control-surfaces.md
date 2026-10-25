@@ -223,7 +223,7 @@ clamped into range on reading.
 | `library` | the photo grid, Survey or People (or no photo open) |
 | `develop`, `develop.<section>` | Detail; the Edit panel's section opened last (`light`, `color`, `effects`, `detail`, `optics`, …) |
 | `crop`, `remove`, `redeye` | those tools |
-| `masking` | the Masks panel, a mask selected or not: one **Masks** page. With a mask selected its values adjust that mask; with none they set the next mask's settings (the panel's sliders move; the overlay says "New mask · Exposure") |
+| `masking` | the Masks panel, a mask selected or not: one **Masks** page. With a mask selected its values adjust that mask; with none they set the next mask's settings (the panel's sliders move; the overlay says "New mask · Exposure"). Its key 7 shows / hides the mask overlay (a layout saved with Temp there keeps it) |
 | `masking.mask.brush` | the Brush armed in the Masks panel (its size, feather and flow) |
 
 Settings format 4 merged format 3's two Masks panel pages ("Masking": no mask selected, `masking`; "Mask": a mask
@@ -667,6 +667,7 @@ every dropped action says why).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-25 | patch | Decision of 2026-10-25 (item 14): key 7 of the built-in Masks page shows / hides the mask overlay instead of Temp; saved layouts keep their own keys |
 | 2026-10-14 | major | Created: the control-surface engine (ported from TactileBridge), Settings ▸ Controls, the surface protocol v1, the MX Creative Console |
 | 2026-10-15 | major | Settings ▸ Controls rebuilt around a drawing of the device with a side editor and categorised action picker; device bar; installing the Logi plugin from LightCraft (`surface.installPlugin` / `uninstallPlugin` / `plugin`); `surface.catalog`, `surface.watch` and action events, so Logi Options+ lists LightCraft's actions and values; icons in the readout |
 | 2026-10-17 | minor | The overlay reports every change (`change_report`, `osd.*`, mode and size); Dialpad drawn as the device, Keypad page buttons at its corners, Loupedeck+ in zones; Actions Ring slots set in LightCraft; drag and drop from the action list; Touch to find; plugin 1.0.7: one input request in flight with merged ticks, only changed keys redrawn, default profiles filled in for profiles made earlier |

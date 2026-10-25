@@ -69,8 +69,9 @@ fn val(t: &str) -> Binding {
     Binding::value(t)
 }
 
-/// The Masks panel's page: the mask tools on the first keys, the mask's sliders on the rest (press one to put it on
-/// the dial), its exposure on the dial and its amount on the roller.
+/// The Masks panel's page: the mask tools on the first keys, the mask's sliders on the next (press one to put it on
+/// the dial), the overlay on key 7 (decision 2026-10-25, item 14; it was Temp), its exposure on the dial and its
+/// amount on the roller. A layout saved with Temp there keeps it.
 pub fn masks_page() -> Page {
     Page::new(
         MASKS,
@@ -82,7 +83,7 @@ pub fn masks_page() -> Page {
             ("key.4", val("mask.exposure")),
             ("key.5", val("mask.highlights")),
             ("key.6", val("mask.shadows")),
-            ("key.7", val("mask.temp")),
+            ("key.7", cmd("view.maskOverlay")),
             ("key.8", cmd("surface.maskNext")),
             ("key.9", cmd("tool.done")),
             ("dial", val("mask.exposure")),
@@ -593,6 +594,25 @@ pub(crate) mod tests {
         p.contexts.insert("masking.mask".into(), vec!["Mask".into()]);
         p.contexts.insert("masking.mask.gradient".into(), vec!["Mask".into()]);
         p
+    }
+
+    /// Decision 2026-10-25 (item 14): key 7 of the built-in Masks page shows / hides the mask overlay (it was Temp);
+    /// a profile saved with Temp there keeps it.
+    #[test]
+    fn masks_page_key_7_is_the_overlay_and_a_saved_layout_keeps_its_own() {
+        assert_eq!(masks_page().bindings.get("key.7"), Some(&cmd("view.maskOverlay")));
+        let p = profiles().into_iter().next().expect("a built-in profile");
+        assert_eq!(p.page(MASKS).and_then(|pg| pg.bindings.get("key.7")), Some(&cmd("view.maskOverlay")));
+        // a settings file saved with Temp on key 7 loads as saved
+        let mut saved = crate::settings::SurfaceSettings::default();
+        for p in &mut saved.profiles {
+            if let Some(pg) = p.pages.iter_mut().find(|pg| pg.name == MASKS) {
+                pg.bindings.insert("key.7".into(), val("mask.temp"));
+            }
+        }
+        let back = crate::settings::SurfaceSettings::from_json(&saved.to_json()).unwrap();
+        let back = back.profiles.first().expect("a profile");
+        assert_eq!(back.page(MASKS).and_then(|pg| pg.bindings.get("key.7")), Some(&val("mask.temp")));
     }
 
     /// Test notes 2026-10-24 note 24: one Masks page for the Masks panel (Brush keeps its own); the old pair is
