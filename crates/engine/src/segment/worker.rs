@@ -221,9 +221,27 @@ pub enum Target {
     None,
     /// A person: their named face box on this photo (normalized), else their known appearance
     /// (`sam2`: for appearance features, when installed).
-    Person { rect: Option<[f64; 4]>, known: Vec<Signature>, sam2: Option<PathBuf> },
+    /// `ident`: their face by the recognition model the user chose, when it is in use.
+    Person { rect: Option<[f64; 4]>, known: Vec<Signature>, sam2: Option<PathBuf>, ident: Option<Arc<Identity>> },
     /// A remembered object's examples.
     Concept(Arc<Vec<lightcraft_segment::concept::Example>>),
+}
+
+/// Who a person is by face (test notes 2026-10-25, note 12): the recognition model the user chose
+/// in Settings ▸ Faces, and the embeddings of the person's named faces (the People index).
+pub struct Identity {
+    pub embedder: Arc<lightcraft_faces::runtime::Embedder>,
+    /// The model (`<id>@<sha256>`): a photo's face embeddings are kept under it.
+    pub tag: String,
+    /// The model's cosine for "the same person".
+    pub threshold: f32,
+    pub known: Vec<Arc<[f32]>>,
+}
+
+impl std::fmt::Debug for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity").field("tag", &self.tag).field("threshold", &self.threshold).field("known", &self.known.len()).finish()
+    }
 }
 
 /// A face found on a photo (normalized box; left to right).
@@ -402,6 +420,8 @@ struct State {
     surfaces_cache: Option<(u64, Surfaces)>,
     /// Each face's appearance signature, and whether it holds SAM 2.1's features.
     signatures_cache: Option<(u64, bool, Vec<Option<Signature>>)>,
+    /// Each face's embedding by a recognition model (its tag).
+    idents_cache: Option<(u64, String, Vec<Option<Vec<f32>>>)>,
 }
 
 impl State {
@@ -432,6 +452,7 @@ impl State {
         self.figures_cache = None;
         self.surfaces_cache = None;
         self.signatures_cache = None;
+        self.idents_cache = None;
     }
 }
 
@@ -875,7 +896,7 @@ fn people_auto(
         }
         None => Vec::new(),
     };
-    if let Target::Person { rect, known, sam2 } = target {
+    if let Target::Person { rect, known, sam2, ident } = target {
         // by name or role: which of the faces it is (appearance features when the
         // examples have them)
         let wants = rect.is_none() && known.iter().any(|k| k.body.is_some() || k.face.is_some());
@@ -894,9 +915,25 @@ fn people_auto(
             let sigs = face_signatures(&faces, map, input, emb.as_ref());
             state.signatures_cache = Some((job.key, emb.is_some(), sigs));
         }
+        // by face first, when a recognition model is in use and they have named faces
+        let ident = ident.as_ref().filter(|i| !i.known.is_empty() && rect.is_none() && !faces.is_empty());
+        if let Some(i) = ident
+            && state.idents_cache.as_ref().is_none_or(|(k, tag, e)| *k != job.key || *tag != i.tag || e.len() != faces.len())
+        {
+            let input = photo(&mut state.input_cache, job)?;
+            let _row = row(job, "Recognizing faces");
+            let t = web_time::Instant::now();
+            let e = face_embeddings(&faces, input, &i.embedder);
+            log::info!("people: {} face(s) embedded in {:?}", faces.len(), t.elapsed());
+            state.idents_cache = Some((job.key, i.tag.clone(), e));
+        }
+        let ids = ident.and_then(|i| {
+            let (_, _, e) = state.idents_cache.as_ref().filter(|(k, tag, _)| *k == job.key && *tag == i.tag)?;
+            Some((e.as_slice(), i.known.as_slice(), i.threshold))
+        });
         let sigs = state.signatures_cache.as_ref().filter(|(k, _, _)| *k == job.key).map_or(&[][..], |(_, _, s)| s.as_slice());
         let input = photo(&mut state.input_cache, job)?;
-        match pick_face(&faces, *rect, known, sigs, input) {
+        match pick_face(&faces, *rect, known, sigs, ids, input) {
             Pick::Face(i) => {
                 log::info!("people: {} face(s), taken: number {}", faces.len(), i + 1);
                 req.person = u32::try_from(i).unwrap_or(u32::MAX).saturating_add(1)
@@ -1029,6 +1066,11 @@ fn recall_people(
     {
         state.signatures_cache = Some((k, *features, sigs.clone()));
     }
+    if let Some((tag, e)) = &a.idents
+        && mine(state.idents_cache.as_ref().map(|c| c.0))
+    {
+        state.idents_cache = Some((k, tag.clone(), e.clone()));
+    }
     Some(a)
 }
 
@@ -1048,6 +1090,7 @@ fn keep_people(state: &mut State, job: &Job, before: Option<&Analysis>, models: 
         figures: state.figures_cache.as_ref().filter(|c| c.0 == k).map(|c| c.1.clone()),
         surfaces: state.surfaces_cache.as_ref().filter(|c| c.0 == k).map(|c| Some(people_cache::copy_surfaces(&c.1))),
         signatures: state.signatures_cache.as_ref().filter(|c| c.0 == k).map(|c| (c.1, c.2.clone())),
+        idents: state.idents_cache.as_ref().filter(|c| c.0 == k).map(|c| (c.1.clone(), c.2.clone())),
     };
     if !before.unwrap_or(&Analysis::default()).adds(&now) {
         return;
@@ -1403,7 +1446,14 @@ pub fn choose(c: &[Likeness], face_match: f32) -> Pick {
 
 /// Which of `faces` is the person: the one overlapping their named face box, else the one their
 /// examples recognise ([`choose`]).
-fn pick_face(faces: &[Face], rect: Option<[f64; 4]>, known: &[Signature], sigs: &[Option<Signature>], input: &Input) -> Pick {
+fn pick_face(
+    faces: &[Face],
+    rect: Option<[f64; 4]>,
+    known: &[Signature],
+    sigs: &[Option<Signature>],
+    ids: Option<(&[Option<Vec<f32>>], &[Arc<[f32]>], f32)>,
+    input: &Input,
+) -> Pick {
     if let Some(r) = rect {
         let centre = [(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0];
         let best = faces
@@ -1421,18 +1471,68 @@ fn pick_face(faces: &[Face], rect: Option<[f64; 4]>, known: &[Signature], sigs: 
             return Pick::Face(i);
         }
     }
-    if known.is_empty() || faces.is_empty() {
+    let by_face = ids.is_some_and(|(_, k, _)| !k.is_empty());
+    if (known.is_empty() && !by_face) || faces.is_empty() {
         return Pick::Absent;
     }
     let likeness: Vec<Likeness> = (0..faces.len())
-        .map(|i| match sigs.get(i) {
-            Some(Some(sig)) => Likeness { face: None, look: look_score(sig, known) },
-            _ => Likeness::default(),
+        .map(|i| Likeness {
+            face: ids.and_then(|(e, k, _)| face_score(e.get(i)?.as_deref()?, k)),
+            look: match sigs.get(i) {
+                Some(Some(sig)) if !known.is_empty() => look_score(sig, known),
+                _ => 0.0,
+            },
         })
         .collect();
-    let pick = choose(&likeness, 1.0);
+    let pick = choose(&likeness, ids.map_or(1.0, |(_, _, t)| t));
     log::info!("people: likeness {:?} → {pick:?}", likeness.iter().map(|l| (l.face, l.look)).collect::<Vec<_>>());
     pick
+}
+
+/// How much a face's embedding `e` is the person's (their named faces `known`): the best cosine
+/// (`None`: no comparable embedding).
+fn face_score(e: &[f32], known: &[Arc<[f32]>]) -> Option<f32> {
+    known.iter().filter_map(|k| lightcraft_faces::matching::cosine(e, k)).filter(|c| c.is_finite()).max_by(f32::total_cmp)
+}
+
+/// FaceMesh's points for the five of the recognition template: the eyes' centres (irises), the
+/// nose tip and the mouth's corners.
+const TEMPLATE_POINTS: [usize; 5] = [468, 473, 1, 61, 291];
+
+/// A face without landmarks is cut with this much room around its box (as the People index cuts
+/// a region without them).
+const FACE_BOX_PAD: f32 = 1.5;
+
+/// Each face's embedding by `embedder` (`None` where it couldn't be cut out or run): aligned on
+/// FaceMesh's landmarks like the People index aligns them, else cut by its box with the room
+/// the index gives a box.
+fn face_embeddings(faces: &[Face], input: &Input, embedder: &lightcraft_faces::runtime::Embedder) -> Vec<Option<Vec<f32>>> {
+    use lightcraft_faces::align::{Rgb, align_to_template, crop_box};
+    let img = Rgb { data: &input.rgb, width: input.w, height: input.h };
+    let (iw, ih) = embedder.input_size();
+    let crops: Vec<Option<Vec<u8>>> = faces
+        .iter()
+        .map(|f| {
+            let points = f.landmarks.as_ref().and_then(|l| {
+                let p = TEMPLATE_POINTS.map(|i| l.get(i).map(|q| (q[0], q[1])));
+                let [Some(a), Some(b), Some(n), Some(m0), Some(m1)] = p else { return None };
+                // the image's left eye and mouth corner first, whichever way the face turns
+                let (l, r) = if a.0 <= b.0 { (a, b) } else { (b, a) };
+                let (ml, mr) = if m0.0 <= m1.0 { (m0, m1) } else { (m1, m0) };
+                Some([l, r, n, ml, mr])
+            });
+            match points {
+                Some(p) => align_to_template(&img, &p, iw, ih),
+                None => {
+                    let d = &f.detection;
+                    crop_box(&img, d.x0, d.y0, d.x1, d.y1, FACE_BOX_PAD, iw, ih)
+                }
+            }
+        })
+        .collect();
+    let ready: Vec<&[u8]> = crops.iter().filter_map(|c| c.as_deref()).collect();
+    let mut out = embedder.embed_batch(&ready).into_iter();
+    crops.iter().map(|c| c.as_ref().and_then(|_| out.next().and_then(Result::ok))).collect()
 }
 
 /// Each face's appearance signature (`None` where there is none to take), with SAM 2.1's
@@ -2027,6 +2127,57 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// Two faces side by side, one warm, one cool (a recognition model tells them apart).
+    fn two_faces() -> (Input, Vec<Face>) {
+        let (w, h) = (400, 200);
+        let rgb = (0..w * h).flat_map(|i| if i % w < w / 2 { [205, 120, 95] } else { [70, 90, 190] }).collect();
+        (Input { rgb, w, h }, vec![face_at(100.0, 100.0, 80.0), face_at(300.0, 100.0, 80.0)])
+    }
+
+    /// Test notes 2026-10-25, note 12: the mother and her daughter look alike (same hair, same
+    /// colours: the look picks the wrong one, or can't tell); with a recognition model in use the
+    /// bride's face decides, and a face that is neither hers nor clearly not is not guessed.
+    #[test]
+    fn the_face_tells_the_bride_from_her_look_alike() {
+        let embedder = crate::tests_people_point::tiny_embedder(16);
+        let (input, faces) = two_faces();
+        let e = face_embeddings(&faces, &input, &embedder);
+        assert!(e.iter().all(Option::is_some), "both faces embedded");
+        let (mother, bride) = (e[0].clone().unwrap(), e[1].clone().unwrap());
+        let cos = lightcraft_faces::matching::cosine(&mother, &bride).unwrap();
+        assert!(cos < 0.9, "the model tells them apart: {cos}");
+        // by look the examples are the mother's double
+        let look = Signature { hair: Some([0.4, 0.1, 0.05]), clothes: Some([0.9, 0.0, 0.0]), ..Default::default() };
+        let sigs = vec![Some(look.clone()), Some(Signature { hair: Some([0.4, 0.1, 0.05]), clothes: Some([0.85, 0.0, 0.02]), ..Default::default() })];
+        let known = [look];
+        assert_ne!(pick_face(&faces, None, &known, &sigs, None, &input), Pick::Face(1), "by look alone the bride isn't found");
+        let hers: Vec<Arc<[f32]>> = vec![bride.clone().into()];
+        assert_eq!(pick_face(&faces, None, &known, &sigs, Some((&e, &hers, 0.45)), &input), Pick::Face(1), "her face decides");
+        // her face only (no appearance examples yet): enough
+        assert_eq!(pick_face(&faces, None, &[], &[], Some((&e, &hers, 0.45)), &input), Pick::Face(1));
+        // an example halfway between the two faces (alike by face, alike by look): not guessed
+        let unit = |v: &[f32]| {
+            let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            v.iter().map(|x| x / n).collect::<Vec<f32>>()
+        };
+        let between: Vec<f32> = unit(&mother).iter().zip(unit(&bride)).map(|(a, b)| a + b).collect();
+        let bar = lightcraft_faces::matching::cosine(&between, &mother).unwrap() - 0.01;
+        let neither: Vec<Arc<[f32]>> = vec![between.into()];
+        assert_eq!(pick_face(&faces, None, &[], &[], Some((&e, &neither, bar)), &input), Pick::Unsure);
+        // …nor when it comes close to someone without reaching the model's bar
+        assert_eq!(pick_face(&faces, None, &[], &[], Some((&e, &neither, bar + 0.1)), &input), Pick::Unsure);
+        // nobody like her face here
+        let other: Vec<Arc<[f32]>> = vec![mother.iter().map(|v| -v).collect::<Vec<f32>>().into()];
+        assert_eq!(pick_face(&faces, None, &[], &[], Some((&e, &other, 0.45)), &input), Pick::Absent);
+        // a face that can't be cut out (a damaged box) has no embedding, never a panic
+        let off = [face_at(f32::NAN, 50.0, 10.0)];
+        assert_eq!(face_embeddings(&off, &input, &embedder), vec![None]);
+        // landmarks out of range fall back to the box
+        let mut odd = faces[1].clone();
+        odd.landmarks = Some(vec![[f32::NAN, 3.0]; 10]);
+        assert!(face_embeddings(&[odd], &input, &embedder)[0].is_some());
+    }
+
     /// A synthetic group (three figures on a floor, a wall behind): skin-toned heads, dark and
     /// pale clothes. The models' timings don't depend on what they find.
     fn group_photo(w: usize, h: usize) -> (Input, Vec<Face>) {
@@ -2075,7 +2226,7 @@ mod tests {
         let everyone = AutoKind::People { person: 0, parts: vec!["Clothes".into()], who: None };
         let her = AutoKind::People { person: 0, parts: vec!["Clothes".into()], who: Some(lightcraft_develop::recipe::Who::Role("bride".into())) };
         let rect = norm_box(&faces[1], photo.w, photo.h);
-        let target = Target::Person { rect: Some(rect), known: Vec::new(), sam2: Some(sam2.clone()) };
+        let target = Target::Person { rect: Some(rect), known: Vec::new(), sam2: Some(sam2.clone()), ident: None };
         let d = std::env::temp_dir().join(format!("lc-people-timing-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         let cache = Arc::new(lightcraft_preview::PreviewCache::with_disk(1 << 20, &d, 1 << 30));

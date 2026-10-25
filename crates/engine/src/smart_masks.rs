@@ -134,13 +134,21 @@ pub fn seg_box(seg: &SegMask) -> Option<[f64; 4]> {
 
 /// How a person named by a recipe is found on one photo.
 pub(crate) enum Resolved {
-    /// Their face box here (a named face region) and/or their known appearance.
-    Person { rect: Option<[f64; 4]>, known: Vec<Value> },
+    /// Their face box here (a named face region) and/or their known appearance, and their named
+    /// faces' embeddings by the recognition model in use (the People index; empty without one).
+    Person { rect: Option<[f64; 4]>, known: Vec<Value>, faces: Vec<Arc<[f32]>> },
     /// Nobody has the role here: the mask covers everyone (and says so).
     Everyone(String),
     /// Nothing to find them by.
     Missing(String),
 }
+
+/// A person's named faces compared by face: at most this many (this shoot's first).
+const MAX_FACE_EXAMPLES: usize = 48;
+/// The cosine for "the same person" of a recognition model that doesn't say its own (the People
+/// suggestions' default).
+#[cfg(all(feature = "sam", not(target_arch = "wasm32")))]
+const FACE_MATCH: f32 = 0.45;
 
 /// Width / height of photo `p` as masks see it (oriented); 3:2 when unknown.
 pub fn aspect_of(p: &lightcraft_catalog::Photo) -> f64 {
@@ -353,10 +361,56 @@ impl Session {
             .map(|e| e.signature.clone())
             .collect();
         let known: Vec<Value> = if here.is_empty() { examples.into_iter().map(|e| e.signature).collect() } else { here };
-        if rect.is_none() && known.is_empty() {
+        let faces = if rect.is_none() { self.named_face_embeddings(&name, ctx.folder.as_deref()) } else { Vec::new() };
+        if rect.is_none() && known.is_empty() && faces.is_empty() {
             return Resolved::Missing(format!("{name} has no named face yet: name them in the People picker of the Masking panel"));
         }
-        Resolved::Person { rect, known }
+        Resolved::Person { rect, known, faces }
+    }
+
+    /// The embeddings of the faces named `name` in the library by the recognition model in use
+    /// (the People index; test notes 2026-10-25, note 12): this shoot's first, at most
+    /// [`MAX_FACE_EXAMPLES`]. Empty when no recognition model is in use or none is embedded yet.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn named_face_embeddings(&self, name: &str, folder: Option<&str>) -> Vec<Arc<[f32]>> {
+        if self.faces.embedder.is_none() || self.faces.index.len() == 0 {
+            return Vec::new();
+        }
+        let mut found: Vec<(bool, Arc<[f32]>)> = Vec::new();
+        for p in self.catalog.photos() {
+            for r in p.meta.regions.iter().filter(|r| r.kind == lightcraft_meta::RegionKind::Face) {
+                if r.name.as_deref().is_some_and(|n| n.trim().eq_ignore_ascii_case(name))
+                    && let Some(e) = self.faces.index.get(p.id.0, &r.rect)
+                {
+                    let here = folder.is_some() && self.photo_context(p.id).folder.as_deref() == folder;
+                    found.push((here, e.clone()));
+                }
+            }
+        }
+        found.sort_by_key(|(here, _)| !*here);
+        found.into_iter().take(MAX_FACE_EXAMPLES).map(|(_, e)| e).collect()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn named_face_embeddings(&self, _: &str, _: Option<&str>) -> Vec<Arc<[f32]>> {
+        Vec::new()
+    }
+
+    /// Who someone is by face on a photo: the recognition model in use and their named faces'
+    /// embeddings (`None`: no model in use, or no named face embedded by it).
+    #[cfg(all(feature = "sam", not(target_arch = "wasm32")))]
+    pub(crate) fn face_identity(&self, faces: Vec<Arc<[f32]>>) -> Option<Arc<crate::segment::worker::Identity>> {
+        let (tag, embedder) = self.faces.embedder.clone()?;
+        if faces.is_empty() {
+            return None;
+        }
+        let threshold = embedder.manifest().thresholds.match_cosine.unwrap_or(FACE_MATCH);
+        Some(Arc::new(crate::segment::worker::Identity { embedder, tag, threshold, known: faces }))
+    }
+
+    #[cfg(all(feature = "sam", target_arch = "wasm32"))]
+    pub(crate) fn face_identity(&self, _: Vec<Arc<[f32]>>) -> Option<Arc<crate::segment::worker::Identity>> {
+        None
     }
 
     /// The automatic name of mask `m` on photo `id`: what it selects, People with their role and
@@ -580,13 +634,14 @@ impl Session {
         };
         match part {
             Part::Seg(AutoKind::People { person, parts, who: Some(who) }) => match self.resolve_who(photo, who) {
-                Resolved::Person { rect, known } => {
+                Resolved::Person { rect, known, faces } => {
                     let known = known.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect();
                     let sam2 = self.segmenter.require_model("sam2").ok();
+                    let ident = self.face_identity(faces);
                     auto(
                         self,
                         AutoKind::People { person: *person, parts: parts.clone(), who: Some(who.clone()) },
-                        Target::Person { rect, known, sam2 },
+                        Target::Person { rect, known, sam2, ident },
                     )
                 }
                 Resolved::Everyone(note) => {
@@ -612,10 +667,11 @@ impl Session {
                 };
                 let target = match &what {
                     AutoKind::People { who: Some(w), .. } => match self.resolve_who(photo, w) {
-                        Resolved::Person { rect, known } => Target::Person {
+                        Resolved::Person { rect, known, faces } => Target::Person {
                             rect,
                             known: known.into_iter().filter_map(|v| serde_json::from_value(v).ok()).collect(),
                             sam2: self.segmenter.require_model("sam2").ok(),
+                            ident: self.face_identity(faces),
                         },
                         Resolved::Everyone(_) => return auto(self, AutoKind::People { person: 0, parts: Vec::new(), who: None }, Target::None),
                         Resolved::Missing(n) => return Err(RecipeSkip::Note(n)),

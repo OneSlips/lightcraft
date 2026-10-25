@@ -67,6 +67,8 @@ pub struct Analysis {
     pub surfaces: Option<Option<Surfaces>>,
     /// Each face's appearance signature, and whether it holds SAM 2.1's features.
     pub signatures: Option<(bool, Vec<Option<Signature>>)>,
+    /// Each face's embedding by a recognition model (its tag).
+    pub idents: Option<(String, Vec<Option<Vec<f32>>>)>,
 }
 
 impl Analysis {
@@ -79,6 +81,11 @@ impl Analysis {
             || (self.figures.is_none() && other.figures.is_some())
             || (self.surfaces.is_none() && other.surfaces.is_some())
             || matches!((&self.signatures, &other.signatures), (None, Some(_)) | (Some((false, _)), Some((true, _))))
+            || match (&self.idents, &other.idents) {
+                (None, Some(_)) => true,
+                (Some((a, _)), Some((b, _))) => a != b,
+                _ => false,
+            }
     }
 }
 
@@ -158,6 +165,8 @@ struct Header {
     no_surfaces: bool,
     #[serde(default)]
     signatures: Option<(bool, Vec<Option<Signature>>)>,
+    #[serde(default)]
+    idents: Option<(String, Vec<Option<Vec<f32>>>)>,
 }
 
 fn finite(v: f32) -> f32 {
@@ -184,6 +193,7 @@ pub fn encode(a: &Analysis) -> Option<Vec<u8>> {
                 .collect()
         }),
         signatures: a.signatures.clone(),
+        idents: a.idents.clone(),
         ..Header::default()
     };
     let mut blobs: Vec<u8> = Vec::new();
@@ -317,6 +327,12 @@ pub fn decode(bytes: &[u8]) -> Option<Analysis> {
         }
         a.signatures = Some((features, sigs));
     }
+    if let Some((tag, e)) = h.idents {
+        if e.len() > MAX_ITEMS || e.iter().flatten().any(|v| v.len() > 4096 || v.iter().any(|x| !x.is_finite())) {
+            return None;
+        }
+        a.idents = Some((tag, e));
+    }
     if !r.0.is_empty() {
         return None;
     }
@@ -395,6 +411,7 @@ mod tests {
             figures: Some(vec![(0..64).map(|i| (i as f32).sin() * 5.0).collect()]),
             surfaces: Some(Some(Surfaces::from_grid(4, 3, (0..12).map(|i| i as f32 / 11.0).collect()))),
             signatures: Some((true, vec![Some(Signature { hair: Some([0.1, 0.2, 0.3]), ..Default::default() }), None])),
+            idents: Some(("model@1".into(), vec![Some(vec![0.5, -0.25, 1.0]), None])),
         }
     }
 
@@ -419,6 +436,7 @@ mod tests {
         let (s1, s2) = (a.surfaces.as_ref().unwrap().as_ref().unwrap(), b.surfaces.as_ref().unwrap().as_ref().unwrap());
         assert!(close(s1.grid().2, s2.grid().2, 0.5 / 255.0 + 1e-6));
         assert_eq!(a.signatures, b.signatures);
+        assert_eq!(a.idents, b.idents);
         // nothing computed yet is nothing, and "couldn't" stays "couldn't"
         let empty = decode(&encode(&Analysis::default()).unwrap()).unwrap();
         assert!(empty.faces.is_none() && empty.map.is_none() && empty.silhouettes.is_none() && empty.signatures.is_none());

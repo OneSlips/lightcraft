@@ -133,3 +133,60 @@ fn pointing_needs_a_face_and_someone_to_be() {
     let r = s.execute("people.pointAt", &json!({"id": id.0, "face": 0, "who": {"name": "Alex"}})).unwrap();
     assert_eq!((r["named"].as_u64(), r["recomputed"].as_u64()), (Some(1), Some(0)), "{r}");
 }
+
+/// A working (tiny) recognition model, for tests: its embedding follows a crop's colours.
+pub(crate) fn tiny_embedder(dim: u32) -> lightcraft_faces::runtime::Embedder {
+    use lightcraft_faces::manifest::{InputSpec, Licence, ModelManifest, OutputSpec, Role, Thresholds};
+    let p = std::env::temp_dir().join(format!("lc-tiny-embedder-{dim}-{}.onnx", std::process::id()));
+    std::fs::write(&p, lightcraft_faces::synthetic::tiny_embedder_model(u64::from(dim))).unwrap();
+    let m = ModelManifest {
+        id: "tiny".into(),
+        name: "Tiny".into(),
+        version: "1".into(),
+        role: Role::Embedder,
+        licence: Licence::default(),
+        source: None,
+        sha256: None,
+        size_bytes: None,
+        provenance: String::new(),
+        input: InputSpec::default(),
+        output: OutputSpec::Embedding { dim },
+        thresholds: Thresholds::default(),
+        speed: None,
+    };
+    let e = lightcraft_faces::runtime::Embedder::load(&p, &m).unwrap();
+    let _ = std::fs::remove_file(&p);
+    e
+}
+
+/// Note 12, part 1: with a recognition model in use (Settings ▸ Faces), the bride's named faces'
+/// embeddings from the People index (this shoot's first) go with the request, so the worker
+/// matches her by face first; without one nothing changes.
+#[test]
+fn her_named_faces_go_with_the_request_when_a_recognition_model_is_in_use() {
+    use crate::smart_masks::Resolved;
+    use lightcraft_meta::{Region, RegionKind};
+    let mut s = Session::with_demo();
+    let mut ids: Vec<PhotoId> = s.catalog.photos().map(|p| p.id).collect();
+    ids.sort();
+    let (a, b) = (ids[0], ids[1]);
+    s.execute("people.setRole", &json!({"role": "Bride", "person": "Alex", "scope": {"ids": [a.0, b.0]}})).unwrap();
+    let r = lightcraft_geom::Rect { x0: 0.4, y0: 0.2, x1: 0.6, y1: 0.5 };
+    let mut meta = s.catalog.photo(b).unwrap().meta.clone();
+    meta.regions = vec![Region { rect: r, kind: RegionKind::Face, name: Some("Alex".into()), description: None }];
+    s.commit("setup", Op::SetMeta { id: b, meta: Box::new(meta) }).unwrap();
+    // no recognition model in use: nothing to find her by on photo a
+    assert!(matches!(s.resolve_who(a, &bride()), Resolved::Missing(_)));
+    assert!(s.face_identity(Vec::new()).is_none());
+    // a model in use, her face on b embedded by it
+    s.faces.index.reset("tiny@1", 16, None);
+    s.faces.index.insert(b.0, &r, vec![0.5; 16]);
+    s.faces.embedder = Some(("tiny@1".into(), Arc::new(tiny_embedder(16))));
+    let Resolved::Person { rect: None, faces, .. } = s.resolve_who(a, &bride()) else { panic!("found by her named face") };
+    assert_eq!(faces.len(), 1);
+    let ident = s.face_identity(faces).expect("an identity for the worker");
+    assert_eq!((ident.tag.as_str(), ident.known.len(), ident.threshold), ("tiny@1", 1, 0.45));
+    // on b itself she is named: her box decides there, no embeddings needed
+    let Resolved::Person { rect: Some(_), faces, .. } = s.resolve_who(b, &bride()) else { panic!("named here") };
+    assert!(faces.is_empty());
+}
