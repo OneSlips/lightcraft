@@ -97,25 +97,25 @@ fn device_status(app: &LightcraftApp, drawing: Drawing) -> (bool, &'static str) 
 
 fn slider(ui: &mut egui::Ui, id: &str, v: &mut f64, range: std::ops::RangeInclusive<f64>, decimals: usize, suffix: &str) -> bool {
     let r = ui.add(egui::Slider::new(v, range).fixed_decimals(decimals).suffix(suffix));
-    register(ui.ctx(), format!("slider:{id}"), r.rect);
+    register(ui, format!("slider:{id}"), r.rect);
     r.changed()
 }
 
 fn slider_u32(ui: &mut egui::Ui, id: &str, v: &mut u32, range: std::ops::RangeInclusive<u32>, suffix: &str) -> bool {
     let r = ui.add(egui::Slider::new(v, range).suffix(suffix));
-    register(ui.ctx(), format!("slider:{id}"), r.rect);
+    register(ui, format!("slider:{id}"), r.rect);
     r.changed()
 }
 
 fn button(ui: &mut egui::Ui, id: &str, label: &str) -> bool {
     let r = ui.button(tr(label));
-    register(ui.ctx(), format!("button:{id}"), r.rect);
+    register(ui, format!("button:{id}"), r.rect);
     r.clicked()
 }
 
 fn button_enabled(ui: &mut egui::Ui, id: &str, label: &str, enabled: bool) -> bool {
     let r = ui.add_enabled(enabled, egui::Button::new(tr(label)));
-    register(ui.ctx(), format!("button:{id}"), r.rect);
+    register(ui, format!("button:{id}"), r.rect);
     r.clicked()
 }
 
@@ -194,7 +194,7 @@ pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool
     let screen = ctx.content_rect();
     let mut open = true;
     let r = egui::Window::new(tr("Keys and Dials"))
-        .id(egui::Id::new("surfaceEditorWindow"))
+        .id(egui::Id::unique("surfaceEditorWindow"))
         // over the Settings window it was opened from
         .order(egui::Order::Foreground)
         .open(&mut open)
@@ -213,7 +213,7 @@ pub fn editor_window(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool
             layout_section(app, ui, &t, max_h);
         });
     if let Some(r) = r {
-        register(ctx, "window:surfaceEditor", r.response.rect);
+        crate::widgets::register_geometry(ctx, "window:surfaceEditor", r.response.rect);
     }
     if !open && !blocked {
         app.surface.editor.window = false;
@@ -228,7 +228,7 @@ fn learn_and_listen(app: &mut LightcraftApp, ctx: &egui::Context) {
         app.surface.editor.window = true;
         // a Loupedeck+ colour knob: show the colour mode it was turned in
         if let Some(n) = c.strip_prefix("ld.r").and_then(|n| n.parse::<u32>().ok()).filter(|n| (1..=32).contains(n)) {
-            ctx.data_mut(|d| d.insert_temp(egui::Id::new("surfaceLoupedeckMode"), (n - 1) / 8));
+            ctx.data_mut(|d| d.insert_temp(egui::Id::unique("surfaceLoupedeckMode"), (n - 1) / 8));
         }
         app.surface.editor.control = Some(c);
         app.surface.editor.params_text.clear();
@@ -269,7 +269,7 @@ fn top_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                 }
             }
         });
-        register(ui.ctx(), "combo:surfaceProfile", r.response.rect);
+        register(ui, "combo:surfaceProfile", r.response.rect);
     });
 }
 
@@ -346,8 +346,8 @@ fn device_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             };
             ui.painter().circle_filled(pos2(rect.left() + 12.0, rect.center().y), 3.5, dot);
             ui.painter().galley(pos2(rect.left() + 22.0, rect.center().y - galley.size().y / 2.0), galley, color);
-            let r = ui.interact(rect, ui.id().with(("surfaceDevice", *id)), Sense::click());
-            register(ui.ctx(), format!("button:surfaceDevice-{id}"), r.rect);
+            let r = ui.interact(rect, ui.scope_id().with(("surfaceDevice", *id)), Sense::click());
+            register(ui, format!("button:surfaceDevice-{id}"), r.rect);
             let (_, text) = device_status(app, *drawing);
             let r = r.on_hover_text(tr(text));
             if r.clicked() {
@@ -426,7 +426,7 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
                     }
                 }
             });
-            register(ui.ctx(), "combo:surfaceToolPage", r.response.rect);
+            register(ui, "combo:surfaceToolPage", r.response.rect);
         }
     });
     ui.add_space(4.0);
@@ -511,7 +511,7 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
         // Loupedeck's own profiles on this computer, the last changed first: pick one, Import
         // (listed once, then again every 10 s at most: the folders aren't read every frame)
         let now = ui.ctx().input(|i| i.time);
-        let cache = egui::Id::new("surfaceLoupedeckFound");
+        let cache = egui::Id::unique("surfaceLoupedeckFound");
         let found = match ui.ctx().data(|d| d.get_temp::<(f64, Vec<(String, std::path::PathBuf)>)>(cache)) {
             Some((at, found)) if now - at < 10.0 && now >= at => found,
             _ => {
@@ -521,7 +521,7 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
             }
         };
         if !found.is_empty() {
-            let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::new("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
+            let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::unique("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
             ui.label(RichText::new(tr("Loupedeck profile")).color(t.text_label));
             let r = egui::ComboBox::from_id_salt("surfaceLoupedeckProfile").selected_text(found[pick].0.clone()).width(240.0).show_ui(ui, |ui| {
                 for (i, (name, path)) in found.iter().enumerate() {
@@ -530,8 +530,8 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
                     }
                 }
             });
-            register(ui.ctx(), "combo:surfaceLoupedeckProfile", r.response.rect);
-            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("surfaceLoupedeckPick"), pick));
+            register(ui, "combo:surfaceLoupedeckProfile", r.response.rect);
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique("surfaceLoupedeckPick"), pick));
             if button(ui, "surfaceImportLoupedeck", "Import") {
                 let r = app_run_import(app, &found[pick].1.to_string_lossy());
                 report(app, r);
@@ -554,7 +554,7 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
     let selected = app.surface.editor.control.clone();
     let mut clicked: Option<String> = None;
     // the P1–P8 knobs send other numbers in each of the console's colour modes: show one mode
-    let mode_id = egui::Id::new("surfaceLoupedeckMode");
+    let mode_id = egui::Id::unique("surfaceLoupedeckMode");
     let mut mode = ui.ctx().data(|d| d.get_temp::<u32>(mode_id)).unwrap_or(0).min(3);
     let mut grid = |app: &LightcraftApp, ui: &mut egui::Ui| {
         let cell = |ui: &mut egui::Ui, id: &str, size: f32, clicked: &mut Option<String>| {
@@ -574,8 +574,8 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
             let name_rect = Rect::from_min_size(pos2(area.left(), face.bottom() + 1.0), vec2(size, 14.0));
             if let Some(p) = press {
                 let chip = Rect::from_center_size(pos2(face.right() - 9.0, face.bottom() - 6.0), vec2(16.0, 12.0));
-                let r = ui.interact(chip, ui.id().with(("surfacePress", &p)), Sense::click());
-                register(ui.ctx(), format!("button:surfaceControl-{p}"), chip);
+                let r = ui.interact(chip, ui.scope_id().with(("surfacePress", &p)), Sense::click());
+                register(ui, format!("button:surfaceControl-{p}"), chip);
                 let on = selected.as_deref() == Some(p.as_str());
                 let has = profile.base.contains_key(&p) || ls::loupedeck::default_binding(&p).is_some();
                 ui.painter().rect_filled(
@@ -773,13 +773,13 @@ fn draw_ring(ui: &mut egui::Ui, t: &Tokens, w: f32, slots: &[View], selected: Op
 #[allow(clippy::too_many_arguments)]
 fn draw_control(ui: &mut egui::Ui, t: &Tokens, rect: Rect, control: &str, view: (&str, Option<&str>, bool), selected: bool, round: bool) -> bool {
     let (label, icon, inherited) = view;
-    let id = ui.id().with(("surfaceControl", control));
+    let id = ui.scope_id().with(("surfaceControl", control));
     let r = ui.interact(rect, id, Sense::click());
-    register(ui.ctx(), format!("button:surfaceControl-{control}"), rect);
+    register(ui, format!("button:surfaceControl-{control}"), rect);
     // an action dragged from the list onto this control: it does that from now on
     let dragging = r.dnd_hover_payload::<DragAction>().is_some();
     if let Some(p) = r.dnd_release_payload::<DragAction>() {
-        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(DROP_ID), (control.to_string(), (*p).clone())));
+        ui.ctx().data_mut(|d| d.insert_temp(egui::Id::unique(DROP_ID), (control.to_string(), (*p).clone())));
     }
     let p = ui.painter();
     let fill = if r.hovered() || dragging { Color32::from_gray(42) } else { Color32::from_gray(26) };
@@ -840,7 +840,7 @@ const DROP_ID: &str = "surfaceDrop";
 fn drag_preview(ui: &egui::Ui, t: &Tokens) {
     let Some(d) = egui::DragAndDrop::payload::<DragAction>(ui.ctx()) else { return };
     let Some(at) = ui.ctx().pointer_latest_pos() else { return };
-    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("surfaceDragPreview")));
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::unique("surfaceDragPreview")));
     let galley = painter.layout_no_wrap(d.label.clone(), FontId::proportional(12.0), t.text);
     let rect = Rect::from_min_size(at + vec2(14.0, 6.0), vec2(galley.size().x + 36.0, 26.0));
     painter.rect_filled(rect, CornerRadius::same(5), t.inset);
@@ -854,7 +854,7 @@ fn drag_preview(ui: &egui::Ui, t: &Tokens) {
 /// An action dropped on a control this frame: set it (on `page`) and select the control. A dial
 /// takes only values and page turns.
 fn apply_drop(app: &mut LightcraftApp, ui: &egui::Ui, page: &str) {
-    let id = egui::Id::new(DROP_ID);
+    let id = egui::Id::unique(DROP_ID);
     let Some((control, d)) = ui.ctx().data_mut(|m| {
         let v = m.get_temp::<(String, DragAction)>(id);
         m.remove::<(String, DragAction)>(id);
@@ -894,8 +894,8 @@ fn draw_keypad(ui: &mut egui::Ui, t: &Tokens, w: f32, keys: &[View], selected: O
     for (i, (s, glyph)) in [(-1, "‹"), (1, "›")].into_iter().enumerate() {
         let x = if s < 0 { body.left() + pad } else { body.right() - pad - bw };
         let r = Rect::from_min_size(pos2(x, y), vec2(bw, 26.0));
-        let resp = ui.interact(r, ui.id().with(("surfacePageButton", i)), Sense::click());
-        register(ui.ctx(), format!("button:surfaceKeypadPage-{}", if s < 0 { "previous" } else { "next" }), r);
+        let resp = ui.interact(r, ui.scope_id().with(("surfacePageButton", i)), Sense::click());
+        register(ui, format!("button:surfaceKeypadPage-{}", if s < 0 { "previous" } else { "next" }), r);
         ui.painter().rect_filled(r, CornerRadius::same(6), if resp.hovered() { Color32::from_gray(42) } else { Color32::from_gray(30) });
         ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, glyph, FontId::proportional(16.0), t.text);
         if resp.on_hover_text(tr(if s < 0 { "Previous page" } else { "Next page" })).clicked() {
@@ -1213,7 +1213,7 @@ fn action_picker(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, control
                         }
                         ui.add(egui::Button::selectable(selected, label.as_str())).interact(Sense::click_and_drag())
                     });
-                    register(ui.ctx(), format!("item:surfaceAction-{key}"), resp.inner.rect);
+                    register(ui, format!("item:surfaceAction-{key}"), resp.inner.rect);
                     // drag it onto a key, button or dial of the drawing
                     resp.inner.dnd_set_drag_payload(DragAction { binding: b.clone(), label: label.clone(), icon });
                     if resp.inner.clicked() {
@@ -1221,7 +1221,7 @@ fn action_picker(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, control
                     }
                 }
             });
-            register(ui.ctx(), format!("group:surfaceActions-{g}"), r.header_response.rect);
+            register(ui, format!("group:surfaceActions-{g}"), r.header_response.rect);
         }
         if shown == 0 {
             hint(ui, t, "No action matches.");
@@ -1333,7 +1333,7 @@ fn contexts(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                         }
                     }
                 });
-            register(ui.ctx(), format!("combo:surfaceContext-{key}"), r.response.rect);
+            register(ui, format!("combo:surfaceContext-{key}"), r.response.rect);
         });
     }
 }
@@ -1410,7 +1410,7 @@ fn connection(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     row(ui, t, "Port", |ui| {
         let mut port = u32::from(app.surface.settings().port);
         let r = ui.add(egui::DragValue::new(&mut port).range(1024..=65535));
-        register(ui.ctx(), "drag:surfacePort", r.rect);
+        register(ui, "drag:surfacePort", r.rect);
         if r.changed() {
             app.surface.runtime.settings_mut().port = u16::try_from(port).unwrap_or(ls::settings::DEFAULT_PORT);
             app.surface.changed();
@@ -1612,7 +1612,7 @@ fn feel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                 }
             }
         });
-        register(ui.ctx(), "combo:surfaceTuningTarget", r.response.rect);
+        register(ui, "combo:surfaceTuningTarget", r.response.rect);
     });
     let mut tu = app.surface.settings().tuning_of(&target);
     let mut c = false;
@@ -1631,7 +1631,7 @@ fn feel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.label(RichText::new(tr("Presets for every value:")).color(t.text_label));
         for (name, desc, tuning) in ls::settings::tuning_presets() {
             let r = ui.button(tr(name)).on_hover_text(tr(desc));
-            register(ui.ctx(), format!("button:surfacePreset-{name}"), r.rect);
+            register(ui, format!("button:surfacePreset-{name}"), r.rect);
             if r.clicked() {
                 let s = app.surface.runtime.settings_mut();
                 for spec in ls::targets::all_targets() {

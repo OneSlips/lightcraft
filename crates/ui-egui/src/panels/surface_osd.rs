@@ -83,12 +83,12 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     let opacity = osd.opacity.clamp(0.1, 1.0) as f32 * fade;
     let (r, g, b) = ls::settings::rgb(&osd.background).unwrap_or((32, 32, 32));
     let t = Tokens::get(ctx);
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("surface_osd")));
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::unique("surface_osd")));
     let width = WIDTH.min(area.width() - 16.0).max(160.0);
     let rect = Rect::from_center_size(pos2(center_x, y), vec2(width, HEIGHT));
     painter.rect_filled(rect, HEIGHT / 2.0, Color32::from_rgb(r, g, b).gamma_multiply(opacity));
     painter.rect_stroke(rect, HEIGHT / 2.0, egui::Stroke::new(1.0, Color32::from_white_alpha(40).gamma_multiply(fade)), egui::StrokeKind::Inside);
-    crate::widgets::register(ctx, "osd:surface", rect);
+    crate::widgets::register_geometry(ctx, "osd:surface", rect);
     let title_c = Color32::from_rgb(220, 220, 220).gamma_multiply(fade);
     let value_c = Color32::WHITE.gamma_multiply(fade);
     // the action's icon (the same one the surface's key shows) at the left of the pill

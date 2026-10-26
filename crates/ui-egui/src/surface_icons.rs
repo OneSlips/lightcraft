@@ -13,7 +13,7 @@ type Cache = Arc<Mutex<HashMap<(String, u32), Option<egui::TextureHandle>>>>;
 const MAX_CACHED: usize = 1024;
 
 fn cache(ctx: &egui::Context) -> Cache {
-    ctx.data_mut(|d| d.get_temp_mut_or_default::<Cache>(egui::Id::new("surfaceIcons")).clone())
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Cache>(egui::Id::unique("surfaceIcons")).clone())
 }
 
 /// Rasterise an SVG to `px` × `px` straight RGBA (`None`: not an SVG resvg reads).
