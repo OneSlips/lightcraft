@@ -353,7 +353,12 @@ fn select_by(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let active = s.selection.active.filter(|a| ids.contains(a)).or(ids.first().copied());
     let n = ids.len();
-    s.selection = Selection { ids, active };
+    let selection = Selection { ids, active };
+    if selection != s.selection {
+        // chosen by flag, rating or label: no longer "every photo of the view"
+        s.all_selected = None;
+    }
+    s.selection = selection;
     Ok(json!({"selected": n}))
 }
 
@@ -692,8 +697,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("library.select", format!("no such photo {}", id.0)));
                 }
                 s.end_interaction()?;
-                // a selection changed by hand is no longer "every photo of the view"
-                s.all_selected = None;
+                let before = s.selection.clone();
                 match mode {
                     "replace" => {
                         s.selection = Selection { ids: ids.clone(), active: active.or(ids.first().copied()) };
@@ -720,6 +724,11 @@ pub fn specs() -> Vec<CommandSpec> {
                     }
                     other => return Err(bad("library.select", format!("unknown mode `{other}`"))),
                 }
+                // a selection changed by hand is no longer "every photo of the view" (a click that changes nothing
+                // keeps it)
+                if s.selection != before {
+                    s.all_selected = None;
+                }
                 s.active_mask = None;
                 s.active_spot = None;
                 Ok(json!({"selected": s.selection.ids.len()}))
@@ -735,7 +744,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, _| {
                 let vis = s.visible_cloned();
                 s.selection = Selection { active: s.selection.active.filter(|a| vis.contains(a)).or(vis.first().copied()), ids: vis };
-                s.all_selected = s.visible_key.as_ref().map(|k| k.1.clone());
+                s.all_selected = s.visible_view.clone();
                 Ok(json!({"selected": s.selection.ids.len()}))
             }
         ),

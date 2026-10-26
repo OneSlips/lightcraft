@@ -240,6 +240,10 @@ pub struct Session {
     /// Shared, so frontends can hold it across frames without copying ([`Session::visible_shared`]).
     visible: Arc<[PhotoId]>,
     visible_key: Option<(u64, String)>,
+    /// The view [`Session::visible`] last worked out, told apart as a held view is: by source, filter, sort and
+    /// smart-album rules, not by the background checks of Missing Photos that fill it in. What Select All
+    /// (`Session::all_selected`) is tied to.
+    pub(crate) visible_view: Option<String>,
     /// The minute used for a cached view whose rules depend on the session clock.
     visible_clock_minute: Option<String>,
     /// A view holds the photos it shows until it is refreshed (`library.holdView`): an edit that makes a photo stop
@@ -461,6 +465,7 @@ impl Session {
             selection: Selection::default(),
             visible: Vec::new().into(),
             visible_key: None,
+            visible_view: None,
             visible_clock_minute: None,
             hold_view: false,
             base: None,
@@ -1148,7 +1153,7 @@ impl Session {
             };
             // what the view shows now is what the next edit is followed from, and what it holds until it is
             // refreshed (taken before stacks are arranged, so a photo folded into a stack is held with it)
-            self.base = (!whole || holds).then(|| (view, self.catalog.revision, visible.clone()));
+            self.base = (!whole || holds).then(|| (view.clone(), self.catalog.revision, visible.clone()));
             if visible.is_empty() && self.source == LibrarySource::LibraryFolder && !self.folder_holds_photos() {
                 // the shown folder lost its last photo (deleted, moved, removed): everything, not
                 // an empty grid under the name of a folder that is gone from the sidebar
@@ -1196,10 +1201,11 @@ impl Session {
                 visible = self.catalog.arrange_stacks(&visible);
             }
             // another view ends Select All: coming back to its view later must not select what was deselected meanwhile
-            if self.all_selected.as_deref().is_some_and(|k| k != key.1) {
+            // (the view as a held view tells it apart: a photo the Missing Photos checks add keeps Select All)
+            if self.all_selected.as_deref().is_some_and(|k| k != view) {
                 self.all_selected = None;
             }
-            if self.all_selected.as_deref() == Some(key.1.as_str()) && self.selection.ids[..] == self.visible[..] && visible[..] != self.visible[..] {
+            if self.all_selected.as_deref() == Some(view.as_str()) && self.selection.ids[..] == self.visible[..] && visible[..] != self.visible[..] {
                 // still "every photo of this view": the photos that came in are selected too
                 self.selection.ids = visible.clone();
                 if self.selection.active.is_none_or(|a| !visible.contains(&a)) {
@@ -1209,6 +1215,7 @@ impl Session {
             self.visible = visible.into();
             self.visible_gen = VISIBLE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             self.visible_key = Some(key);
+            self.visible_view = Some(view);
             self.visible_clock_minute = clocked.then(|| clock_minute(&now).to_owned());
         }
         &self.visible

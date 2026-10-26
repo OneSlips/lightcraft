@@ -85,3 +85,49 @@ fn select_all_ends_with_another_view_and_does_not_come_back_with_its_view() -> R
     assert_eq!(s.selection.ids, vec![PhotoId(1)]);
     Ok(())
 }
+
+#[test]
+fn a_click_that_changes_nothing_keeps_select_all_and_select_by_ends_it() -> Result<()> {
+    let mut s = session(3)?;
+    s.execute("library.selectAll", &json!({}))?;
+    let active = s.selection.active.map(|a| a.0);
+    // a plain click on the active photo of the selection changes nothing: still "every photo of the view"
+    s.execute("library.select", &json!({"ids": [active], "mode": "click"}))?;
+    add(&mut s, 4)?;
+    assert_eq!(s.visible().len(), 4);
+    assert_eq!(s.selection.ids.len(), 4, "the new photo joins Select All");
+    // narrowed by flag, then every photo picked again by flag: chosen by hand, new photos don't join
+    s.execute("library.selectBy", &json!({"flag": "pick"}))?;
+    s.execute("library.selectBy", &json!({"flag": "none"}))?;
+    assert_eq!(s.selection.ids.len(), 4);
+    add(&mut s, 5)?;
+    assert_eq!(s.visible().len(), 5);
+    assert_eq!(s.selection.ids.len(), 4, "Select All ended with the selection by flag");
+    Ok(())
+}
+
+/// Missing Photos fills in as the background checks find files gone: a photo found gone after Select All joins the
+/// selection (the checks are not another view).
+#[test]
+fn select_all_in_missing_photos_takes_in_a_photo_the_checks_find_gone() -> Result<()> {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+    let mut s = session(2)?;
+    // every file is gone (none of these paths exist); answered by a worker, as in the app
+    s.media.availability.set_probe(Arc::new(|_: &str| false));
+    s.media.availability.run_in_background(Arc::new(|| {}));
+    s.source = crate::LibrarySource::Missing;
+    let settle = |s: &mut Session, n: usize| {
+        let until = Instant::now() + Duration::from_secs(10);
+        while s.visible().len() < n && Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        s.visible().len()
+    };
+    assert_eq!(settle(&mut s, 2), 2);
+    s.execute("library.selectAll", &json!({}))?;
+    add(&mut s, 3)?;
+    assert_eq!(settle(&mut s, 3), 3, "the check finds photo 3 gone");
+    assert_eq!(s.selection.ids.len(), 3, "photo 3 joins Select All");
+    Ok(())
+}
