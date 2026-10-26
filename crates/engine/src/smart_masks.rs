@@ -46,9 +46,23 @@ struct Batch {
     total: usize,
     guard: Option<crate::activity::TaskGuard>,
     notes: BTreeSet<String>,
+    /// The jobs each photo still has: the row counts photos, "1 of 3" (note 6 of 2026-10-25).
+    left: std::collections::HashMap<PhotoId, usize>,
+}
+
+impl Batch {
+    /// Photos whose masks are all done.
+    fn photos_done(&self) -> usize {
+        self.total.saturating_sub(self.left.len())
+    }
 }
 
 impl SmartState {
+    /// Any batch at work.
+    pub(crate) fn has_batches(&self) -> bool {
+        !self.batches.is_empty()
+    }
+
     /// Whether AI masks are still being computed for any of `ids` (a batch with work pending).
     pub(crate) fn busy_with(&self, ids: &HashSet<PhotoId>) -> bool {
         self.batches.values().any(|b| b.pending > 0 && b.photos.iter().any(|p| ids.contains(p)))
@@ -480,14 +494,14 @@ impl Session {
             notes.insert(format!("Some masks are approximate until the {m} model is installed (Masking panel: Get the AI Model)"));
         }
         if background && !submitted.is_empty() {
-            // one batch row (client note 34): masks done and failed, the time left; each photo the worker analyzes
-            // shows under it
-            let guard = self.activity.start_batch("ai", "Updating AI masks", crate::activity::Cancel::Yes);
-            guard.progress(0, submitted.len() as u64);
+            // one batch row (client note 34): photos done and failed, the time left; each photo the
+            // worker analyzes shows under it. Background work (finishing an import) has none: the
+            // finishing row shows it.
+            let guard = (!self.segmenter.low_priority).then(|| self.activity.start_batch("ai", "Updating AI masks", crate::activity::Cancel::Yes));
             self.segmenter
                 .smart
                 .batches
-                .insert(batch, Batch { photos, pending: 0, total: submitted.len(), guard: Some(guard), notes: BTreeSet::new() });
+                .insert(batch, Batch { photos, pending: 0, total: 0, guard, notes: BTreeSet::new(), left: Default::default() });
         }
         for (photo, kind, tag) in submitted {
             if background {
@@ -496,6 +510,7 @@ impl Session {
                         queued += 1;
                         if let Some(b) = self.segmenter.smart.batches.get_mut(&batch) {
                             b.pending += 1;
+                            *b.left.entry(photo).or_default() += 1;
                         }
                     }
                     Err(e) => {
@@ -532,11 +547,9 @@ impl Session {
                 self.segmenter.smart.batches.remove(&batch);
             }
             if let Some(b) = self.segmenter.smart.batches.get_mut(&batch) {
-                b.total = b.pending;
-                if let Some(g) = &b.guard {
-                    g.progress(0, b.total as u64);
-                }
+                b.total = b.left.len();
             }
+            self.update_batch_rows();
             self.segmenter.smart.messages.extend(notes.iter().cloned());
         }
         json!({"queued": queued, "updated": updated, "approximate": approximate, "notes": notes, "batch": batch})
@@ -654,7 +667,7 @@ impl Session {
     #[cfg(feature = "sam")]
     pub(crate) fn apply_recipe_outcome(&mut self, o: crate::segment::worker::Outcome, polled: &mut crate::segment::Polled) -> bool {
         let crate::segment::Tag::Recipe { photo, mask, comp, part, batch, key } = o.tag else { return false };
-        let finished = self.finish_batch_job(batch, o.superseded);
+        let finished = self.finish_batch_job(batch, photo);
         if let Some(note) = o.note.clone().filter(|_| !o.superseded) {
             self.batch_note(batch, note, polled);
         }
@@ -714,15 +727,55 @@ impl Session {
         self.segmenter.smart.batches.get(&batch).and_then(|b| b.guard.as_ref()).map(|g| g.id())
     }
 
-    /// Count a job of `batch` done; true when it was the last.
-    fn finish_batch_job(&mut self, batch: u64, _superseded: bool) -> bool {
+    /// Count a job of `batch` (on `photo`) done; true when it was the last.
+    fn finish_batch_job(&mut self, batch: u64, photo: PhotoId) -> bool {
         let Some(b) = self.segmenter.smart.batches.get_mut(&batch) else { return false };
         b.pending = b.pending.saturating_sub(1);
-        if let Some(g) = &b.guard {
-            g.progress((b.total - b.pending.min(b.total)) as u64, b.total as u64);
+        if let Some(n) = b.left.get_mut(&photo) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                b.left.remove(&photo);
+            }
         }
-        b.pending == 0
+        let last = b.pending == 0;
+        self.update_batch_rows();
+        last
     }
+
+    /// The rows of the batches the user asked for (note 6 of 2026-10-25): the photo at work counted
+    /// ("1 of 3", "2 of 3"…), and, before the first one starts, what they wait for ("Waiting for
+    /// Getting photos ready"), never "0 of 3". Cheap: called as jobs finish and on every poll.
+    #[cfg(feature = "sam")]
+    pub(crate) fn update_batch_rows(&mut self) {
+        use std::sync::atomic::Ordering;
+        let shared = self.segmenter.worker.shared.clone();
+        let running = shared.running_batch.load(Ordering::SeqCst);
+        let low = shared.running_low.load(Ordering::SeqCst);
+        for (id, b) in &self.segmenter.smart.batches {
+            let Some(g) = &b.guard else { continue };
+            let (done, total) = (b.photos_done(), b.total);
+            if running == id.wrapping_add(1) {
+                g.progress((done + 1).min(total) as u64, total as u64);
+                g.detail("");
+            } else if done == 0 {
+                g.progress(0, 0);
+                let what = if low {
+                    "Waiting for Getting photos ready"
+                } else if running != 0 {
+                    "Waiting for other AI masks"
+                } else {
+                    ""
+                };
+                g.detail(what);
+            } else {
+                g.progress(done as u64, total as u64);
+                g.detail("");
+            }
+        }
+    }
+
+    #[cfg(not(feature = "sam"))]
+    pub(crate) fn update_batch_rows(&mut self) {}
 
     fn batch_note(&mut self, batch: u64, note: String, polled: &mut crate::segment::Polled) {
         match self.segmenter.smart.batches.get_mut(&batch) {
@@ -1055,5 +1108,45 @@ mod tests {
         assert!((b[0] - 0.2).abs() < 1e-6 && (b[1] - 0.6).abs() < 1e-6 && (b[2] - 0.5).abs() < 1e-6 && (b[3] - 0.9).abs() < 1e-6);
         assert!(seg_box(&SegMask::from_logits(side, &[-1.0; 100])).is_none());
         assert!(seg_box(&SegMask { side: 10, data: "?".into(), rect: None }).is_none());
+    }
+
+    /// Note 6 of 2026-10-25: an AI mask asked for on 3 photos counts its photos, "1 of 3" while
+    /// the first is at work (never "0 of 3"), and while it waits behind the import's background
+    /// work says what it waits for, with an indeterminate bar.
+    #[cfg(feature = "sam")]
+    #[test]
+    fn a_batch_row_counts_its_photos_and_says_what_it_waits_for() {
+        use std::sync::atomic::Ordering;
+        let mut s = crate::Session::new();
+        let guard = s.activity.start_batch("ai", "Updating AI masks", crate::activity::Cancel::Yes);
+        let photos: Vec<PhotoId> = (1..=3).map(PhotoId).collect();
+        // two jobs on the first photo, one on each other
+        let left: HashMap<PhotoId, usize> = [(photos[0], 2), (photos[1], 1), (photos[2], 1)].into_iter().collect();
+        let batch = 7u64;
+        s.segmenter.smart.batches.insert(
+            batch,
+            Batch { photos: photos.iter().copied().collect(), pending: 4, total: 3, guard: Some(guard), notes: BTreeSet::new(), left },
+        );
+        let row = |s: &crate::Session| s.activity.list().into_iter().find(|t| t.kind == "ai").map(|t| (t.done, t.total, t.detail));
+        let shared = s.segmenter.worker.shared.clone();
+        // waiting behind the import's background work
+        shared.running_batch.store(0, Ordering::SeqCst);
+        shared.running_low.store(true, Ordering::SeqCst);
+        s.update_batch_rows();
+        assert_eq!(row(&s), Some((0, 0, "Waiting for Getting photos ready".to_string())));
+        // its first photo at work: 1 of 3
+        shared.running_low.store(false, Ordering::SeqCst);
+        shared.running_batch.store(batch + 1, Ordering::SeqCst);
+        s.update_batch_rows();
+        assert_eq!(row(&s), Some((1, 3, String::new())));
+        // the first photo's first job done: still 1 of 3, the photo isn't
+        assert!(!s.finish_batch_job(batch, photos[0]));
+        assert_eq!(row(&s).map(|r| (r.0, r.1)), Some((1, 3)));
+        // the first photo done, the second at work: 2 of 3
+        assert!(!s.finish_batch_job(batch, photos[0]));
+        assert_eq!(row(&s).map(|r| (r.0, r.1)), Some((2, 3)));
+        assert!(!s.finish_batch_job(batch, photos[1]));
+        assert_eq!(row(&s).map(|r| (r.0, r.1)), Some((3, 3)));
+        assert!(s.finish_batch_job(batch, photos[2]), "the last job ends the batch");
     }
 }

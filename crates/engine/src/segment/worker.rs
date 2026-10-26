@@ -125,6 +125,10 @@ pub struct Job {
     pub batch: Option<(u64, Arc<std::sync::Mutex<std::collections::HashSet<u64>>>)>,
     /// The batch's activity row: the slow steps' rows show under it (client note 34).
     pub parent: Option<u64>,
+    /// Background work (finishing an import): the worker takes every other request first, between
+    /// one of these and the next (note 6 of 2026-10-25: an AI mask asked for on the photos in front
+    /// of the user runs first).
+    pub low: bool,
 }
 
 impl Job {
@@ -255,6 +259,12 @@ pub struct Shared {
     pub loaded: AtomicBool,
     /// Loading the model or encoding a photo right now (the slow parts).
     pub encoding: AtomicBool,
+    /// The request running now: its batch plus one (0: none, or one of no batch) and whether it is
+    /// background work ([`Job::low`]): what a batch that waits behind it says.
+    pub running_batch: std::sync::atomic::AtomicU64,
+    pub running_low: AtomicBool,
+    /// Requests running or queued as background work.
+    pub low_pending: AtomicUsize,
 }
 
 /// Decrements a counter when dropped (also when unwinding).
@@ -263,6 +273,25 @@ struct Done<'a>(&'a AtomicUsize);
 impl Drop for Done<'_> {
     fn drop(&mut self) {
         let _ = self.0.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+    }
+}
+
+/// Says which request runs while alive ([`Shared::running_batch`]).
+struct Running<'a>(&'a Shared);
+
+impl<'a> Running<'a> {
+    fn start(shared: &'a Shared, job: &Job) -> Self {
+        let batch = job.batch.as_ref().map_or(0, |(b, _)| b.wrapping_add(1));
+        shared.running_batch.store(batch, Ordering::SeqCst);
+        shared.running_low.store(job.low, Ordering::SeqCst);
+        Running(shared)
+    }
+}
+
+impl Drop for Running<'_> {
+    fn drop(&mut self) {
+        self.0.running_batch.store(0, Ordering::SeqCst);
+        self.0.running_low.store(false, Ordering::SeqCst);
     }
 }
 
@@ -326,6 +355,9 @@ impl Worker {
             self.shared = Arc::new(Shared::default());
         }
         self.counter(&job).fetch_add(1, Ordering::SeqCst);
+        if job.low {
+            self.shared.low_pending.fetch_add(1, Ordering::SeqCst);
+        }
         let job = match &self.tx {
             Some(tx) => match tx.send(job) {
                 Ok(()) => return Ok(()),
@@ -344,6 +376,9 @@ impl Worker {
             }
             Err(e) => {
                 let _ = self.counter(&job).try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+                if job.low {
+                    let _ = self.shared.low_pending.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| Some(n.saturating_sub(1)));
+                }
                 Err(format!("could not start the AI mask worker: {e}"))
             }
         }
@@ -466,7 +501,11 @@ fn run(rx: &mpsc::Receiver<Job>, shared: &Shared, idle: Duration, mut placement:
         while let Ok(j) = rx.try_recv() {
             queue.push_back(j);
         }
-        let Some(mut job) = queue.pop_front() else { continue };
+        // the user's own requests before background work, each in the order asked
+        let at = queue.iter().position(|j| !j.low).unwrap_or(0);
+        let Some(mut job) = queue.remove(at) else { continue };
+        let _low = job.low.then(|| Done(&shared.low_pending));
+        let _running = Running::start(shared, &job);
         let is_detail = matches!(job.kind, Kind::Detail { .. });
         // counts the job as pending until just before its reply goes out: a caller woken by the
         // reply must not still see the worker busy with it
@@ -1606,7 +1645,34 @@ mod tests {
             activity: None,
             batch: None,
             parent: None,
+            low: false,
         }
+    }
+
+    /// Note 6 of 2026-10-25: a request the user makes is taken before the background work queued
+    /// ahead of it (finishing an import), which goes on after it.
+    #[test]
+    fn the_users_requests_go_before_background_work() {
+        let shared = Shared::default();
+        let (tx, rx) = mpsc::channel();
+        let (jtx, jrx) = mpsc::channel();
+        for _ in 0..3 {
+            let mut j = job(Tag::Wait, &tx);
+            j.low = true;
+            jtx.send(j).unwrap();
+        }
+        // the user's: told apart by how it fails
+        let mut mine = job(Tag::Wait, &tx);
+        mine.kind = Kind::Panic;
+        jtx.send(mine).unwrap();
+        shared.pending.store(4, Ordering::SeqCst);
+        shared.low_pending.store(3, Ordering::SeqCst);
+        drop(jtx);
+        run(&jrx, &shared, Duration::from_secs(60), Placement::Cpu);
+        let order: Vec<bool> = rx.try_iter().map(|o| o.result.unwrap_err().contains("failed unexpectedly")).collect();
+        assert_eq!(order, [true, false, false, false], "the user's first, then the background's");
+        assert_eq!(shared.low_pending.load(Ordering::SeqCst), 0);
+        assert_eq!(shared.running_batch.load(Ordering::SeqCst), 0);
     }
 
     #[test]
