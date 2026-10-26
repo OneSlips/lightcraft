@@ -309,7 +309,8 @@ mod tests {
     /// what is already in it (it used to remove `lib-browse`, `lib-add` and `lib-copy` there).
     #[test]
     fn a_run_never_deletes_what_is_under_work() {
-        let work = std::env::temp_dir().join(format!("lc-bench-cull-work-{}", std::process::id()));
+        // a folder this test owns (made new), so the cleanup below removes nothing else
+        let work = run_dir(&std::env::temp_dir()).unwrap();
         let keep = work.join("lib-browse").join("keep.txt");
         std::fs::create_dir_all(keep.parent().unwrap()).unwrap();
         std::fs::write(&keep, b"mine").unwrap();
