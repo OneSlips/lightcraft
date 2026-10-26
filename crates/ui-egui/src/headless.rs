@@ -1071,6 +1071,10 @@ mod tests {
         assert!(bright > 30, "no text in the top bar ({bright} bright px)");
         // thumbnails arrived (photo textures were drawn)
         assert!(h.app.renderer.thumb_textures() > 0);
+        // and are counted for benchmarks, a count that eviction doesn't lower
+        let r = h.request("ui.inspect", json!({}), SETTLE);
+        let made = r["result"]["perf"]["thumbsMade"].as_u64().unwrap_or(0);
+        assert!(made >= h.app.renderer.thumb_textures() as u64, "{}", r["result"]["perf"]);
     }
 
     #[test]
