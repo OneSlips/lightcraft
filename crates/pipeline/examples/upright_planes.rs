@@ -29,7 +29,7 @@ fn main() {
     for p in paths {
         let key = p.file_stem().unwrap().to_string_lossy().to_string();
         let plane = read_plane(&p);
-        let size = std::env::var("UPRIGHT_SIZE").ok().and_then(|v| v.parse().ok()).unwrap_or(1024);
+        let size = std::env::var("UPRIGHT_SIZE").ok().and_then(|v| v.parse::<usize>().ok()).filter(|&n| n > 0).unwrap_or(1024);
         let a = upright::analyze_plane_at(&plane, size);
         let mut line = serde_json::json!({"key": key});
         for (name, mode) in [("vertical", Upright::Vertical), ("auto", Upright::Auto), ("full", Upright::Full)] {

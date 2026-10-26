@@ -310,7 +310,8 @@ fn vanishing_point_where(segs: &[Segment], ok: impl Fn([f64; 3]) -> bool) -> Opt
     if inl.len() < 2 {
         return None;
     }
-    let v = refine_vp(&inl);
+    // refined, the point must still be one `ok` accepts (else the candidate it came from stands)
+    let v = Some(refine_vp(&inl)).filter(|r| ok(*r)).unwrap_or(v);
     let total: f64 = segs.iter().filter(|s| vp_error(s, v) < thr * 2.0).map(|s| s.len()).sum();
     let count = segs.iter().filter(|s| vp_error(s, v) < thr * 2.0).count();
     (count >= 2).then_some((v, total))
@@ -892,5 +893,30 @@ pub fn homography(g: &Geometry, ow: f64, oh: f64) -> Homography {
             solve_guided(&segs)
         }
         _ => g.upright_transform.unwrap_or(Homography::IDENTITY),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The point refined from a candidate's lines is still held to the same test as the candidate: one that test
+    /// turns down leaves the candidate itself (CodeRabbit on #2966).
+    #[test]
+    fn a_refined_vanishing_point_the_test_refuses_falls_back_to_its_candidate() {
+        // three near-vertical lines that nearly, not exactly, meet far above the photo
+        let segs = [
+            Segment { a: Point::new(-0.5, -0.8), b: Point::new(-0.45, 0.8) },
+            Segment { a: Point::new(0.5, -0.8), b: Point::new(0.45, 0.8) },
+            Segment { a: Point::new(0.0, -0.8), b: Point::new(0.0003, 0.8) },
+        ];
+        // only the candidates made from two of the lines pass; the least-squares point of all three does not
+        let candidates: Vec<[f64; 3]> = (0..3)
+            .flat_map(|i| (i + 1..3).map(move |j| (i, j)))
+            .flat_map(|(i, j)| [norm(cross(segs[i].line(), segs[j].line())), norm(cross(segs[j].line(), segs[i].line()))])
+            .collect();
+        let ok = |v: [f64; 3]| candidates.contains(&v);
+        let (v, _) = vanishing_point_where(&segs, ok).expect("a point");
+        assert!(ok(v), "{v:?} is not one of the candidates");
     }
 }
