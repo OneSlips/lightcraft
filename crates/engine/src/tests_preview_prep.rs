@@ -250,6 +250,38 @@ fn editing_builds_the_view_by_the_library_rows_scope() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// A background build started for one view is stopped when another view is shown (here the
+/// library changes under it), not left building photos no longer shown; it doesn't count as
+/// stopped by the user, so the view now shown is prepared.
+#[test]
+fn a_view_change_stops_the_background_build_for_the_old_view() {
+    let (mut s, root, ids) = library("prep-view", 6);
+    let mode = crate::prep::Mode::Library;
+    // the photo on screen is being made: the build's lanes wait, so it is still running below
+    crate::prep::foreground();
+    for id in &ids[..3] {
+        s.prep_tick(mode, Some(*id), false);
+    }
+    let b = s.preview_build.clone().expect("the view is prepared");
+    assert!(b.running());
+    s.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id: ids[5] }).unwrap();
+    s.prep_tick(mode, Some(ids[2]), false);
+    assert!(b.cancel.load(Ordering::Relaxed), "the old view's build is stopped");
+    // the user steps on in the view now shown
+    for k in 0..600 {
+        s.prep_tick(mode, Some(ids[k % 3]), false);
+        if s.preview_build.as_ref().is_some_and(|p| !std::sync::Arc::ptr_eq(p, &b)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let next = s.preview_build.clone().expect("a build for the view now shown");
+    assert!(!std::sync::Arc::ptr_eq(&next, &b));
+    assert_eq!(next.total, 5);
+    next.cancel.store(true, Ordering::Relaxed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn same_build(s: &Session, b: &std::sync::Arc<crate::cmd::previews::PreviewBuild>) -> bool {
     s.preview_build.as_ref().is_some_and(|p| std::sync::Arc::ptr_eq(p, b))
 }

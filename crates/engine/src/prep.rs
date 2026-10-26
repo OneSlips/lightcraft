@@ -346,6 +346,12 @@ impl Session {
             if b.running() {
                 if !wanted {
                     b.cancel.store(true, Ordering::Relaxed);
+                } else if self.prep.started_for.is_some_and(|sig| sig != signature(&self.visible_cloned(), self)) {
+                    // another view (a folder, a filter, another library): this build's photos are
+                    // not the ones shown; stopped, and the view now shown is prepared in its place
+                    // (not counted as stopped by the user)
+                    b.cancel.store(true, Ordering::Relaxed);
+                    self.prep.started_for = None;
                 } else if let Some(id) = at {
                     b.focus_on(id, backward);
                 }
