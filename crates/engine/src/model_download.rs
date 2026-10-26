@@ -237,9 +237,15 @@ fn run(spec: &Download, sources: &[String], staging: &Path, shared: &Shared) {
             }
             #[cfg(not(target_arch = "wasm32"))]
             Err(e) => {
-                // (what this source sent is not kept: the next one starts afresh)
-                let _ = std::fs::remove_file(&part);
+                // (what this source sent is not kept: the next one starts afresh, or none does
+                // when it can't be removed, as the next would resume from its bytes)
                 errors.push(format!("{}: {}", source_name(source), explain_one(&e)));
+                if let Err(gone) = std::fs::remove_file(&part)
+                    && gone.kind() != std::io::ErrorKind::NotFound
+                {
+                    errors.push(format!("the partial download could not be removed ({gone})"));
+                    break;
+                }
             }
             #[cfg(target_arch = "wasm32")]
             Err(e) => {
@@ -433,6 +439,24 @@ mod tests {
             assert!(why.contains("127.0.0.1"), "each source is named: {why}");
             assert_eq!(std::fs::read_dir(&staging).unwrap().count(), 0, "{pair:?}: nothing kept");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A partial download that can't be removed stops the fallback: the next source would resume
+    /// from its bytes.
+    #[test]
+    fn a_partial_download_that_cannot_be_removed_stops_the_fallback() {
+        let dir = scratch("stuck-part");
+        let staging = dir.join(STAGING);
+        let bytes: Vec<u8> = (0..5_000u32).map(|i| (i % 251) as u8).collect();
+        let spec = spec_for(&bytes);
+        // a folder where the partial file goes: it can't be removed as a file
+        std::fs::create_dir_all(staging.join(format!("{}.part", spec.file_name))).unwrap();
+        let good = format!("{}/{}", serve("200 OK", bytes), spec.file_name);
+        let shared = Shared::new(spec.size_bytes);
+        run(&spec, &[format!("http://127.0.0.1:1/m/{}", spec.file_name), good], &staging, &shared);
+        let State::Failed(why) = shared.get() else { panic!("{:?}", shared.get()) };
+        assert!(why.contains("partial download could not be removed"), "{why}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
