@@ -580,7 +580,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
                 match app.ui.right {
                     R::Masking => {
                         if app.session.active_mask.is_some() {
-                            let _ = app.run("mask.delete", json!({}));
+                            crate::panels::masking::delete_mask(app, None);
                         }
                         continue;
                     }

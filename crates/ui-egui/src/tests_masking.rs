@@ -2027,3 +2027,24 @@ fn the_all_masks_overlay_waits_for_an_ai_selection() {
     assert!(!crate::panels::detail::all_masks_showable(&d, true), "an Object selection is being computed");
     assert!(crate::panels::detail::all_masks_showable(&d, false), "nothing is computing");
 }
+
+/// A deleted mask's id goes to the next new mask: O having hid the deleted one's overlay says nothing about the
+/// new one (CodeRabbit on #2920).
+#[test]
+fn a_new_mask_with_a_deleted_masks_id_shows_its_overlay() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    let mask = h.app.session.active_mask.unwrap();
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h));
+    crate::panels::masking::delete_mask(&mut h.app, None);
+    assert!(h.app.ui.mask_overlay_hidden.is_empty(), "forgotten with the mask");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.4, 0.5], "rx": 0.2, "ry": 0.2}));
+    assert_eq!(h.app.session.active_mask, Some(mask), "the same id again");
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(shown(&h), "the new mask shows");
+    h.settle(SETTLE);
+}

@@ -380,7 +380,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let _ = app.run("mask.invert", json!({}));
             }
             if icon_button(ui, "maskDelete", Icon::Trash, vec2(26.0, 24.0), false, true, "Delete mask").clicked() {
-                let _ = app.run("mask.delete", json!({}));
+                delete_mask(app, None);
             }
         });
     });
@@ -451,7 +451,7 @@ fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, name: &str, vi
         ui.close();
     }
     if ui.button(crate::i18n::tr("Delete Mask")).clicked() {
-        let _ = app.run("mask.delete", json!({"id": id}));
+        delete_mask(app, Some(id));
         ui.close();
     }
 }
@@ -923,6 +923,18 @@ fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 _ => app.ui.brush_flow = v as f32,
             }
         }
+    }
+}
+
+/// Deletes mask `id` of the active photo (`None`: the active mask). A deleted mask's id is free for the next new
+/// one, so whether O hid its overlay goes with it.
+pub(crate) fn delete_mask(app: &mut LightcraftApp, id: Option<u32>) {
+    let (photo, target) = (app.session.active(), id.or(app.session.active_mask));
+    let params = id.map_or_else(|| json!({}), |id| json!({"id": id}));
+    if app.run("mask.delete", params).is_ok()
+        && let (Some(photo), Some(target)) = (photo, target)
+    {
+        app.ui.mask_overlay_hidden.retain(|k| *k != (photo, target));
     }
 }
 
