@@ -495,7 +495,9 @@ pub struct AppSettings {
     /// "Rendering…" while the photo it shows is not the finished render.
     pub loupe_messages: bool,
     /// Settings ▸ Performance ▸ Prepare photos in the background, app-wide (a library may keep its
-    /// own in its `prefs.json`): handed to the session at launch and kept in step with it.
+    /// own in its `prefs.json`): handed to the session at launch and kept in step with it. Read
+    /// leniently: a value this build doesn't know is the defaults, never the other settings lost.
+    #[serde(deserialize_with = "lenient")]
     pub background_prep: lightcraft_engine::prep::PrepSettings,
     /// Shortcuts the user changed (Help ▸ Keyboard Shortcuts): command id → shortcut, `""` = none.
     pub keymap: crate::shortcuts::Keymap,
@@ -1746,6 +1748,16 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
 #[cfg(test)]
 mod loupe_info_tests {
     use super::*;
+
+    /// A background preparation value this build doesn't know (a newer build's scope) reads as the
+    /// defaults and keeps the rest of the settings.
+    #[test]
+    fn an_unknown_background_preparation_value_costs_nothing_else() {
+        let v = serde_json::json!({"filmNames": false, "backgroundPrep": {"culling": {"scope": "someday"}}});
+        let read: AppSettings = serde_json::from_value(v).unwrap();
+        assert_eq!(read.background_prep, lightcraft_engine::prep::PrepSettings::default());
+        assert!(!read.film_names);
+    }
 
     /// The lines chosen in View Options are saved with the app's settings; a settings file from
     /// before they existed, or with a line this build doesn't know, gets the default lines and

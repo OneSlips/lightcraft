@@ -203,6 +203,13 @@ impl Library {
     }
 }
 
+/// [`PrefsFile`]'s `prep`, read leniently (see there).
+fn lenient_prep<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<crate::prep::PrepSettings>, D::Error> {
+    use serde::Deserialize;
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct PrefsFile {
@@ -238,8 +245,10 @@ struct PrefsFile {
     import: crate::import::ImportDefaults,
     /// Thumbnail disk cache budget (MB, 0 = default).
     cache_mb: u32,
-    /// This library's own background preparation settings (`None`: the app-wide ones).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// This library's own background preparation settings (`None`: the app-wide ones). Read
+    /// leniently: a value a newer build wrote that this one doesn't know is `None`, and the rest of
+    /// the file is kept.
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "lenient_prep")]
     prep: Option<crate::prep::PrepSettings>,
     /// Folder for smart previews (default: `Smart Previews` in the library).
     smart_previews_dir: Option<String>,
@@ -889,6 +898,16 @@ fn unlocked_warning(lock: Option<&LibraryLock>) -> Option<String> {
 #[cfg(test)]
 mod resolve_tests {
     use super::*;
+
+    /// A library's background preparation value this build doesn't know reads as none (the
+    /// app-wide settings apply) and keeps the rest of `prefs.json`.
+    #[test]
+    fn an_unknown_background_preparation_value_keeps_the_other_prefs() {
+        let v = serde_json::json!({"cacheMb": 77, "prep": {"culling": {"scope": "someday"}}});
+        let read: PrefsFile = serde_json::from_value(v).unwrap();
+        assert!(read.prep.is_none());
+        assert_eq!(read.cache_mb, 77);
+    }
 
     /// `--library <dir>/catalog.snap` failed with the OS's "File exists" (creating a folder over
     /// the file); it opens the library that file belongs to.

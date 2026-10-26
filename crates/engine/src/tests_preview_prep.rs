@@ -233,6 +233,23 @@ fn the_background_preparation_starts_when_culling_and_can_be_stopped() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// While editing, the whole view's build follows the Library row (its switch and "which photos");
+/// the Editing row's scope is only for the photos kept ready ahead.
+#[test]
+fn editing_builds_the_view_by_the_library_rows_scope() {
+    let (mut s, root, ids) = library("prep-develop", 4);
+    s.execute("prefs.setBackgroundPrep", &json!({"settings": {"develop": {"scope": "onScreen"}, "library": {"scope": "marked"}}})).unwrap();
+    s.execute("photo.rate", &json!({"ids": [ids[1].0], "rating": 3})).unwrap();
+    let mode = crate::prep::Mode::Develop;
+    for id in &ids {
+        s.prep_tick(mode, Some(*id), false);
+    }
+    let b = s.preview_build.clone().expect("the Library row asks for the view while editing");
+    assert_eq!(b.total, 1, "only the marked photos, as the Library row says");
+    b.cancel.store(true, Ordering::Relaxed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn same_build(s: &Session, b: &std::sync::Arc<crate::cmd::previews::PreviewBuild>) -> bool {
     s.preview_build.as_ref().is_some_and(|p| std::sync::Arc::ptr_eq(p, b))
 }
