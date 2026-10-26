@@ -39,6 +39,16 @@ pub struct Ui {
     rejected: Option<String>,
 }
 
+impl Ui {
+    /// Makes Settings ▸ AI Denoise draw from `list` (a `denoise.models.list` reply) instead of asking the engine, so a
+    /// test can show what a build with other compiled-in models would list.
+    #[cfg(test)]
+    pub(crate) fn seed_list(&mut self, now: f64, list: Value) {
+        // dated an hour ahead: still fresh however many frames the test runs
+        self.list = Some((self.epoch, now + 3600.0, list));
+    }
+}
+
 /// Called every frame: keeps the engine's denoise work going and asks for a redraw when a photo's picture appears (the
 /// loupe and the thumbnails then render from it) or while one is being made (the progress).
 /// `pump_background` plus the UI-input half, for hosts/tests that have no phase split (the app's

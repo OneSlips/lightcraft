@@ -237,14 +237,17 @@ fn ai_denoise_without_a_model_explains_instead_of_asking_for_a_file() {
     app.ui.view = crate::state::ViewMode::PhotoGrid;
     let mut h = Headless::new(app, [1400.0, 1000.0], 1.0);
     h.app.session.set_denoise_models_dir(Some(dir.join("denoise-models")));
+    // The list a build with no model to offer gives, whatever models this test build has compiled in (a workspace
+    // build enables the desktop app's default model, which would list it).
+    let mut list = h.app.session.execute("denoise.models.list", &json!({})).unwrap();
+    assert!(!list["dir"].is_null(), "{list}");
+    list["models"] = json!([]);
+    let now = h.app.tick_now();
+    h.app.caches.denoise.seed_list(now, list);
     h.app.ui.dialog = Some(Dialog::Settings { tab: "denoise".into() });
     h.step();
     h.step();
-    let list = h.app.session.execute("denoise.models.list", &json!({})).unwrap();
-    // (a build that offers model downloads lists them instead)
-    if list["models"].as_array().is_some_and(|m| m.is_empty()) && !list["dir"].is_null() {
-        assert!(h.request("ui.widgets", json!({"filter": "denoise:"}), T).to_string().contains("denoise:noModelYet"), "the explanation is shown");
-    }
+    assert!(h.request("ui.widgets", json!({"filter": "denoise:"}), T).to_string().contains("denoise:noModelYet"), "the explanation is shown");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
