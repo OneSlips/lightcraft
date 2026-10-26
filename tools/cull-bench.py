@@ -84,7 +84,7 @@ out["control_rtt_ms"] = stats(rtt)
 if "--skip-browse" not in args:
     t0 = time.perf_counter()
     ex("library.browse", {"path": FOLDER})
-    first = thumbs24 = thumb1 = allp = None
+    first = thumbs12 = thumb1 = allp = None
     shown = 0
     while time.perf_counter() - t0 < 1800:
         st = inspect()
@@ -95,15 +95,16 @@ if "--skip-browse" not in args:
             first = el
         if tt >= 1 and thumb1 is None:
             thumb1 = el
-        if tt >= 12 and thumbs24 is None:
-            thumbs24 = el
+        # twelve thumbnails, or every photo's in a smaller folder
+        if shown and tt >= min(12, shown) and thumbs12 is None:
+            thumbs12 = el
         if first is not None and st.get("import") is None and st.get("scan") is None and allp is None:
             allp = el
-        if allp is not None and thumbs24 is not None:
+        if allp is not None and thumbs12 is not None:
             break
     out["browse_first_photo_s"] = first
     out["browse_first_thumb_s"] = thumb1
-    out["browse_12_thumbs_s"] = thumbs24
+    out["browse_12_thumbs_s"] = thumbs12
     out["browse_all_s"] = allp
     out["photos"] = shown
 
