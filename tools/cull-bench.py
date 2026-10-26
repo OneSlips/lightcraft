@@ -95,8 +95,9 @@ if "--skip-browse" not in args:
             first = el
         if tt >= 1 and thumb1 is None:
             thumb1 = el
-        # twelve thumbnails, or every photo's in a smaller folder
-        if shown and tt >= min(12, shown) and thumbs12 is None:
+        # twelve thumbnails, or every photo's in a smaller folder once it is all loaded
+        loading = st.get("import") is not None or st.get("scan") is not None
+        if shown and tt >= (12 if loading else min(12, shown)) and thumbs12 is None:
             thumbs12 = el
         if first is not None and st.get("import") is None and st.get("scan") is None and allp is None:
             allp = el
