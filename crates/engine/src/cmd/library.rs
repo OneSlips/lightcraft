@@ -692,6 +692,8 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("library.select", format!("no such photo {}", id.0)));
                 }
                 s.end_interaction()?;
+                // a selection changed by hand is no longer "every photo of the view"
+                s.all_selected = None;
                 match mode {
                     "replace" => {
                         s.selection = Selection { ids: ids.clone(), active: active.or(ids.first().copied()) };
@@ -786,6 +788,7 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("library.selectNone", "Deselect All", ["Edit"], Some("Cmd+Shift+A"), "{}", always, |s, _| {
             let a = s.selection.active;
             s.selection = Selection { ids: a.into_iter().collect(), active: a };
+            s.all_selected = None;
             ok()
         }),
         cmd!("library.next", "Next Photo", [], Some("Right"), "{}", always, |s, _| step(s, 1)),

@@ -252,7 +252,8 @@ pub struct Session {
     base: Option<(String, u64, Vec<PhotoId>)>,
     /// Select All (`library.selectAll`) was the last change to the selection, in the view named here: while the
     /// selection is still exactly what the view shows, photos that join the view (an import or the finishing
-    /// queue still adding them) join the selection too (evening note 1: ⌘A selected 312 of 569).
+    /// queue still adding them) join the selection too (⌘A during an import had selected 312 of 569). Any other
+    /// change to the selection, and any other view, ends it.
     pub(crate) all_selected: Option<String>,
     /// How many times the view followed an edit from the list it had, and how many times it was worked out from
     /// every photo (`ui.inspect` → `perf`): what tells a slow library from a slow edit.
@@ -1193,6 +1194,10 @@ impl Session {
             }
             if self.source != LibrarySource::RecentlyDeleted {
                 visible = self.catalog.arrange_stacks(&visible);
+            }
+            // another view ends Select All: coming back to its view later must not select what was deselected meanwhile
+            if self.all_selected.as_deref().is_some_and(|k| k != key.1) {
+                self.all_selected = None;
             }
             if self.all_selected.as_deref() == Some(key.1.as_str()) && self.selection.ids[..] == self.visible[..] && visible[..] != self.visible[..] {
                 // still "every photo of this view": the photos that came in are selected too

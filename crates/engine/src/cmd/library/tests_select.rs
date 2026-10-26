@@ -1,5 +1,5 @@
 //! Selecting as in Lightroom: Shift / ⌘-click keep the active photo, a click inside the selection
-//! keeps it (client note 19), and Select All keeps up with a view that grows (evening note 1).
+//! keeps it, and Select All keeps up with a view that grows.
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
 use serde_json::json;
 
@@ -67,5 +67,21 @@ fn select_all_takes_in_the_photos_that_join_the_view() -> Result<()> {
     add(&mut s, 11)?;
     let _ = s.visible();
     assert_eq!(s.selection.ids.len(), 10);
+    Ok(())
+}
+
+#[test]
+fn select_all_ends_with_another_view_and_does_not_come_back_with_its_view() -> Result<()> {
+    let mut s = session(2)?;
+    s.execute("library.selectAll", &json!({}))?;
+    // narrowed by hand to one photo, then a view that shows only that photo
+    s.execute("library.select", &json!({"ids": [1]}))?;
+    s.execute("library.filter", &json!({"text": "001"}))?;
+    assert_eq!(s.visible().len(), 1);
+    assert_eq!(s.selection.ids, vec![PhotoId(1)]);
+    // back to the first view: photo 2 stays deselected (the old Select All is over)
+    s.execute("library.filter", &json!({"text": ""}))?;
+    assert_eq!(s.visible().len(), 2);
+    assert_eq!(s.selection.ids, vec![PhotoId(1)]);
     Ok(())
 }
