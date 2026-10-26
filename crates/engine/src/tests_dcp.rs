@@ -446,3 +446,23 @@ fn importing_an_unsupported_profile_file_reports_it() {
     assert_eq!(r["failed"], json!([["notes", "not a .cube, .dcp or .zip file"]]), "{r}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A library copy that can't be removed keeps its profile: the command fails and nothing is forgotten, so the
+/// library never holds a profile file it no longer lists (CodeRabbit on #1063).
+#[test]
+fn a_profile_whose_copy_cannot_be_deleted_stays() {
+    let dir = temp_dir("delete-fails");
+    let (mut s, _, dcp_id) = library_with_profile(&dir);
+    let file = s.dcp_profiles.iter().find(|p| p.id == dcp_id).map(|p| PathBuf::from(&p.file)).unwrap();
+    // a folder in the copy's place: removing it as a file fails (as a file in use does)
+    std::fs::remove_file(&file).unwrap();
+    std::fs::create_dir_all(&file).unwrap();
+    let r = s.execute("profile.deleteCamera", &json!({"id": dcp_id}));
+    assert!(r.is_err(), "{r:?}");
+    assert!(s.dcp_profiles.iter().any(|p| p.id == dcp_id), "the profile is still listed");
+    // gone already: deleting just forgets it
+    std::fs::remove_dir_all(&file).unwrap();
+    s.execute("profile.deleteCamera", &json!({"id": dcp_id})).unwrap();
+    assert!(s.dcp_profiles.iter().all(|p| p.id != dcp_id));
+    let _ = std::fs::remove_dir_all(&dir);
+}

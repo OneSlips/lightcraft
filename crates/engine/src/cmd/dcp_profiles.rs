@@ -164,14 +164,20 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     let Some(i) = s.dcp_profiles.iter().position(|x| x.id == id) else {
         return Err(bad(C, format!("no imported camera profile `{id}`")));
     };
-    let entry = s.dcp_profiles.remove(i);
-    s.media.camera_profiles.remove(&id);
-    // the library's copy goes; a file outside the library is the user's and stays
+    // the library's copy goes first; a file outside the library is the user's and stays. A copy that can't be
+    // removed (in use, no access) keeps the profile, so the library never holds a file it no longer lists.
     if let Some(d) = profiles_dir(s)
+        && let Some(entry) = s.dcp_profiles.get(i)
         && Path::new(&entry.file).starts_with(&d)
     {
-        let _ = std::fs::remove_file(&entry.file);
+        match std::fs::remove_file(&entry.file) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(bad(C, format!("could not delete {}: {e}", entry.file))),
+        }
     }
+    s.dcp_profiles.remove(i);
+    s.media.camera_profiles.remove(&id);
     s.profile_favorites.retain(|f| f != &id);
     s.profile_recent.retain(|f| f != &id);
     s.save_prefs()?;
