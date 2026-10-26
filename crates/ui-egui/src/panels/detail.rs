@@ -903,7 +903,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         // what is wanted, and a cached one would leave the photo undecoded)
         let develop = mode == lightcraft_engine::prep::Mode::Develop;
         if let Some(i) = ids.iter().position(|p| *p == id).filter(|_| ahead > 0) {
-            let mut targets = app.look_ahead.targets_n(&ids, i, ahead, BEHIND);
+            // as many each way, nearest first (note 5 of 2026-10-25: a step back finds its photo
+            // made with its settings too)
+            let mut targets = app.look_ahead.nearest_each_way(&ids, i, ahead);
             if prep.scope(mode) == lightcraft_engine::prep::Scope::Marked {
                 targets.retain(|t| lightcraft_engine::prep::marked(&app.session, *t));
             }
@@ -923,7 +925,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     app.ui.settings.prefetch_edge(nr.width().max(nr.height()) * ppp, output_px(&nf).into_iter().max().unwrap_or(1), texture_side);
                 let (w, h) = if na >= 1.0 { (nw, (nw as f32 / na) as usize) } else { ((nw as f32 * na) as usize, nw) };
                 if let Some(mut job) = app.session.loupe_job(nid, w.max(8), h.max(8), !crop_tool) {
-                    if develop {
+                    // (the nearest are decoded and kept; those further only rendered and cached)
+                    if develop && at.abs_diff(i) <= DECODED_AHEAD {
                         job.view_cache = None;
                     }
                     // (asked for already, in this slot: queued, running or made)
@@ -935,6 +938,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 }
             }
         }
+    }
+    // the neighbours' renders hold back background work (finishing an import, building previews)
+    // as the photo on screen does (note 5 of 2026-10-25)
+    if app.renderer.prefetches_pending() > 0 {
+        lightcraft_engine::prep::foreground();
     }
     // until the loupe has this photo: show its cached render / embedded preview / a thumbnail
     if app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id)
@@ -1986,6 +1994,9 @@ fn navigator(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, img: Rect
     Some(frame.expand(5.0))
 }
 
+/// Editing: the neighbours this near each way are decoded and kept, ready for their edits; those
+/// further are rendered with their settings and cached.
+const DECODED_AHEAD: usize = 2;
 /// Neighbour prefetch: below on-screen thumbnails, above background thumbnail refreshes.
 const PREFETCH_PRIORITY: u32 = 4;
 /// Photos prepared ahead at once (each render spreads over the cores already): the others wait,
@@ -2042,6 +2053,13 @@ impl LookAhead {
 
     /// `ahead` photos in the direction of travel from position `i` of `ids`, nearest first, then
     /// `behind` the other way.
+    /// `n` photos each way from `i`, nearest first, the direction of travel first at each distance.
+    pub fn nearest_each_way(&self, ids: &[PhotoId], i: usize, n: usize) -> Vec<PhotoId> {
+        let dir: isize = if self.dir < 0 { -1 } else { 1 };
+        let at = |k: isize| i.checked_add_signed(k).and_then(|j| ids.get(j)).copied();
+        (1..=n.min(ids.len()) as isize).flat_map(|k| [at(dir * k), at(-dir * k)]).flatten().collect()
+    }
+
     pub fn targets_n(&self, ids: &[PhotoId], i: usize, ahead: usize, behind: usize) -> Vec<PhotoId> {
         let dir: isize = if self.dir < 0 { -1 } else { 1 };
         let at = |k: isize| i.checked_add_signed(k).and_then(|j| ids.get(j)).copied();

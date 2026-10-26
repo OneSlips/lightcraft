@@ -160,14 +160,21 @@ fn stepping_through_synced_crops_shows_each_crop_with_no_render() {
         let renders = h.app.renderer.loupe_log.len();
         exec(&mut h, "library.select", json!({"ids": [id]}));
         let mut first = None;
+        // every frame until the render: cut to the crop and filling the view, whatever stands in
+        // (no crop, no-crop, crop flicker: note 5 of 2026-10-25)
+        let mut every = Vec::new();
         let ok = frames(
             &mut h,
             Duration::from_secs(2),
             |h| {
-                if first.is_none()
-                    && let Some((what, d)) = drawn(h, pid)
-                {
-                    first = Some((what, d, h.app.image_rect, h.app.renderer.loupe_log.len()));
+                if let Some((what, d)) = drawn(h, pid) {
+                    if first.is_none() {
+                        first = Some((what, d, h.app.image_rect, h.app.renderer.loupe_log.len()));
+                    }
+                    let full = h.app.image_rect.is_some_and(|v| fills(&d, v));
+                    if !(d.placed && full) {
+                        every.push((what, d.placed, full));
+                    }
                 }
             },
             |_| false,
@@ -191,6 +198,7 @@ fn stepping_through_synced_crops_shows_each_crop_with_no_render() {
         let view = view.expect("a view");
         assert!(fills(&d, view), "photo {id}: the frame is full: {d:?} in {view:?}");
         assert!((view.width() / view.height() - 0.5 * 1.5 / 0.6).abs() < 0.03, "photo {id}: the crop's shape: {view:?}");
+        assert!(every.is_empty(), "photo {id}: frames not cut to the crop or not full: {every:?}");
     }
     delay.store(0, Ordering::Relaxed);
 }
