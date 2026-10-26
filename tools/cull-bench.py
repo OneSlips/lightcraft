@@ -105,6 +105,9 @@ if "--skip-browse" not in args:
             thumbs12 = thumb_times.get(min(12, shown))
         if allp is not None and (thumbs12 is not None or not shown):
             break
+        # a layout that never holds twelve thumbnails: give up on that number a while after loading
+        if allp is not None and el - allp > 30:
+            break
     out["browse_first_photo_s"] = first
     out["browse_first_thumb_s"] = thumb1
     out["browse_12_thumbs_s"] = thumbs12
