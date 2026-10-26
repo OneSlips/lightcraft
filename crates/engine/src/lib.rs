@@ -1202,7 +1202,8 @@ impl Session {
             }
             // another view ends Select All: coming back to its view later must not select what was deselected meanwhile
             // (the view as a held view tells it apart: a photo the Missing Photos checks add keeps Select All)
-            if self.all_selected.as_deref().is_some_and(|k| k != view) {
+            // and so does a selection that is no longer every photo the view showed (an arrow key moved it on)
+            if self.all_selected.as_deref().is_some_and(|k| k != view) || self.selection.ids[..] != self.visible[..] {
                 self.all_selected = None;
             }
             if self.all_selected.as_deref() == Some(view.as_str()) && self.selection.ids[..] == self.visible[..] && visible[..] != self.visible[..] {

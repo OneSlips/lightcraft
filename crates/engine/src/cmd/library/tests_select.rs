@@ -131,3 +131,22 @@ fn select_all_in_missing_photos_takes_in_a_photo_the_checks_find_gone() -> Resul
     assert_eq!(s.selection.ids.len(), 3, "photo 3 joins Select All");
     Ok(())
 }
+
+/// An arrow key after Select All moves the selection on: Select All is over, and a photo that leaves the view and
+/// comes back is not selected again (CodeRabbit on #3030).
+#[test]
+fn select_all_ends_when_an_arrow_key_moves_the_selection() -> Result<()> {
+    let mut s = session(2)?;
+    s.execute("library.filter", &json!({"flag": "none"}))?;
+    s.execute("library.selectAll", &json!({}))?;
+    s.execute("library.select", &json!({"ids": [1], "active": 1, "mode": "click"}))?;
+    s.execute("library.next", &json!({}))?;
+    assert_eq!(s.selection.ids, vec![PhotoId(2)]);
+    // photo 1 leaves the view (rejected), then comes back
+    s.execute("photo.flag", &json!({"flag": "reject", "ids": [1]}))?;
+    assert_eq!(s.visible().len(), 1);
+    s.execute("photo.flag", &json!({"flag": "none", "ids": [1]}))?;
+    assert_eq!(s.visible().len(), 2);
+    assert_eq!(s.selection.ids, vec![PhotoId(2)], "photo 1 is not selected again");
+    Ok(())
+}
