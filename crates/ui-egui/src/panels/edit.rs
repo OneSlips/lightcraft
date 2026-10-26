@@ -1497,7 +1497,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
                 }
                 if all {
                     let r = ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text).strong().size(12.0));
-                    register(ui.ctx(), format!("mixerHeading:{key}"), r.rect);
+                    register(ui, format!("mixerHeading:{key}"), r.rect);
                 }
             });
         });
@@ -1521,7 +1521,7 @@ fn group_tab(ui: &mut egui::Ui, id: &str, label: &str, active: bool) -> egui::Re
         ui.allocate_exact_size(vec2(galley.size().x, 20.0), Sense::click())
     };
     crate::widgets::announce_selected(&resp, label.to_string(), active);
-    register(ui.ctx(), format!("button:{id}"), r);
+    register(ui, format!("button:{id}"), r);
     let colour = if active || resp.hovered() { t.text } else { t.text_dim };
     ui.painter().text(pos2(r.left(), r.center().y), Align2::LEFT_CENTER, label, font, colour);
     if active {
