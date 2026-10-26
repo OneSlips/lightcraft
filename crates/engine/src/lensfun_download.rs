@@ -26,8 +26,10 @@ pub const URL_ENV: &str = "LIGHTCRAFT_LENSFUN_URL";
 /// The file written once every database file is in place: the pin it holds says which data the folder has.
 pub const MARKER: &str = "SOURCE.txt";
 /// The folder inside the database folder where files wait until all have arrived.
+#[cfg(not(target_arch = "wasm32"))]
 const STAGING: &str = ".download";
 /// Largest database file accepted (the biggest is under 1 MB).
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_FILE: u64 = 8 << 20;
 
 /// The database files at [`COMMIT`]: name, size in bytes, SHA-256.
