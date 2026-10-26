@@ -1986,3 +1986,44 @@ fn effect_dropdown_applies_saves_and_shows_the_matching_effect() {
     assert_eq!((a.exposure, a.shadows, a.clarity, a.amount), (0.7, 25.0, 0.0, 50.0));
     assert_eq!(exec(&mut h, "mask.effects", json!({}))["current"], "Lift");
 }
+
+/// A mask O hid stays hidden after O shows another mask: selecting it again doesn't bring it back.
+#[test]
+fn a_mask_hidden_with_o_stays_hidden_after_o_shows_another() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    let a = h.app.session.active_mask.unwrap();
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h), "A hidden");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.4, 0.5], "rx": 0.2, "ry": 0.2}));
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 0.5}}));
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(!shown(&h), "B has settings: its effect shows");
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(shown(&h), "O shows B's overlay");
+    exec(&mut h, "mask.select", json!({"id": a}));
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(!shown(&h), "A is still hidden");
+    h.settle(SETTLE);
+}
+
+/// The all-masks overlay waits while an AI selection is computed: its stand-in would look like the
+/// result.
+#[test]
+fn the_all_masks_overlay_waits_for_an_ai_selection() {
+    use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
+    use lightcraft_geom::Point;
+    let component = |shape| MaskComponent { name: None, op: MaskOp::Add, invert: false, shape };
+    let linear = component(MaskShape::Linear { start: Point::new(0.5, 0.2), end: Point::new(0.5, 0.7) });
+    let mut d = lightcraft_develop::DevelopSettings::default();
+    d.masks.push(Mask { id: 1, components: vec![linear], visible: true, ..Default::default() });
+    assert!(crate::panels::detail::all_masks_showable(&d, true));
+    let object = component(MaskShape::Object { hint: vec![Point::new(0.5, 0.5)], exclude: Vec::new(), seg: None, detail: Vec::new(), edge: 0.0 });
+    d.masks.push(Mask { id: 2, components: vec![object], visible: true, ..Default::default() });
+    assert!(!crate::panels::detail::all_masks_showable(&d, true), "an Object selection is being computed");
+    assert!(crate::panels::detail::all_masks_showable(&d, false), "nothing is computing");
+}

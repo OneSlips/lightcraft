@@ -1605,13 +1605,11 @@ pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> O
 /// Whether the selected mask `m`'s overlay shows (without hovering): O / Always, or Auto and `m`
 /// has no settings ([`overlay_mask`] has the whole rule).
 pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
-    if app.ui.mask_overlay {
-        return true;
-    }
+    // (a mask O hid stays hidden though O showed another since)
     if app.session.active().is_some_and(|photo| app.ui.mask_overlay_hidden.contains(&(photo, m.id))) {
         return false;
     }
-    !mask_has_settings(m)
+    app.ui.mask_overlay || !mask_has_settings(m)
 }
 
 /// Whether mask `m` changes the photo by itself: any adjustment off its default. (Its shape, Refine
@@ -1629,8 +1627,18 @@ pub(crate) fn mask_gesture(app: &LightcraftApp) -> bool {
 /// Whether the selected mask `m` has an AI selection (an Object click or a description) still
 /// being computed. Meanwhile no overlay shows for it: a stand-in would look like the result.
 pub(crate) fn ai_computing(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> bool {
-    app.session.segmenter.busy()
-        && m.components.iter().any(|c| matches!(&c.shape, MaskShape::Prompt { seg: None, .. } | MaskShape::Object { seg: None, .. }))
+    app.session.segmenter.busy() && ai_unfinished(m)
+}
+
+/// Whether mask `m` has an AI selection without its result yet.
+fn ai_unfinished(m: &lightcraft_develop::Mask) -> bool {
+    m.components.iter().any(|c| matches!(&c.shape, MaskShape::Prompt { seg: None, .. } | MaskShape::Object { seg: None, .. }))
+}
+
+/// Whether the all-masks overlay can show: some visible mask has a shape, and none has an AI
+/// selection still being computed (`busy`), whose stand-in would look like the result.
+pub(crate) fn all_masks_showable(d: &DevelopSettings, busy: bool) -> bool {
+    d.masks.iter().any(|m| m.visible && !m.components.is_empty()) && !(busy && d.masks.iter().any(|m| m.visible && ai_unfinished(m)))
 }
 
 /// The diagnostic overlay the loupe shows (the selected mask, Point Color's visualized range,
@@ -1644,7 +1652,7 @@ pub(crate) fn view_overlay(app: &LightcraftApp, d: &DevelopSettings) -> lightcra
     let shown = !adjusting(app);
     // Show every visible mask's region at once (Ctrl+Shift+O / Cmd+Shift+O), ahead of the selected-mask overlay
     // so the shortcut is not shadowed by the single-mask overlay.
-    if shown && app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && d.masks.iter().any(|m| m.visible && !m.components.is_empty()) {
+    if shown && app.ui.right == RightPanel::Masking && app.ui.mask_overlay_all && all_masks_showable(d, app.session.segmenter.busy()) {
         return Overlay::AllMasks {
             view: MaskView::parse(&app.ui.mask_overlay_mode).unwrap_or_default(),
             color: app.ui.mask_overlay_color,
