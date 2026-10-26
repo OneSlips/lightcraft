@@ -153,7 +153,7 @@ fn mask_id(mask: &Mask) -> Option<u32> {
 /// The Effect menu above the mask's sliders.
 pub fn effect_row(app: &mut LightcraftApp, ui: &mut egui::Ui, mask: &Mask) {
     let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 4)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Effect")).font(t.font(12.0)).color(t.text_label));
             let current = fx::matching_effect(&app.session, &mask.adjust);

@@ -89,7 +89,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &Mask) {
         app.ui.mask_point_color = n - 1;
     }
     let sel = app.ui.mask_point_color;
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 8, bottom: 4 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
             let active = app.ui.tool == PICK_TOOL;
@@ -120,7 +120,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &Mask) {
         });
     });
     let Some(p) = m.point_colors.get(sel).copied() else {
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 8 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 4)).show(ui, |ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Pick a colour on the photo with the eyedropper.")).size(12.0).color(t.text_dim));
         });
         return;
@@ -136,7 +136,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, m: &Mask) {
     for s in &POINT[4..] {
         row(app, ui, s);
     }
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 8 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, |ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if text_button(ui, "maskPointColorDelete", crate::i18n::tr("Delete"), false).clicked() {
                 let _ = app.run("mask.deletePointColor", json!({"id": m.id, "index": sel}));

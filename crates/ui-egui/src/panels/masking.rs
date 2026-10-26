@@ -44,7 +44,7 @@ pub fn local_get(a: &LocalAdjustments, key: &str) -> f64 {
 const TILE: f32 = 52.0;
 const TILE_GAP: f32 = 5.0;
 /// Height of a Create New Mask tile.
-const TILE_H: f32 = 44.0;
+const TILE_H: f32 = 36.0;
 /// Room left and right of a tile's label.
 const TILE_PAD: f32 = 3.0;
 
@@ -74,9 +74,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     let d = app.session.develop_of(id).unwrap_or_default();
     header(ui, "Masking");
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(0, 4)).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         let tiles = MASK_KINDS;
         // four 52 pt tiles a row when they and their labels fit, else fewer (wider for a long label)
         let widest = |size: f32| {
@@ -105,12 +105,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                         t.inset
                     },
                 );
-                paint(ui.painter(), Rect::from_center_size(r.center() - vec2(0.0, 6.0), vec2(17.0, 17.0)), *icon, t.text_label);
+                paint(ui.painter(), Rect::from_center_size(r.center() - vec2(0.0, 5.0), vec2(14.0, 14.0)), *icon, t.text_label);
                 // (cut short only in a panel too narrow for the label: the full name on hover)
                 let label = crate::i18n::tr(label);
                 let g = one_line(ui.painter(), label, t.font(size), t.text_dim, tile - 2.0 * TILE_PAD);
                 let elided = g.elided;
-                let at = pos2(r.center().x, r.bottom() - 8.0) - g.size() / 2.0;
+                let at = pos2(r.center().x, r.bottom() - 7.0) - g.size() / 2.0;
                 register(ui.ctx(), format!("maskNewLabel:{kind}"), Rect::from_min_size(at, g.size()));
                 ui.painter().galley(at, g, t.text_dim);
                 let resp = if elided { resp.on_hover_text(label) } else { resp };
@@ -1118,7 +1118,7 @@ fn menu_item(ui: &mut egui::Ui, icon: Icon, label: &str) -> egui::Response {
 
 fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 0 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 0)).show(ui, |ui| {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::i18n::tr("Brush")).font(t.semibold(13.0)));
             if text_button(ui, "brushAdd", crate::i18n::tr("Add"), !app.ui.brush_erase).clicked() {

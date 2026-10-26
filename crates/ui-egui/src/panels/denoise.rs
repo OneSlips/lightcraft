@@ -133,7 +133,7 @@ fn watch_downloads(app: &mut LightcraftApp, ctx: &egui::Context) {
 /// sliders (client note 29): with Auto Sync on, every selected photo switches with it, in one undo step.
 pub fn detail_toggle(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, on: bool, applicable: bool) {
     let mut enabled = on || crate::model_setup::denoise_requested(app, id);
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 6, bottom: 2 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 2)).show(ui, |ui| {
         let r = ui.add_enabled(applicable, egui::Checkbox::new(&mut enabled, crate::i18n::tr("AI Denoise")));
         register(ui.ctx(), "denoise:enabled", r.rect);
         if r.changed() {
@@ -164,7 +164,7 @@ pub(crate) fn settings_bar(ui: &mut egui::Ui, done: u64, total: u64, text: Strin
 pub fn detail_status(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, amount: f64) {
     let t = Tokens::get(ui.ctx());
     let state = app.session.denoise_photo_state(id);
-    let pad = egui::Margin { left: 24, right: 22, top: 0, bottom: 6 };
+    let pad = crate::widgets::row_margin(0, 4);
     let note = |ui: &mut egui::Ui, text: &str, color: egui::Color32| {
         ui.add(egui::Label::new(RichText::new(crate::i18n::tr(text)).size(11.0).color(color)).wrap());
     };

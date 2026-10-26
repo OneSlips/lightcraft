@@ -182,7 +182,7 @@ pub fn section_id(key: &str) -> String {
 }
 
 fn padded(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, add);
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, add);
 }
 
 fn note(ui: &mut egui::Ui, text: &str) {
