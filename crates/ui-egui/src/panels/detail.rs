@@ -3032,7 +3032,7 @@ pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
                     }
                 }
             }
-            register(ui.ctx(), format!("filmpic:{}", id.0), picture);
+            register(ui, format!("filmpic:{}", id.0), picture);
             if resp.clicked() {
                 let m = ui.input(|i| i.modifiers);
                 let compare = app.ui.view == crate::state::ViewMode::Compare;

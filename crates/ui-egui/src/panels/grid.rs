@@ -939,7 +939,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         }
         return;
     }
-    register(ui.ctx(), format!("thumbpic:{}", id.0), picture);
+    register(ui, format!("thumbpic:{}", id.0), picture);
     if resp.clicked() {
         let m = ui.input(|i| i.modifiers);
         let on_picture = resp.interact_pointer_pos().is_none_or(|at| picture.contains(at));
