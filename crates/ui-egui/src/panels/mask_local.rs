@@ -54,7 +54,7 @@ fn value(p: &PointColor, key: &str) -> f64 {
 }
 
 /// A collapsible section header for the mask (open unless the user closed it). True when open.
-fn mask_section(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, title: &str) -> bool {
+pub(crate) fn mask_section(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, title: &str) -> bool {
     let open = !app.ui.mask_sections_closed.iter().any(|s| s == id);
     let (resp, _) = section_header(ui, id, title, open, None);
     if resp.clicked() {

@@ -144,11 +144,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     // header: Edit + Auto / B&W / HDR
     let mut reset_clicked = false;
-    let (hr, _) = ui.allocate_exact_size(vec2(ui.available_width(), 40.0), Sense::hover());
-    ui.painter().text(pos2(hr.left() + 24.0, hr.bottom() - 10.0), Align2::LEFT_CENTER, crate::i18n::tr("Edit"), t.semibold(15.0), t.text);
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 8, bottom: 14 }).show(ui, |ui| {
+    // (no "Edit" title: the tool strip says which panel this is) Auto · B&W · HDR … Reset, one row
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(5, 5)).show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 8.0;
+            ui.spacing_mut().item_spacing.x = 4.0;
             if text_button(ui, "auto", crate::i18n::tr("Auto"), false).clicked() {
                 let _ = app.run("develop.auto", json!({}));
                 app.toast(ui.ctx(), crate::i18n::tr("Auto settings applied"));
@@ -176,7 +175,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     if let Some(why) = &preview_only {
         let reload = egui::Frame::NONE
-            .inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 12 })
+            .inner_margin(crate::widgets::row_margin(0, 4))
             .show(ui, |ui| crate::widgets::preview_only_notice(ui, "edit", why))
             .inner;
         if reload {
@@ -188,7 +187,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         quick_develop(app, ui, n);
     }
     if app.session.auto_sync && n > 1 {
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(crate::widgets::row_margin(0, 4)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(crate::i18n::tr_format!("Auto Sync: edits apply to {n} photos", n = n)).color(t.accent).size(12.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -201,7 +200,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     divider(ui);
     // profile row
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 14, bottom: 14 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, |ui| {
         let name = app.session.profile_info(&d.profile.id).map(|(name, _)| name).unwrap_or("Color");
         let look = crate::i18n::profile_label(&d.profile.id, name).to_string();
         // the camera calibration the look sits on, when it is a camera profile: a line of its own
@@ -211,14 +210,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             .and_then(|cal| app.session.profile_info(cal))
             .map(|(cal_name, _)| crate::i18n::tr_format!("on {calibration}", calibration = cal_name));
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(13.0)).color(t.text_dim));
+            ui.label(egui::RichText::new(crate::i18n::tr("Profile")).font(t.font(12.0)).color(t.text_dim));
             // the browse button first, at the right: the look's name gets the width left (elided)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::icon_button(
                     ui,
                     "profileBrowser",
                     Icon::ProfileGrid,
-                    vec2(28.0, 28.0),
+                    vec2(22.0, 22.0),
                     false,
                     true,
                     crate::i18n::tr("Browse Profiles"),
@@ -228,7 +227,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     let _ = app.run("panel.profiles", json!({}));
                 }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    let font = t.font(15.0);
+                    let font = t.font(13.0);
                     // (the dropdown's chevron takes 20 px)
                     let max = (ui.available_width() - 24.0).max(12.0);
                     let shown = elide_end(&look, max, |s| ui.fonts_mut(|f| f.layout_no_wrap(s.to_string(), font.clone(), t.text).size().x));
@@ -256,12 +255,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     if d.profile.id != "lc.color" {
         control(app, ui, &d, "profile.amount", true);
-        ui.add_space(6.0);
+        ui.add_space(3.0);
     }
     // a raw carrying its own local tone mapping (Apple ProRAW's gain table map): off renders it as
     // Lightroom Classic does, on as the camera does
     if app.session.source_info(id).local_tone.is_some() {
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(crate::widgets::row_margin(0, 4)).show(ui, |ui| {
             let mut on = d.profile.camera_local_tone;
             let r = ui.checkbox(&mut on, crate::i18n::tr("Camera local tone mapping"));
             crate::widgets::register(ui.ctx(), "check:profile.cameraLocalTone", r.rect);
@@ -277,7 +276,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
             control(app, ui, d, c, true);
         }
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         if d.hdr.enabled {
             let open = app.ui.flyout_open("sdrRendition");
             if flyout_row(ui, "sdrRendition", "SDR Rendition", Icon::Sliders, open).clicked() {
@@ -287,7 +286,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 for c in ["hdr.sdrBrightness", "hdr.sdrContrast", "hdr.sdrHighlights", "hdr.sdrShadows", "hdr.sdrWhites", "hdr.sdrClarity"] {
                     control(app, ui, d, c, true);
                 }
-                ui.add_space(6.0);
+                ui.add_space(3.0);
             }
         }
         let open = app.ui.flyout_open("curve");
@@ -297,14 +296,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         if open {
             curve_editor(app, ui, id, d);
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     section(app, ui, &d, "color", "Color", |app, ui, d| {
         // White balance row
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 2)).show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(12.0)).color(t.text_dim));
+                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(12.5), t.text_label);
                 egui::Popup::menu(&r).show(|ui| {
                     for m in WbMode::ALL {
                         if m == WbMode::Custom {
@@ -322,7 +321,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                         ui,
                         "wbPicker",
                         Icon::Picker,
-                        vec2(28.0, 28.0),
+                        vec2(22.0, 22.0),
                         active,
                         true,
                         crate::i18n::tr("White Balance Selector (W)"),
@@ -350,7 +349,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
         control(app, ui, d, "color.vibrance", true);
         control(app, ui, d, "color.saturation", true);
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         let open = app.ui.flyout_open("mixer");
         if flyout_row(ui, "mixer", if crate::is_bw(d) { "B&W Mixer" } else { "Color Mixer" }, Icon::Radial, open).clicked() {
             app.ui.toggle_flyout("mixer");
@@ -365,7 +364,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         if open {
             grading(app, ui, d, id);
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     section(app, ui, &d, "effects", "Effects", |app, ui, d| {
         for c in ["effects.texture", "effects.clarity", "effects.dehaze"] {
@@ -382,7 +381,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             let items: Vec<(&str, &str)> = styles.iter().map(|(_, l, k)| (*l, *k)).collect();
             let active = styles.iter().position(|(v, _, _)| *v == d.vignette.style);
             let mut chosen = None;
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 4)).show(ui, |ui| {
                 chosen = crate::widgets::segmented(ui, "vignetteStyle", &items, active, 3);
             });
             if let Some(i) = chosen {
@@ -402,7 +401,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         {
             control(app, ui, d, c, c == "grain.amount" || d.grain.amount != 0.0);
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     section(app, ui, &d, "detail", "Detail", |app, ui, d| {
         for c in ["detail.sharpenAmount", "detail.sharpenRadius", "detail.sharpenDetail", "detail.sharpenMasking"] {
@@ -424,7 +423,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         // hot, dead and stuck pixels: fixed on the raw data while it is read (raw files only)
         if app.session.catalog.photo(id).is_some_and(|p| p.develops_raw()) {
             sub_title(ui, crate::i18n::tr("Sensor"));
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 4)).show(ui, |ui| {
                 let mut on = d.sensor.fixes_pixels();
                 let r = ui.checkbox(&mut on, crate::i18n::tr("Fix hot and dead pixels")).on_hover_text(crate::i18n::tr(
                     "Replace single stuck, hot or dead sensor pixels. Pixels this camera has shown in several photos are always fixed.",
@@ -451,12 +450,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 }
             });
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     section(app, ui, &d, "retouch", "Retouch", |app, ui, d| super::retouch::panel(app, ui, d, id));
     section(app, ui, &d, "optics", "Optics", |app, ui, d| {
         let has_lens = app.session.catalog.photo(id).is_some_and(|p| p.embedded_lens.is_some());
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
+        egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, |ui| {
             let mut ca = d.optics.remove_ca;
             if ui.checkbox(&mut ca, crate::i18n::tr("Remove Chromatic Aberration")).changed() {
                 let _ = app.run("develop.merge", json!({"settings": {"optics": {"remove_ca": ca}}, "label": "Remove CA"}));
@@ -492,7 +491,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             control(app, ui, d, c, true);
         }
         control(app, ui, d, "optics.vignettingMidpoint", d.optics.vignetting != 0.0);
-        ui.add_space(6.0);
+        ui.add_space(3.0);
         let open = app.ui.flyout_open("defringe");
         if flyout_row(ui, "defringe", crate::i18n::tr("Defringe"), Icon::Picker, open).clicked() {
             app.ui.toggle_flyout("defringe");
@@ -510,7 +509,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             control(app, ui, d, "optics.caRed", true);
             control(app, ui, d, "optics.caBlue", true);
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     // Lightroom Classic's Calibration panel (the cloud app hides it): last, like there.
     section(app, ui, &d, "calibration", "Calibration", |app, ui, d| {
@@ -521,7 +520,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             control(app, ui, d, &format!("calibration.{k}Hue"), true);
             control(app, ui, d, &format!("calibration.{k}Sat"), true);
         }
-        ui.add_space(8.0);
+        ui.add_space(4.0);
     });
     ui.add_space(40.0);
     // A pending numeric edit commits on blur before the explicit Reset takes precedence.
@@ -847,10 +846,21 @@ fn body_hint(app: &mut LightcraftApp, ui: &mut egui::Ui, profile: &str) {
     }
 }
 
+/// A group's caption inside a section (Vignette, Grain, Noise Reduction…): small dim text on the
+/// rows' left margin with a hairline after it to the right margin, so a group reads as one
+/// without a gap of its own.
 pub fn sub_title(ui: &mut egui::Ui, title: &str) {
     let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
-    ui.painter().text(pos2(r.left() + 24.0, r.center().y + 4.0), Align2::LEFT_CENTER, crate::i18n::tr(title), t.semibold(13.0), t.text_label);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    let left = r.left() + crate::widgets::PAD_L;
+    let right = r.right() - crate::widgets::PAD_R;
+    let g = crate::widgets::one_line(ui.painter(), crate::i18n::tr(title), t.semibold(11.0), t.text_dim, (right - left).max(1.0));
+    let y = r.center().y + 2.0;
+    let text_right = left + g.size().x;
+    ui.painter().galley(pos2(left, y - g.size().y / 2.0), g, t.text_dim);
+    if right > text_right + 12.0 {
+        ui.painter().hline((text_right + 6.0)..=right, y.round() + 0.5, egui::Stroke::new(1.0, t.divider.gamma_multiply(0.75)));
+    }
 }
 
 fn section(

@@ -142,23 +142,38 @@ fn the_bin_deletes_and_the_tree_combines() {
     assert!(masks(&h).is_empty());
 }
 
-/// Item 25 (evening retest): hairlines split the mask's sliders into groups (Temp / Tint; the tone
-/// sliders; Texture / Clarity / Dehaze; Hue / Saturation; the detail sliders), each just above
-/// its group's first slider and thin.
+/// Note 25: the mask's sliders sit in sections like the Edit panel's, in Lightroom's order: Tone
+/// (Exposure … Blacks), Color (Temp, Tint, Hue, Saturation), Effects (Texture, Clarity, Dehaze),
+/// Details (Sharpness … Defringe); Amount above them, Refine Edges above the effect (a setting of
+/// the mask's shape). Every mask slider is in one section, and a folded section hides its rows.
 #[test]
-fn hairlines_group_the_mask_sliders() {
+fn the_mask_sliders_sit_in_sections() {
     let mut h = masking();
-    h.request("ui.resize", json!({"width": 1400, "height": 2000}), T);
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.5, 0.5]}));
+    h.request("ui.resize", json!({"width": 1400, "height": 2400}), T);
     h.settle(SETTLE);
     let at = |h: &Headless, id: &str| h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| *r).unwrap_or_else(|| panic!("no {id}"));
-    let mut last = f32::MIN;
-    for (first, before) in [("temp", "amount"), ("exposure", "tint"), ("texture", "blacks"), ("hue", "dehaze"), ("sharpness", "saturation")] {
-        let line = at(&h, &format!("maskGroupLine:{first}"));
-        assert!(line.height() <= 1.5, "{first}: a hairline, not a section divider ({line:?})");
-        assert!(line.top() > at(&h, &format!("slider:{before}")).bottom() - 1.0, "{first}: below {before}");
-        assert!(line.bottom() < at(&h, &format!("slider:{first}")).top(), "{first}: above its first slider");
-        assert!(line.top() > last, "in order");
-        last = line.top();
+    let mut last = at(&h, "slider:amount").bottom() - 1.0;
+    assert!(at(&h, "slider:refine").bottom() <= at(&h, "slider:amount").top(), "Refine Edges above the effect's sliders");
+    let mut seen = Vec::new();
+    for (section, _, keys) in crate::panels::masking::MASK_GROUPS {
+        let head = at(&h, &format!("section:{section}"));
+        assert!(head.top() >= last, "{section} in order");
+        last = head.bottom() - 1.0;
+        for key in *keys {
+            let row = at(&h, &format!("slider:{key}"));
+            assert!(row.top() >= last, "{key} under {section}");
+            last = row.bottom() - 1.0;
+            seen.push(*key);
+        }
     }
-    assert_eq!(h.app.widgets.iter().filter(|(w, _)| w.starts_with("maskGroupLine:")).count(), 5);
+    let mut all: Vec<_> = crate::panels::masking::LOCAL.iter().map(|s| s.id).collect();
+    all.sort_unstable();
+    seen.sort_unstable();
+    assert_eq!(seen, all, "every mask slider in exactly one section");
+    // folding Tone hides its sliders
+    click(&mut h, "section:maskTone");
+    h.settle(SETTLE);
+    assert!(!h.app.widgets.iter().any(|(w, _)| w == "slider:exposure"));
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "slider:temp"));
 }

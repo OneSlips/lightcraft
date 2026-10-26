@@ -192,11 +192,14 @@ fn track_stops(track: &Track) -> Option<Vec<Color32>> {
     })
 }
 
-fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, thumb_x: f32, ring: f32) {
+/// A slider's track: a thin line, a colour gradient where colour is the meaning (Temp, Tint, Hue,
+/// Saturation…), with a small tick at the middle of a centred one. Dimmed when disabled.
+fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, enabled: bool) {
     let p = ui.painter();
     let y = rect.center().y;
-    let h = 1.0;
+    let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
     if let Some(stops) = track_stops(track) {
+        let h = TRACK_COLOR_H / 2.0;
         // gradient: segments between stops
         let n = stops.len().max(2) - 1;
         let steps = 48;
@@ -207,13 +210,25 @@ fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, thumb_x: f32, rin
             let c = lerp(stops[seg.min(n)], stops[(seg + 1).min(n)], local);
             let x0 = rect.left() + rect.width() * a;
             let x1 = rect.left() + rect.width() * b;
-            p.rect_filled(Rect::from_min_max(pos2(x0, y - h - 0.5), pos2(x1 + 0.5, y + h + 0.5)), 0.0, c);
+            p.rect_filled(Rect::from_min_max(pos2(x0, y - h), pos2(x1 + 0.5, y + h)), 0.0, dim(c));
         }
     } else {
-        p.rect_filled(Rect::from_min_max(pos2(rect.left(), y - h), pos2(rect.right(), y + h)), 1.0, t.track);
+        let h = TRACK_H / 2.0;
+        p.rect_filled(Rect::from_min_max(pos2(rect.left(), y - h), pos2(rect.right(), y + h)), 1.0, dim(t.track));
+        if matches!(track, Track::Centered) {
+            // where the slider has no effect
+            p.rect_filled(Rect::from_center_size(pos2(rect.center().x, y), vec2(1.0, 6.0)), 0.0, dim(t.track));
+        }
     }
-    // gap around the hollow thumb
-    p.rect_filled(Rect::from_center_size(pos2(thumb_x, y), vec2(ring * 2.0 + 4.0, 6.0)), 0.0, t.chrome);
+}
+
+/// A slider's handle: a small dot on the track, a little larger while hovered or dragged, ringed
+/// in the panel colour so it stands off a colour track.
+fn paint_handle(ui: &Ui, at: egui::Pos2, hot: bool, color: Color32, t: &Tokens) {
+    let r = if hot { HANDLE_R_HOT } else { HANDLE_R };
+    let p = ui.painter();
+    p.circle_filled(at, r + 1.0, t.chrome);
+    p.circle_filled(at, r, color);
 }
 
 /// Result of a slider interaction this frame.
@@ -246,24 +261,73 @@ pub(crate) fn shown_value(spec: &ControlSpec, v: f64) -> String {
 /// scrub rather than a click that types a value.
 const SCRUB_START: f32 = 3.0;
 
-/// The radius of a slider's hollow ring thumb.
-const THUMB_RING: f32 = 7.0;
+/// The radius of a slider's handle, and while it is hovered or dragged.
+pub(crate) const HANDLE_R: f32 = 4.5;
+pub(crate) const HANDLE_R_HOT: f32 = 5.5;
+/// A plain track's thickness, and a colour track's (a little thicker, so its colours read).
+const TRACK_H: f32 = 2.0;
+const TRACK_COLOR_H: f32 = 3.0;
+/// Space between a slider row's name, track and value.
+const ROW_GAP: f32 = 8.0;
+/// Left and right margins of the panels' rows (sliders, captions, buttons line up on them).
+pub const PAD_L: f32 = 14.0;
+pub const PAD_R: f32 = 12.0;
+/// The panels' row margins, `top` and `bottom` apart, as an egui frame margin.
+pub fn row_margin(top: i8, bottom: i8) -> egui::Margin {
+    egui::Margin { left: PAD_L as i8, right: PAD_R as i8, top, bottom }
+}
+/// The share of a slider row (inside its margins) its name column takes, and that column's
+/// narrowest and widest.
+const LABEL_SHARE: f32 = 0.34;
+const LABEL_MIN: f32 = 56.0;
+const LABEL_MAX: f32 = 120.0;
+/// Width of the value column at a row's right.
+const VALUE_W: f32 = 40.0;
 
-/// A Lightroom slider row (label + value above a track with a hollow ring thumb).
-/// Double-click the label or thumb to reset (hovering either says so). Shift-drag = fine adjustment.
-/// Scroll sideways over it to nudge it. Click the value to type one: Return or clicking away applies it,
-/// Esc keeps the old one. Drag the value sideways to scrub it, as if dragging the thumb (Shift: a tenth
-/// as far).
+/// Where the parts of a one-line slider row sit: the name in a column at the left, the value
+/// right-aligned at the right, the track between them. Each part is the row's full height, so
+/// all of the row takes the pointer. A row too narrow for its parts still gives the track a
+/// point of width (it is divided by).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct RowParts {
+    pub label: Rect,
+    pub track: Rect,
+    pub value: Rect,
+}
+
+pub(crate) fn row_parts(row: Rect) -> RowParts {
+    let left = row.left() + PAD_L;
+    let right = (row.right() - PAD_R).max(left);
+    let w = right - left;
+    let label_w = (w * LABEL_SHARE).clamp(LABEL_MIN, LABEL_MAX).min(w * 0.45);
+    let value_w = VALUE_W.min(w * 0.25);
+    let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
+    let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
+    let track_l = label.right() + ROW_GAP;
+    let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
+    RowParts { label, track, value }
+}
+
+/// The one slider of the app (Edit panel, mask panel, dialogs): ONE row of the panel's
+/// `slider_row_h` — the name at the left, a thin track with a small handle, the value
+/// right-aligned at the right. The whole row takes the pointer: click or drag the track to set the
+/// value there, drag the name or the value sideways to move it from where it is (Shift: a tenth as
+/// far), double-click the name or the handle to reset (hovering either says so), click the value
+/// to type one (Return or clicking away applies it, Esc keeps the old one). Scroll sideways over
+/// it, or the wheel after clicking it, to nudge it; ↑ / ↓ nudge a hovered or focused slider. A
+/// value at its default is dim, a changed one bright.
 pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>) -> SliderOut {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (row, _) = ui.allocate_exact_size(vec2(w, t.slider_row_h), Sense::hover());
-    let pad_l = 24.0;
-    let pad_r = 22.0;
-    let label_rect = Rect::from_min_size(pos2(row.left() + pad_l, row.top() + 4.0), vec2(w - pad_l - pad_r, 18.0));
-    let track_rect = Rect::from_min_max(pos2(row.left() + pad_l, row.top() + 22.0), pos2(row.right() - pad_r, row.top() + 40.0));
+    // the focused row's highlight goes under everything drawn in it
+    let backdrop = ui.painter().add(egui::Shape::Noop);
+    // (a hostile value is drawn at the nearest end, never at NaN)
+    let value = if value.is_finite() { value } else { spec.default };
+    let RowParts { label: label_rect, track: track_rect, value: value_rect } = row_parts(row);
+    let track_w = track_rect.width().max(1.0);
     let id = ui.id().with(spec.id);
-    let resp = ui.interact(track_rect.expand2(vec2(8.0, 2.0)), id, if enabled { Sense::click_and_drag() } else { Sense::hover() });
+    let resp = ui.interact(track_rect.expand2(vec2(HANDLE_R_HOT, 0.0)), id, if enabled { Sense::click_and_drag() } else { Sense::hover() });
     // Keyboard focus survives leaving the row; vertical wheel edits need a fresh click or drag
     // in it (at most one slider is armed: `wheel_slider_key`).
     let wheel_id = id.with("wheel-rem");
@@ -318,17 +382,16 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
             node.add_action(egui::accesskit::Action::Decrement);
         }
     });
-    // the name: double-click it to reset, as the thumb (a disabled slider's name is only text)
-    let label_resp = ui.interact(label_rect, id.with("label"), if enabled { Sense::click() } else { Sense::hover() });
+    // the name: double-click it to reset, as the handle; drag it sideways to move the value from
+    // where it is (a disabled slider's name is only text)
+    let label_resp = ui.interact(label_rect, id.with("label"), if enabled { Sense::click_and_drag() } else { Sense::hover() });
     // say how to reset (issue #1436: the double-click was hard to discover), as the curve channels do
     let reset_hint = crate::i18n::tr_format!("{name} — double-click to reset it", name = label_text);
     let label_resp = if enabled { label_resp.on_hover_text(reset_hint.as_str()) } else { label_resp };
     crate::widgets::announce(&label_resp, crate::i18n::tr_format!("Reset {name}", name = label_text.clone()));
     register(ui.ctx(), format!("sliderLabel:{}", spec.id), label_rect);
     register(ui.ctx(), format!("slider:{}", spec.id), track_rect);
-    // the value: click it to type an exact one, drag it sideways to scrub (over the label, so it
-    // takes the click)
-    let value_rect = Rect::from_min_max(pos2(label_rect.right() - 64.0, label_rect.top()), label_rect.max);
+    // the value: click it to type an exact one, drag it sideways to scrub
     let value_resp = ui.interact(value_rect, id.with("value"), if enabled { Sense::click_and_drag() } else { Sense::hover() });
     crate::widgets::announce(&value_resp, format!("{label_text}: {}", crate::i18n::tr("Click to type a value, drag to change it")));
     register(ui.ctx(), format!("sliderValue:{}", spec.id), value_rect);
@@ -340,11 +403,13 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     // A scrub: the unrounded track position (0..1) it has reached, so a slow drag adds up instead
     // of rounding back to the same step every frame.
     let scrub_id = id.with("scrub-pos");
-    let mut scrub: Option<f64> = if value_resp.dragged() || value_resp.drag_stopped() { ui.data(|m| m.get_temp(scrub_id)) } else { None };
+    // (the name scrubs as the value does)
+    let scrubber = if label_resp.dragged() || label_resp.drag_stopped() { &label_resp } else { &value_resp };
+    let mut scrub: Option<f64> = if scrubber.dragged() || scrubber.drag_stopped() { ui.data(|m| m.get_temp(scrub_id)) } else { None };
     let mut scrub_started = false;
     if enabled
         && scrub.is_none()
-        && value_resp.dragged()
+        && scrubber.dragged()
         && let (Some(origin), Some(p)) = ui.input(|i| (i.pointer.press_origin(), i.pointer.interact_pos()))
         && (p.x - origin.x).abs() >= SCRUB_START
     {
@@ -354,7 +419,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         ui.memory_mut(|m| m.surrender_focus(crate::text_field::id(&format!("sliderField:{}", spec.id))));
         // the travel so far counts, so the value doesn't lag the pointer by the start distance
         let fine = if ui.input(|i| i.modifiers.shift) { 0.1 } else { 1.0 };
-        scrub = Some((spec.position(value) + f64::from((p.x - origin.x) / track_rect.width()) * fine).clamp(0.0, 1.0));
+        scrub = Some((spec.position(value) + f64::from((p.x - origin.x) / track_w) * fine).clamp(0.0, 1.0));
         scrub_started = true;
     }
     if scrub.is_none() {
@@ -377,11 +442,11 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     }
     let mut out = SliderOut::default();
     // value ↔ track position: linear, except for the Kelvin temperature (`ControlSpec::position`)
-    let to_x = |v: f64| track_rect.left() + spec.position(v) as f32 * track_rect.width();
-    let from_x = |x: f32| spec.value_at(f64::from((x - track_rect.left()) / track_rect.width()));
-    // the thumb: a click there doesn't move the value, and resting on it says how to reset (the rest
-    // of the track, which is clicked and dragged, gets no tooltip)
-    let on_thumb = |p: egui::Pos2| (p.x - to_x(value)).abs() <= THUMB_RING + 1.0;
+    let to_x = |v: f64| track_rect.left() + (spec.position(v) as f32).clamp(0.0, 1.0) * track_rect.width();
+    let from_x = |x: f32| spec.value_at(f64::from(((x - track_rect.left()) / track_w).clamp(0.0, 1.0)));
+    // the handle: a click there doesn't move the value, and resting on it says how to reset (the
+    // rest of the track, which is clicked and dragged, gets no tooltip)
+    let on_thumb = |p: egui::Pos2| (p.x - to_x(value)).abs() <= HANDLE_R_HOT + 1.0;
     if enabled && !resp.dragged() && resp.hover_pos().is_some_and(on_thumb) {
         resp.clone().on_hover_text(reset_hint.as_str());
     }
@@ -389,10 +454,10 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     if let Some(mut pos) = scrub {
         // scrubbing the value moves it as dragging the thumb would: the pointer's sideways travel
         // over the track's width (a tenth with Shift), on the control's steps
-        if !scrub_started && value_resp.dragged() {
+        if !scrub_started && scrubber.dragged() {
             let fine = if ui.input(|i| i.modifiers.shift) { 0.1 } else { 1.0 };
             let dx = ui.input(|i| i.pointer.delta().x);
-            pos = (pos + f64::from(dx / track_rect.width()) * fine).clamp(0.0, 1.0);
+            pos = (pos + f64::from(dx / track_w) * fine).clamp(0.0, 1.0);
         }
         let step = spec.step.max(1e-9);
         let nv = ((spec.value_at(pos) / step).round() * step).clamp(spec.min, spec.max);
@@ -401,7 +466,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
             v = nv;
         }
         out.drag_started = scrub_started;
-        if value_resp.drag_stopped() {
+        if scrubber.drag_stopped() {
             out.drag_stopped = true;
             ui.data_mut(|m| m.remove::<f64>(scrub_id));
         } else {
@@ -420,7 +485,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(value_rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
         // the old value is selected when the field takes the focus, so typing replaces it
         let field = crate::text_field::TextField::singleline(&format!("sliderField:{}", spec.id), &mut text)
-            .font(t.font(12.5))
+            .font(t.font(12.0))
             .horizontal_align(egui::Align::RIGHT)
             .width(value_rect.width())
             .margin(egui::Margin::ZERO)
@@ -465,7 +530,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
                 let fine_id = id.with("fine-pos");
                 let dx = ui.input(|i| i.pointer.delta().x);
                 let kept = ui.data(|m| m.get_temp::<f64>(fine_id)).filter(|&p| ((spec.value_at(p) / step).round() * step - value).abs() < step / 2.0);
-                let pos = (kept.unwrap_or_else(|| spec.position(value)) + f64::from(dx / track_rect.width()) * 0.1).clamp(0.0, 1.0);
+                let pos = (kept.unwrap_or_else(|| spec.position(value)) + f64::from(dx / track_w) * 0.1).clamp(0.0, 1.0);
                 ui.data_mut(|m| m.insert_temp(fine_id, pos));
                 spec.value_at(pos)
             } else {
@@ -570,29 +635,51 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     }
     // paint
     let hovered = resp.hovered() || resp.dragged();
-    let text_c = if enabled { t.text_label } else { t.text_disabled };
-    let p = ui.painter();
-    p.text(label_rect.left_center(), Align2::LEFT_CENTER, crate::i18n::tr(label_override.unwrap_or(spec.label)), t.font(12.5), text_c);
+    let hot = enabled && (hovered || scrub.is_some() || label_resp.hovered() || value_resp.hovered());
+    let focused = enabled && resp.has_focus();
+    if focused {
+        // the slider the arrow keys (and the console) move
+        ui.painter().set(backdrop, egui::Shape::rect_filled(row, 2.0, t.hover.gamma_multiply(0.45)));
+    }
+    let name_c = if !enabled {
+        t.text_disabled
+    } else if hot || focused {
+        t.text
+    } else {
+        t.text_label
+    };
+    let font = t.font(12.0);
+    // a name too long for its column is cut short (hovering it shows it whole, with the reset hint)
+    let name = one_line(ui.painter(), &label_text, font.clone(), name_c, label_rect.width());
+    ui.painter().galley(pos2(label_rect.left(), label_rect.center().y - name.size().y / 2.0), name, name_c);
     if typing.is_none() {
-        p.text(label_rect.right_center(), Align2::RIGHT_CENTER, shown_value(spec, v), t.font(12.5), text_c);
+        // a value at its default is dim, a changed one bright: what was touched shows at a glance
+        let changed = (v - spec.default).abs() > spec.step.max(1e-9) / 2.0;
+        let value_c = if !enabled {
+            t.text_disabled
+        } else if changed || hot {
+            t.text
+        } else {
+            t.text_dim
+        };
+        ui.painter().text(value_rect.right_center(), Align2::RIGHT_CENTER, shown_value(spec, v), font, value_c);
         // the scrub pointer, as over Lightroom's values: a drag here changes the value
         if enabled && (value_resp.hovered() || scrub.is_some()) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
         }
     }
-    let ring = THUMB_RING;
-    let tx = to_x(v);
-    paint_track(ui, track_rect, &spec.track, &t, tx, ring);
-    let p = ui.painter();
-    let ring_c = if !enabled {
+    if enabled && label_resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    paint_track(ui, track_rect, &spec.track, &t, enabled);
+    let handle_c = if !enabled {
         t.text_disabled
-    } else if hovered {
+    } else if hovered || scrub.is_some() {
         t.thumb_hover
     } else {
         t.thumb
     };
-    p.circle_filled(pos2(tx, track_rect.center().y), ring, t.chrome);
-    p.circle_stroke(pos2(tx, track_rect.center().y), ring, Stroke::new(2.0, ring_c));
+    paint_handle(ui, pos2(to_x(v), track_rect.center().y), hovered || scrub.is_some(), handle_c, &t);
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
@@ -618,21 +705,27 @@ pub fn nudged(spec: &ControlSpec, value: f64, steps: f64) -> f64 {
     (((value + unit * steps) / step).round() * step).clamp(spec.min, spec.max)
 }
 
-/// Collapsible section header ("› Light"). Returns the response (click toggles).
+/// Collapsible section header ("› Light"): one thin bar of the theme's `section_h`, the chevron
+/// and name at the left, the section's eye (show the photo without it) at the right. The same bar
+/// heads the Edit panel's and the mask panel's sections, and would head a tab's (Tabs layout).
+/// Returns the response (click toggles) and the eye's new state when it was clicked.
 pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: Option<bool>) -> (Response, Option<bool>) {
     let title = crate::i18n::tr(title);
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (r, resp) = ui.allocate_exact_size(vec2(w, 52.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(w, t.section_h), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     register(ui.ctx(), format!("section:{id}"), r);
     let p = ui.painter();
     if ui.rect_contains_pointer(r) {
         p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));
     }
-    let chev = Rect::from_center_size(pos2(r.left() + 30.0, r.center().y), vec2(16.0, 16.0));
+    if resp.has_focus() {
+        p.rect_stroke(r.shrink(1.0), 3.0, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+    }
+    let chev = Rect::from_center_size(pos2(r.left() + PAD_L + 5.0, r.center().y), vec2(12.0, 12.0));
     paint(p, chev, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text_label);
-    p.text(pos2(r.left() + 44.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(14.0), t.text);
+    p.text(pos2(r.left() + PAD_L + 16.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(12.5), t.text);
     let mut toggled = None;
     // shown while the pointer is anywhere on the header: `resp.hovered()` turns false as soon as the
     // pointer is over the eye itself (the eye is on top), which hid the eye before it could be
@@ -640,7 +733,7 @@ pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: O
     if let Some(on) = enabled
         && (ui.rect_contains_pointer(r) || !on)
     {
-        let eye = Rect::from_center_size(pos2(r.right() - 34.0, r.center().y), vec2(18.0, 18.0));
+        let eye = Rect::from_center_size(pos2(r.right() - PAD_R - 8.0, r.center().y), vec2(15.0, 15.0));
         let er = ui.interact(eye, ui.id().with(("eye", id)), Sense::click());
         crate::widgets::announce_selected(&er, crate::i18n::tr("Show / hide"), on);
         register(ui.ctx(), format!("sectionEye:{id}"), eye);
@@ -668,33 +761,35 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     let title = crate::i18n::tr(title);
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
-    let (outer, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
-    let r = Rect::from_min_max(pos2(outer.left() + 16.0, outer.top() + 4.0), pos2(outer.right() - 16.0, outer.bottom() - 4.0));
+    let (outer, _) = ui.allocate_exact_size(vec2(w, 26.0), Sense::hover());
+    let r = Rect::from_min_max(pos2(outer.left() + PAD_L - 4.0, outer.top() + 2.0), pos2(outer.right() - PAD_R + 4.0, outer.bottom() - 2.0));
     let resp = ui.interact(r, ui.id().with(("flyout", id)), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     register(ui.ctx(), format!("flyout:{id}"), r);
     let p = ui.painter();
     p.rect_filled(r, 4.0, if resp.hovered() { t.hover.gamma_multiply(0.8) } else { t.inset });
-    let tile = Rect::from_min_size(pos2(r.left() + 4.0, r.top() + 4.0), vec2(r.height() - 8.0, r.height() - 8.0));
-    p.rect_filled(tile, 3.0, t.chrome.gamma_multiply(1.15));
-    paint(p, tile.shrink(3.0), icon, t.text_label);
-    p.text(pos2(tile.right() + 10.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(13.0), t.text_label);
+    let tile = Rect::from_min_size(pos2(r.left() + 3.0, r.top() + 3.0), vec2(r.height() - 6.0, r.height() - 6.0));
+    paint(p, tile.shrink(1.0), icon, t.text_label);
+    p.text(pos2(tile.right() + 7.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(12.0), t.text_label);
     paint(
         p,
-        Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(16.0, 16.0)),
+        Rect::from_center_size(pos2(r.right() - 10.0, r.center().y), vec2(12.0, 12.0)),
         if open { Icon::ChevronDown } else { Icon::ChevronLeft },
         t.text_label,
     );
     resp
 }
 
+/// Height of the panels' small buttons and segmented controls.
+pub const BUTTON_H: f32 = 20.0;
+
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
     let t = Tokens::get(ui.ctx());
-    let font = t.semibold(11.5);
+    let font = t.semibold(11.0);
     let galley = ui.painter().layout_no_wrap(label.to_string(), font, t.text);
-    let size = vec2((galley.size().x + 18.0).max(37.0), 24.0);
+    let size = vec2((galley.size().x + 14.0).max(34.0), BUTTON_H);
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
     register(ui.ctx(), format!("button:{id}"), r);
@@ -726,7 +821,7 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
             for (j, (label, key)) in row.iter().enumerate() {
                 let label = crate::i18n::tr(label);
                 let i = row_i * per_row + j;
-                let (r, resp) = ui.allocate_exact_size(vec2(seg_w, 24.0), Sense::click());
+                let (r, resp) = ui.allocate_exact_size(vec2(seg_w, BUTTON_H), Sense::click());
                 crate::widgets::announce_selected(&resp, label.to_string(), active == Some(i));
                 register(ui.ctx(), format!("button:{id}-{key}"), r);
                 let fill = if active == Some(i) {
@@ -738,7 +833,7 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
                 };
                 let p = ui.painter();
                 p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-                p.text(r.center(), Align2::CENTER_CENTER, label, t.semibold(11.5), t.text);
+                p.text(r.center(), Align2::CENTER_CENTER, label, t.semibold(11.0), t.text);
                 if resp.clicked() {
                     clicked = Some(i);
                 }
@@ -1017,6 +1112,10 @@ mod numeric_entry_tests;
 #[cfg(test)]
 #[path = "widgets/tests_slider_reset.rs"]
 mod slider_reset_tests;
+
+#[cfg(test)]
+#[path = "widgets/tests_dense_row.rs"]
+mod dense_row_tests;
 
 fn focused_slider_key() -> egui::Id {
     egui::Id::new("lightcraft-focused-slider")

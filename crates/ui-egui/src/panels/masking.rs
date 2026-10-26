@@ -180,7 +180,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let shown = match &selected {
         Some(m) => m.clone(),
         None => {
-            egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 0 }).show(ui, |ui| {
+            egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 0)).show(ui, |ui| {
                 let r =
                     ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tr("Settings for the next mask")).color(t.text_dim).size(11.5)).wrap());
                 register(ui.ctx(), "maskNextSettings", r.rect);
@@ -189,6 +189,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             lightcraft_develop::Mask { id: 0, adjust: app.session.mask_next, ..Default::default() }
         }
     };
+    // the selected mask's edges: a setting of its shape, not one of its effects, so above them
+    if let Some(m) = &selected {
+        let refine = ControlSpec {
+            id: "refine",
+            label: "Refine Edges",
+            section: Section::Light,
+            min: 0.0,
+            max: 100.0,
+            default: 0.0,
+            step: 1.0,
+            decimals: 0,
+            track: Track::Plain,
+        };
+        let out = slider(ui, &refine, m.refine, true, None);
+        apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
+        divider(ui);
+    }
     super::mask_effects::effect_row(app, ui, &shown);
     reset_new_row(app, ui);
     // how strongly the mask's adjustments apply (Lightroom's Amount, Capture One's layer opacity)
@@ -206,57 +223,44 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     // (with no mask selected, mask.adjust sets the next mask's settings)
     let out = slider(ui, &amt, shown.adjust.amount, true, None);
     apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
-    for s in LOCAL {
-        if GROUP_STARTS.contains(&s.id) {
-            group_hairline(ui, s.id);
+    ui.add_space(2.0);
+    // the effect sliders in sections, as the Edit panel's: Tone, Color, Effects, Details
+    for (section, title, keys) in MASK_GROUPS {
+        divider(ui);
+        if !super::mask_local::mask_section(app, ui, section, title) {
+            continue;
         }
-        let v = local_get(&shown.adjust, s.id);
-        let out = slider(ui, s, v, true, None);
-        apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
+        for key in *keys {
+            let Some(s) = LOCAL.iter().find(|s| s.id == *key) else { continue };
+            let v = local_get(&shown.adjust, s.id);
+            let out = slider(ui, s, v, true, None);
+            apply_slider_out(app, s, out, |app, v| app.run("mask.adjust", json!({"values": {s.id: v}})));
+        }
+        ui.add_space(3.0);
     }
     let Some(m) = selected else {
         ui.add_space(30.0);
         return;
     };
-    let refine = ControlSpec {
-        id: "refine",
-        label: "Refine Edges",
-        section: Section::Light,
-        min: 0.0,
-        max: 100.0,
-        default: 0.0,
-        step: 1.0,
-        decimals: 0,
-        track: Track::Plain,
-    };
-    let out = slider(ui, &refine, m.refine, true, None);
-    apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
     // further sections of the mask's adjustments: its own Curve and Point Color
     mask_sections(app, ui, id, &m);
     ui.add_space(30.0);
     let _ = Stroke::NONE;
 }
 
-/// The first slider of each group of the mask's sliders (white balance; tone; presence; colour;
-/// detail): a hairline goes above each, so the long column reads in groups.
-pub(crate) const GROUP_STARTS: &[&str] = &["temp", "exposure", "texture", "hue", "sharpness"];
-
-/// A thin line between two groups of mask sliders: much lighter than a section divider, inset to
-/// the sliders' margins, with a little room above and below.
-fn group_hairline(ui: &mut egui::Ui, first: &str) {
-    let t = Tokens::get(ui.ctx());
-    let w = ui.available_width();
-    let (r, _) = ui.allocate_exact_size(vec2(w, 7.0), Sense::hover());
-    let y = r.center().y.round() + 0.5;
-    let line = Rect::from_min_max(pos2(r.left() + 24.0, y - 0.5), pos2(r.right() - 22.0, y + 0.5));
-    ui.painter().rect_filled(line, 0.0, t.divider.gamma_multiply(0.75));
-    register(ui.ctx(), format!("maskGroupLine:{first}"), line);
-}
+/// The mask's effect sliders in sections (note 25), Lightroom's order: section id (folded state in
+/// `mask_sections_closed`), title, and the `LOCAL` keys in it. Every `LOCAL` key is in one.
+pub(crate) const MASK_GROUPS: &[(&str, &str, &[&str])] = &[
+    ("maskTone", "Tone", &["exposure", "contrast", "highlights", "shadows", "whites", "blacks"]),
+    ("maskColor", "Color", &["temp", "tint", "hue", "saturation"]),
+    ("maskEffects", "Effects", &["texture", "clarity", "dehaze"]),
+    ("maskDetails", "Details", &["sharpness", "noise", "moire", "defringe"]),
+];
 
 /// Reset Settings on New Mask (Lightroom's Reset Sliders Automatically): off, a new mask starts
 /// with the last mask's settings; on, at zero. Remembered.
 fn reset_new_row(app: &mut LightcraftApp, ui: &mut egui::Ui) {
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 4 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(2, 2)).show(ui, |ui| {
         let mut on = app.ui.mask_reset_new;
         let r = ui
             .checkbox(&mut on, crate::i18n::tr("Reset settings on new mask"))
