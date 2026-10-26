@@ -193,6 +193,11 @@ fn browsing_queues_unknown_files_in_the_order_the_view_shows_them() {
     assert_eq!(names(q), ["c.png", "a.png", "gone.png"]);
     let q = crate::import::browse_queue(&input, files.clone(), &Sort { key: SortKey::FileName, ascending: false, ..Sort::default() });
     assert_eq!(names(q), ["gone.png", "c.png", "a.png"]);
+    // by size an unreadable file is last in both directions (it was sized 0, first when ascending)
+    for ascending in [true, false] {
+        let q = crate::import::browse_queue(&input, files.clone(), &Sort { key: SortKey::FileSize, ascending, ..Sort::default() });
+        assert_eq!(names(q).last().map(String::as_str), Some("gone.png"), "ascending {ascending}");
+    }
     let q = crate::import::browse_queue(&input, files, &Sort { key: SortKey::Rating, ..Sort::default() });
     assert_eq!(names(q), ["a.png", "c.png", "gone.png"]);
     let _ = std::fs::remove_dir_all(&dir);

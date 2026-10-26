@@ -666,6 +666,10 @@ pub(crate) fn srgb8_fit(bytes: &[u8], max_w: u32, max_h: u32) -> Result<Option<(
     }
     let budget = DecodeOptions::default();
     check_size(F, m.width as u64, m.height as u64, &budget)?;
+    // as in the general decode: the decoders below walk every APP1 again
+    if m.app1 > MAX_APP1 {
+        return Err(Error::Malformed(F, "too many APP1 markers".into()));
+    }
     let scale_to = (m.width >= max_w.saturating_mul(2) || m.height >= max_h.saturating_mul(2)).then_some((max_w, max_h));
     let non_interleaved = matches!(m.sof, 0xC0 | 0xC1) && m.first_scan_components < m.components;
     let raw =
@@ -812,5 +816,20 @@ mod srgb8_fit_tests {
         let thin = jpeg(1, 300, |_, y| [y as u8, y as u8, y as u8]);
         let (img, _) = srgb8_fit(&thin, 10, 10).unwrap().unwrap();
         assert_eq!((img.width, img.height), (1, 10));
+    }
+
+    /// The 8-bit path refuses an APP1 flood before its decoders walk it again, as the general one does.
+    #[test]
+    fn an_app1_flood_is_refused_by_the_8_bit_path_too() {
+        let b = jpeg(16, 16, |x, y| [x as u8, y as u8, 0]);
+        let mut flood = b[..2].to_vec();
+        for _ in 0..200 {
+            flood.extend_from_slice(&[0xFF, 0xE1, 0x00, 0x02]);
+        }
+        flood.extend_from_slice(&b[2..]);
+        match srgb8_fit(&flood, 8, 8) {
+            Err(Error::Malformed(_, m)) => assert!(m.contains("APP1"), "{m}"),
+            other => panic!("unexpected: {other:?}"),
+        }
     }
 }

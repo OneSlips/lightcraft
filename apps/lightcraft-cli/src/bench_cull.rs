@@ -19,8 +19,9 @@
 //!
 //! Each number is printed as `name: X ms wall` (median, with p95 and n), the format
 //! `cargo xtask bench` parses, and the lot as one JSON object with `--json FILE`. Nothing is
-//! written next to the photos: every library is made under `--work` (default: a folder in the
-//! system temp directory), XMP auto-write stays off, and the source folder is only read.
+//! written next to the photos: every library is made in a new folder of the run's own under
+//! `--work` (default: a folder in the system temp directory; nothing already there is deleted),
+//! XMP auto-write stays off, and the source folder is only read.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -64,12 +65,22 @@ fn line(name: &str, s: &Value) {
     }
 }
 
+/// A new, empty folder `name` in this run's own folder; never deletes anything already there.
 fn fresh_dir(root: &Path, name: &str) -> Result<PathBuf, String> {
     let d = root.join(name);
-    if d.exists() {
-        std::fs::remove_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
-    }
-    std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+    std::fs::create_dir(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+    Ok(d)
+}
+
+/// A folder of this run's own under `work`, which must not exist yet: a run never deletes or
+/// reuses what is already under `--work`.
+fn run_dir(work: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(work).map_err(|e| format!("{}: {e}", work.display()))?;
+    let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let n = RUNS.fetch_add(1, Ordering::Relaxed);
+    let d = work.join(format!("bench-cull-run-{}-{stamp}-{n}", std::process::id()));
+    std::fs::create_dir(&d).map_err(|e| format!("{}: {e}", d.display()))?;
     Ok(d)
 }
 
@@ -126,7 +137,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("{}: not a folder", folder.display()));
     }
     let work = work.unwrap_or_else(|| std::env::temp_dir().join(format!("lightcraft-bench-cull-{}", std::process::id())));
-    std::fs::create_dir_all(&work).map_err(|e| format!("{}: {e}", work.display()))?;
+    let work = run_dir(&work)?;
     let mut out = json!({"folder": folder.display().to_string(), "threads": render_threads()});
 
     // --- browse: the whole folder into the Local view -------------------------------------------
@@ -288,4 +299,26 @@ fn finish(out: Value, json_out: Option<PathBuf>) -> Result<(), String> {
     }
     println!("{}", serde_json::to_string(&out).unwrap_or_default());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `--work` may hold anything: a run makes a new folder of its own there and never deletes
+    /// what is already in it (it used to remove `lib-browse`, `lib-add` and `lib-copy` there).
+    #[test]
+    fn a_run_never_deletes_what_is_under_work() {
+        let work = std::env::temp_dir().join(format!("lc-bench-cull-work-{}", std::process::id()));
+        let keep = work.join("lib-browse").join("keep.txt");
+        std::fs::create_dir_all(keep.parent().unwrap()).unwrap();
+        std::fs::write(&keep, b"mine").unwrap();
+        let a = run_dir(&work).unwrap();
+        let b = run_dir(&work).unwrap();
+        assert_ne!(a, b);
+        fresh_dir(&a, "lib-browse").unwrap();
+        assert!(fresh_dir(&a, "lib-browse").is_err(), "an existing folder is never reused");
+        assert_eq!(std::fs::read(&keep).unwrap(), b"mine");
+        let _ = std::fs::remove_dir_all(&work);
+    }
 }

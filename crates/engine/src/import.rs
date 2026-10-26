@@ -738,9 +738,22 @@ pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
             files.sort_by(|a, b| if asc { name(a).cmp(&name(b)) } else { name(b).cmp(&name(a)) });
         }
         SortKey::FileSize => {
-            files.sort_by_cached_key(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0));
-            if !asc {
-                files.reverse();
+            // unreadable files last, in either direction
+            let mut keyed: Vec<(Option<u64>, String)> = files.iter().map(|f| (std::fs::metadata(f).ok().map(|m| m.len()), f.clone())).collect();
+            keyed.sort_by(|a, b| match (a.0, b.0) {
+                (Some(x), Some(y)) => {
+                    if asc {
+                        x.cmp(&y)
+                    } else {
+                        y.cmp(&x)
+                    }
+                }
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
+            });
+            for (slot, (_, f)) in files.iter_mut().zip(keyed) {
+                *slot = f;
             }
         }
         SortKey::Rating | SortKey::Random => {}
