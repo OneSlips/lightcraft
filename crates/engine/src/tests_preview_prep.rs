@@ -257,8 +257,8 @@ fn editing_builds_the_view_by_the_library_rows_scope() {
 fn a_view_change_stops_the_background_build_for_the_old_view() {
     let (mut s, root, ids) = library("prep-view", 6);
     let mode = crate::prep::Mode::Library;
-    // the photo on screen is being made: the build's lanes wait, so it is still running below
-    crate::prep::foreground();
+    // the build's lanes wait at their foreground check until released below
+    let hold = crate::prep::TestHold::new();
     for id in &ids[..3] {
         s.prep_tick(mode, Some(*id), false);
     }
@@ -266,7 +266,9 @@ fn a_view_change_stops_the_background_build_for_the_old_view() {
     assert!(b.running());
     s.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id: ids[5] }).unwrap();
     s.prep_tick(mode, Some(ids[2]), false);
-    assert!(b.cancel.load(Ordering::Relaxed), "the old view's build is stopped");
+    let stopped = b.cancel.load(Ordering::Relaxed);
+    drop(hold);
+    assert!(stopped, "the old view's build is stopped");
     // the user steps on in the view now shown
     for k in 0..600 {
         s.prep_tick(mode, Some(ids[k % 3]), false);

@@ -254,7 +254,35 @@ pub fn foreground() {
 
 /// Whether the photo on screen is being made now.
 pub fn foreground_busy() -> bool {
+    #[cfg(test)]
+    if TEST_HOLD.load(Ordering::Relaxed) {
+        return true;
+    }
     clock_ms() < FOREGROUND_UNTIL.load(Ordering::Relaxed)
+}
+
+/// Tests: hold every background build at its foreground wait until released (a synchronization
+/// point that doesn't depend on the hold's 250 ms).
+#[cfg(test)]
+static TEST_HOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Holds background builds while it lives (also when the test fails).
+#[cfg(test)]
+pub(crate) struct TestHold;
+
+#[cfg(test)]
+impl TestHold {
+    pub(crate) fn new() -> Self {
+        TEST_HOLD.store(true, Ordering::Relaxed);
+        TestHold
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestHold {
+    fn drop(&mut self) {
+        TEST_HOLD.store(false, Ordering::Relaxed);
+    }
 }
 
 /// Wait while the photo on screen is being made. `true`: `cancel` was set meanwhile.
@@ -280,7 +308,8 @@ pub fn background_lanes() -> usize {
 fn signature(ids: &[PhotoId], s: &Session) -> u64 {
     let mut h = lightcraft_preview::Hasher128::new();
     h.u64(ids.len() as u64).u64(s.catalog.len() as u64);
-    for id in ids.iter().take(64).chain(ids.iter().rev().take(64)) {
+    // every id: a sort that moves photos in the middle is another view
+    for id in ids {
         h.u64(id.0);
     }
     h.finish().0 as u64
