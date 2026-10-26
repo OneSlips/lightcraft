@@ -277,6 +277,8 @@ mod tests_tool_overlay;
 #[cfg(test)]
 mod tests_tool_pan;
 #[cfg(test)]
+mod tests_tool_row;
+#[cfg(test)]
 mod tests_unsaved;
 #[cfg(test)]
 mod tests_upright_note;

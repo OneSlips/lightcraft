@@ -75,13 +75,13 @@ fn a_slider_is_one_row_of_the_dense_height() {
 fn row_parts_never_overlap_or_vanish_at_any_width() {
     for w in [0.0, 1.0, 10.0, 40.0, 120.0, 250.0, 270.0, 520.0, 4000.0] {
         for name in [0.0, 40.0, 1e9, f32::NAN, f32::INFINITY, -5.0] {
-        let p = row_parts(Rect::from_min_size(pos2(0.0, 0.0), vec2(w, 20.0)), name);
-        assert!(p.track.width() >= 1.0, "{w}: a track to divide by: {p:?}");
-        assert!(p.label.right() <= p.track.left(), "{w}: {p:?}");
-        for r in [p.label, p.track, p.value] {
-            assert!(r.min.x.is_finite() && r.max.x.is_finite() && r.width() >= 0.0, "{w}: {p:?}");
+            let p = row_parts(Rect::from_min_size(pos2(0.0, 0.0), vec2(w, 20.0)), name);
+            assert!(p.track.width() >= 1.0, "{w}: a track to divide by: {p:?}");
+            assert!(p.label.right() <= p.track.left(), "{w}: {p:?}");
+            for r in [p.label, p.track, p.value] {
+                assert!(r.min.x.is_finite() && r.max.x.is_finite() && r.width() >= 0.0, "{w}: {p:?}");
+            }
         }
-    }
     }
 }
 

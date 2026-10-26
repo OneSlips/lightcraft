@@ -20,7 +20,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         // photo's histogram (while developing it), then the tool row
         if app.ui.histogram
             && let Some(id) = app.session.active()
-            && matches!(app.ui.right, RightPanel::Edit | RightPanel::Profiles | RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye)
+            && matches!(
+                app.ui.right,
+                RightPanel::Edit | RightPanel::Profiles | RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye
+            )
         {
             super::edit::histogram(app, ui, id);
         }
