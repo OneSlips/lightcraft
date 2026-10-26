@@ -403,6 +403,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                     // the panel a tool panel took the place of, to put back when it closes, survives a ui.set
                     u.tool_return = app.ui.tool_return;
                     u.right_seen = app.ui.right_seen;
+                    // (and what a panel toggle replaced, so pressing its key again still puts that back)
+                    u.toggle_return = app.ui.toggle_return;
                     u.dialog = app.ui.dialog.clone();
                     u.status = app.ui.status.clone();
                     crate::docking::cancel_replaced_gesture(app, u.docking.as_ref());

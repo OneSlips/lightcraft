@@ -143,3 +143,26 @@ fn info_toggled_off_brings_back_exactly_what_was_there() {
     key(&mut h);
     assert_eq!(h.app.ui.right, RightPanel::None, "closed → I → I = closed");
 }
+
+/// A `ui.set` that changes something else (here the panel width) keeps a pending toggle: I still puts Edit back
+/// (CodeRabbit on #3031).
+#[test]
+fn a_ui_set_between_the_two_presses_keeps_the_toggle() {
+    let mut h = detail();
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    let r = h.request("ui.set", json!({"rightWidth": 320.0}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Edit, "Edit → I → ui.set → I = Edit");
+}
+
+/// A tool panel restored from the saved UI state (the panel before it unknown) closes to Edit, not to a hidden column.
+#[test]
+fn a_tool_restored_from_saved_state_closes_to_edit() {
+    let mut ui: crate::state::UiState = serde_json::from_str(r#"{"right": "crop"}"#).unwrap();
+    assert_eq!(ui.right, RightPanel::Crop);
+    ui.note_right();
+    assert_eq!(ui.leave_tool(), RightPanel::Edit);
+}
