@@ -79,8 +79,36 @@ fn slider_interaction(
 pub(crate) fn control(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool) {
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
-    let out = slider(ui, spec, v, enabled, None);
+    let out = slider(ui, spec, v, enabled, short_name(id));
     apply_develop_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
+}
+
+/// The short name a slider shows under its group's caption (Grain ▸ Amount, Red Primary ▸ Hue,
+/// as Lightroom labels them), so a section's name column stays narrow and its tracks long. The
+/// control keeps its full name everywhere else (commands, the console, menus).
+pub(crate) fn short_name(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "vignette.amount" | "grain.amount" | "detail.sharpenAmount" | "optics.defringePurple" | "optics.defringeGreen" => "Amount",
+        "grain.sizeVariation" => "Variation",
+        "detail.nrLuminance" => "Luminance",
+        "detail.nrColor" => "Color",
+        "optics.profileDistortion" => "Distortion",
+        "optics.profileVignetting" => "Vignetting",
+        "optics.defringePurpleHueLo" | "optics.defringeGreenHueLo" => "Hue Low",
+        "optics.defringePurpleHueHi" | "optics.defringeGreenHueHi" => "Hue High",
+        "optics.caRed" => "Red/Cyan",
+        "optics.caBlue" => "Blue/Yellow",
+        "calibration.shadowsTint" => "Tint",
+        "calibration.redHue" | "calibration.greenHue" | "calibration.blueHue" => "Hue",
+        "calibration.redSat" | "calibration.greenSat" | "calibration.blueSat" => "Saturation",
+        "hdr.sdrBrightness" => "Brightness",
+        "hdr.sdrContrast" => "Contrast",
+        "hdr.sdrHighlights" => "Highlights",
+        "hdr.sdrShadows" => "Shadows",
+        "hdr.sdrWhites" => "Whites",
+        "hdr.sdrClarity" => "Clarity",
+        _ => return None,
+    })
 }
 
 /// Relative temperature scale for rendered (non-raw) files: −100..100 ↔ Kelvin via mired shift.
@@ -136,9 +164,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     let preview_only = app.session.catalog.photo(id).and_then(|p| p.preview_only.clone());
 
-    if app.ui.histogram {
-        histogram(app, ui, id);
-    }
+    // (the histogram stands above the panel's scrolling content: `right::show`)
     if app.ui.soft_proof {
         soft_proofing(app, ui, id);
     }
@@ -404,6 +430,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         ui.add_space(4.0);
     });
     section(app, ui, &d, "detail", "Detail", |app, ui, d| {
+        sub_title(ui, crate::i18n::tr("Sharpening"));
         for c in ["detail.sharpenAmount", "detail.sharpenRadius", "detail.sharpenDetail", "detail.sharpenMasking"] {
             control(app, ui, d, c, c == "detail.sharpenAmount" || d.detail.sharpen_amount > 0.0);
         }
@@ -482,6 +509,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         });
         if d.optics.lens_profile {
+            sub_title(ui, crate::i18n::tr("Profile"));
             for c in ["optics.profileDistortion", "optics.profileVignetting"] {
                 control(app, ui, d, c, has_lens);
             }
@@ -497,10 +525,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             app.ui.toggle_flyout("defringe");
         }
         if open {
+            sub_title(ui, crate::i18n::tr("Purple"));
             control(app, ui, d, "optics.defringePurple", true);
             let on = d.optics.defringe_purple_amount > 0.0;
             control(app, ui, d, "optics.defringePurpleHueLo", on);
             control(app, ui, d, "optics.defringePurpleHueHi", on);
+            sub_title(ui, crate::i18n::tr("Green"));
             control(app, ui, d, "optics.defringeGreen", true);
             let on = d.optics.defringe_green_amount > 0.0;
             control(app, ui, d, "optics.defringeGreenHueLo", on);
@@ -927,7 +957,7 @@ fn steady_hdr_histogram(ctx: &egui::Context, id: PhotoId, hdr_edit: bool, hist: 
     }
 }
 
-fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
+pub(crate) fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let hdr_edit = app.session.develop_of(id).is_some_and(|d| d.hdr.enabled);

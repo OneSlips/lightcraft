@@ -764,7 +764,8 @@ pub const LEFT_WIDTH: PanelWidth = PanelWidth { min: 200.0, default: 268.0, max:
 /// tiny thumbnails, large enough to judge expressions on them.
 pub const FILM_HEIGHT: PanelWidth = PanelWidth { min: 96.0, default: 142.0, max: 360.0 };
 /// The right panel (Edit, Masking, Info, …).
-pub const RIGHT_WIDTH: PanelWidth = PanelWidth { min: 250.0, default: 270.0, max: 520.0 };
+/// (318 by default since the tool strip became a row in it: the 270 it had plus the strip's 48.)
+pub const RIGHT_WIDTH: PanelWidth = PanelWidth { min: 250.0, default: 318.0, max: 520.0 };
 /// The photo area the side panels always leave free (as far as their minimum widths allow).
 pub const MIN_PHOTO_WIDTH: f32 = 360.0;
 

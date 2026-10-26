@@ -268,7 +268,7 @@ pub(crate) const HANDLE_R_HOT: f32 = 5.5;
 const TRACK_H: f32 = 2.0;
 const TRACK_COLOR_H: f32 = 3.0;
 /// Space between a slider row's name, track and value.
-const ROW_GAP: f32 = 8.0;
+const ROW_GAP: f32 = 6.0;
 /// Left and right margins of the panels' rows (sliders, captions, buttons line up on them).
 pub const PAD_L: f32 = 14.0;
 pub const PAD_R: f32 = 12.0;
@@ -276,18 +276,20 @@ pub const PAD_R: f32 = 12.0;
 pub fn row_margin(top: i8, bottom: i8) -> egui::Margin {
     egui::Margin { left: PAD_L as i8, right: PAD_R as i8, top, bottom }
 }
-/// The share of a slider row (inside its margins) its name column takes, and that column's
-/// narrowest and widest.
-const LABEL_SHARE: f32 = 0.34;
-const LABEL_MIN: f32 = 56.0;
-const LABEL_MAX: f32 = 120.0;
-/// Width of the value column at a row's right.
-const VALUE_W: f32 = 40.0;
+/// The size of a slider's name and value.
+const ROW_FONT: f32 = 11.0;
+/// The name column's narrowest, and the most of a row (inside its margins) it may take: a longer
+/// name is cut short with … (shown whole on hover).
+const NAME_MIN: f32 = 24.0;
+const NAME_SHARE_MAX: f32 = 0.4;
+/// Width of the value column at a row's right ("50000", "+0.17", "-100" at [`ROW_FONT`]).
+const VALUE_W: f32 = 32.0;
 
-/// Where the parts of a one-line slider row sit: the name in a column at the left, the value
-/// right-aligned at the right, the track between them. Each part is the row's full height, so
-/// all of the row takes the pointer. A row too narrow for its parts still gives the track a
-/// point of width (it is divided by).
+/// Where the parts of a one-line slider row sit: the name in a column at the left (`name_w`
+/// wide: the longest name of its group, see [`name_column`]), the value right-aligned at the
+/// right, the track between them — as long as the names leave it. Each part is the row's full
+/// height, so all of the row takes the pointer. A row too narrow for its parts still gives the
+/// track a point of width (it is divided by).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct RowParts {
     pub label: Rect,
@@ -295,17 +297,48 @@ pub(crate) struct RowParts {
     pub value: Rect,
 }
 
-pub(crate) fn row_parts(row: Rect) -> RowParts {
+pub(crate) fn row_parts(row: Rect, name_w: f32) -> RowParts {
     let left = row.left() + PAD_L;
     let right = (row.right() - PAD_R).max(left);
     let w = right - left;
-    let label_w = (w * LABEL_SHARE).clamp(LABEL_MIN, LABEL_MAX).min(w * 0.45);
+    let name_w = if name_w.is_finite() { name_w } else { 0.0 };
+    let label_w = name_w.max(NAME_MIN).min(w * NAME_SHARE_MAX);
     let value_w = VALUE_W.min(w * 0.25);
     let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
     let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
     let track_l = label.right() + ROW_GAP;
     let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
     RowParts { label, track, value }
+}
+
+/// Where the current slider group is kept, per layer (a dialog's sliders aren't the panel's).
+fn group_slot(layer: egui::LayerId) -> egui::Id {
+    egui::Id::new(("slider-group", layer))
+}
+
+/// Starts a group of sliders whose names share one column (a section: [`section_header`] calls
+/// it). Sliders drawn outside any group this pass share a column with the others in their `Ui`.
+pub(crate) fn begin_slider_group(ui: &Ui, id: &str) {
+    let pass = ui.ctx().cumulative_pass_nr();
+    ui.data_mut(|d| d.insert_temp(group_slot(ui.layer_id()), (egui::Id::new(("slider-names", id)), pass)));
+}
+
+/// The width of the name column of the slider group being drawn: the longest name in it, as
+/// measured over this pass and the one before (a group's rows below this one count once they have
+/// been drawn), so a section's tracks start together just after its longest name.
+fn name_column(ui: &Ui, name_w: f32) -> f32 {
+    let pass = ui.ctx().cumulative_pass_nr();
+    let group = match ui.data(|d| d.get_temp::<(egui::Id, u64)>(group_slot(ui.layer_id()))) {
+        Some((g, p)) if p == pass => g,
+        _ => ui.id().with("slider-names"),
+    };
+    let name_w = if name_w.is_finite() { name_w.max(0.0) } else { 0.0 };
+    let (seen, cur, prev) = ui.data(|d| d.get_temp::<(u64, f32, f32)>(group)).unwrap_or((pass, 0.0, 0.0));
+    // a new pass: the last one's widest becomes the remembered one
+    let (cur, prev) = if seen == pass { (cur, prev) } else { (0.0, cur) };
+    let cur = cur.max(name_w);
+    ui.data_mut(|d| d.insert_temp(group, (pass, cur, prev)));
+    cur.max(prev)
 }
 
 /// The one slider of the app (Edit panel, mask panel, dialogs): ONE row of the panel's
@@ -324,7 +357,10 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     let backdrop = ui.painter().add(egui::Shape::Noop);
     // (a hostile value is drawn at the nearest end, never at NaN)
     let value = if value.is_finite() { value } else { spec.default };
-    let RowParts { label: label_rect, track: track_rect, value: value_rect } = row_parts(row);
+    let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
+    let font = t.font(ROW_FONT);
+    let name_w = ui.painter().layout_no_wrap(label_text.clone(), font.clone(), t.text).size().x.ceil();
+    let RowParts { label: label_rect, track: track_rect, value: value_rect } = row_parts(row, name_column(ui, name_w));
     let track_w = track_rect.width().max(1.0);
     let id = ui.id().with(spec.id);
     let resp = ui.interact(track_rect.expand2(vec2(HANDLE_R_HOT, 0.0)), id, if enabled { Sense::click_and_drag() } else { Sense::hover() });
@@ -368,7 +404,6 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         wheel_armed = false;
     }
     // screen readers: a slider named after its control, with its value
-    let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, label_text.clone()));
     // and its range, step and the value as shown ("+0.50", "5600")
     let shown = shown_value(spec, value);
@@ -485,7 +520,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(value_rect).layout(egui::Layout::right_to_left(egui::Align::Center)));
         // the old value is selected when the field takes the focus, so typing replaces it
         let field = crate::text_field::TextField::singleline(&format!("sliderField:{}", spec.id), &mut text)
-            .font(t.font(12.0))
+            .font(t.font(ROW_FONT))
             .horizontal_align(egui::Align::RIGHT)
             .width(value_rect.width())
             .margin(egui::Margin::ZERO)
@@ -648,7 +683,6 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     } else {
         t.text_label
     };
-    let font = t.font(12.0);
     // a name too long for its column is cut short (hovering it shows it whole, with the reset hint)
     let name = one_line(ui.painter(), &label_text, font.clone(), name_c, label_rect.width());
     ui.painter().galley(pos2(label_rect.left(), label_rect.center().y - name.size().y / 2.0), name, name_c);
@@ -716,6 +750,8 @@ pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: O
     let (r, resp) = ui.allocate_exact_size(vec2(w, t.section_h), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     register(ui.ctx(), format!("section:{id}"), r);
+    // the section's sliders line their names up in one column of their own
+    begin_slider_group(ui, id);
     let p = ui.painter();
     if ui.rect_contains_pointer(r) {
         p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));

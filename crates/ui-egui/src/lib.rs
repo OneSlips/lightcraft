@@ -2195,7 +2195,11 @@ impl LightcraftApp {
         panels::topbar::show(self, ui);
         self.lap(&mut t, "layout.topbar");
         panels::library_problem::banner(self, ui);
-        panels::strip::show(self, ui);
+        // the tools stand in a row at the top of the right-hand panel; only while it is closed do
+        // they stand at the window's edge, to open it again
+        if self.ui.right == state::RightPanel::None {
+            panels::strip::show(self, ui);
+        }
         self.lap(&mut t, "layout.strip");
         // filled: the gaps the dock leaves between its panes show chrome, not the dark clear colour
         let chrome = theme::Tokens::get(&ctx).chrome;

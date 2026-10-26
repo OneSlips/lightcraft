@@ -72,7 +72,7 @@ pub(crate) fn sections(app: &mut LightcraftApp, ui: &mut egui::Ui, photo: PhotoI
     divider(ui);
     if mask_section(app, ui, "maskCurve", "Curve") {
         let _ = curve_graph(app, ui, photo, &m.curve, CurveTarget::Mask(m.id));
-        let out = slider(ui, &REFINE, m.curve.refine_saturation, true, None);
+        let out = slider(ui, &REFINE, m.curve.refine_saturation, true, Some("Refine Sat."));
         apply_slider_out(app, &REFINE, out, |app, v| app.run("mask.curve", json!({"id": m.id, "refineSaturation": v})));
     }
     divider(ui);
