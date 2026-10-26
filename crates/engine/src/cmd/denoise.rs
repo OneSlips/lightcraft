@@ -651,8 +651,15 @@ fn queue(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn cancel(s: &mut Session, p: &Value) -> Result<Value> {
     let photo = super::photo_id(p, "denoise.cancel")?;
-    let n = s.denoise_cancel(photo, bool_or(p, "all", photo.is_none()));
-    if let Some(id) = photo {
+    let all = bool_or(p, "all", photo.is_none());
+    // what is cancelled by hand waits until asked for again: Auto doesn't queue it again just because it is looked at
+    // (as with a cancelled batch)
+    let cancelled = match photo {
+        Some(id) => vec![id],
+        None => s.denoise_in_flight(all),
+    };
+    let n = s.denoise_cancel(photo, all);
+    for id in cancelled {
         s.denoise_hold(id);
     }
     Ok(json!({"cancelled": n}))

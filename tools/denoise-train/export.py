@@ -43,7 +43,7 @@ def main():
     ap.add_argument("--version", default="0.1.0")
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
-    s = torch.load(a.ckpt, map_location="cpu")
+    s = torch.load(a.ckpt, map_location="cpu", weights_only=True)
     net = M.BayerUNet(tuple(s.get("widths", (32, 64, 128, 256, 512))))
     net.load_state_dict(s["ema"])
     onnx_path = os.path.join(a.out, "model.onnx")

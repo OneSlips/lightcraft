@@ -1358,8 +1358,10 @@ impl Session {
         let room = self.denoise.queue_cap.saturating_sub(self.denoise.queue.len());
         let (now, later) = ids.split_at(room.min(ids.len()));
         self.denoise_enqueue(now, false, false);
+        // (an import of thousands of photos: membership by set, not by walking the backlog for each)
+        let mut waiting: HashSet<PhotoId> = self.denoise.backlog.iter().copied().collect();
         for id in later {
-            if !self.denoise.backlog.contains(id) {
+            if waiting.insert(*id) {
                 self.denoise.backlog.push_back(*id);
             }
         }
@@ -1389,6 +1391,13 @@ impl Session {
         for id in ids {
             self.denoise.held.remove(id);
         }
+    }
+
+    /// The photo being made, and with `all` every one waiting too: what [`Session::denoise_cancel`] with no photo
+    /// stops.
+    pub(crate) fn denoise_in_flight(&self, all: bool) -> Vec<PhotoId> {
+        let waiting = all.then(|| self.denoise.queue.iter().chain(self.denoise.backlog.iter()).copied()).into_iter().flatten();
+        waiting.chain(self.denoise.running.as_ref().map(|r| r.photo)).collect()
     }
 
     /// Stop the job that is running, and with `all` forget everything that waits.

@@ -682,6 +682,12 @@ fn settings_are_checked_saved_and_a_paused_pump_starts_nothing() {
     // …and cancelling forgets it
     assert_eq!(x.s.execute("denoise.cancel", &json!({})).unwrap()["cancelled"], 1);
     assert_eq!(x.s.denoise_photo_state(id), PhotoState::Idle);
+    // …until asked for again: Auto looking at it doesn't queue it again (CodeRabbit on #2932)
+    assert!(x.s.denoise_held(id));
+    for _ in 0..3 {
+        x.s.execute("denoise.pump", &json!({"pace": "pause"})).unwrap();
+    }
+    assert_eq!(x.s.denoise_photo_state(id), PhotoState::Idle);
     // when the pace allows, it is made
     x.s.execute("denoise.queue", &json!({"scope": "withAmount"})).unwrap();
     pump_until_ready(&mut x.s, 1);
