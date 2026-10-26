@@ -269,11 +269,23 @@ fn settings_tab_learn_and_edit_a_key() {
         p.pages.iter().any(|pg| pg.bindings.get("dial") == Some(&lightcraft_surface::Binding::value("light.highlights"))),
         "the dial moves Highlights now"
     );
-    // the other sections open
+    // the other sections open. They are in the Settings window, under the Keys and Dials window
+    // while that is open: a covered button takes no click, so close it first (as its close box does)
+    let covered = h.request("ui.clickWidget", json!({"id": "button:surfaceSection-feel"}), T);
+    assert_eq!(covered["ok"], false, "a section button under the Keys and Dials window can't be clicked: {covered}");
+    h.app.surface.editor.window = false;
+    h.settle(T);
+    assert!(!h.app.widgets.iter().any(|(w, _)| w == "window:surfaceEditor"), "the Keys and Dials window is closed");
     for s in ["pages", "feel", "readout", "setup"] {
-        assert_eq!(h.request("ui.clickWidget", json!({"id": format!("button:surfaceSection-{s}")}), T)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": format!("button:surfaceSection-{s}")}), T)["ok"], true, "{s}");
         h.settle(T);
+        assert_eq!(h.app.surface.editor.section, s);
     }
+    // and Keys and Dials opens again from its button
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceEditKeys"}), T)["ok"], true);
+    h.settle(T);
+    assert!(h.app.surface.editor.window);
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "window:surfaceEditor"), "the Keys and Dials window is back");
     assert_eq!(h.request("ui.clickWidget", json!({"id": "button:surfaceDevice-keypad"}), T)["ok"], true);
     h.settle(T);
     // make key 5 put Contrast on the dial
