@@ -788,6 +788,9 @@ pub struct UiState {
     pub window: Option<crate::window_place::WindowPlace>,
     /// Shared panel arrangement; absent in legacy settings until their first layout.
     pub docking: Option<crate::docking::Workspace>,
+    /// The arrangement generation `docking` was saved in ([`crate::docking::DOCKING_VERSION`]);
+    /// settings files are read through [`crate::docking::drop_outdated`].
+    pub docking_version: u32,
     #[serde(default = "crate::i18n::default_language")]
     pub language: crate::i18n::Locale,
     /// The Build Previews run last announced (its identity, finished?).
@@ -931,10 +934,12 @@ pub struct UiState {
     pub external_edits: Vec<u64>,
     #[serde(skip)]
     pub was_focused: bool,
-    /// When the watched folder was last scanned (egui time).
+    /// When the watched folder was last scanned (monotonic app time, so a hidden window keeps
+    /// scanning).
     #[serde(skip)]
     pub auto_import_at: f64,
-    /// When the automatic XMP writes that failed were last tried again (egui time), and how many were waiting then.
+    /// When the automatic XMP writes that failed were last tried again (monotonic app time), and how
+    /// many were waiting then.
     #[serde(skip)]
     pub sidecar_retry_at: f64,
     #[serde(skip)]
@@ -966,7 +971,7 @@ pub struct UiState {
     #[serde(skip)]
     pub sam_downloading: bool,
     /// When to start the zoomed-in detail pass of an AI mask (app time) and which mask: set by
-    /// each click or description, so the pass runs once the clicking stops.
+    /// each click or description, so the pass runs once the clicking stops (monotonic app time).
     #[serde(skip)]
     pub detail_due: Option<(f64, u32)>,
     /// A mask component being renamed inline: (mask id, component index, name).
@@ -1566,6 +1571,7 @@ impl Default for UiState {
         UiState {
             window: None,
             docking: None,
+            docking_version: crate::docking::DOCKING_VERSION,
             language: crate::i18n::default_language(),
             preview_build_seen: None,
             unsaved_seen: false,
