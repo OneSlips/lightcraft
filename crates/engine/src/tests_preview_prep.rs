@@ -301,7 +301,7 @@ fn the_import_queue_shows_one_row_and_names_the_leftovers() {
     let finishing: Vec<_> = rows.iter().filter(|t| t.kind == "finishing").collect();
     assert!(!finishing.is_empty());
     assert!(finishing.iter().all(|t| t.unit == crate::activity::Unit::Percent && t.total == 100), "{finishing:?}");
-    assert!(finishing.iter().any(|t| t.detail.contains("Previews") && t.detail.contains("of 3")), "{finishing:?}");
+    assert!(finishing.iter().any(|t| t.detail.contains("Photo") && t.detail.contains("of 3")), "{finishing:?}");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -453,5 +453,49 @@ fn the_background_build_prepares_around_the_photo_on_screen() {
     b.cancel.store(true, Ordering::Relaxed);
     assert!(b.total <= 3 * crate::prep::AROUND && b.total < ids.len(), "{} of {}", b.total, ids.len());
     assert!(b.order.contains(&at.0) && b.order.contains(&ids[129].0) && !b.order.contains(&ids[0].0));
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Note 5 of 2026-10-25: finishing an import works photo by photo (masks, skin, previews), the
+/// photo on screen first, then its neighbours both ways, then outward: the photo on screen and the
+/// five each way are done before any photo further away is touched; with none on screen, from the
+/// first photo of the order.
+#[test]
+fn finishing_starts_at_the_photo_on_screen_and_works_outward() {
+    let (mut s, root, ids) = library("finish-order", 24);
+    let order = s.visible_cloned();
+    assert_eq!(order.len(), 24);
+    let focus = 12;
+    s.selection = crate::Selection::single(order[focus]);
+    s.finish_import(crate::finishing::FinishPlan { ids: ids_json(&ids), previews: "standard".into(), started: String::new() });
+    let near: std::collections::HashSet<PhotoId> = order[focus - 5..=focus + 5].iter().copied().collect();
+    let mut far_started_with_near_left = None;
+    for _ in 0..3000 {
+        s.finishing_tick();
+        let Some(f) = s.finishing.as_ref() else { break };
+        let j = f.json();
+        let started: Vec<u64> = j["order"].as_array().unwrap().iter().filter_map(|v| v.as_u64()).collect();
+        let far = started.iter().any(|id| !near.contains(&PhotoId(*id)));
+        if far && far_started_with_near_left.is_none() {
+            far_started_with_near_left = Some(j["done"].as_u64().unwrap());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(s.finishing.is_none(), "done");
+    assert_eq!(far_started_with_near_left, Some(11), "the 11 near photos were done before a far one started");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// With no photo on screen the queue starts from the first photo of the order.
+#[test]
+fn finishing_with_no_photo_on_screen_starts_from_the_first() {
+    let (mut s, root, ids) = library("finish-first", 14);
+    let order = s.visible_cloned();
+    s.selection = crate::Selection::default();
+    let mut plan: Vec<u64> = ids_json(&ids);
+    plan.reverse();
+    s.finish_import(crate::finishing::FinishPlan { ids: plan, previews: "none".into(), started: String::new() });
+    let first: Vec<u64> = s.finishing.as_ref().map(|f| f.started_order.iter().map(|p| p.0).collect()).unwrap_or_default();
+    assert_eq!(first.first().copied(), Some(order[0].0), "{first:?}");
     let _ = std::fs::remove_dir_all(root);
 }
