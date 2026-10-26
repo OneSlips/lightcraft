@@ -254,6 +254,22 @@ fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> 
     for (name, _, _) in files {
         std::fs::rename(staging.join(name), dir.join(name)).map_err(|e| format!("could not move {name} into {}: {e}", dir.display()))?;
     }
+    // database files an older pin had and this one doesn't would still be read: remove them (only XML files; nothing
+    // else in the folder is touched)
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let xml = std::path::Path::new(&*name).extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"));
+            if xml
+                && entry.path().is_file()
+                && !files.iter().any(|(pinned, _, _)| *pinned == name)
+                && let Err(e) = std::fs::remove_file(entry.path())
+            {
+                log::warn!("lens database: could not remove the old {name}: {e}");
+            }
+        }
+    }
     let _ = std::fs::remove_dir_all(&staging);
     let readme = format!(
         "lensfun lens database (data/db), commit {COMMIT}\nfrom https://github.com/lensfun/lensfun, downloaded by LightCraft.\n\
@@ -343,6 +359,10 @@ mod tests {
         let activity = Activity::default();
         let mut d = Download::default();
         assert!(!installed(&dir));
+        // left by an older pin: an XML file this one doesn't list goes, anything else stays
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("dropped.xml"), CAMERA).unwrap();
+        std::fs::write(dir.join("notes.txt"), "mine").unwrap();
         d.start(&dir, vec![base], pins(), &activity).unwrap();
         let rows = activity.list();
         assert!(rows.iter().any(|r| r.kind == "download" && r.label == "Downloading the lens database" && r.cancellable), "{rows:?}");
@@ -352,6 +372,7 @@ mod tests {
         assert!(!dir.join(STAGING).exists(), "the staging folder is gone");
         let (db, errors) = lightcraft_lensdb::LensDb::load_dir(&dir).unwrap();
         assert!(errors.is_empty() && db.lenses.len() == 1 && db.cameras.len() == 1);
+        assert!(!dir.join("dropped.xml").exists() && dir.join("notes.txt").exists(), "only stale database files are removed");
         wait("the row stayed", || activity.list().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }

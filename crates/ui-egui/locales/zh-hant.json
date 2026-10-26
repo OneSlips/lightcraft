@@ -2163,5 +2163,6 @@
   "This file names no lens.": "此檔案未註明鏡頭。",
   "1 photo got its lens profile": "1 張照片取得了鏡頭設定檔",
   "Looking up lens profiles": "正在查找鏡頭設定檔",
-  "Downloading the lens database": "正在下載鏡頭資料庫"
+  "Downloading the lens database": "正在下載鏡頭資料庫",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "無法下載鏡頭資料庫。LightCraft 會在下次啟動時重試。"
 }

@@ -2355,5 +2355,6 @@
   "This file names no lens.": "В этом файле не указан объектив.",
   "1 photo got its lens profile": "1 фото получило профиль объектива",
   "Looking up lens profiles": "Поиск профилей объективов",
-  "Downloading the lens database": "Загрузка базы объективов"
+  "Downloading the lens database": "Загрузка базы объективов",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "Не удалось загрузить базу данных объективов. LightCraft попробует снова при следующем запуске."
 }

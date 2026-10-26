@@ -2206,5 +2206,6 @@
   "This file names no lens.": "此文件未注明镜头。",
   "1 photo got its lens profile": "1 张照片获得了镜头配置文件",
   "Looking up lens profiles": "正在查找镜头配置文件",
-  "Downloading the lens database": "正在下载镜头数据库"
+  "Downloading the lens database": "正在下载镜头数据库",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "无法下载镜头数据库。LightCraft 会在下次启动时重试。"
 }

@@ -2740,5 +2740,6 @@
   "This file names no lens.": "ამ ფაილში ობიექტივი არ არის მითითებული.",
   "1 photo got its lens profile": "1 ფოტომ მიიღო ობიექტივის პროფილი",
   "Looking up lens profiles": "ობიექტივის პროფილების ძიება",
-  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა"
+  "Downloading the lens database": "ობიექტივების ბაზის ჩამოტვირთვა",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "ობიექტივების მონაცემთა ბაზის ჩამოტვირთვა ვერ მოხერხდა. LightCraft კვლავ სცდის შემდეგ გაშვებისას."
 }

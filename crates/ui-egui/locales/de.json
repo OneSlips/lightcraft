@@ -3446,5 +3446,6 @@
   "This file names no lens.": "Diese Datei nennt kein Objektiv.",
   "1 photo got its lens profile": "1 Foto hat sein Objektivprofil erhalten",
   "Looking up lens profiles": "Objektivprofile werden gesucht",
-  "Downloading the lens database": "Objektivdatenbank wird geladen"
+  "Downloading the lens database": "Objektivdatenbank wird geladen",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "Die Objektivdatenbank konnte nicht geladen werden. LightCraft versucht es beim nächsten Start erneut."
 }

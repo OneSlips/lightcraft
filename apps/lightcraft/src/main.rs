@@ -761,6 +761,10 @@ fn open_session(in_memory: bool, launch: &Launch, seed_demo: bool) -> (Session, 
         Launch::Ask => (Session::new().with_fs().with_default_denoise_models().with_system_clock(), None),
         Launch::Open { dir, .. } => open_library_session(in_memory, dir.clone(), seed_demo),
     };
+    // lens profiles from the app's own lensfun copy, fetched by itself on first run (not for a throwaway session)
+    if !in_memory {
+        s = s.with_default_lens_database();
+    }
     s.face_models_dir = lightcraft_engine::config::default_face_models_dir();
     s.slide_templates_dir = lightcraft_engine::config::config_dir().map(|d| d.join(lightcraft_engine::slide_template::DIR_NAME));
     // Control requests are answered on the UI thread: Add to Apple Photos must not wait there
@@ -777,7 +781,7 @@ fn open_library_session(in_memory: bool, dir: Option<std::path::PathBuf>, seed_d
     if in_memory {
         return (if seed_demo { Session::with_demo() } else { Session::new() }.with_fs().with_default_denoise_models().with_system_clock(), None);
     }
-    let unopened = || Session::new().with_fs().with_default_denoise_models().with_default_lens_database().with_system_clock();
+    let unopened = || Session::new().with_fs().with_default_denoise_models().with_system_clock();
     let Some(dir) = dir else {
         log::warn!("no library location (set --library or LIGHTCRAFT_LIBRARY)");
         return (unopened(), Some(LibraryProblem::new("", "There is no home folder to keep the library in. Choose a folder for it.")));

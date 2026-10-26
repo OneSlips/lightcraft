@@ -106,6 +106,9 @@ pub fn readout(app: &LightcraftApp, p: &lightcraft_catalog::Photo) -> String {
             crate::i18n::tr_format!("Profile: {} (lens database)", name)
         }
         None if app.session.lensfun.running() => crate::i18n::tr("Downloading the lens database…").to_string(),
+        None if matches!(app.session.lensfun.state(), lensfun_download::State::Failed(_)) && lens_profiles::database().is_none() => {
+            crate::i18n::tr("The lens database could not be downloaded. LightCraft tries again the next time it starts.").to_string()
+        }
         None => match lens_refresh::no_profile_reason(p) {
             Some(r) if p.meta.lens.trim().is_empty() => crate::i18n::tr(&r).to_string(),
             Some(_) => crate::i18n::tr_format!("No lens profile found for {}.", p.meta.lens.trim()),
@@ -137,5 +140,31 @@ mod tests {
         // the database's name for it, or the file's own without a database (LIGHTCRAFT_LENSFUN_DIR may be set)
         let r = super::readout(&app, &p);
         assert!(r.starts_with("Profile: ") && r.contains("70-200mm f/2.8L IS II USM") && r.ends_with(" (lens database)"), "{r}");
+    }
+
+    /// A first-run download that failed says so, instead of "no profile" for every lens.
+    #[test]
+    fn a_failed_download_is_named_in_the_optics_readout() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+        let id = app.session.active().expect("a photo");
+        let mut p = (**app.session.catalog.photo(id).expect("the photo")).clone();
+        p.meta.lens = "EF35mm f/1.4L II USM".into();
+        p.embedded_lens = None;
+        let dir = std::env::temp_dir().join(format!("lc-lens-db-failed-{}", std::process::id()));
+        // nothing listens on port 1: the download fails at once, without the network
+        let activity = app.session.activity.clone();
+        app.session
+            .lensfun
+            .start(&dir, vec!["http://127.0.0.1:1/db".into()], lightcraft_engine::lensfun_download::FILES, &activity)
+            .expect("started");
+        let t0 = std::time::Instant::now();
+        while app.session.lensfun.running() && t0.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(matches!(app.session.lensfun.state(), lightcraft_engine::lensfun_download::State::Failed(_)), "{:?}", app.session.lensfun.state());
+        if lightcraft_engine::lens_profiles::database().is_none() {
+            assert_eq!(super::readout(&app, &p), "The lens database could not be downloaded. LightCraft tries again the next time it starts.");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

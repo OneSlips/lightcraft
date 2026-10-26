@@ -2362,5 +2362,6 @@
   "This file names no lens.": "このファイルにはレンズ名がありません。",
   "1 photo got its lens profile": "1 枚の写真にレンズプロファイルが適用されました",
   "Looking up lens profiles": "レンズプロファイルを検索中",
-  "Downloading the lens database": "レンズデータベースをダウンロード中"
+  "Downloading the lens database": "レンズデータベースをダウンロード中",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "レンズデータベースをダウンロードできませんでした。LightCraft は次回の起動時に再試行します。"
 }

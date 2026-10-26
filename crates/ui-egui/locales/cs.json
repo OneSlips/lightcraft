@@ -2414,5 +2414,6 @@
   "This file names no lens.": "Tento soubor neuvádí žádný objektiv.",
   "1 photo got its lens profile": "1 fotka získala profil objektivu",
   "Looking up lens profiles": "Hledání profilů objektivů",
-  "Downloading the lens database": "Stahování databáze objektivů"
+  "Downloading the lens database": "Stahování databáze objektivů",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "Databázi objektivů se nepodařilo stáhnout. LightCraft to zkusí znovu při příštím spuštění."
 }

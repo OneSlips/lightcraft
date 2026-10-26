@@ -114,6 +114,15 @@ fn photos_get_their_profile_when_the_database_arrives() {
     assert_eq!(crate::cmd::lens_refresh::no_profile_reason(&p(3)).as_deref(), Some("No lens profile found for 300mm F4."));
     assert_eq!(crate::cmd::lens_refresh::no_profile_reason(&p(4)).as_deref(), Some("This file names no lens."));
     assert_eq!(crate::cmd::lens_refresh::no_profile_reason(&p(1)), None);
+    // a result read from a file the photo no longer has (moved meanwhile) is dropped, for its virtual copies too
+    let mut copy = raw(5, "300mm F4", false);
+    copy.copy_of = Some(PhotoId(3));
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(copy) }).unwrap();
+    let stale = crate::cmd::lens_refresh::Missing { id: PhotoId(3), path: "/elsewhere/3.cr3".into() };
+    let ok = crate::media::ProbeInfo { embedded_lens: Some(lens(-0.01)), ..Default::default() };
+    assert!(crate::cmd::lens_refresh::apply(&mut s, vec![(stale, Ok(ok))]).unwrap().is_empty());
+    assert!(s.catalog.photo(PhotoId(3)).unwrap().embedded_lens.is_none(), "a stale probe changes nothing");
+    assert!(s.catalog.photo(PhotoId(5)).unwrap().embedded_lens.is_none(), "nor the copies");
     // without file access the command says so instead of clearing anything
     assert!(s.execute("library.refreshLensProfiles", &json!({})).is_err());
     assert!(s.execute("library.refreshLensProfiles", &json!({"ids": "x"})).is_err());

@@ -2289,5 +2289,6 @@
   "This file names no lens.": "Ten plik nie podaje obiektywu.",
   "1 photo got its lens profile": "1 zdjęcie otrzymało profil obiektywu",
   "Looking up lens profiles": "Wyszukiwanie profili obiektywów",
-  "Downloading the lens database": "Pobieranie bazy obiektywów"
+  "Downloading the lens database": "Pobieranie bazy obiektywów",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "Nie udało się pobrać bazy obiektywów. LightCraft spróbuje ponownie przy następnym uruchomieniu."
 }

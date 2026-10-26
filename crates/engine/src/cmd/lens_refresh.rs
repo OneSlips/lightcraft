@@ -27,18 +27,16 @@ pub struct Missing {
 /// Library raws with a file, no lens profile and a lens the database `db` knows by name (`ids`: only these; virtual
 /// copies follow the photo they were copied from). No file-system calls.
 pub fn missing(cat: &Catalog, db: &lightcraft_lensdb::LensDb, ids: Option<&[PhotoId]>) -> Vec<Missing> {
+    // a photo and its virtual copies list the photo once, in library order
+    let mut seen = std::collections::HashSet::new();
     cat.photos()
         .filter(|p| ids.is_none_or(|ids| ids.contains(&p.id) || p.copy_of.is_some_and(|c| ids.contains(&c))))
         .map(|p| p.copy_of.and_then(|c| cat.photo(c)).map_or(&**p, |orig| &**orig))
         .filter(|p| p.develops_raw() && p.embedded_lens.is_none() && !p.meta.lens.trim().is_empty())
         .filter(|p| crate::lens_profiles::profile_name(db, &p.meta.camera, &p.meta.lens).is_some())
         .filter_map(|p| crate::cmd::missing::checked_path(p).map(|path| Missing { id: p.id, path: path.to_string() }))
-        .fold(Vec::new(), |mut v, m| {
-            if !v.contains(&m) {
-                v.push(m);
-            }
-            v
-        })
+        .filter(|m| seen.insert(m.id))
+        .collect()
 }
 
 /// Probe each listed photo's file as Reload would. Doesn't touch the session.
@@ -57,13 +55,11 @@ pub fn apply(s: &mut Session, results: Vec<(Missing, std::result::Result<ProbeIn
         if info.embedded_lens.is_none() {
             continue;
         }
-        let family: Vec<PhotoId> = s
-            .catalog
-            .photos()
-            .filter(|p| p.id == item.id || p.copy_of == Some(item.id))
-            .filter(|p| p.id != item.id || crate::cmd::missing::checked_path(p) == Some(item.path.as_str()))
-            .map(|p| p.id)
-            .collect();
+        // the photo moved or left the library while its file was read: the result is stale, for its copies too
+        if s.catalog.photo(item.id).and_then(|p| crate::cmd::missing::checked_path(p)) != Some(item.path.as_str()) {
+            continue;
+        }
+        let family: Vec<PhotoId> = s.catalog.photos().filter(|p| p.id == item.id || p.copy_of == Some(item.id)).map(|p| p.id).collect();
         for id in family {
             if let Some(p) = s.catalog.photo(id) {
                 let mine = crate::cmd::convert::lens_ops(id, p, &info);

@@ -34,7 +34,9 @@ pub fn use_dir(dir: Option<PathBuf>) {
 
 /// Read the database again (after a download or an update): the next lookup sees the new data.
 pub fn reload() {
-    *LOADED.write().unwrap_or_else(PoisonError::into_inner) = None;
+    // under the cache lock, so a load of the old files that finishes meanwhile can't be published ([`database`])
+    let mut loaded = LOADED.write().unwrap_or_else(PoisonError::into_inner);
+    *loaded = None;
     GENERATION.fetch_add(1, Ordering::Relaxed);
 }
 
@@ -57,8 +59,13 @@ pub fn database() -> Option<Arc<LensDb>> {
     {
         return db.clone();
     }
+    let generation = generation();
     let db = load(&dir);
-    *LOADED.write().unwrap_or_else(PoisonError::into_inner) = Some((dir, db.clone()));
+    let mut loaded = LOADED.write().unwrap_or_else(PoisonError::into_inner);
+    // a reload while the files were read: they may be the old ones, so they aren't kept (the next call reads again)
+    if GENERATION.load(Ordering::Relaxed) == generation {
+        *loaded = Some((dir, db.clone()));
+    }
     db
 }
 

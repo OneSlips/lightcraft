@@ -2364,5 +2364,6 @@
   "This file names no lens.": "Este archivo no indica ningún objetivo.",
   "1 photo got its lens profile": "1 foto recibió su perfil de objetivo",
   "Looking up lens profiles": "Buscando perfiles de objetivo",
-  "Downloading the lens database": "Descargando la base de datos de objetivos"
+  "Downloading the lens database": "Descargando la base de datos de objetivos",
+  "The lens database could not be downloaded. LightCraft tries again the next time it starts.": "No se pudo descargar la base de datos de objetivos. LightCraft lo intentará de nuevo la próxima vez que se inicie."
 }
