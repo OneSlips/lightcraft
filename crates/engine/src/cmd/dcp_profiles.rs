@@ -165,10 +165,12 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad(C, format!("no imported camera profile `{id}`")));
     };
     // the library's copy goes first; a file outside the library is the user's and stays. A copy that can't be
-    // removed (in use, no access) keeps the profile, so the library never holds a file it no longer lists.
+    // removed (in use, no access) keeps the profile, so the library never holds a file it no longer lists. A path
+    // with `..` in it is never the library's copy (it could lead out of the profiles folder).
     if let Some(d) = profiles_dir(s)
         && let Some(entry) = s.dcp_profiles.get(i)
         && Path::new(&entry.file).starts_with(&d)
+        && !Path::new(&entry.file).components().any(|c| c == std::path::Component::ParentDir)
     {
         match std::fs::remove_file(&entry.file) {
             Ok(()) => {}

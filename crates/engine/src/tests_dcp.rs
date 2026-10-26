@@ -466,3 +466,20 @@ fn a_profile_whose_copy_cannot_be_deleted_stays() {
     assert!(s.dcp_profiles.iter().all(|p| p.id != dcp_id));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A listed path that climbs out of the profiles folder with `..` is not the library's copy: deleting the profile
+/// leaves that file alone (CodeRabbit on #1063).
+#[test]
+fn deleting_a_profile_never_follows_dot_dot_out_of_the_profiles_folder() {
+    let dir = temp_dir("delete-dotdot");
+    let (mut s, _, dcp_id) = library_with_profile(&dir);
+    let entry = s.dcp_profiles.iter_mut().find(|p| p.id == dcp_id).unwrap();
+    let profiles = PathBuf::from(&entry.file).parent().unwrap().to_path_buf();
+    let outside = profiles.parent().unwrap().join("keep.txt");
+    std::fs::write(&outside, b"the user's").unwrap();
+    entry.file = profiles.join("..").join("keep.txt").to_string_lossy().into_owned();
+    s.execute("profile.deleteCamera", &json!({"id": dcp_id})).unwrap();
+    assert!(s.dcp_profiles.iter().all(|p| p.id != dcp_id), "forgotten");
+    assert!(outside.exists(), "the file outside the profiles folder stays");
+    let _ = std::fs::remove_dir_all(&dir);
+}
