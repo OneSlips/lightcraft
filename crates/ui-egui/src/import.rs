@@ -557,10 +557,17 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
         };
         // Nothing is read here: the import that follows reads the files and adds them batch by
         // batch, first screen first, so the view fills while the rest is read (PERF-CULL-1).
-        let queue = lightcraft_engine::import::browse_queue(&input, files, &sort);
+        let queue = lightcraft_engine::import::browse_queue(&input, files.clone(), &sort);
         p.total.store(queue.len(), Ordering::Relaxed);
         p.done.store(queue.len(), Ordering::Relaxed);
-        let candidates = queue.into_iter().map(|path| lightcraft_engine::import::ImportCandidate { path, ..Default::default() }).collect();
+        // the files the library knows come too, marked as such: the folder bookkeeping (browse
+        // times, records of files gone) needs the whole listing; only the queue is imported
+        let queued: std::collections::HashSet<&String> = queue.iter().collect();
+        let known: Vec<String> = files.iter().filter(|f| !queued.contains(f)).cloned().collect();
+        let known =
+            known.into_iter().map(|path| lightcraft_engine::import::ImportCandidate { path, duplicate: Some("path".into()), ..Default::default() });
+        let candidates =
+            queue.iter().cloned().map(|path| lightcraft_engine::import::ImportCandidate { path, ..Default::default() }).chain(known).collect();
         let _ = tx.send(lightcraft_engine::import::ScanOutput { candidates, probes: Default::default() });
     };
     #[cfg(not(target_arch = "wasm32"))]

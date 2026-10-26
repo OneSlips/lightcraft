@@ -3857,6 +3857,15 @@ mod tests {
         assert_eq!(h.app.session.visible_cloned().len(), 1);
         assert!(h.app.session.catalog.last_browsed(&root).is_some(), "the browsed folder");
         assert!(h.app.session.catalog.last_browsed(&day_s).is_some(), "the folder its photo is in");
+        // browsed again: a subfolder with only photos the library knows (nothing to import) still
+        // counts as browsed
+        h.app.session.catalog.apply(lightcraft_catalog::Op::SetBrowsed { folder: day_s.clone(), at: None }).unwrap();
+        assert!(h.app.session.catalog.last_browsed(&day_s).is_none());
+        let r = h.request("engine.execute", json!({"command": "library.browse", "params": {"path": root, "subfolders": true}}), t);
+        assert_eq!(r["result"]["scanning"], true, "{r}");
+        h.settle(SETTLE);
+        assert_eq!(h.app.session.visible_cloned().len(), 1);
+        assert!(h.app.session.catalog.last_browsed(&day_s).is_some(), "a folder of known photos only");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
