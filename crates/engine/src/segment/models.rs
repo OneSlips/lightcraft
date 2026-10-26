@@ -213,6 +213,16 @@ impl Segmenter {
     }
 }
 
+/// A segmentation error for a command: a missing openly licensed model is typed
+/// ([`crate::ErrorKind::ModelMissing`] with [`crate::AiModel::Open`]), so a frontend offers it
+/// without reading the words; anything else is [`crate::EngineError::Other`].
+pub fn segment_error(msg: String) -> crate::EngineError {
+    match missing_model(&msg) {
+        Some(key) => crate::EngineError::ModelMissing { model: crate::AiModel::Open(key), msg },
+        None => crate::EngineError::Other(msg),
+    }
+}
+
 /// The key of the openly licensed model an error from [`Segmenter::require_model`] says is missing (the UI
 /// then offers its download), if it is one.
 pub fn missing_model(error: &str) -> Option<&'static str> {

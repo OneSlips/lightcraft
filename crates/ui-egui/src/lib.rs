@@ -1193,28 +1193,38 @@ impl LightcraftApp {
     /// ([`ErrorKind::ModelMissing`]), not its words.
     pub fn ai_error(&mut self, ctx: &egui::Context, e: impl Into<CommandError>, then: Option<(&str, &str)>) {
         let e = e.into();
-        if lightcraft_engine::segment::Segmenter::AVAILABLE && e.kind == ErrorKind::ModelMissing(AiModel::Sam3) {
-            self.offer_sam_download(then);
-        } else if let Some(key) = lightcraft_engine::segment::models::missing_model(&e.message) {
-            self.offer_ai_model(key, then);
+        let offered = if lightcraft_engine::segment::Segmenter::AVAILABLE && e.kind == ErrorKind::ModelMissing(AiModel::Sam3) {
+            self.offer_sam_download(then)
+        } else if let ErrorKind::ModelMissing(AiModel::Open(key)) = e.kind {
+            self.offer_ai_model(key, then)
         } else {
+            false
+        };
+        // not a missing model, or another dialog is open so the offer can't be made: say it
+        if !offered {
             self.toast_error(ctx, e.message);
         }
     }
 
     /// Open the dialog offering an openly licensed AI model's download (`model`: its key; never downloads by itself).
-    pub fn offer_ai_model(&mut self, model: &str, then: Option<(&str, &str)>) {
+    /// Whether it opened (not while another dialog is open).
+    pub fn offer_ai_model(&mut self, model: &str, then: Option<(&str, &str)>) -> bool {
         if self.ui.dialog.is_none() || matches!(self.ui.dialog, Some(state::Dialog::AiModel { .. })) {
             self.ui.dialog =
                 Some(state::Dialog::AiModel { model: model.to_string(), then: then.map(|(k, o)| (k.to_string(), o.to_string())), error: None });
+            return true;
         }
+        false
     }
 
     /// Open the dialog offering the SAM 3 download (never downloads by itself).
-    pub fn offer_sam_download(&mut self, then: Option<(&str, &str)>) {
+    /// Whether it opened (not while another dialog is open).
+    pub fn offer_sam_download(&mut self, then: Option<(&str, &str)>) -> bool {
         if self.ui.dialog.is_none() || matches!(self.ui.dialog, Some(state::Dialog::SamModel { .. })) {
             self.ui.dialog = Some(state::Dialog::SamModel { then: then.map(|(k, o)| (k.to_string(), o.to_string())), error: None });
+            return true;
         }
+        false
     }
 
     /// A toast for an error the user has to read and act on (stays 6 s).

@@ -206,7 +206,7 @@ fn queue_later(s: &mut Session, later: Later, mask: u32, comp: usize, mut out: V
 
 /// AI mask failures are shown as they are (not as "invalid parameters").
 fn ai_err(msg: impl Into<String>) -> crate::EngineError {
-    crate::EngineError::Other(msg.into())
+    crate::segment::models::segment_error(msg.into())
 }
 
 /// A segmentation call: the model is checked first, so a missing one is [`crate::EngineError::ModelMissing`]

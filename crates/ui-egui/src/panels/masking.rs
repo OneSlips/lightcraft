@@ -723,14 +723,24 @@ fn needs_model(app: &mut LightcraftApp, kind: &str, op: &str) -> bool {
         if seg.model_installed("sam2") {
             return false;
         }
-        app.offer_ai_model("sam2", Some((kind, op)));
+        if !app.offer_ai_model("sam2", Some((kind, op))) {
+            model_offer_waits(app);
+        }
         return true;
     }
     if seg.dir.is_some() {
-        app.offer_sam_download(Some((kind, op)));
+        if !app.offer_sam_download(Some((kind, op))) {
+            model_offer_waits(app);
+        }
         return true;
     }
     false
+}
+
+/// The download offer can't open over another dialog: say why nothing happened.
+fn model_offer_waits(app: &mut LightcraftApp) {
+    let until = app.tick_now() + 6.0;
+    app.ui.toast = Some((crate::i18n::tr("This mask needs an AI model that isn't installed. Close the open window to download it.").to_string(), until, None));
 }
 
 /// Add an automatic AI mask (`params` for `mask.add`, or `mask.addComponent` with `op`): when its

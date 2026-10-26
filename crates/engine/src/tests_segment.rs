@@ -358,6 +358,10 @@ fn open_models_are_listed_need_consent_and_are_found_in_the_models_folder() {
     assert!(e.contains(crate::segment::models::MODEL_NOT_INSTALLED) && e.contains("ai.models.download"), "{e}");
     assert_eq!(crate::segment::models::missing_model(&e), Some("scene"), "the UI can offer the download: {e}");
     assert_eq!(crate::segment::models::missing_model("something else"), None);
+    let typed = crate::segment::models::segment_error(e.clone());
+    assert_eq!(typed.kind(), crate::ErrorKind::ModelMissing(crate::AiModel::Open("scene")), "typed for the frontend");
+    assert_eq!(typed.to_string(), e, "the message is kept");
+    assert_eq!(crate::segment::models::segment_error("something else".into()).kind(), crate::ErrorKind::Other);
     // in place (a file of the pinned size): installed, and a download starts nothing
     let dir = root.join("eomt-s-coco");
     std::fs::create_dir_all(&dir).unwrap();
