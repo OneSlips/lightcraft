@@ -332,7 +332,7 @@ fn no_model_yet(ui: &mut egui::Ui, t: &Tokens) {
             ui.add_space(2.0);
         }
     });
-    crate::widgets::register(ui.ctx(), "denoise:noModelYet", r.response.rect);
+    crate::widgets::register(ui, "denoise:noModelYet", r.response.rect);
     ui.add_space(4.0);
 }
 
