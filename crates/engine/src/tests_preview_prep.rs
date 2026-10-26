@@ -250,6 +250,36 @@ fn editing_builds_the_view_by_the_library_rows_scope() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// With "which photos" = marked, marking another photo changes what the view's build prepares: a
+/// build for the newly marked set follows (it wasn't, as the view itself stayed the same).
+#[test]
+fn marking_a_photo_prepares_it_in_the_marked_scope() {
+    let (mut s, root, ids) = library("prep-marked", 4);
+    s.execute("prefs.setBackgroundPrep", &json!({"settings": {"library": {"scope": "marked"}}})).unwrap();
+    s.execute("photo.rate", &json!({"ids": [ids[1].0], "rating": 3})).unwrap();
+    let mode = crate::prep::Mode::Library;
+    let tick = |s: &mut Session, k: usize| s.prep_tick(mode, Some(ids[k % 3]), false);
+    for k in 0..3 {
+        tick(&mut s, k);
+    }
+    let first = s.preview_build.clone().expect("the marked photos are prepared");
+    assert_eq!(first.total, 1);
+    s.execute("photo.rate", &json!({"ids": [ids[3].0], "rating": 2})).unwrap();
+    let mut next = None;
+    for k in 0..600 {
+        tick(&mut s, k);
+        if let Some(b) = s.preview_build.clone().filter(|b| !std::sync::Arc::ptr_eq(b, &first)) {
+            next = Some(b);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let next = next.expect("a build for the newly marked set");
+    assert_eq!(next.total, 2);
+    next.cancel.store(true, Ordering::Relaxed);
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// A background build started for one view is stopped when another view is shown (here the
 /// library changes under it), not left building photos no longer shown; it doesn't count as
 /// stopped by the user, so the view now shown is prepared.

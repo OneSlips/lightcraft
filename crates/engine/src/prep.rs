@@ -340,13 +340,17 @@ pub fn background_lanes() -> usize {
     if cores >= 8 { 2 } else { 1 }
 }
 
-/// A cheap identity of the photos in view: a build is started once per view.
-fn signature(ids: &[PhotoId], s: &Session) -> u64 {
+/// A cheap identity of the photos a build prepares: a build is started once per view. `scope`
+/// [`Scope::Marked`]: which of them are marked counts too (marking a photo changes the set).
+fn signature(ids: &[PhotoId], s: &Session, scope: Scope) -> u64 {
     let mut h = lightcraft_preview::Hasher128::new();
     h.u64(ids.len() as u64).u64(s.catalog.len() as u64);
     // every id: a sort that moves photos in the middle is another view
     for id in ids {
         h.u64(id.0);
+        if scope == Scope::Marked {
+            h.u64(u64::from(marked(s, *id)));
+        }
     }
     h.finish().0 as u64
 }
@@ -375,7 +379,7 @@ impl Session {
             if b.running() {
                 if !wanted {
                     b.cancel.store(true, Ordering::Relaxed);
-                } else if self.prep.started_for.is_some_and(|sig| sig != signature(&self.visible_cloned(), self)) {
+                } else if self.prep.started_for.is_some_and(|sig| sig != signature(&self.visible_cloned(), self, want.scope)) {
                     // another view (a folder, a filter, another library): this build's photos are
                     // not the ones shown; stopped, and the view now shown is prepared in its place
                     // (not counted as stopped by the user)
@@ -403,7 +407,7 @@ impl Session {
         }
         let Some(at) = at else { return };
         let ids = self.visible_cloned();
-        let sig = signature(&ids, self);
+        let sig = signature(&ids, self, want.scope);
         if self.prep.steps_in != Some(sig) {
             self.prep.steps_in = Some(sig);
             self.prep.steps = 0;
