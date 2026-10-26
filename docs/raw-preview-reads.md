@@ -131,7 +131,7 @@ A Canon CR3 picks the same way among its three JPEGs: an EOS R5 C file keeps an 
 track, a 1620 × 1080 `PRVW` box and a 160 × 120 `THMB`. Decoding the 8192 px one costs about 100 ms
 of entropy decoding however small it is asked for (DCT scaling only saves the inverse transform),
 against a few milliseconds for the 1620 px one. So a grid thumbnail and a loupe up to 1620 px read
-the `PRVW`, and a bigger loupe still reads the track (`cr3_boxes` lists the boxes for
+the `PRVW`, and a bigger loupe still reads the track (`cr3_preview_box_list` lists the boxes for
 `embedded_preview_covering`).
 
 A plain 8-bit sRGB JPEG (no ICC profile, no Adobe RGB declaration from the container) is then decoded
