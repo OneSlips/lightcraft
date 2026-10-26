@@ -373,7 +373,7 @@ impl Renderer {
             if let Some(&(k, p)) = self.pending.get(&quick_slot)
                 && k == key
             {
-                return p == priority.saturating_add(1) || !self.is_queued(quick_slot);
+                return p == crate::panels::grid::stand_in_priority(priority) || !self.is_queued(quick_slot);
             }
             return !self.request_needed(slot, key, crate::panels::grid::BACKGROUND_THUMB_PRIORITY);
         }
@@ -399,7 +399,7 @@ impl Renderer {
             && *size == bucket
             && *quick
             && self.pending.contains_key(&slot)
-            && !self.request_needed(slot, *key, priority.saturating_add(1))
+            && !self.request_needed(slot, *key, crate::panels::grid::stand_in_priority(priority))
     }
 
     /// Remember that the camera's embedded preview is this photo's final thumbnail, so the grid's
@@ -1334,9 +1334,11 @@ mod thumbnail_tests {
         let request_id = r.requests[&slot].id;
         assert!(r.thumb_current(&p, 384, 5));
         assert!(!r.thumb_current(&p, 384, 10));
-        r.request_quick(slot, quick.clone(), 11); // visible grid: 10 + 1
+        // visible grid: right after the loupe's own stand-in (PERF-CULL-TIERS)
+        let on_screen = crate::panels::grid::stand_in_priority(10);
+        r.request_quick(slot, quick.clone(), on_screen);
         assert!(r.thumb_current(&p, 384, 10));
-        r.request_quick(slot, quick.clone(), 11);
+        r.request_quick(slot, quick.clone(), on_screen);
         assert_eq!(r.requests[&slot].id, request_id);
         assert_eq!(r.pool.queued(), 2);
         r.pool.run_inline(1);
@@ -1529,6 +1531,12 @@ mod thumbnail_tests {
         assert_eq!(app.renderer.pending[&slot].1, crate::panels::grid::STAND_IN_ON_SCREEN, "the grid must promote its queued stand-in");
         assert_eq!(app.renderer.requests[&slot].id, request_id);
         assert_eq!(app.renderer.pool.queued(), 1);
+        // asked again every frame while it waits: no job is built again
+        let built_on_screen = app.renderer.thumb_jobs_built;
+        for _ in 0..5 {
+            crate::panels::grid::request_thumb(&mut app, id, 384, 10);
+        }
+        assert_eq!(app.renderer.thumb_jobs_built, built_on_screen, "a queued on-screen stand-in is current");
 
         crate::panels::grid::request_thumb(&mut app, id, 384, 5);
         assert_eq!(app.renderer.pending[&slot].1, 6, "the grid must demote its queued stand-in");
