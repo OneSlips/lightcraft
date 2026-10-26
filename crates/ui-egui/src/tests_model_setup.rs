@@ -247,3 +247,25 @@ fn ai_denoise_without_a_model_explains_instead_of_asking_for_a_file() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// While a denoise request waits, Settings ▸ AI Denoise shows the note with a working
+/// "Cancel pending action" button: clicking it drops the request.
+#[test]
+fn the_pending_notice_in_settings_cancels_the_request() {
+    use crate::headless::Headless;
+    use std::time::Duration;
+    const T: Duration = Duration::from_secs(10);
+    let (mut app, dir, raw) = setup("notice-cancel");
+    let r = app.run("denoise.toggle", json!({"id": raw.0, "enabled": true})).unwrap();
+    assert_eq!(r["setupRequired"], true);
+    let mut h = Headless::new(app, [1400.0, 1000.0], 1.0);
+    h.step();
+    h.step();
+    let widgets = h.request("ui.widgets", json!({"filter": "modelSetup:"}), T).to_string();
+    assert!(widgets.contains("modelSetup:cancel:denoise"), "{widgets}");
+    assert_eq!(h.request("ui.clickWidget", json!({"id": "modelSetup:cancel:denoise"}), T)["ok"], true);
+    h.step();
+    assert!(!model_setup::denoise_requested(&h.app, raw), "Cancel drops the pending request");
+    drop(h);
+    let _ = std::fs::remove_dir_all(dir);
+}
