@@ -699,6 +699,8 @@ impl Renderer {
         }
         self.natives.clear();
         self.native_frames.clear();
+        // a view drawn from a freed texture would show nothing: it is rendered again, as pixels
+        self.textures.retain(|_, t| t.native.is_none());
     }
 
     pub fn is_pending(&self, slot: Slot) -> bool {
@@ -2132,6 +2134,23 @@ mod stage_budget_tests {
         r.idle = Some((long_ago, false));
         r.trim_when_idle(&ctx);
         assert_eq!(r.idle, Some((long_ago, true)), "trimmed once the window is gone");
+    }
+
+    // Given views drawn from GPU-resident frames, freeing those frames (the screen can't show one any more) drops
+    // the views that point at them, so they are rendered again as pixels; a view held as pixels stays
+    #[test]
+    fn freeing_gpu_frames_drops_the_views_drawn_from_them() {
+        let ctx = egui::Context::default();
+        let mut r = Renderer::default();
+        let tex = |name: &str| ctx.load_texture(name, egui::ColorImage::new([1, 1], vec![egui::Color32::BLACK]), Default::default());
+        let view = |tex, native| Tex { key: 1, photo: PhotoId(1), tex, native, size: [64, 48], histogram: None, ms: 0.0, quick: None, pixels: None };
+        r.textures.insert(Slot::Before, view(tex("before"), Some(egui::TextureId::User(7))));
+        r.textures.insert(Slot::Compare(0), view(tex("compare"), Some(egui::TextureId::User(8))));
+        r.textures.insert(Slot::Main, view(tex("main"), None));
+        r.free_natives();
+        assert!(!r.textures.contains_key(&Slot::Before), "its frame is gone");
+        assert!(!r.textures.contains_key(&Slot::Compare(0)), "its frame is gone");
+        assert!(r.textures.contains_key(&Slot::Main), "pixels stay");
     }
 
     // Given stage caches within the budget, nothing is cleared
