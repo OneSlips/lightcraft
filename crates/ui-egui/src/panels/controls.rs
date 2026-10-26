@@ -1415,6 +1415,10 @@ fn connection(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             app.surface.runtime.settings_mut().port = u16::try_from(port).unwrap_or(ls::settings::DEFAULT_PORT);
             app.surface.changed();
         }
+        // the plugin learns the new port once it is set (not on every step of a drag or keystroke)
+        if r.drag_stopped() || r.lost_focus() || (r.changed() && !r.dragged() && !r.has_focus()) {
+            crate::surface_plugin::provision_port(app);
+        }
         match (app.surface.listening, &app.surface.listen_error) {
             (Some(p), _) => {
                 ui.label(RichText::new(crate::i18n::tr_format!("Listening on 127.0.0.1:{port}", port = p)).size(11.0).color(t.text_dim));

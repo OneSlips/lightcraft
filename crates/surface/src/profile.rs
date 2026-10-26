@@ -123,16 +123,19 @@ impl Profile {
     /// entries that name existing pages.
     pub fn sanitize(&mut self) {
         let mut seen = std::collections::BTreeSet::new();
+        // the next suffix to try per name: a suffix taken once stays taken, so each is tried once in all
+        let mut next = std::collections::BTreeMap::<String, usize>::new();
         for (i, p) in self.pages.iter_mut().enumerate() {
             if p.name.trim().is_empty() {
                 p.name = format!("Page {}", i + 1);
             }
             let base = p.name.clone();
-            let mut n = 2;
+            let mut n = next.get(&base).copied().unwrap_or(2);
             while !seen.insert(p.name.clone()) {
                 p.name = format!("{base} {n}");
-                n += 1;
+                n = n.saturating_add(1);
             }
+            next.insert(base, n);
         }
         let names: std::collections::BTreeSet<String> = self.pages.iter().map(|p| p.name.clone()).collect();
         for list in self.contexts.values_mut() {

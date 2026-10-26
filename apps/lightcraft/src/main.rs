@@ -513,8 +513,9 @@ fn file_dialog() -> rfd::FileDialog {
 }
 
 /// The platform services; `cc` is the window the file dialogs belong to (its `egui_ctx` repaints
-/// when a dialog closes), and `log_file` is for Help ▸ Open Log Folder.
-fn services(cc: &eframe::CreationContext<'_>, log_file: Option<&std::path::Path>) -> Services {
+/// when a dialog closes), `log_file` is for Help ▸ Open Log Folder, and a `--memory` session (`in_memory`) keeps its
+/// control-surface settings to itself.
+fn services(cc: &eframe::CreationContext<'_>, log_file: Option<&std::path::Path>, in_memory: bool) -> Services {
     let ctx = cc.egui_ctx.clone();
     #[cfg(any(target_os = "linux", target_os = "freebsd"))]
     let _ = DIALOG_PARENT.set(rfd::FileDialog::new().set_parent(cc));
@@ -751,7 +752,7 @@ fn services(cc: &eframe::CreationContext<'_>, log_file: Option<&std::path::Path>
         backup_library: None,
         restore_library: None,
         system_theme: appearance::service(),
-        surface_store: surface_store(),
+        surface_store: surface_store(in_memory),
         pick_surface_file: Some(Box::new(|| {
             file_dialog()
                 .set_title(lightcraft_ui_egui::i18n::tr("Import Control Surface Setup"))
@@ -797,9 +798,10 @@ impl lightcraft_ui_egui::surface::SurfaceStore for SurfaceFile {
     }
 }
 
-/// Where control-surface settings live (none with `LIGHTCRAFT_NO_PREFS` or no settings folder).
-fn surface_store() -> Option<Box<dyn lightcraft_ui_egui::surface::SurfaceStore>> {
-    if std::env::var_os("LIGHTCRAFT_NO_PREFS").is_some() {
+/// Where control-surface settings live (none in a `--memory` session, which writes nothing (issue #164), with
+/// `LIGHTCRAFT_NO_PREFS` or without a settings folder).
+fn surface_store(in_memory: bool) -> Option<Box<dyn lightcraft_ui_egui::surface::SurfaceStore>> {
+    if in_memory || std::env::var_os("LIGHTCRAFT_NO_PREFS").is_some() {
         return None;
     }
     config_dir().map(|d| Box::new(SurfaceFile(d.join("control-surfaces.json"))) as Box<dyn lightcraft_ui_egui::surface::SurfaceStore>)
@@ -1067,7 +1069,7 @@ fn main() -> eframe::Result {
                 session = session.with_default_sam3_model();
                 // HDR display: SDR unless the surface, platform and display all allow HDR
                 hdr_display::report(cc.wgpu_render_state.as_ref().map(|r| r.target_format));
-                let mut app = LightcraftApp::new(session, services(cc, app_log_file.as_deref()));
+                let mut app = LightcraftApp::new(session, services(cc, app_log_file.as_deref(), in_memory));
                 app.set_startup_update_check(true);
                 if let Some(ui) = prefs {
                     app.ui = ui;
@@ -1416,6 +1418,12 @@ mod tests {
         w.save_ui(&ui, false).unwrap();
         assert!(w.written.is_empty() && !d2.exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A `--memory` session neither reads nor writes the control-surface settings file (CodeRabbit on #2947).
+    #[test]
+    fn a_memory_session_has_no_control_surface_store() {
+        assert!(surface_store(true).is_none());
     }
 
     /// Issue #169: a `--memory` session neither arms the GPU crash sentinel (which would create

@@ -510,6 +510,24 @@ fn an_installed_logi_plugin_works_with_no_setup_and_settings_show_the_edited_pag
     assert!(!h.app.surface.settings().enabled, "off stays off");
 }
 
+/// A port changed in Settings reaches the installed plugin at once, without touching its token
+/// (CodeRabbit on #2947).
+#[test]
+fn a_changed_port_is_handed_to_the_plugin() {
+    let logi = Arc::new(FakeLogi::default());
+    let services =
+        Services { png: None, surface_store: Some(Box::new(MemStore::default())), surface_plugin: Some(logi.clone()), ..Default::default() };
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
+    crate::surface_plugin::auto_setup(&mut app);
+    let token = logi.token.lock().unwrap().clone();
+    assert!(token.is_some());
+    app.surface.runtime.settings_mut().port = 18123;
+    app.surface.changed();
+    crate::surface_plugin::provision_port(&mut app);
+    assert_eq!(*logi.port.lock().unwrap(), Some(18123));
+    assert_eq!(*logi.token.lock().unwrap(), token, "the token stays");
+}
+
 /// Bind `control` on the key page now showing.
 fn bind_key(h: &mut Headless, control: &str, b: lightcraft_surface::Binding) {
     let page = h.app.surface.runtime.pages().get(&lightcraft_surface::PageGroup::Keys).cloned().unwrap();

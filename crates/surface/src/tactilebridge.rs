@@ -855,9 +855,13 @@ fn unique_name(s: &SurfaceSettings, base: &str) -> String {
     name
 }
 
+/// The most pages one imported `.lp5` profile keeps.
+pub const MAX_IMPORTED_PAGES: usize = 256;
+
 /// Read a Logi profile package (`.lp5`) TactileBridge shipped or the user saved: its pages, with
 /// TactileBridge actions mapped. Keypad profiles (`Loupedeck70`) give key pages, Dialpad profiles
 /// (`Loupedeck71`) dial pages and base buttons; Actions Ring profiles (`Loupedeck72`) both.
+/// At most [`MAX_IMPORTED_PAGES`] pages are kept: the per-level limits multiply to far more.
 pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
     let info = crate::zip::read_member(bytes, "ProfileInfo.json")?;
     let text = String::from_utf8_lossy(&info);
@@ -898,7 +902,7 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
                     if is_pads {
                         // the Dialpad's buttons stay put while its dial pages change
                         profile.base.extend(bindings);
-                    } else {
+                    } else if profile.pages.len() < MAX_IMPORTED_PAGES {
                         let group = if rotate { PageGroup::Dials } else { PageGroup::Keys };
                         profile.pages.push(Page { name: pname, groups: vec![group], bindings, auto: false });
                     }
@@ -1061,5 +1065,19 @@ mod tests {
         assert!(p.pages.iter().all(|pg| pg.bindings.is_empty()), "{:?}", p.pages);
         assert!(import_lp5(b"not a zip").is_err());
         assert!(import_lp5(&make_zip(&[("ProfileInfo.json", b"{\"layout\": 5}", false)])).is_err());
+    }
+
+    /// A small file that lists thousands of same-named pages is cut to [`MAX_IMPORTED_PAGES`] and named quickly
+    /// (CodeRabbit on #2947).
+    #[test]
+    fn a_profile_with_too_many_pages_keeps_the_first_ones() {
+        let pages = json!(vec![json!({"controls": []}); 64]);
+        let ws = json!({"pressPages": pages, "rotatePages": pages});
+        let info = json!({"deviceType": "Loupedeck70", "layout": {"layoutModes": vec![json!({"workspaces": vec![ws; 16]}); 16]}});
+        let text = info.to_string();
+        let (p, _) = import_lp5(&make_zip(&[("ProfileInfo.json", text.as_bytes(), true)])).unwrap();
+        assert_eq!(p.pages.len(), MAX_IMPORTED_PAGES);
+        assert_eq!((p.pages[0].name.as_str(), p.pages[1].name.as_str()), ("Page", "Page 2"));
+        assert_eq!(p.pages[MAX_IMPORTED_PAGES - 1].name, format!("Page {MAX_IMPORTED_PAGES}"));
     }
 }

@@ -111,6 +111,19 @@ pub fn auto_setup(app: &mut LightcraftApp) {
     }
 }
 
+/// Tell the installed plugin the port LightCraft now listens on (after the user changed it), so it
+/// connects there without a restart. The trust token and the on/off setting are left alone.
+pub fn provision_port(app: &mut LightcraftApp) {
+    let Some(i) = installer(app) else { return };
+    if i.status().installed.is_none() {
+        return;
+    }
+    if let Err(e) = i.provision(None, app.surface.settings().port) {
+        log::warn!("Logi plugin: {e}");
+        app.surface.plugin.message = Some(Err(e));
+    }
+}
+
 /// An install or uninstall on its way.
 pub struct PluginJob {
     rx: Receiver<Result<String, String>>,
