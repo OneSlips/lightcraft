@@ -302,7 +302,9 @@ impl Session {
     pub fn prep_tick(&mut self, mode: Mode, at: Option<PhotoId>, backward: bool) {
         let settings = self.prep.settings();
         let want = settings.mode(mode);
-        let wanted = want.previews && settings.scope(mode) != Scope::OnScreen;
+        // the whole view's build follows its own row (Culling, or Library also while editing): its
+        // switch and its "which photos"; the Editing row's scope is for the photos kept ready ahead
+        let wanted = want.previews && want.scope != Scope::OnScreen;
         // the running build: re-aimed at the user, stopped when switched off
         if let Some(b) = self.prep.build.clone() {
             if b.running() {
@@ -349,7 +351,7 @@ impl Session {
         {
             return;
         }
-        let ids: Vec<u64> = match settings.scope(mode) {
+        let ids: Vec<u64> = match want.scope {
             Scope::Marked => ids.into_iter().filter(|id| marked(self, *id)).map(|id| id.0).collect(),
             _ => ids.into_iter().map(|id| id.0).collect(),
         };

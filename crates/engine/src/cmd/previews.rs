@@ -486,8 +486,9 @@ fn smart(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(bad(C, "a preview build is already running"));
         }
     }
-    // (as Build Previews: the selected photos when more than one is, else everything in view)
-    let ids = if p.get("ids").is_some() || s.selection.ids.len() > 1 { s.targets(p)? } else { s.visible_cloned() };
+    // (as Build Previews: the photos named, or the selected ones when more than one is, else
+    // everything in view)
+    let ids = if p.get("ids").is_some() || p.get("id").is_some() || s.selection.ids.len() > 1 { s.targets(p)? } else { s.visible_cloned() };
     let mut jobs: Vec<SmartJob> = Vec::new();
     for id in ids {
         let Some(ph) = s.catalog.photo(id).cloned() else { continue };
