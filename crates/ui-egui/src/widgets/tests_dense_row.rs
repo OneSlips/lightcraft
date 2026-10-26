@@ -129,7 +129,12 @@ fn arrow_keys_and_the_wheel_nudge_a_hovered_or_clicked_row() {
     // a click arms the wheel; a notch down is a step down (the click itself set the value there)
     r.click(track.center(), 1);
     let before = r.value;
-    r.frame(vec![Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: vec2(0.0, -120.0), phase: egui::TouchPhase::Move, modifiers: Modifiers::NONE }]);
+    r.frame(vec![Event::MouseWheel {
+        unit: egui::MouseWheelUnit::Point,
+        delta: vec2(0.0, -120.0),
+        phase: egui::TouchPhase::Move,
+        modifiers: Modifiers::NONE,
+    }]);
     for _ in 0..40 {
         r.frame(vec![]);
     }
