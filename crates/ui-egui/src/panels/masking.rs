@@ -677,6 +677,77 @@ pub(crate) const MASK_KINDS: [(&str, &str, Icon); 13] = [
 /// selected mask adds, subtracts or intersects. Tools wait for the photo (the first click or drag
 /// there makes it), pickers and the Describe field open, the automatic ones are made at once.
 pub(crate) fn start_kind(app: &mut LightcraftApp, ctx: &egui::Context, kind: &str, op: &str) {
+    start_kind_now(app, ctx, kind, op);
+    // a tool armed for a new mask deselects the selected one at once (note 9)
+    keep_selection(app);
+}
+
+/// Whether a tool, picker or the Describe field waits to make a NEW mask (not a part of the
+/// selected one).
+fn arming_new(app: &LightcraftApp) -> bool {
+    app.ui.mask_new.as_ref().is_some_and(|(_, op)| op == "new")
+        || app.ui.describe.as_ref().is_some_and(|(op, _)| op == "new")
+        || ((app.ui.people_pick.is_some() || app.ui.concept_pick || app.ui.landscape_pick) && app.ui.mask_pick_op.is_none())
+}
+
+/// Which mask Masks has selected (test notes 2026-10-25 notes 8 and 9), worked out every frame:
+///
+/// - a tool armed for a new mask (Radial, Linear, Brush, Color, an AI picker…) deselects the
+///   selected mask, so the sliders and the console set the new mask's settings ("New mask ·
+///   Exposure") and nothing moves on the old one; putting the tool away without making a mask
+///   (Esc, the tile again) selects the old one again; a mask made is the selected one;
+/// - entering Masks, or another photo while in Masks, lands on a mask when the photo has any: the
+///   only one; else the counterpart of the mask selected last on another photo (the same synced
+///   mask: source / recipe, then name, then place); else the one selected last on this photo;
+///   else the first. A mask still selected (leaving Masks and coming back) stays.
+pub(crate) fn keep_selection(app: &mut LightcraftApp) {
+    let photo = app.session.active();
+    let in_masks = app.ui.right == crate::state::RightPanel::Masking;
+    let d = photo.and_then(|id| app.session.develop_of(id)).unwrap_or_default();
+    let has = |id: u32| d.masks.iter().any(|m| m.id == id);
+    let armed = in_masks && arming_new(app);
+    if armed {
+        if let Some(p) = photo
+            && app.ui.mask_before_arm.is_none_or(|(q, _)| q != p.0)
+        {
+            app.ui.mask_before_arm = Some((p.0, app.session.active_mask));
+        }
+        app.session.active_mask = None;
+    } else if let Some((p, before)) = app.ui.mask_before_arm.take()
+        && app.session.active_mask.is_none()
+        && photo.is_some_and(|x| x.0 == p)
+    {
+        // put away without making a mask: the one selected before
+        app.session.active_mask = before.filter(|id| has(*id));
+    }
+    let seen = (photo.map(|p| p.0), in_masks);
+    let entered = in_masks && app.ui.mask_seen != Some(seen);
+    app.ui.mask_seen = Some(seen);
+    let Some(p) = photo.map(|p| p.0).filter(|_| in_masks) else { return };
+    if entered && !armed && !app.session.active_mask.is_some_and(has) {
+        app.session.active_mask = landing_mask(app, p, &d.masks);
+    }
+    if let Some(id) = app.session.active_mask.filter(|id| has(*id)) {
+        app.ui.mask_memory.insert(p, id);
+        app.ui.mask_last = Some((p, id));
+    }
+}
+
+/// The mask entering Masks on photo `p` (with `masks`) lands on ([`keep_selection`]).
+fn landing_mask(app: &LightcraftApp, p: u64, masks: &[lightcraft_develop::Mask]) -> Option<u32> {
+    if let [only] = masks {
+        return Some(only.id);
+    }
+    let synced = app.ui.mask_last.filter(|(q, _)| *q != p).and_then(|(q, id)| {
+        let other = app.session.develop_of(PhotoId(q))?;
+        let i = other.masks.iter().position(|m| m.id == id)?;
+        let k = lightcraft_develop::recipe::same_mask(other.masks.get(i)?, i, other.masks.len(), masks)?;
+        masks.get(k).map(|m| m.id)
+    });
+    synced.or_else(|| app.ui.mask_memory.get(&p).copied().filter(|id| masks.iter().any(|m| m.id == *id))).or_else(|| masks.first().map(|m| m.id))
+}
+
+fn start_kind_now(app: &mut LightcraftApp, ctx: &egui::Context, kind: &str, op: &str) {
     let combine = (op != "new").then_some(op);
     match kind {
         // a second click on a tile puts its tool away (never an empty mask)

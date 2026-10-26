@@ -3268,5 +3268,10 @@
   "Import dropped files without review": "Importar los archivos soltados sin revisión",
   "An import is running. Drop photos when it has finished": "Hay una importación en curso. Suelta las fotos cuando termine",
   "Finish Lightroom catalog import before adding photos": "Termina la importación del catálogo de Lightroom antes de añadir fotos",
-  "Console: Masking and Mask are now one Masks page": "Consola: las páginas de máscaras ahora son una sola página Máscaras"
+  "Console: Masking and Mask are now one Masks page": "Consola: las páginas de máscaras ahora son una sola página Máscaras",
+  "All masks shown · O to hide": "Todas las máscaras visibles · O para ocultar",
+  "Click to hide the overlay": "Haz clic para ocultar la superposición",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Este punto es demasiado claro para leer su color: haz clic en una zona neutra algo más oscura",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Este punto es demasiado oscuro para leer su color: haz clic en una zona neutra más clara",
+  "This spot can't be read": "Este punto no se puede leer"
 }

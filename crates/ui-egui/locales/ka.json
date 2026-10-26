@@ -2820,5 +2820,10 @@
   "An import is running": "იმპორტი მიმდინარეობს",
   "An import is running. Drop photos when it has finished": "იმპორტი მიმდინარეობს. ფოტოები ჩააგდეთ, როცა დასრულდება",
   "Finish Lightroom catalog import before adding photos": "ფოტოების დამატებამდე დაასრულეთ Lightroom-ის კატალოგის იმპორტი",
-  "Console: Masking and Mask are now one Masks page": "კონსოლი: ნიღბვის ორი გვერდი ახლა ერთი გვერდია „ნიღბები“"
+  "Console: Masking and Mask are now one Masks page": "კონსოლი: ნიღბვის ორი გვერდი ახლა ერთი გვერდია „ნიღბები“",
+  "All masks shown · O to hide": "ყველა ნიღაბი ნაჩვენებია · O დასამალად",
+  "Click to hide the overlay": "დააწკაპუნეთ ზედდების დასამალად",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "ეს წერტილი ზედმეტად ნათელია მისი ფერის წასაკითხად: დააწკაპუნეთ ოდნავ უფრო მუქ ნეიტრალურ ადგილზე",
+  "This spot is too dark to read its colour: click a brighter neutral area": "ეს წერტილი ზედმეტად მუქია მისი ფერის წასაკითხად: დააწკაპუნეთ უფრო ნათელ ნეიტრალურ ადგილზე",
+  "This spot can't be read": "ამ წერტილის წაკითხვა შეუძლებელია"
 }

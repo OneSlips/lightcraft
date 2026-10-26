@@ -64,6 +64,7 @@ pub mod text_field;
 pub mod theme;
 pub mod thumb_first;
 pub mod titlebar;
+mod wb_loupe;
 pub mod widgets;
 pub mod window_place;
 
@@ -1611,6 +1612,12 @@ impl LightcraftApp {
         let mut t = now_ms();
         self.sync_theme(ctx);
         self.lap(&mut t, "theme");
+        // browsed photos show only in the Import tab (test notes 2026-10-25 note 3)
+        import_tab::keep_in_step(self);
+        // the mask Masks has selected: one to work on, none while a new one is being made
+        // (test notes 2026-10-25 notes 8 and 9)
+        panels::masking::keep_selection(self);
+        self.lap(&mut t, "keep in step");
         panels::notices::logic(self);
         self.lap(&mut t, "notices");
         // closing the window (or Quit) with changes only in memory: retry, else ask first

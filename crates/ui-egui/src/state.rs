@@ -939,6 +939,25 @@ pub struct UiState {
     /// O hid the automatic overlay of this mask (until another mask is selected).
     #[serde(skip)]
     pub mask_overlay_hidden: Option<u32>,
+    /// The Import tab came up by itself for a browsed folder on show in the Library tab
+    /// ([`crate::import_tab::keep_in_step`]): back to Library once the view is the library's again.
+    #[serde(skip)]
+    pub import_moved: bool,
+    /// The mask selected last on each photo (photo → mask id), for this session: entering Masks
+    /// there lands on it (test notes 2026-10-25 note 8).
+    #[serde(skip)]
+    pub mask_memory: std::collections::HashMap<u64, u32>,
+    /// The mask selected last in Masks, on whichever photo (photo, mask id): another photo with
+    /// the same synced masks selects its counterpart.
+    #[serde(skip)]
+    pub mask_last: Option<(u64, u32)>,
+    /// The photo on show and whether Masks was open, last frame: a change is "entering Masks".
+    #[serde(skip)]
+    pub mask_seen: Option<(Option<u64>, bool)>,
+    /// The mask selected when a new-mask tool was armed (photo, mask), deselected meanwhile:
+    /// putting the tool away without making a mask selects it again (test notes 2026-10-25 note 9).
+    #[serde(skip)]
+    pub mask_before_arm: Option<(u64, Option<u32>)>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -947,7 +966,9 @@ pub struct UiState {
     /// need [`mask_pins`](Self::mask_pins).
     pub tool_overlay: ToolOverlay,
     /// Masking: show every visible mask's region as one overlay at once (Ctrl+Shift+O / Cmd+Shift+O),
-    /// instead of just the selected mask's ([`mask_overlay`]).
+    /// instead of just the selected mask's ([`mask_overlay`]). A look, not a setting: not kept
+    /// between sessions, so the overlay never comes back by itself (test notes 2026-10-25 note 14).
+    #[serde(skip)]
     pub mask_overlay_all: bool,
     /// The overlay (on, mode) to go back to when Show Luminance Map is turned off.
     #[serde(skip)]
@@ -964,8 +985,16 @@ pub struct UiState {
     pub grid_info: String,
     /// Photo counts next to sources and albums in the left panel.
     pub show_counts: bool,
-    /// Face / pet boxes (read from XMP) over the photo in the loupe.
+    /// Face / pet boxes (read from XMP) over the photo in the loupe, switched on (View ▸ Face
+    /// Boxes). Off by default (test notes 2026-10-25 note 11: the boxes get in the way); they
+    /// also show while a face is being named, from the People view or the People mask picker
+    /// ([`crate::panels::faces::face_boxes_shown`]). A new key: earlier builds saved `faceBoxes:
+    /// true` without the user choosing it, so only a choice made since is kept.
+    #[serde(rename = "faceBoxesOn")]
     pub face_boxes: bool,
+    /// The White Balance Selector's sample, its side in screen pixels (odd; the mouse wheel
+    /// changes it while the selector is armed: test notes 2026-10-25 note 13).
+    pub wb_sample: u32,
     /// The left sidebar's sections: their order, which are hidden and which are folded shut.
     pub sidebar: crate::sidebar::SidebarLayout,
     /// Presets panel groups folded shut (by group name), the same in every library (note 52).
@@ -1888,6 +1917,11 @@ impl Default for UiState {
             mask_menu_for: None,
             mask_hover_prev: None,
             mask_overlay_hidden: None,
+            import_moved: false,
+            mask_memory: Default::default(),
+            mask_last: None,
+            mask_seen: None,
+            mask_before_arm: None,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,
@@ -1900,7 +1934,8 @@ impl Default for UiState {
             show_filenames: true,
             grid_info: "filename".into(),
             show_counts: true,
-            face_boxes: true,
+            face_boxes: false,
+            wb_sample: crate::wb_loupe::DEFAULT_SAMPLE,
             sidebar: Default::default(),
             collapsed_sidebar: Vec::new(),
             folded_preset_groups: Vec::new(),

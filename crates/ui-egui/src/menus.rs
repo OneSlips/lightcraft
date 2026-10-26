@@ -1224,14 +1224,21 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     .active_mask
                     .and_then(|mid| d.masks.iter().find(|m| m.id == mid).map(|m| (mid, crate::panels::detail::overlay_shown(app, m))))
             });
-            let shown = selected.is_some_and(|s| s.1) || (selected.is_none() && app.ui.mask_overlay);
+            // O always turns off whatever overlay shows, All Mask Overlays included (test notes
+            // 2026-10-25 note 14): one key the user knows
+            let all = app.ui.mask_overlay_all;
+            let shown = all || selected.is_some_and(|s| s.1) || (selected.is_none() && app.ui.mask_overlay);
             let show = p.get("show").and_then(Value::as_bool).unwrap_or(!shown);
             app.ui.mask_overlay = show;
             app.ui.mask_overlay_hidden = if show { None } else { selected.map(|s| s.0) };
-            Ok(json!({"maskOverlay": show}))
+            if !show {
+                app.ui.mask_overlay_all = false;
+            }
+            Ok(json!({"maskOverlay": show, "maskOverlayAll": app.ui.mask_overlay_all}))
         }
         "view.maskOverlayAll" => {
-            app.ui.mask_overlay_all = !app.ui.mask_overlay_all;
+            // Ctrl+Shift+O only turns All on (O turns it off); `on` sets it either way
+            app.ui.mask_overlay_all = p.get("on").and_then(Value::as_bool).unwrap_or(true);
             Ok(json!({"maskOverlayAll": app.ui.mask_overlay_all}))
         }
         "view.maskOverlayMode" => {
@@ -1556,6 +1563,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                         app.ui.brush_erase = false;
                     }
                 }
+                // W again puts the selector away without sampling (test notes 2026-10-25 note 13)
+                "wbPicker" if app.ui.tool == "wbPicker" => app.ui.tool.clear(),
                 "wbPicker" => {
                     app.ui.right = RightPanel::Edit;
                     app.ui.view = ViewMode::Detail;

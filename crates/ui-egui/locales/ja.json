@@ -3266,5 +3266,10 @@
   "Import dropped files without review": "ドロップしたファイルを確認せずに読み込む",
   "An import is running. Drop photos when it has finished": "読み込み中です。完了してから写真をドロップしてください",
   "Finish Lightroom catalog import before adding photos": "写真を追加する前に Lightroom カタログの読み込みを完了してください",
-  "Console: Masking and Mask are now one Masks page": "コンソール：2 つのマスクのページが 1 つの「マスク」ページになりました"
+  "Console: Masking and Mask are now one Masks page": "コンソール：2 つのマスクのページが 1 つの「マスク」ページになりました",
+  "All masks shown · O to hide": "すべてのマスクを表示中 · O で隠す",
+  "Click to hide the overlay": "クリックで重ね表示を隠す",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "この場所は明るすぎて色を読み取れません。少し暗いニュートラルな部分をクリックしてください",
+  "This spot is too dark to read its colour: click a brighter neutral area": "この場所は暗すぎて色を読み取れません。もっと明るいニュートラルな部分をクリックしてください",
+  "This spot can't be read": "この場所は読み取れません"
 }

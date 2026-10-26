@@ -2337,5 +2337,10 @@
   "Dropped Files": "File yang dijatuhkan",
   "Finish Lightroom catalog import before adding photos": "Selesaikan impor katalog Lightroom sebelum menambahkan foto",
   "Import dropped files without review": "Impor file yang dijatuhkan tanpa tinjauan",
-  "Console: Masking and Mask are now one Masks page": "Konsol: dua halaman masker kini menjadi satu halaman Masker"
+  "Console: Masking and Mask are now one Masks page": "Konsol: dua halaman masker kini menjadi satu halaman Masker",
+  "All masks shown · O to hide": "Semua masker ditampilkan · O untuk menyembunyikan",
+  "Click to hide the overlay": "Klik untuk menyembunyikan overlay",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Titik ini terlalu terang untuk dibaca warnanya: klik area netral yang sedikit lebih gelap",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Titik ini terlalu gelap untuk dibaca warnanya: klik area netral yang lebih terang",
+  "This spot can't be read": "Titik ini tidak dapat dibaca"
 }

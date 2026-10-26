@@ -26,11 +26,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         ui.label(egui::RichText::new(crate::i18n::tr("Masks")).font(t.semibold(13.0)).color(t.text_label));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let settings = icon_button(ui, "maskOverlaySettings", Icon::Dots, vec2(22.0, 22.0), false, true, "Overlay settings");
-            egui::Popup::menu(&settings).show(|ui| overlay_settings(app, ui));
+            egui::Popup::menu(&settings).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| overlay_settings(app, ui));
             overlay_button(app, ui);
             let all = app.ui.mask_overlay_all;
             if icon_button(ui, "maskOverlayAll", Icon::Stack, vec2(22.0, 22.0), all, true, "Show all overlays").clicked() {
-                app.ui.mask_overlay_all = !all;
+                let _ = app.run("view.maskOverlayAll", json!({"on": !all}));
             }
         });
     });
@@ -324,6 +324,30 @@ fn overlay_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     // when the pins show (Auto / Always / Selected / Never; Shift+H)
     if app.ui.mask_pins {
-        super::right::tool_overlay_options(app, ui);
+        super::right::tool_overlay_options(app, ui, true);
+    }
+}
+
+/// While All Mask Overlays is on (Ctrl+Shift+O), a pill at the top of the photo says so and how
+/// to leave it; a click turns it off (widget `loupe:allMasks`; test notes 2026-10-25 note 14: the
+/// user couldn't tell which overlay was on or how to get rid of it).
+pub(crate) fn all_masks_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect, over: Rect) {
+    if !app.ui.mask_overlay_all || app.ui.right != crate::state::RightPanel::Masking || app.ui.fullscreen {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let p = ui.painter_at(canvas);
+    let text = crate::i18n::tr("All masks shown · O to hide");
+    let g = p.layout_no_wrap(text.to_string(), t.font(12.0), egui::Color32::from_gray(225));
+    let size = vec2(g.size().x + 20.0, 22.0);
+    let over = if over.is_positive() { over.intersect(canvas) } else { canvas };
+    let r = Rect::from_min_size(pos2(over.center().x - size.x / 2.0, over.top() + 10.0), size);
+    let resp = ui.interact(r, egui::Id::new("loupe-all-masks-pill"), Sense::click());
+    crate::widgets::announce(&resp, text);
+    register(ui.ctx(), "loupe:allMasks", r);
+    p.rect_filled(r, 11.0, egui::Color32::from_black_alpha(if resp.hovered() { 225 } else { 185 }));
+    p.galley(pos2(r.left() + 10.0, r.center().y - g.size().y / 2.0), g, egui::Color32::from_gray(225));
+    if resp.on_hover_text(crate::i18n::tr("Click to hide the overlay")).clicked() {
+        let _ = app.run("view.maskOverlay", json!({"show": false}));
     }
 }

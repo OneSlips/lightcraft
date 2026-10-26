@@ -2233,5 +2233,10 @@
   "Dropped Files": "Tệp đã thả",
   "Finish Lightroom catalog import before adding photos": "Hoàn tất nhập danh mục Lightroom trước khi thêm ảnh",
   "Import dropped files without review": "Nhập các tệp đã thả mà không xem lại",
-  "Console: Masking and Mask are now one Masks page": "Bảng điều khiển: hai trang mặt nạ giờ là một trang Mặt nạ"
+  "Console: Masking and Mask are now one Masks page": "Bảng điều khiển: hai trang mặt nạ giờ là một trang Mặt nạ",
+  "All masks shown · O to hide": "Đang hiện mọi mặt nạ · O để ẩn",
+  "Click to hide the overlay": "Nhấp để ẩn lớp phủ",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Điểm này quá sáng để đọc màu: hãy nhấp vào một vùng trung tính tối hơn một chút",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Điểm này quá tối để đọc màu: hãy nhấp vào một vùng trung tính sáng hơn",
+  "This spot can't be read": "Không đọc được điểm này"
 }

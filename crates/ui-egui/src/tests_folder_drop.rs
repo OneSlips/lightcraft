@@ -151,7 +151,7 @@ fn photos_dropped_on_a_folder_move_there_on_disk() {
 }
 
 #[test]
-fn local_photos_are_refused_with_the_reason() {
+fn browsed_photos_are_never_beside_the_library_folders() {
     let (root, trip, home) = folders("local");
     // the garden photo imported; the beach one only looked at under Local, where the grid shows it
     let mut h = app(&[(home.join("garden.png"), false)]);
@@ -168,19 +168,13 @@ fn local_photos_are_refused_with_the_reason() {
     h.step_until(std::time::Duration::from_secs(20), |h| shown(h));
     let beach = id_of(&h, "beach.png");
     assert!(h.app.session.catalog.photo(lightcraft_catalog::PhotoId(beach)).unwrap().local);
-    // (the library's Folders sidebar beside the browsed folder, to drop on)
-    h.app.ui.tab = crate::import_tab::Tab::Library;
+    // browsed photos show only in the Import tab (test notes 2026-10-25 note 3): the library's
+    // Folders aren't beside them to be dropped on, so a browsed photo is never moved by a drop
     h.step();
     h.step();
-    let target = folder_row(&h, &home).expect("the imported folder");
-    let from = widget(&h, &format!("thumb:{beach}")).unwrap().center();
-    press(&mut h, from);
-    glide(&mut h, from, target.center());
-    // Then the row says it can't take them, and a release says why
-    assert_eq!(hint(&h).as_deref(), Some("Can't be moved here"));
-    release(&mut h, target.center());
+    assert_eq!(h.app.ui.tab, crate::import_tab::Tab::Import);
+    assert!(folder_row(&h, &home).is_none(), "no library folder rows in the Import tab");
     assert!(trip.join("beach.png").is_file() && !home.join("beach.png").exists(), "stays");
-    assert!(toast(&h).contains("import them first"), "{}", toast(&h));
     let _ = std::fs::remove_dir_all(&root);
 }
 

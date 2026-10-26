@@ -98,6 +98,8 @@ pub fn importing(app: &LightcraftApp) -> bool {
 /// Show a tab (`view.importTab` / `view.libraryTab`). Import shows the folder browsed last (or the
 /// sources to choose one from), with its panels; Library goes back to the view it had.
 pub fn switch(app: &mut LightcraftApp, tab: Tab) -> Result<Value, String> {
+    // the user's own choice of tab
+    app.ui.import_moved = false;
     if app.ui.tab == tab {
         return Ok(json!({"tab": tab}));
     }
@@ -130,6 +132,33 @@ pub fn switch(app: &mut LightcraftApp, tab: Tab) -> Result<Value, String> {
     Ok(json!({"tab": tab}))
 }
 
+/// Browsed photos show only in the Import tab, as in Lightroom (test notes 2026-10-25 note 3, the
+/// user's decision): a browsed folder on show in the Library tab, however it got there (the view
+/// the app or a library reopens on, a command, an agent), moves to the Import tab, so the Library
+/// tab only ever shows imported photos. Checked every frame.
+/// A view that moved there by itself (Show Alternatives, a library reopening on its browsed
+/// folder) goes back to the Library tab once it shows the library again.
+pub fn keep_in_step(app: &mut LightcraftApp) {
+    let browsing = app.session.source == LibrarySource::Folder;
+    if browsing && app.ui.tab != Tab::Import {
+        app.ui.tab = Tab::Import;
+        app.ui.import_moved = true;
+        app.ui.left_panel = true;
+        // the import settings, unless a tool is at work on the photo
+        if matches!(app.ui.right, crate::state::RightPanel::Edit | crate::state::RightPanel::None | crate::state::RightPanel::Profiles) {
+            app.ui.right = crate::state::RightPanel::Import;
+        }
+    } else if !browsing && app.ui.import_moved {
+        app.ui.import_moved = false;
+        if app.ui.tab == Tab::Import {
+            app.ui.tab = Tab::Library;
+            if app.ui.right == crate::state::RightPanel::Import {
+                app.ui.right = crate::state::RightPanel::Edit;
+            }
+        }
+    }
+}
+
 /// Keep the tab in step with the view after a command: browsing a folder is the Import tab, any
 /// library view (All Photos, an album…) the Library tab.
 pub fn follow(app: &mut LightcraftApp, id: &str) {
@@ -150,6 +179,7 @@ pub fn follow(app: &mut LightcraftApp, id: &str) {
         }
         _ => {}
     }
+    keep_in_step(app);
 }
 
 /// The big button: import what the settings take from the browsed folder, in the background,

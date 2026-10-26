@@ -2839,5 +2839,10 @@
   "Import dropped files without review": "Importovat přetažené soubory bez kontroly",
   "An import is running. Drop photos when it has finished": "Import už běží. Fotky přetáhněte, až skončí",
   "Finish Lightroom catalog import before adding photos": "Dokončete import katalogu Lightroom, než přidáte fotky",
-  "Console: Masking and Mask are now one Masks page": "Konzole: stránky Maskování a Maska jsou teď jedna stránka Masky"
+  "Console: Masking and Mask are now one Masks page": "Konzole: stránky Maskování a Maska jsou teď jedna stránka Masky",
+  "All masks shown · O to hide": "Zobrazeny všechny masky · O skryje",
+  "Click to hide the overlay": "Klepnutím skryjete překrytí",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Toto místo je příliš světlé, aby šla přečíst jeho barva: klepněte na o něco tmavší neutrální oblast",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Toto místo je příliš tmavé, aby šla přečíst jeho barva: klepněte na světlejší neutrální oblast",
+  "This spot can't be read": "Toto místo nelze přečíst"
 }

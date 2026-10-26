@@ -179,8 +179,8 @@ fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
     exec(&mut h, "view.maskOverlayAll", json!({}));
     assert!(h.app.ui.mask_overlay_all, "the all-masks overlay command turns it on");
     assert!(matches!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::AllMasks { .. }));
-    exec(&mut h, "view.maskOverlayAll", json!({}));
-    assert!(!h.app.ui.mask_overlay_all, "the all-masks overlay command toggles it off");
+    exec(&mut h, "view.maskOverlayAll", json!({"on": false}));
+    assert!(!h.app.ui.mask_overlay_all, "`on: false` turns it off");
     assert!(!matches!(crate::panels::detail::view_overlay(&h.app, &develop(&h)), Overlay::AllMasks { .. }));
 
     // Failed edits and global adjustments must not hide the mask overlay.
@@ -1991,4 +1991,72 @@ fn the_photo_menu_offers_update_ai_mask() {
     let text = h.painted_text();
     assert!(text.iter().any(|t| t == "Update AI Mask") && text.iter().any(|t| t == "Zoom"), "{text:?}");
     h.settle(SETTLE);
+}
+
+/// Test notes 2026-10-25 note 14: O always turns off whatever overlay shows, All Mask Overlays
+/// included; Ctrl+Shift+O only turns All on; while it is on a pill on the photo says so and a
+/// click on it hides it; once off, the overlay doesn't come back by itself (leaving Masks and
+/// coming back, or another launch).
+#[test]
+fn o_turns_off_all_mask_overlays_and_a_pill_says_they_show() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.3, 0.4], "rx": 0.1, "ry": 0.1}));
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.7, 0.2], "end": [0.7, 0.6]}));
+    let overlay = |h: &Headless| crate::panels::detail::view_overlay(&h.app, &develop(h));
+    let pill = |h: &mut Headless| {
+        h.step();
+        h.app.widgets.iter().any(|(w, _)| w == "loupe:allMasks")
+    };
+    assert!(!pill(&mut h), "no pill while All is off");
+    h.request("ui.key", json!({"key": "o", "cmd": true, "shift": true}), T);
+    assert!(h.app.ui.mask_overlay_all, "Ctrl+Shift+O turns All on");
+    assert!(matches!(overlay(&h), Overlay::AllMasks { .. }));
+    assert!(pill(&mut h), "the pill says All masks are shown");
+    h.request("ui.key", json!({"key": "o", "cmd": true, "shift": true}), T);
+    assert!(h.app.ui.mask_overlay_all, "Ctrl+Shift+O only turns it on");
+    // O: nothing shows, neither All nor the selected mask's own overlay
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!h.app.ui.mask_overlay_all, "O turns All off");
+    assert_eq!(overlay(&h), Overlay::None, "O hides whatever showed");
+    assert!(!pill(&mut h));
+    // leaving Masks and coming back: still off
+    exec(&mut h, "panel.masking", json!({}));
+    exec(&mut h, "panel.masking", json!({}));
+    assert_eq!(h.app.ui.right, RightPanel::Masking);
+    assert!(!h.app.ui.mask_overlay_all);
+    assert!(!matches!(overlay(&h), Overlay::AllMasks { .. }));
+    // the pill's click
+    exec(&mut h, "view.maskOverlayAll", json!({}));
+    assert!(pill(&mut h));
+    click(&mut h, "loupe:allMasks");
+    assert!(!h.app.ui.mask_overlay_all, "a click on the pill hides it");
+    assert_eq!(overlay(&h), Overlay::None);
+    // not kept between sessions
+    exec(&mut h, "view.maskOverlayAll", json!({}));
+    let saved = serde_json::to_value(&h.app.ui).unwrap();
+    let back: crate::state::UiState = serde_json::from_value(saved).unwrap();
+    assert!(!back.mask_overlay_all, "a later launch starts without All");
+}
+
+/// Test notes 2026-10-25 note 14: the Masks header's ⋯ menu shows Tool Overlay's four choices
+/// as plain rows: a click picks one and the menu stays open (a drop-down inside it used to close
+/// the whole menu before its choices could even be seen).
+#[test]
+fn the_overlay_menu_picks_a_tool_overlay_without_closing() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.3, 0.4], "rx": 0.1, "ry": 0.1}));
+    exec(&mut h, "view.maskPins", json!({"show": true}));
+    click(&mut h, "icon:maskOverlaySettings");
+    h.step();
+    let open =
+        |h: &Headless| crate::state::ToolOverlay::ALL.iter().all(|m| h.app.widgets.iter().any(|(w, _)| *w == format!("toolOverlay:{}", m.name())));
+    assert!(open(&h), "the four choices show as rows in the menu");
+    click(&mut h, "toolOverlay:never");
+    assert_eq!(h.app.ui.tool_overlay, crate::state::ToolOverlay::Never);
+    h.step();
+    h.step();
+    assert!(open(&h), "the menu stays open after the click");
+    click(&mut h, "toolOverlay:always");
+    assert_eq!(h.app.ui.tool_overlay, crate::state::ToolOverlay::Always);
 }

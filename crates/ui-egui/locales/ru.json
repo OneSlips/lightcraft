@@ -3259,5 +3259,10 @@
   "Import dropped files without review": "Импортировать перетащенные файлы без проверки",
   "An import is running. Drop photos when it has finished": "Импорт уже выполняется. Перетащите фото, когда он закончится",
   "Finish Lightroom catalog import before adding photos": "Завершите импорт каталога Lightroom, прежде чем добавлять фото",
-  "Console: Masking and Mask are now one Masks page": "Пульт: две страницы масок теперь одна страница «Маски»"
+  "Console: Masking and Mask are now one Masks page": "Пульт: две страницы масок теперь одна страница «Маски»",
+  "All masks shown · O to hide": "Показаны все маски · O — скрыть",
+  "Click to hide the overlay": "Щёлкните, чтобы скрыть наложение",
+  "This spot is too bright to read its colour: click a slightly darker neutral area": "Это место слишком светлое, чтобы прочитать его цвет: щёлкните чуть более тёмную нейтральную область",
+  "This spot is too dark to read its colour: click a brighter neutral area": "Это место слишком тёмное, чтобы прочитать его цвет: щёлкните более светлую нейтральную область",
+  "This spot can't be read": "Это место не удаётся прочитать"
 }
