@@ -697,7 +697,8 @@ fn box_taps(n: usize, out: usize) -> Vec<(usize, Vec<f32>)> {
             let (a, b) = (o as f64 * scale, ((o + 1) as f64 * scale).min(n as f64));
             let first = (a.floor() as usize).min(n - 1);
             let last = ((b.ceil() as usize).max(first + 1)).min(n);
-            let ws: Vec<f32> = (first..last).map(|j| ((b.min(j as f64 + 1.0) - a.max(j as f64)).max(0.0) / (b - a).max(f64::MIN_POSITIVE)) as f32).collect();
+            let ws: Vec<f32> =
+                (first..last).map(|j| ((b.min(j as f64 + 1.0) - a.max(j as f64)).max(0.0) / (b - a).max(f64::MIN_POSITIVE)) as f32).collect();
             (first, ws)
         })
         .collect()
@@ -772,11 +773,12 @@ mod srgb8_fit_tests {
     use super::*;
 
     fn jpeg(w: usize, h: usize, f: impl Fn(usize, usize) -> [u8; 3]) -> Vec<u8> {
-        let data: Vec<[u8; 4]> = (0..w * h).map(|i| {
-            let [r, g, b] = f(i % w, i / w);
-            [r, g, b, 255]
-        })
-        .collect();
+        let data: Vec<[u8; 4]> = (0..w * h)
+            .map(|i| {
+                let [r, g, b] = f(i % w, i / w);
+                [r, g, b, 255]
+            })
+            .collect();
         let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
         crate::encode_jpeg(&crate::EncodeImage::rgba8(&img), 95, crate::ChromaSubsampling::S420, &crate::EncodeMeta::default()).unwrap()
     }
@@ -790,7 +792,8 @@ mod srgb8_fit_tests {
             let slow = crate::decode(&b, DecodeOptions::fit(mw, mh)).unwrap().to_srgb8();
             assert_eq!((fast.width, fast.height), (slow.width, slow.height), "box {mw}×{mh}");
             assert_eq!(o, 1);
-            let diff: Vec<u32> = fast.data.iter().zip(&slow.data).flat_map(|(a, b)| (0..3).map(move |c| (a[c] as i32 - b[c] as i32).unsigned_abs())).collect();
+            let diff: Vec<u32> =
+                fast.data.iter().zip(&slow.data).flat_map(|(a, b)| (0..3).map(move |c| (a[c] as i32 - b[c] as i32).unsigned_abs())).collect();
             let mean = diff.iter().sum::<u32>() as f64 / diff.len() as f64;
             assert!(mean < 3.0, "box {mw}×{mh}: mean difference {mean}");
         }

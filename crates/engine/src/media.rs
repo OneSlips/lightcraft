@@ -1616,7 +1616,16 @@ impl crate::Session {
         let embedded_cache = embedded
             .as_ref()
             .map(|(_, _, edge)| (self.media.rendered.clone(), Hasher128::new().str(&content_key(&p)).str("embedded").u64(*edge as u64).finish()));
-        Some(QuickJob { request_id: 0, photo: id, key, cached, embedded, embedded_cache, embedded_on_disk: false, small: apply_crop.then(|| Box::new(small)) })
+        Some(QuickJob {
+            request_id: 0,
+            photo: id,
+            key,
+            cached,
+            embedded,
+            embedded_cache,
+            embedded_on_disk: false,
+            small: apply_crop.then(|| Box::new(small)),
+        })
     }
 
     /// The camera's embedded JPEG of an unedited raw at up to `max_edge` pixels (its full size for

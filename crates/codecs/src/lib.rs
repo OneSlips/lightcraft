@@ -179,7 +179,8 @@ pub fn decode_jpeg_srgb8_fit(bytes: &[u8], max_w: u32, max_h: u32) -> Result<Opt
     if sniff(bytes) != Some(Format::Jpeg) {
         return Ok(None);
     }
-    std::panic::catch_unwind(|| jpeg::srgb8_fit(bytes, max_w, max_h)).unwrap_or_else(|_| Err(Error::Malformed(Format::Jpeg, "decoder panicked".into())))
+    std::panic::catch_unwind(|| jpeg::srgb8_fit(bytes, max_w, max_h))
+        .unwrap_or_else(|_| Err(Error::Malformed(Format::Jpeg, "decoder panicked".into())))
 }
 
 /// What a file's headers say about its image: enough to catalogue it without decoding pixels.
