@@ -3,7 +3,7 @@ LightCraft's own installation self-test on them.
 
 Offline training tooling; not part of LightCraft.
 
-    python export.py --ckpt <run>/final.pt --out <folder> --rawdump <lc-denoise-rawdump> [--version 0.1.0]
+    python export.py --data <scratch>/data --ckpt <run>/final.pt --out <folder> --rawdump <lc-denoise-rawdump> [--version 0.1.0]
 """
 
 import argparse
