@@ -140,10 +140,13 @@ fn a_photo_synced_while_away_shows_its_last_render_not_the_camera_jpeg() {
     exec(&mut h, "library.previous", json!({}));
     seen.clear();
     assert!(frames(&mut h, T, &mut seen, |h| rendered(h, id)), "its render comes");
-    let first = seen.iter().find(|(p, _)| *p == id).copied();
+    let first = seen.iter().find(|(p, s)| *p == id && *s != "none").copied();
     // (its grid thumbnail too, when the background re-render made it first: the loupe draws a
-    // thumbnail only when it shows an edit, never the camera JPEG)
-    assert!(matches!(first, Some((_, "last" | "render" | "cached" | "thumb"))), "the first picture of the synced photo: {first:?}");
+    // thumbnail only when it shows an edit, never the camera JPEG; or the fast draft with the new
+    // settings when that comes first)
+    assert!(matches!(first, Some((_, "last" | "draft" | "render" | "cached" | "thumb"))), "the first picture of the synced photo: {first:?}");
+    let blank = seen.iter().take_while(|(p, s)| *p != id || *s == "none").count();
+    assert!(blank <= 4, "{blank} frames before its first picture: {seen:?}");
     let camera: Vec<_> = seen.iter().filter(|(p, s)| *p == id && *s == "embedded").collect();
     assert!(camera.is_empty(), "the camera JPEG stood in for the edit: {camera:?}");
 }

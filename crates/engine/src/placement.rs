@@ -44,6 +44,10 @@ pub struct Look {
     pub wb: [f32; 3],
     /// Vibrance, saturation.
     pub color: [f32; 2],
+    /// Made with the camera's defaults, crop and geometry aside (the browse-time preview, the
+    /// camera JPEG): it never stands in for an edit, nor an edit for it (note 4 of 2026-10-25).
+    #[serde(default)]
+    pub as_shot: bool,
 }
 
 impl Look {
@@ -59,6 +63,7 @@ impl Look {
             light: [f(l.exposure), f(l.contrast), f(l.highlights), f(l.shadows), f(l.whites), f(l.blacks)],
             wb: [mode, f(d.wb.temp), f(d.wb.tint)],
             color: [f(d.color.vibrance), f(d.color.saturation)],
+            as_shot: false,
         }
     }
 
@@ -67,13 +72,15 @@ impl Look {
     /// last seen while one slider was moved a little; never the as-shot preview of a photo that has
     /// a preset's look since). A crop, an angle or a flip is not a look: the picture is cut to it.
     pub fn close_to(&self, want: &Look) -> bool {
-        if self.family != want.family || self.wb[0] != want.wb[0] {
+        if self.family != want.family || self.wb[0] != want.wb[0] || self.as_shot != want.as_shot {
             return false;
         }
         let d = |a: f32, b: f32| (a - b).abs();
-        let light = d(self.light[0], want.light[0]) <= 0.5 && (1..6).all(|i| d(self.light[i], want.light[i]) <= 25.0);
-        let wb = d(self.wb[1], want.wb[1]) <= 500.0 && d(self.wb[2], want.wb[2]) <= 10.0;
-        let color = (0..2).all(|i| d(self.color[i], want.color[i]) <= 25.0);
+        // (a slider dragged or synced: the picture before stands in better than none; a far one,
+        // 2 EV and more, does not)
+        let light = d(self.light[0], want.light[0]) < 2.0 && (1..6).all(|i| d(self.light[i], want.light[i]) <= 60.0);
+        let wb = d(self.wb[1], want.wb[1]) <= 1500.0 && d(self.wb[2], want.wb[2]) <= 30.0;
+        let color = (0..2).all(|i| d(self.color[i], want.color[i]) <= 60.0);
         light && wb && color
     }
 }
@@ -137,10 +144,19 @@ impl Placement {
     pub fn of(p: &Photo, settings: &DevelopSettings, apply_crop: bool) -> Placement {
         let frame = Frame::with_lens(p.width.max(1) as usize, p.height.max(1) as usize, settings, apply_crop, p.embedded_lens.as_ref());
         let aspect = frame.aspect() as f32;
+        let neutral = |d: &DevelopSettings| {
+            let mut d = d.clone();
+            d.crop = Default::default();
+            d.geometry = Default::default();
+            d.camera_profile.clear();
+            d.profile.id = lightcraft_develop::Profile::default().id;
+            d
+        };
+        let look = Look { as_shot: neutral(settings) == neutral(&p.camera_defaults()), ..Look::of(settings) };
         Placement {
             uv_to_norm: frame.out_to_norm(1, 1).0,
             warp: warp_key(settings),
-            look: Look::of(settings),
+            look,
             aspect: if aspect.is_finite() && aspect > 0.0 { aspect } else { 1.0 },
         }
     }
@@ -246,7 +262,11 @@ mod tests {
         let shot = Placement::of(&p, &p.develop, true);
         let mut d = (*p.develop).clone();
         d.light.exposure = 0.2;
-        assert!(shot.look.close_to(&Placement::of(&p, &d, true).look), "a small slider change");
+        // (the as-shot picture never stands in for an edit, however small: note 4 of 2026-10-25)
+        assert!(!shot.look.close_to(&Placement::of(&p, &d, true).look), "as shot vs an edit");
+        let mut more = d.clone();
+        more.light.exposure = 1.1;
+        assert!(Placement::of(&p, &d, true).look.close_to(&Placement::of(&p, &more, true).look), "a slider moved");
         let mut cropped = (*p.develop).clone();
         cropped.crop.geometry.angle = 2.0;
         assert!(shot.look.close_to(&Placement::of(&p, &cropped, true).look), "a crop is not a look");
@@ -257,7 +277,7 @@ mod tests {
         let mut d2 = preset.clone();
         d2.light.exposure = 0.4;
         assert!(Placement::of(&p, &preset, true).look.close_to(&Placement::of(&p, &d2, true).look));
-        d2.light.exposure = 2.0;
+        d2.light.exposure = 2.5;
         assert!(!Placement::of(&p, &preset, true).look.close_to(&Placement::of(&p, &d2, true).look));
         let mut upright = preset.clone();
         upright.geometry.vertical = 20.0;

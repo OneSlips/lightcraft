@@ -1054,13 +1054,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ];
         // each picture's corners on the view, when it says where it lies (`Some(None)`: drawn as it
         // is; `None`: it can't be drawn for this view)
-        let quad_of = |t: &crate::render::Tex| -> Option<Option<[Pos2; 4]>> {
+        let quad_of = |t: &crate::render::Tex, own: bool| -> Option<Option<[Pos2; 4]>> {
             let (Some(have), Some(want)) = (t.placement.filter(|_| placed(t) && crop_turn == 0.0), view_place) else {
                 return Some(None);
             };
             // a picture with another look (the as-shot preview of a photo with a preset since) never
-            // stands in (note 4 of 2026-10-25)
-            if !have.look.close_to(&want.look) {
+            // stands in (note 4 of 2026-10-25); the view's own render is always shown while the next
+            // one is made (an edit in progress: a brush stroke, a curve)
+            if !own && !have.look.close_to(&want.look) {
                 return None;
             }
             let uv = lightcraft_engine::placement::stand_in_uv(&have, &want)?;
@@ -1075,8 +1076,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let pick = candidates
             .iter()
             .flatten()
-            .find_map(|(t, w)| quad_of(t).filter(|q| q.is_none_or(|q| quad_covers(&q, view))).map(|q| (*t, *w, q)))
-            .or_else(|| candidates.iter().flatten().find_map(|(t, w)| quad_of(t).map(|q| (*t, *w, q))));
+            .find_map(|(t, w)| quad_of(t, *w == "render").filter(|q| q.is_none_or(|q| quad_covers(&q, view))).map(|q| (*t, *w, q)))
+            .or_else(|| candidates.iter().flatten().find_map(|(t, w)| quad_of(t, *w == "render").map(|q| (*t, *w, q))));
         let Some((tex, what, quad)) = pick else { return "none" };
         if let Some(quad) = quad {
             p.with_clip_rect(view).add(placed_mesh(tex.id(), &quad));
