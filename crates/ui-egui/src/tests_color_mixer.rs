@@ -164,3 +164,15 @@ fn a_bw_photos_luminance_targeted_adjustment_stays() {
     run(&mut h, "view.colorMixer", json!({}));
     assert_eq!(h.app.ui.tool, "", "no Hue on a B&W photo");
 }
+
+/// Point Color's picker is put down when its tab is left, so a click on the photo picks no colour.
+#[test]
+fn point_colors_picker_is_put_down_when_its_tab_is_left() {
+    let mut h = mixer();
+    run(&mut h, "view.colorMixer", json!({"tab": "point"}));
+    h.app.ui.tool = "pointColor".into();
+    run(&mut h, "view.colorMixer", json!({}));
+    assert_eq!(h.app.ui.tool, "pointColor", "still on its tab");
+    run(&mut h, "view.colorMixer", json!({"tab": "mixer"}));
+    assert_eq!(h.app.ui.tool, "", "the Mixer tab puts it down");
+}
