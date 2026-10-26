@@ -13,7 +13,7 @@
 //! Controls) serves nothing but `surface.*` methods, which need pairing.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -145,7 +145,10 @@ fn pump_events(events: Receiver<Value>, mut out: LineWriter, open: Arc<AtomicBoo
         match events.recv_timeout(Duration::from_millis(500)) {
             Ok(v) => {
                 if writeln!(out, "{v}").and_then(|()| out.flush()).is_err() {
+                    // (a client that stopped reading: the write timed out. Closing the socket
+                    // also wakes the connection's reader, so its slot is freed)
                     open.store(false, Ordering::SeqCst);
+                    let _ = out.out.shutdown(Shutdown::Both);
                     return;
                 }
             }
@@ -160,6 +163,8 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// How long a request waits for its reply.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+/// How long a write to a client may block: one that stopped reading loses its connection.
+const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 /// A request the app has not picked up while it drew no frame for this long is given up: the
 /// window is not being redrawn (on Wayland, a window on a hidden workspace or minimized gets no
 /// frame callbacks, so the app's loop is paused: issue #718).
@@ -179,6 +184,10 @@ pub const HIDDEN_WINDOW_ERROR: &str = "the app drew no frame for 5 s, so the req
 fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context, mode: Mode, idle_timeout: Option<Duration>) {
     if let Err(e) = stream.set_read_timeout(idle_timeout) {
         log::warn!("control connection closed: could not set idle read timeout: {e}");
+        return;
+    }
+    if let Err(e) = stream.set_write_timeout(Some(WRITE_TIMEOUT)) {
+        log::warn!("control connection closed: could not set write timeout: {e}");
         return;
     }
     let stream = Arc::new(stream);
@@ -567,6 +576,38 @@ mod tests {
     }
 
     /// A pushed event and a reply never share a line, and events stop when the peer goes.
+    /// A subscriber that stops reading: the event writer gives up when a write times out, and
+    /// closes the connection, so the slot comes free.
+    #[test]
+    fn a_client_that_stops_reading_loses_its_connection() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).unwrap();
+        let (server, _) = listener.accept().unwrap();
+        server.set_write_timeout(Some(Duration::from_millis(200))).unwrap();
+        let open = Arc::new(AtomicBool::new(true));
+        let (etx, erx) = channel::<Value>();
+        let out = LineWriter::new(Arc::new(server));
+        let pump = {
+            let open = Arc::clone(&open);
+            std::thread::spawn(move || pump_events(erx, out, open))
+        };
+        // far more than the socket buffers hold, never read
+        let big = "x".repeat(64 * 1024);
+        for i in 0..1000 {
+            if etx.send(json!({"event": "surface.layout", "n": i, "pad": big})).is_err() {
+                break;
+            }
+        }
+        let t = std::time::Instant::now();
+        while !pump.is_finished() {
+            assert!(t.elapsed() < Duration::from_secs(20), "the writer never gave up");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!open.load(Ordering::SeqCst));
+        drop(client);
+    }
+
     #[test]
     fn pushed_events_and_replies_arrive_as_whole_lines() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();

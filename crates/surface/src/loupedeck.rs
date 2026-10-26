@@ -501,6 +501,11 @@ pub fn import(bytes: &[u8], preset: &dyn Fn(&str) -> Option<String>) -> Result<I
                     None => raw.strip_prefix("LR:").unwrap_or(raw),
                 };
                 let from = format!("{}: {}", label(&control), pretty(action));
+                // (an index the Loupedeck+ has no control for could never be pressed or turned)
+                if !CONTROLS.iter().any(|c| c.id == control) {
+                    out.report.dropped.push(ReportLine { from, to: String::new(), note: "no such control on the Loupedeck+".into() });
+                    continue;
+                }
                 match map_action(action, preset) {
                     Mapped::To(b, note) => {
                         out.report.mapped.push(ReportLine { from, to: b.describe(), note: note.unwrap_or_default().into() });
@@ -575,6 +580,16 @@ mod tests {
         assert!(!out.bindings.contains_key("ld.b76"), "macros don't come along");
         assert_eq!(out.report.dropped.len(), 1);
         assert!(out.report.dropped[0].from.contains("Button 76"), "{:?}", out.report.dropped);
+    }
+
+    /// An action at an index no control sends is skipped and reported, not kept as a binding.
+    #[test]
+    fn an_action_for_no_control_is_reported_not_kept() {
+        let bytes = profile(&[(0, "$Lightroom___Undo")], &[(43, "$Lightroom___Exposure"), (33, "$Lightroom___Exposure")]);
+        let out = import(&bytes, &|_| None).unwrap();
+        assert!(!out.bindings.contains_key("ld.b0") && !out.bindings.contains_key("ld.r43"), "{:?}", out.bindings);
+        assert!(out.bindings.contains_key("ld.r33"));
+        assert_eq!(out.report.dropped.iter().filter(|l| l.note == "no such control on the Loupedeck+").count(), 2, "{:?}", out.report.dropped);
     }
 
     #[test]
