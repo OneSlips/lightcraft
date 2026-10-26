@@ -85,23 +85,25 @@ if "--skip-browse" not in args:
     t0 = time.perf_counter()
     ex("library.browse", {"path": FOLDER})
     first = thumbs12 = thumb1 = allp = None
+    thumb_times = {}  # thumbnails drawn → when that many first were
     shown = 0
     while time.perf_counter() - t0 < 1800:
         st = inspect()
         el = time.perf_counter() - t0
         shown = ex("library.state").get("visibleCount", 0)
         tt = (st.get("perf") or {}).get("thumbTextures", 0)
+        for k in range(1, min(12, tt) + 1):
+            thumb_times.setdefault(k, el)
         if shown and first is None:
             first = el
         if tt >= 1 and thumb1 is None:
             thumb1 = el
-        # twelve thumbnails, or every photo's in a smaller folder once it is all loaded
-        loading = st.get("import") is not None or st.get("scan") is not None
-        if shown and tt >= (12 if loading else min(12, shown)) and thumbs12 is None:
-            thumbs12 = el
         if first is not None and st.get("import") is None and st.get("scan") is None and allp is None:
             allp = el
-        if allp is not None and thumbs12 is not None:
+        # twelve thumbnails, or every photo's in a smaller folder: known once the folder has loaded
+        if allp is not None and thumbs12 is None:
+            thumbs12 = thumb_times.get(min(12, shown))
+        if allp is not None and (thumbs12 is not None or not shown):
             break
     out["browse_first_photo_s"] = first
     out["browse_first_thumb_s"] = thumb1
