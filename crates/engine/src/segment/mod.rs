@@ -327,6 +327,9 @@ pub struct Segmenter {
     /// Run requests in the background and apply them in [`Session::segment_poll`] (the
     /// desktop app); otherwise commands wait for their result (CLI, MCP, tests).
     pub background: bool,
+    /// Requests sent now are background work ([`worker::Job::low`]): set while the import's
+    /// finishing queue sends its photos' masks, skin and retouch parts.
+    pub low_priority: bool,
     pending: Option<PendingClicks>,
     messages: Vec<String>,
     /// Smooth Skin analyses queued, and those that failed (asked again only on request).
@@ -349,7 +352,7 @@ pub struct Segmenter {
     #[cfg_attr(not(feature = "sam"), allow(dead_code))]
     pub(crate) face_checked: bool,
     #[cfg(feature = "sam")]
-    worker: worker::Worker,
+    pub(crate) worker: worker::Worker,
     #[cfg(feature = "sam")]
     download: download::Downloader,
     /// Downloads of the openly licensed models, by model key.
@@ -373,6 +376,7 @@ impl Default for Segmenter {
             mirrors_file: None,
             models_root: None,
             background: false,
+            low_priority: false,
             pending: None,
             messages: Vec::new(),
             skin_pending: Vec::new(),
@@ -897,6 +901,7 @@ impl Session {
             parent: None,
             // (a People selection keeps the photo's people analysed there)
             analyses: Some(self.media.rendered.clone()),
+            low: self.segmenter.low_priority,
         })
     }
 
@@ -1209,6 +1214,9 @@ impl Session {
                 self.segmenter.retouch_row = None;
             }
             self.poll_face_models(&mut polled);
+            if self.segmenter.smart.has_batches() {
+                self.update_batch_rows();
+            }
         }
         polled
     }

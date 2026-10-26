@@ -20,6 +20,8 @@ pub mod journal;
 pub mod keywords;
 pub mod local;
 pub mod lock;
+#[cfg(not(target_arch = "wasm32"))]
+mod log_writer;
 pub mod model;
 pub mod query;
 pub mod rules;

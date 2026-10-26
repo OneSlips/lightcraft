@@ -734,6 +734,16 @@ impl Session {
     /// Called after every top-level command; cheap when nothing changed. Fails (with
     /// [`EngineError::NotSaved`]) only when the queued ops couldn't be written; they stay queued.
     pub fn persist(&mut self) -> Result<()> {
+        let t0 = web_time::Instant::now();
+        let r = self.persist_inner();
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        if ms > 20.0 && crate::command_profiling() {
+            eprintln!("persist: {ms:.1} ms ({:?})", self.library.as_ref().map(|l| l.journal.stats()));
+        }
+        r
+    }
+
+    fn persist_inner(&mut self) -> Result<()> {
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
         if !self.pending_log.is_empty() {
             if let Err(e) = lib.journal.append(&self.pending_log) {

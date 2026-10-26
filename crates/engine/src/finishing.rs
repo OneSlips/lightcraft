@@ -42,23 +42,20 @@ impl FinishPlan {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Stage {
-    /// AI masks and Smooth Skin's skin, queued at once (their own workers run them).
-    Analyse,
-    /// Previews built (or none asked for).
-    Previews,
-    Done,
-}
+/// How many photos are at work at once: one analysed while the one before it has its previews
+/// built (the workers stay busy), and never more, so the photos near the one on screen are done
+/// before any photo further away is touched (note 5 of 2026-10-25).
+const AT_ONCE: usize = 2;
 
-impl Stage {
-    fn name(self) -> &'static str {
-        match self {
-            Stage::Analyse => "masks",
-            Stage::Previews => "previews",
-            Stage::Done => "done",
-        }
-    }
+/// The neighbours each way that are finished, all of them, before a photo further away is started.
+pub const NEAR: usize = 5;
+
+/// Where a photo at work is.
+enum Step {
+    /// Its AI masks, Smooth Skin's skin and Retouch parts are being worked out (their workers run them).
+    Analysing,
+    /// Its previews are being built (on a thread of their own; set when done).
+    Previewing(std::sync::Arc<std::sync::atomic::AtomicBool>),
 }
 
 /// What a finished queue did, for the note: only what really happened is said (an import with a
@@ -100,96 +97,96 @@ impl FinishSummary {
     }
 }
 
-/// A finishing queue at work.
+/// A finishing queue at work: photo by photo, each one masks → skin → previews, the photo on
+/// screen first, then its neighbours both ways, then outward, re-aimed as the user moves (note 5 of
+/// 2026-10-25: "the photo I'm on is ready first").
 pub struct Finishing {
     pub plan: FinishPlan,
     /// Of the plan's photos, those left over from a queue that was at work when this import came
     /// (an earlier import, or one a restart resumed): said in the row ("544 new + 456 from earlier").
     pub earlier: usize,
     summary: FinishSummary,
-    ids: HashSet<PhotoId>,
-    stage: Stage,
-    /// The photos still waiting for their masks or skin (last tick).
-    analysing: usize,
-    /// The preview build this queue started.
-    previews: Option<std::sync::Arc<crate::cmd::previews::PreviewBuild>>,
-    /// A preview build of someone else's ran when previews were due: wait for it.
-    waited: bool,
+    /// Not started yet.
+    waiting: Vec<PhotoId>,
+    /// At work (at most [`AT_ONCE`]), in the order they were started.
+    at_work: Vec<(PhotoId, Step)>,
+    /// Photos analysed, previews built (or there already), photos done: of the plan's.
+    analysed: usize,
+    built: usize,
+    skipped: usize,
+    done: usize,
+    total: usize,
+    /// The order photos were started in (tests, `library.finishProgress` → `order`, the first few).
+    pub started_order: Vec<PhotoId>,
+    /// Stops the preview threads with the row's ✕.
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     started: Instant,
-    /// When the stage at work began (its pace gives the time left).
-    stage_started: Instant,
     guard: TaskGuard,
 }
 
 impl std::fmt::Debug for Finishing {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Finishing").field("plan", &self.plan).field("stage", &self.stage).finish()
+        f.debug_struct("Finishing").field("plan", &self.plan).field("done", &self.done).field("total", &self.total).finish()
     }
 }
 
 impl Finishing {
-    /// Overall progress, 0..=1: the analysis is the first half (all of it without previews).
-    fn fraction(&self) -> f64 {
-        let n = self.ids.len().max(1) as f64;
-        let analysed = (self.ids.len().saturating_sub(self.analysing)) as f64 / n;
-        let built = match (&self.previews, self.stage) {
-            (_, Stage::Done) => 1.0,
-            (Some(b), _) => b.done.load(std::sync::atomic::Ordering::Relaxed) as f64 / (b.total.max(1) as f64),
-            (None, _) => 0.0,
-        };
-        let analysed = if self.stage == Stage::Analyse { analysed } else { 1.0 };
-        if self.plan.preview_size().is_some() { (analysed + built) / 2.0 } else { analysed }
+    fn wants_previews(&self) -> bool {
+        self.plan.preview_size().is_some()
     }
 
-    /// Seconds left, from the pace of the stage at work (`None` until there is a pace to go by).
-    /// Previews are the last stage: their pace says what is left; the analysis says only its own
-    /// part (previews can't be judged before one is built).
+    /// Overall progress, 0..=1: each photo's analysis and its previews (all of it without previews).
+    fn fraction(&self) -> f64 {
+        let n = self.total.max(1) as f64;
+        if self.wants_previews() { (self.analysed + self.built) as f64 / (2.0 * n) } else { self.analysed as f64 / n }
+    }
+
+    /// Seconds left, from the pace so far (`None` until there is a pace to go by).
     fn eta(&self) -> Option<u64> {
-        let spent = self.stage_started.elapsed().as_secs_f64();
-        let n = self.ids.len().max(1) as f64;
-        let f = match (self.stage, &self.previews) {
-            (Stage::Analyse, _) => (self.ids.len().saturating_sub(self.analysing)) as f64 / n,
-            (Stage::Previews, Some(b)) => b.done.load(std::sync::atomic::Ordering::Relaxed) as f64 / (b.total.max(1) as f64),
-            _ => return None,
-        };
+        let spent = self.started.elapsed().as_secs_f64();
+        let f = self.fraction();
         (f > 0.02 && f < 1.0 && spent > 2.0).then(|| (spent / f * (1.0 - f)).round() as u64)
+    }
+
+    fn stage(&self) -> &'static str {
+        if self.done >= self.total {
+            "done"
+        } else if !self.waiting.is_empty() || self.at_work.iter().any(|(_, s)| matches!(s, Step::Analysing)) {
+            "masks"
+        } else {
+            "previews"
+        }
     }
 
     pub fn json(&self) -> Value {
         json!({
-            "running": self.stage != Stage::Done,
-            "stage": self.stage.name(),
-            "total": self.ids.len(),
+            "running": self.done < self.total,
+            "stage": self.stage(),
+            "total": self.total,
+            "done": self.done,
             "masks": self.summary.masks,
             "maskPhotos": self.summary.mask_photos,
             "skin": self.summary.skin,
-            "analysing": self.analysing,
+            "analysing": self.total.saturating_sub(self.analysed),
             "previews": self.plan.previews,
-            "previewsDone": self.previews.as_ref().map(|b| b.done.load(std::sync::atomic::Ordering::Relaxed)),
-            "previewsSkipped": self.previews.as_ref().map(|b| b.skipped.load(std::sync::atomic::Ordering::Relaxed)),
+            "previewsDone": self.wants_previews().then_some(self.built),
+            "previewsSkipped": self.wants_previews().then_some(self.skipped),
             "earlier": self.earlier,
             "progress": (self.fraction() * 1000.0).round() / 1000.0,
             "eta": self.eta(),
+            "order": self.started_order.iter().take(64).map(|p| p.0).collect::<Vec<_>>(),
         })
     }
-}
 
-impl Finishing {
-    /// The row's detail: what is at work, how far it is, the time left, and where the photos come
-    /// from when leftovers of an earlier queue were taken along.
+    /// The row's detail: the photos done, the time left, and where the photos come from when
+    /// leftovers of an earlier queue were taken along.
     pub fn detail(&self) -> String {
-        let n = self.ids.len();
-        let stage = match (self.stage, &self.previews) {
-            (Stage::Analyse, _) => format!("AI masks and skin {} of {n}", n.saturating_sub(self.analysing)),
-            (_, Some(b)) => format!("Previews {} of {}", b.done.load(std::sync::atomic::Ordering::Relaxed).min(b.total), b.total),
-            (_, None) => "Previews".to_string(),
-        };
-        let mut parts = vec![stage];
+        let mut parts = vec![format!("Photo {} of {}", (self.done + 1).min(self.total), self.total)];
         if let Some(eta) = self.eta() {
             parts.push(format!("about {} left", duration_text(eta)));
         }
         if self.earlier > 0 {
-            parts.push(format!("{} new + {} from earlier", n.saturating_sub(self.earlier), self.earlier));
+            parts.push(format!("{} new + {} from earlier", self.total.saturating_sub(self.earlier), self.earlier));
         }
         parts.join(" · ")
     }
@@ -210,11 +207,9 @@ impl Session {
     pub fn finish_import(&mut self, mut plan: FinishPlan) -> Value {
         let mut earlier = 0;
         if let Some(old) = self.finishing.take() {
-            // its preview build is stopped: the merged queue builds them all, once (the photos it
+            // its preview builds are stopped: the merged queue builds them all, once (the photos
             // built already are skipped)
-            if let Some(b) = &old.previews {
-                b.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
+            old.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             let new: HashSet<u64> = plan.ids.iter().copied().collect();
             for id in old.plan.ids {
                 if !new.contains(&id) && self.catalog.photo(PhotoId(id)).is_some() {
@@ -233,56 +228,119 @@ impl Session {
         }
         self.save_finishing(Some(&plan));
         let guard = self.activity.start("finishing", "Getting photos ready", Cancel::Yes);
-        let ids: HashSet<PhotoId> = plan.ids.iter().map(|i| PhotoId(*i)).collect();
-        let mut f = Finishing {
+        let list: Vec<PhotoId> = plan.ids.iter().map(|i| PhotoId(*i)).collect();
+        let mut summary = FinishSummary { photos: list.len(), ..Default::default() };
+        for id in &list {
+            if let Some(d) = self.develop_of(*id) {
+                let n = d.masks.iter().filter(|m| m.needs_compute()).count();
+                if n > 0 {
+                    summary.mask_photos += 1;
+                    summary.masks += n;
+                }
+            }
+        }
+        let total = list.len();
+        self.finishing = Some(Finishing {
             plan,
             earlier,
-            ids,
-            stage: Stage::Analyse,
-            analysing: 0,
-            summary: FinishSummary::default(),
-            previews: None,
-            waited: false,
+            summary,
+            waiting: list,
+            at_work: Vec::new(),
+            analysed: 0,
+            built: 0,
+            skipped: 0,
+            done: 0,
+            total,
+            started_order: Vec::new(),
+            cancel: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             started: Instant::now(),
-            stage_started: Instant::now(),
             guard,
-        };
-        // the masks of the presets and Smooth Skin's skin: queued now, their workers take it from here
-        let list: Vec<PhotoId> = f.plan.ids.iter().map(|i| PhotoId(*i)).collect();
-        let need: Vec<PhotoId> =
-            list.iter().copied().filter(|id| self.develop_of(*id).is_some_and(|d| d.masks.iter().any(|m| m.needs_compute()))).collect();
-        f.summary.photos = list.len();
-        f.summary.mask_photos = need.len();
-        f.summary.masks = need.iter().filter_map(|id| self.develop_of(*id)).map(|d| d.masks.iter().filter(|m| m.needs_compute()).count()).sum();
-        if !need.is_empty() {
-            let _ = self.compute_masks(&need, false);
-        }
-        for id in &list {
-            match self.skin_ensure(*id, false) {
-                Ok(true) => f.summary.skin += 1,
-                Ok(false) => {}
-                Err(e) => log::info!("finishing import: Smooth Skin on {}: {e}", id.0),
-            }
-            if let Err(e) = self.retouch_ensure(*id, false) {
-                log::info!("finishing import: Retouch on {}: {e}", id.0);
-            }
-        }
-        f.analysing = self.still_analysing(&f.ids);
-        self.finishing = Some(f);
+        });
         self.finishing_tick();
         self.finishing.as_ref().map_or_else(|| json!({"running": false}), Finishing::json)
     }
 
-    /// The photos of `ids` whose masks or skin are still being worked out.
-    fn still_analysing(&self, ids: &HashSet<PhotoId>) -> usize {
-        ids.iter()
-            .filter(|id| {
-                self.segmenter.skin_pending(**id) || self.segmenter.retouch_pending(**id) || {
-                    let one: HashSet<PhotoId> = std::iter::once(**id).collect();
-                    self.segmenter.smart.busy_with(&one)
+    /// Whether photo `id`'s masks, skin or retouch parts are still being worked out.
+    fn still_analysing(&self, id: PhotoId) -> bool {
+        self.segmenter.skin_pending(id) || self.segmenter.retouch_pending(id) || {
+            let one: HashSet<PhotoId> = std::iter::once(id).collect();
+            self.segmenter.smart.busy_with(&one)
+        }
+    }
+
+    /// The next photo of `waiting` to start: the one on screen, then its neighbours in the order the
+    /// photos are shown, both ways (forward first), then outward; with no photo on screen, from the
+    /// first photo of the order. Photos not shown come last, in the plan's order.
+    fn next_to_finish(&mut self, waiting: &[PhotoId], at_work: &[(PhotoId, Step)]) -> Option<usize> {
+        let shown = self.visible_cloned();
+        let at: std::collections::HashMap<PhotoId, usize> = shown.iter().enumerate().map(|(i, p)| (*p, i)).collect();
+        let focus = self.active().and_then(|a| at.get(&a).copied()).unwrap_or(0);
+        let rank = |p: &PhotoId| match at.get(p) {
+            // (behind the photo on screen ranks just after the same distance ahead)
+            Some(&i) => (if i >= focus { (i - focus) * 2 } else { (focus - i) * 2 + 1 }) as u64,
+            None => u64::MAX,
+        };
+        let near = |p: &PhotoId| at.get(p).is_some_and(|&i| i.abs_diff(focus) <= NEAR);
+        let (k, next) = waiting.iter().enumerate().min_by_key(|(k, p)| (rank(p), *k))?;
+        // a photo further away waits until the near ones at work are done
+        (near(next) || !at_work.iter().any(|(p, _)| near(p))).then_some(k)
+    }
+
+    /// Start photo `id`: its masks, skin and retouch parts go to their workers as background work
+    /// (the user's own requests go first, note 6 of 2026-10-25).
+    fn start_finishing(&mut self, id: PhotoId, summary: &mut FinishSummary) {
+        self.segmenter.low_priority = true;
+        if self.develop_of(id).is_some_and(|d| d.masks.iter().any(|m| m.needs_compute())) {
+            let _ = self.compute_masks(&[id], false);
+        }
+        match self.skin_ensure(id, false) {
+            Ok(true) => summary.skin += 1,
+            Ok(false) => {}
+            Err(e) => log::info!("finishing import: Smooth Skin on {}: {e}", id.0),
+        }
+        if let Err(e) = self.retouch_ensure(id, false) {
+            log::info!("finishing import: Retouch on {}: {e}", id.0);
+        }
+        self.segmenter.low_priority = false;
+    }
+
+    /// Build photo `id`'s previews on a thread of its own (the photo on screen first: it waits while
+    /// that is made). `None`: nothing to build (there already, or no such photo); else the flag set
+    /// when it is done.
+    fn build_previews_of(
+        &mut self,
+        id: PhotoId,
+        size: &str,
+        cancel: &std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Option<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+        let edge = (size != "full").then(|| crate::cmd::previews::standard_edge(self));
+        let jobs = crate::cmd::previews::jobs_for(self, id, edge);
+        if jobs.is_empty() || crate::cmd::previews::already_built(&jobs) {
+            return None;
+        }
+        let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (done, cancel) = (flag.clone(), cancel.clone());
+        let work = move || {
+            if !crate::prep::wait_for_foreground(&cancel) {
+                let build = || crate::cmd::previews::run_photo(jobs);
+                if !crate::guard::catch("building previews", || crate::memory::in_background(build)).unwrap_or(false) {
+                    log::info!("finishing import: previews of {} not built", id.0);
                 }
-            })
-            .count()
+            }
+            done.store(true, std::sync::atomic::Ordering::Relaxed);
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let flag2 = flag.clone();
+            let spawned = std::thread::Builder::new().name("finishing-previews".into()).spawn(work);
+            if let Err(e) = spawned {
+                log::warn!("finishing import: previews of {}: {e}", id.0);
+                flag2.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        work();
+        Some(flag)
     }
 
     /// Advance the finishing queue (cheap; call every frame). Returns the note for the user when
@@ -296,60 +354,82 @@ impl Session {
         }
         let mut f = self.finishing.take()?;
         if f.guard.is_cancelled() {
-            if let Some(b) = &f.previews {
-                b.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            }
+            f.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             self.save_finishing(None);
             return None;
         }
-        if f.stage == Stage::Analyse {
-            f.analysing = self.still_analysing(&f.ids);
-            if f.analysing == 0 {
-                f.stage = Stage::Previews;
-                f.stage_started = Instant::now();
-            }
-        }
-        if f.stage == Stage::Previews {
-            match (f.plan.preview_size(), &f.previews) {
-                (None, _) => f.stage = Stage::Done,
-                (Some(size), None) => {
-                    let busy = self.preview_build.as_ref().is_some_and(|b| !b.finished.load(std::sync::atomic::Ordering::Relaxed));
-                    if busy {
-                        f.waited = true;
-                    } else {
-                        let ids: Vec<u64> = f.plan.ids.clone();
-                        // one row for the whole queue (this one): the build has none of its own;
-                        // photos whose previews are there already are skipped
-                        match self.execute("library.buildPreviews", &json!({"ids": ids, "size": size, "row": false})) {
-                            Ok(_) => f.previews = self.preview_build.clone(),
-                            Err(e) => {
-                                log::warn!("finishing import: previews: {e}");
-                                f.stage = Stage::Done;
+        let size = f.plan.preview_size();
+        // the photos at work move on: analysed → previews → done
+        let mut at_work = std::mem::take(&mut f.at_work);
+        let mut k = 0;
+        while k < at_work.len() {
+            let Some((id, step)) = at_work.get(k) else { break };
+            let id = *id;
+            let next = match step {
+                Step::Analysing if self.still_analysing(id) => None,
+                Step::Analysing => {
+                    f.analysed += 1;
+                    match size.and_then(|sz| self.build_previews_of(id, sz, &f.cancel)) {
+                        Some(flag) => Some(Some(Step::Previewing(flag))),
+                        None => {
+                            if size.is_some() {
+                                f.built += 1;
+                                f.skipped += 1;
                             }
+                            Some(None)
                         }
                     }
                 }
-                (Some(_), Some(b)) => {
-                    if b.finished.load(std::sync::atomic::Ordering::Relaxed) {
-                        f.stage = Stage::Done;
+                Step::Previewing(flag) if flag.load(std::sync::atomic::Ordering::Relaxed) => {
+                    f.built += 1;
+                    Some(None)
+                }
+                Step::Previewing(_) => None,
+            };
+            match next {
+                None => k += 1,
+                Some(Some(step)) => {
+                    if let Some(slot) = at_work.get_mut(k) {
+                        slot.1 = step;
                     }
+                    k += 1;
+                }
+                Some(None) => {
+                    at_work.remove(k);
+                    f.done += 1;
                 }
             }
         }
+        // the next photos, nearest the one on screen first
+        let mut summary = f.summary;
+        while at_work.len() < AT_ONCE && !f.waiting.is_empty() {
+            let Some(k) = self.next_to_finish(&f.waiting, &at_work) else { break };
+            let id = f.waiting.remove(k);
+            if self.catalog.photo(id).is_none() {
+                // (removed meanwhile)
+                f.analysed += 1;
+                f.built += usize::from(size.is_some());
+                f.done += 1;
+                continue;
+            }
+            f.started_order.push(id);
+            self.start_finishing(id, &mut summary);
+            at_work.push((id, Step::Analysing));
+        }
+        f.summary = summary;
+        f.at_work = at_work;
         let frac = f.fraction();
-        // the whole queue in per cent (its stages differ in size), and in the detail the photos of
-        // the stage at work: "Previews 160 of 544"
         f.guard.set_unit(crate::activity::Unit::Percent);
         f.guard.progress((frac * 100.0).round() as u64, 100);
         f.guard.detail(&f.detail());
-        if f.stage != Stage::Done {
+        if f.done < f.total {
             self.finishing = Some(f);
             return None;
         }
         self.save_finishing(None);
         let mut summary = f.summary;
-        summary.photos = f.ids.len();
-        summary.previews = f.previews.is_some();
+        summary.photos = f.total;
+        summary.previews = size.is_some();
         let note = summary.note();
         log::info!("finishing import: {note} in {}", duration_text(f.started.elapsed().as_secs()));
         self.finishing_note = Some(note.clone());

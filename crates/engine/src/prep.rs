@@ -87,7 +87,7 @@ pub struct DevelopPrep {
 
 impl Default for DevelopPrep {
     fn default() -> Self {
-        DevelopPrep { ahead: 2, scope: Scope::All }
+        DevelopPrep { ahead: 5, scope: Scope::All }
     }
 }
 

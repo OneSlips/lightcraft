@@ -5423,6 +5423,25 @@ mod tests {
         assert_eq!(h.app.renderer.prefetch_slots_asked(), 0, "off: nothing prepared ahead");
     }
 
+    /// Note 5 of 2026-10-25: the photos around the one on screen are made ahead both ways, as many
+    /// behind as ahead, nearest first.
+    #[test]
+    fn the_loupe_prepares_as_many_photos_behind_as_ahead() {
+        let mut h = demo([1000.0, 700.0]);
+        let t = Duration::from_secs(10);
+        let ids = h.app.session.visible_cloned();
+        assert!(ids.len() >= 7, "the demo has photos on both sides: {}", ids.len());
+        let mid = ids[ids.len() / 2];
+        h.request("engine.execute", json!({"command": "prefs.setBackgroundPrep", "params": {"settings": {"library": {"ahead": 3}}}}), t);
+        h.request("ui.set", json!({"view": "detail", "right": "none"}), t);
+        h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [mid.0], "active": mid.0}}), t);
+        for _ in 0..60 {
+            h.step();
+        }
+        h.settle(SETTLE);
+        assert_eq!(h.app.renderer.prefetch_slots_asked(), 6, "three each way");
+    }
+
     #[test]
     fn screenshot_request_is_answered_without_a_window() {
         let mut h = demo([800.0, 500.0]);

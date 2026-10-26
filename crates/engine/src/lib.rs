@@ -79,6 +79,7 @@ pub mod open_path;
 pub mod originals;
 mod pdf;
 pub mod people_store;
+pub mod placement;
 pub mod prep;
 mod preset_gather;
 pub mod preset_import;
@@ -794,8 +795,10 @@ impl Session {
         let (commits_before, silent_before) = (self.commits, self.silent_changes);
         self.depth += 1;
         // last-resort guard: a panic in a command is that command's error, not a crash
+        let t0 = web_time::Instant::now();
         let r = guard::catch(&format!("`{id}`"), || f(self)).unwrap_or_else(|e| Err(EngineError::Other(e)));
         self.depth -= 1;
+        let ran_ms = t0.elapsed().as_secs_f64() * 1000.0;
         // what it changed, for the overlay (before auto versions and follow-ups add their own)
         if self.depth == 0
             && let (Ok(v), Some(params)) = (&r, journal)
@@ -828,6 +831,7 @@ impl Session {
                 self.auto_write_sidecars_since(log_start);
             }
         }
+        let sidecars_ms = t0.elapsed().as_secs_f64() * 1000.0 - ran_ms;
         if self.depth == 0 && self.library.is_some() {
             // Make the command durable before reporting success. When the command's own records
             // can't be appended, it fails with `NotSaved`: the change stays applied in memory and
@@ -835,7 +839,15 @@ impl Session {
             // persistence trouble (a failed compaction, an older queued change still unwritten by
             // a command that changed nothing) doesn't fail the command; `library.info` reports it.
             let produced = self.pending_log.len() > log_start;
-            if let Err(e @ EngineError::NotSaved(_)) = self.persist()
+            let persisted = self.persist();
+            if self.depth == 0 && command_profiling() {
+                let total = t0.elapsed().as_secs_f64() * 1000.0;
+                eprintln!(
+                    "command {id}: {total:.1} ms (run {ran_ms:.1}, follow-ups and sidecars {sidecars_ms:.1}, save {:.1})",
+                    total - ran_ms - sidecars_ms
+                );
+            }
+            if let Err(e @ EngineError::NotSaved(_)) = persisted
                 && produced
                 && r.is_ok()
             {
@@ -2076,3 +2088,9 @@ mod tests_view_follow;
 mod tests_wb_pick;
 #[cfg(test)]
 mod tests_xmp;
+
+/// `LIGHTCRAFT_PROFILE` is set: commands print where their time went.
+fn command_profiling() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("LIGHTCRAFT_PROFILE").is_some())
+}

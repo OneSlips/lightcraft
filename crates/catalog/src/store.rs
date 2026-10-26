@@ -28,7 +28,9 @@ pub trait Store: Send {
         self.write_atomic(name, &buf)?;
         Ok(buf.len() as u64)
     }
-    /// Append and make durable (fsync) before returning. On an error, part of `data` may have
+    /// Append and make durable (fsync): before returning, or, natively, by the store's own log
+    /// thread right after ([`FsStore`]: a write that fails is returned by a later append, and a
+    /// read through the store sees every byte handed over). On an error, part of `data` may have
     /// been written (a full disk, a dropped network share): the journal cuts the file back to its
     /// previous length with [`Store::truncate`] before appending again.
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()>;
@@ -43,6 +45,9 @@ pub trait Store: Send {
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         None
     }
+    /// Wait until every append handed over is in the file and synced ([`FsStore`] writes them on a
+    /// thread of its own; the default has nothing to wait for).
+    fn flush(&mut self) {}
 }
 
 /// Appends and truncates open the name's own file, so anything else at the name is the library's
@@ -60,15 +65,24 @@ fn check_regular_directory_entry(path: &Path) -> io::Result<()> {
 /// Files in a directory.
 pub struct FsStore {
     dir: PathBuf,
-    /// Open append handle (kept between appends; dropped on rewrite/truncate).
+    /// Open append handle (kept between appends; dropped on rewrite/truncate). Used when no thread
+    /// writes the log (the browser build, or one that couldn't start).
     appender: Option<(String, std::fs::File)>,
+    /// The thread that writes the log (natively; started by the first append).
+    #[cfg(not(target_arch = "wasm32"))]
+    log: Option<crate::log_writer::LogWriter>,
 }
 
 impl FsStore {
     /// Use `dir` (created if missing).
     pub fn open(dir: impl AsRef<Path>) -> io::Result<FsStore> {
         std::fs::create_dir_all(dir.as_ref())?;
-        Ok(FsStore { dir: dir.as_ref().to_path_buf(), appender: None })
+        Ok(FsStore {
+            dir: dir.as_ref().to_path_buf(),
+            appender: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            log: None,
+        })
     }
     pub fn dir(&self) -> &Path {
         &self.dir
@@ -76,6 +90,20 @@ impl FsStore {
     fn path(&self, name: &str) -> PathBuf {
         self.dir.join(name)
     }
+    /// The log thread, when it writes `name`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn log_for(&self, name: &str) -> Option<&crate::log_writer::LogWriter> {
+        self.log.as_ref().filter(|w| w.name == name)
+    }
+
+    /// Wait until the log thread has written and synced everything handed to it.
+    pub fn flush_log(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(w) = &self.log {
+            w.flush();
+        }
+    }
+
     fn sync_dir(&self) {
         // Makes the rename durable on POSIX; opening a directory fails on Windows (where
         // `rename` is already journaled by NTFS), so errors are ignored.
@@ -97,6 +125,10 @@ pub(crate) fn create_staging(tmp: &std::path::Path) -> io::Result<std::fs::File>
 
 impl Store for FsStore {
     fn read(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(w) = self.log_for(name) {
+            w.flush();
+        }
         match std::fs::read(self.path(name)) {
             Ok(b) => Ok(Some(b)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
@@ -106,6 +138,13 @@ impl Store for FsStore {
 
     fn write_atomic(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
         use std::io::Write;
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(w) = self.log_for(name) {
+            // (after the appends handed over before)
+            w.replace(data)?;
+            self.sync_dir();
+            return Ok(());
+        }
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
@@ -122,6 +161,11 @@ impl Store for FsStore {
 
     fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
         use std::io::Write;
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.log_for(name).is_some() {
+            // written here, after the log thread is done (the next append starts it again)
+            self.log = None;
+        }
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
@@ -148,6 +192,25 @@ impl Store for FsStore {
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
         use std::io::Write;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.log.as_ref().is_some_and(|w| w.name != name) {
+                self.log = None;
+            }
+            if self.log.is_none() {
+                check_regular_directory_entry(&self.path(name))?;
+                if !self.path(name).exists() {
+                    // created here, so the open's errors are this append's and its entry is durable
+                    std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
+                    self.sync_dir();
+                }
+                self.appender = None;
+                self.log = crate::log_writer::LogWriter::start(self.dir.clone(), name);
+            }
+            if let Some(w) = self.log.as_ref() {
+                return w.append(data);
+            }
+        }
         if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
             check_regular_directory_entry(&self.path(name))?;
             let existed = self.path(name).exists();
@@ -169,6 +232,10 @@ impl Store for FsStore {
     }
 
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()> {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(w) = self.log_for(name) {
+            return w.truncate(len);
+        }
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
@@ -189,7 +256,11 @@ impl Store for FsStore {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn background_writer(&self) -> Option<Box<dyn Store>> {
-        Some(Box::new(FsStore { dir: self.dir.clone(), appender: None }))
+        Some(Box::new(FsStore { dir: self.dir.clone(), appender: None, log: None }))
+    }
+
+    fn flush(&mut self) {
+        self.flush_log();
     }
 }
 
@@ -253,6 +324,83 @@ impl Store for MemStore {
     }
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         self.background.then(|| Box::new(self.clone()) as Box<dyn Store>)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests_log_thread {
+    use super::*;
+
+    /// Note 2 of 2026-10-25: appends are handed to the log's own thread; a read through the store
+    /// sees every one, in order, and so does the file once the store is gone. A cut and a replace
+    /// come after the appends before them.
+    #[test]
+    fn appends_are_written_by_their_own_thread_in_order() {
+        let dir = std::env::temp_dir().join(format!("lc-store-log-thread-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut store = FsStore::open(&dir).unwrap();
+        let mut want = Vec::new();
+        for i in 0..200u32 {
+            let line = format!(
+                "{i}
+"
+            );
+            store.append("catalog.log", line.as_bytes()).unwrap();
+            want.extend_from_slice(line.as_bytes());
+            if i % 50 == 0 {
+                assert_eq!(store.read("catalog.log").unwrap().unwrap(), want, "all of it, through the store");
+            }
+        }
+        assert!(store.log.is_some(), "a thread writes the log");
+        store.truncate("catalog.log", 4).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("catalog.log")).unwrap(),
+            b"0
+1
+"
+        );
+        // never longer than it is
+        store.truncate("catalog.log", 400).unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("catalog.log")).unwrap(),
+            b"0
+1
+"
+        );
+        store
+            .append(
+                "catalog.log",
+                b"x
+",
+            )
+            .unwrap();
+        store
+            .write_atomic(
+                "catalog.log",
+                b"tail
+",
+            )
+            .unwrap();
+        assert_eq!(
+            std::fs::read(dir.join("catalog.log")).unwrap(),
+            b"tail
+"
+        );
+        store
+            .append(
+                "catalog.log",
+                b"more
+",
+            )
+            .unwrap();
+        drop(store);
+        assert_eq!(
+            std::fs::read(dir.join("catalog.log")).unwrap(),
+            b"tail
+more
+"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 
