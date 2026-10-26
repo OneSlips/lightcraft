@@ -875,6 +875,12 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
         for ws in mode.get("workspaces").and_then(Value::as_array).into_iter().flatten().take(16) {
             for (pages_key, rotate) in [("pressPages", false), ("rotatePages", true)] {
                 for page in ws.get(pages_key).and_then(Value::as_array).into_iter().flatten().take(64) {
+                    // the Dialpad's buttons stay put while its dial pages change
+                    let is_pads = !rotate && device == "Loupedeck71";
+                    if !is_pads && profile.pages.len() >= MAX_IMPORTED_PAGES {
+                        // a page past the limit is left out, so its actions don't go in the report
+                        continue;
+                    }
                     let pname = page.get("displayName").and_then(Value::as_str).unwrap_or("Page").to_string();
                     let mut bindings = BTreeMap::new();
                     for ctl in page.get("controls").and_then(Value::as_array).into_iter().flatten().take(64) {
@@ -898,11 +904,9 @@ pub fn import_lp5(bytes: &[u8]) -> Result<(Profile, Report), String> {
                             bindings.insert(slot, b);
                         }
                     }
-                    let is_pads = !rotate && device == "Loupedeck71";
                     if is_pads {
-                        // the Dialpad's buttons stay put while its dial pages change
                         profile.base.extend(bindings);
-                    } else if profile.pages.len() < MAX_IMPORTED_PAGES {
+                    } else {
                         let group = if rotate { PageGroup::Dials } else { PageGroup::Keys };
                         profile.pages.push(Page { name: pname, groups: vec![group], bindings, auto: false });
                     }
@@ -1079,5 +1083,34 @@ mod tests {
         assert_eq!(p.pages.len(), MAX_IMPORTED_PAGES);
         assert_eq!((p.pages[0].name.as_str(), p.pages[1].name.as_str()), ("Page", "Page 2"));
         assert_eq!(p.pages[MAX_IMPORTED_PAGES - 1].name, format!("Page {MAX_IMPORTED_PAGES}"));
+    }
+
+    /// The report lists only actions on pages the import keeps; Dialpad buttons count past the page limit
+    /// (CodeRabbit on #2947).
+    #[test]
+    fn the_report_leaves_out_pages_past_the_limit() {
+        let page = |name: String, key: &str| json!({"displayName": name, "controls": [{"controlId": 0, "pressAction": format!("$X___Cmd___{key}"), "rotateAction": "$X___Adj___Highlight"}]});
+        // one list holds at most 64 pages, so the limit is reached over four workspaces
+        let full = |kind: &str| -> Vec<Value> {
+            (0..MAX_IMPORTED_PAGES / 64)
+                .map(|w| json!({kind: (0..64).map(|i| page(format!("Keep {w}.{i}"), "Rate5Stars")).collect::<Vec<_>>()}))
+                .collect()
+        };
+        let import = |device: &str, mut workspaces: Vec<Value>, extra: Value| {
+            workspaces.push(extra);
+            let info = json!({"deviceType": device, "layout": {"layoutModes": [{"workspaces": workspaces}]}});
+            import_lp5(&make_zip(&[("ProfileInfo.json", info.to_string().as_bytes(), true)])).unwrap()
+        };
+        let (p, r) = import("Loupedeck70", full("pressPages"), json!({"pressPages": [page("Past".into(), "Rate3Stars")]}));
+        assert_eq!(p.pages.len(), MAX_IMPORTED_PAGES);
+        assert!(!r.mapped.iter().any(|l| l.from.starts_with("Past:")), "a dropped page's action is reported");
+        assert_eq!(r.mapped.len(), MAX_IMPORTED_PAGES);
+        // a Dialpad full of dial pages still takes its button page, listed after them
+        let extra = json!({"pressPages": [page("Buttons".into(), "CopyAdjustments")], "rotatePages": [page("Too many".into(), "Rate5Stars")]});
+        let (p, r) = import("Loupedeck71", full("rotatePages"), extra);
+        assert_eq!(p.pages.len(), MAX_IMPORTED_PAGES);
+        assert_eq!(p.base["pad.1"], Binding::command("develop.copy"));
+        assert!(r.mapped.iter().any(|l| l.from.starts_with("Buttons:")));
+        assert!(!r.mapped.iter().any(|l| l.from.starts_with("Too many:")));
     }
 }
