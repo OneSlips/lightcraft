@@ -138,7 +138,8 @@ fn targeted(s: &mut Session, p: &Value) -> Result<Value> {
             let [_, _, h] = encoded_to_oklch(e);
             let w = lightcraft_pipeline::colorops::band_weights(h);
             let top = w.iter().cloned().fold(0.0f32, f32::max).max(1e-6);
-            let bw = d.treatment == Treatment::Bw || d.profile.id == "lc.mono";
+            // (a B&W profile, as the Color Mixer panel shows it: its B&W mix)
+            let bw = d.treatment == Treatment::Bw || d.profile.id == "lc.mono" || d.profile.id.starts_with("lc.bw.");
             label = if bw { "B&W Mix" } else { "Color Mixer" };
             for (i, band) in MIXER_BANDS.iter().enumerate() {
                 let k = (w[i] / top) as f64;

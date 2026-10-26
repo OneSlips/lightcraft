@@ -120,6 +120,11 @@ fn targeted_adjustment_on_curve_and_mixer() {
     assert!(o.values().any(|v| v.as_f64() == Some(-30.0)), "{r}");
     assert!(o.values().all(|v| v.as_f64().unwrap() < 0.0));
     assert!(s.execute("develop.targeted", &json!({"target": "nope", "x": 0.5, "y": 0.5, "delta": 1})).is_err());
+    // a B&W profile's photo: the Luminance targeted adjustment moves its B&W mix, as the panel shows
+    s.execute("develop.profile", &json!({"id": "lc.bw.mono-rich"})).unwrap();
+    let r = s.execute("develop.targeted", &json!({"target": "lum", "x": 0.5, "y": 0.1, "delta": 10})).unwrap();
+    let o = r.as_object().unwrap();
+    assert!(!o.is_empty() && o.keys().all(|k| k.starts_with("bw.")), "{r}");
 }
 
 /// Issue #730: on a raw whose camera has measured colour matrices the white-balance commands write Kelvin, mark

@@ -176,3 +176,14 @@ fn point_colors_picker_is_put_down_when_its_tab_is_left() {
     run(&mut h, "view.colorMixer", json!({"tab": "mixer"}));
     assert_eq!(h.app.ui.tool, "", "the Mixer tab puts it down");
 }
+
+/// On a B&W photo the command says the layout shown, its B&W mix, not Point Color: the choice of
+/// tab is kept for colour photos.
+#[test]
+fn a_bw_photo_reports_the_mixer_it_shows() {
+    let mut h = mixer();
+    run(&mut h, "develop.treatment", json!({"bw": true}));
+    let r = run(&mut h, "view.colorMixer", json!({"tab": "point"}));
+    assert_eq!(r["tab"], "mixer", "{r}");
+    assert_eq!(h.app.ui.mixer_tab, "point", "kept for colour photos");
+}

@@ -340,18 +340,25 @@ fn color_mixer_layout(app: &mut LightcraftApp, p: &Value) -> Result<Value, Strin
         app.ui.mixer_mode = v;
     }
     crate::panels::edit::drop_hidden_mixer_tool(app);
+    // (a drag in Remove or Masking is finished first, so later edits aren't previews of it)
+    let _ = app.session.end_interaction();
     app.ui.right = RightPanel::Edit;
     app.ui.view = ViewMode::Detail;
-    // (full-screen preview shows only the photo: the mixer would not appear)
+    // (full-screen preview and a slideshow show only the photo: the mixer would not appear)
+    if app.ui.slideshow.is_some() {
+        crate::panels::slideshow::end(app);
+    }
     app.ui.fullscreen = false;
-    app.ui.slideshow = None;
     if !app.ui.section_open("color") {
         app.ui.toggle_section("color");
     }
     if !app.ui.flyout_open("mixer") {
         app.ui.toggle_flyout("mixer");
     }
-    Ok(json!({"tab": app.ui.mixer_tab, "adjust": app.ui.mixer_adjust, "group": app.ui.mixer_group, "band": app.ui.mixer_mode}))
+    // (a B&W photo shows its B&W mix, never the Point Color tab; the choice is kept for colour photos)
+    let bw = app.session.active().and_then(|id| app.session.develop_of(id)).is_some_and(|d| crate::is_bw(&d));
+    let tab = if bw { "mixer" } else { app.ui.mixer_tab.as_str() };
+    Ok(json!({"tab": tab, "adjust": app.ui.mixer_adjust, "group": app.ui.mixer_group, "band": app.ui.mixer_mode}))
 }
 
 /// `[` / `]` (size ×`k`) and ⇧`[` / ⇧`]` (feather +`df`) for the brush in use: the Remove tool's
