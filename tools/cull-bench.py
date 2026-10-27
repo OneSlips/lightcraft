@@ -83,7 +83,7 @@ out["control_rtt_ms"] = stats(rtt)
 # --- browse -------------------------------------------------------------------------------------
 if "--skip-browse" not in args:
     # thumbnails already in the cache aren't this browse's: count only the ones it adds. thumbsMade
-    # counts every thumbnail stored (eviction doesn't lower it); thumbTextures is the fallback for
+    # counts photos given a thumbnail (eviction doesn't lower it); thumbTextures is the fallback for
     # builds without it
     def thumbs_made(st):
         p = st.get("perf") or {}
