@@ -1043,6 +1043,38 @@ mod in_the_loupe {
         assert!(window[0].1.right() >= canvas.right() - 0.5, "the Before window stops at the wipe line: {:?}", window[0].1);
     }
 
+    // Given Before and After side by side at 1:1 with `\` held, the After pane is still the view
+    // shown: a Before window drawn while the After pane shows a stand-in does not make the loupe
+    // say the render is on screen
+    #[test]
+    fn holding_backslash_side_by_side_the_before_window_is_not_the_shown_render() {
+        let (_fx, mut h, _) = detail_in([1800.0, 900.0]);
+        h.app.ui.before_after = crate::state::BeforeAfter::SideBySide;
+        h.request("engine.execute", json!({"command": "view.zoom100"}), T);
+        h.settle(SETTLE);
+        h.events.push(egui::Event::Key {
+            key: egui::Key::Backslash,
+            physical_key: Some(egui::Key::Backslash),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.settle(SETTLE);
+        // (the key's own shortcut switches to the Before view; side by side is chosen again with the key down)
+        h.app.ui.before_after = crate::state::BeforeAfter::SideBySide;
+        h.settle(SETTLE);
+        assert!(h.app.renderer.textures.contains_key(&Slot::RegionBefore), "the Before window is rendered");
+        // the After pane back to a stand-in: no whole-frame render and no window of its own
+        h.app.renderer.textures.remove(&Slot::Main);
+        h.app.renderer.textures.remove(&Slot::Region);
+        h.step();
+        assert!(!drawn(&h, Slot::RegionBefore).is_empty(), "the Before window is painted");
+        if !h.app.renderer.textures.contains_key(&Slot::Main) && !h.app.renderer.textures.contains_key(&Slot::Region) {
+            let shown = h.app.loupe_shown.map(|l| l.1);
+            assert_ne!(shown, Some("render"), "the After pane shows a stand-in, not the render");
+        }
+    }
+
     // Given Before and After side by side at 1:1, each window is painted inside its own pane: its
     // margin (a window is wider than what its pane shows) does not spill into the neighbour
     #[test]

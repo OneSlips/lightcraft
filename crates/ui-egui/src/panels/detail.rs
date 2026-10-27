@@ -550,7 +550,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // frame (clipped to their pane, or their side of the line)
     let mut window_drawn = false;
     // (the window of the view shown whole: the After side's in a split view, the Before's when the
-    // Before is shown alone; what the timing and the source shown are about)
+    // Before is shown alone; what the timing and the source shown are about. Holding `\` side by side
+    // or top/bottom keeps both panes, and the After pane is still the one shown)
     let mut shown_window_drawn = false;
     for (v, view) in &windows {
         // (holding `\` in a wipe shows the Before everywhere: it is the Before view alone then)
@@ -558,7 +559,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let clip = crate::region::window_clip(mode, v.before, v.visible, canvas, img_rect);
         let drawn = draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
         window_drawn |= drawn;
-        shown_window_drawn |= drawn && (!v.before || show_before);
+        shown_window_drawn |= drawn && (!v.before || (show_before && !split));
     }
     // what is on screen is settled once the window renders are drawn: the camera JPEG at full size
     // stands in for the whole-frame render until a window covers it
