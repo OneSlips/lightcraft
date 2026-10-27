@@ -406,18 +406,33 @@ pub(crate) struct RowParts {
 }
 
 pub(crate) fn row_parts(row: Rect, name_w: f32) -> RowParts {
-    let left = row.left() + PAD_L;
-    let right = (row.right() - PAD_R).max(left);
+    // a row too narrow for everything gives up its margins first, then shrinks the name and value
+    // columns, then the gaps, so every part stays inside it with a point of track to divide by
+    let row_w = if row.width().is_finite() { row.width().max(0.0) } else { 0.0 };
+    let pads = PAD_L + PAD_R;
+    let kp = (row_w - 1.0).max(0.0).min(pads) / pads;
+    let left = row.left() + PAD_L * kp;
+    let right = (row.right() - PAD_R * kp).max(left);
     let w = right - left;
+    let track_min = w.min(1.0);
     let name_w = if name_w.is_finite() { name_w } else { 0.0 };
-    let label_w = name_w.max(NAME_MIN).min(w * NAME_SHARE_MAX);
-    let value_w = VALUE_W.min(w * 0.25);
-    let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
-    let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
+    let mut label_w = name_w.max(NAME_MIN).min(w * NAME_SHARE_MAX);
+    let mut value_w = VALUE_W.min(w * 0.25);
+    let columns = (w - track_min).max(0.0);
+    if label_w + value_w > columns {
+        let k = columns / (label_w + value_w);
+        label_w *= k;
+        value_w *= k;
+    }
     // room for the handle at the track's left end, as far as a very narrow row allows
     let name_gap = NAME_GAP.min(ROW_GAP.max(w * 0.05));
-    let track_l = label.right() + name_gap;
-    let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
+    let spare = (w - label_w - value_w - track_min).max(0.0);
+    let kg = if name_gap + ROW_GAP > spare { spare / (name_gap + ROW_GAP) } else { 1.0 };
+    let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
+    let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
+    let track_l = (label.right() + name_gap * kg).min(value.left());
+    let track_r = (value.left() - ROW_GAP * kg).clamp(track_l, value.left());
+    let track = Rect::from_min_max(pos2(track_l, row.top()), pos2(track_r, row.bottom()));
     RowParts { label, track, value }
 }
 
