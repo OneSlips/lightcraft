@@ -2116,3 +2116,24 @@ fn painting_a_mask_with_settings_shows_its_effect_not_red() {
     pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.3}]));
     h.settle(SETTLE);
 }
+
+/// A live stroke the photo refused (here: more pressure values than points) is not live: the release
+/// adds it as a new stroke instead of replacing the mask's previous one (CodeRabbit on #2920).
+#[test]
+fn a_refused_live_stroke_does_not_replace_the_previous_stroke() {
+    let mut h = detail("panel.masking");
+    h.settle(SETTLE);
+    exec(&mut h, "tool.brush", json!({"new": true}));
+    h.app.ui.brush_auto_mask = false;
+    brush_at(&mut h, 0.2, 0.5);
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.0}}));
+    let before = develop(&h).masks.last().map(|m| m.components.clone());
+    let p = |x: f64| lightcraft_geom::Point::new(x, 0.7);
+    h.app.gesture = Some(crate::panels::detail::Gesture::Brush { points: vec![p(0.2), p(0.3)], pressure: vec![1.0; 3], live: None });
+    h.step();
+    assert!(matches!(h.app.gesture, Some(crate::panels::detail::Gesture::Brush { live: None, .. })), "a refused stroke must not count as live");
+    assert!(h.app.session.interaction.is_none(), "the refused stroke's undo step is closed");
+    assert_eq!(develop(&h).masks.last().map(|m| m.components.clone()), before, "the previous stroke is untouched");
+    h.app.gesture = None;
+    h.settle(SETTLE);
+}

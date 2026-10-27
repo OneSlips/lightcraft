@@ -466,12 +466,7 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
         // the overlay rule: a mask with settings shows its effect while painted, never red; only one
         // without settings (or with O) shows the red stroke. Its stroke so far goes to the photo every
         // moment while painting, so the effect shows live (one undo step for the whole stroke).
-        let red = app
-            .session
-            .active()
-            .and_then(|id| app.session.develop_of(id))
-            .and_then(|d| app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid).cloned()))
-            .is_none_or(|m| overlay_shown(app, &m));
+        let red = active.and_then(|mid| d.masks.iter().find(|m| m.id == mid)).is_none_or(|m| overlay_shown(app, m));
         let now = ui.input(|i| i.time);
         if !red
             && let Some(Gesture::Brush { points, pressure, live }) = &app.gesture
@@ -482,13 +477,19 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
                 let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
             }
             let erase = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
-            let _ = app.run(
+            let sent = app.run(
                 "mask.brushStroke",
                 json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
                        "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": !first}),
             );
-            if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
-                *live = Some((now, pts.len()));
+            // only a stroke that reached the photo is live: else the release would replace the
+            // mask's previous stroke instead of adding this one
+            if sent.is_ok() {
+                if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
+                    *live = Some((now, pts.len()));
+                }
+            } else if first {
+                let _ = app.run("develop.endInteraction", json!({}));
             }
             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(LIVE_STROKE_EVERY));
         }
