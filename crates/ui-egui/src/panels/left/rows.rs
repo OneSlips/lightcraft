@@ -202,7 +202,8 @@ pub(super) fn out_of_sight(app: &LightcraftApp, ui: &mut egui::Ui, id: &str, lab
     let indent = drawn_indent(ui, indent);
     let t = Tokens::get(ui.ctx());
     let painter = ui.painter();
-    let name_w = painter.layout_no_wrap(label.to_string(), t.font(13.5), t.text_label).size().x;
+    // measured as the row paints it: on one line
+    let name_w = painter.layout_no_wrap(lightcraft_catalog::keywords::one_line(label).into_owned(), t.font(13.5), t.text_label).size().x;
     let count_w = count.filter(|_| app.ui.show_counts).map(|n| painter.layout_no_wrap(n.to_string(), t.font(12.5), t.text_dim).size().x);
     note_width(ui, row_need(indent, name_w, if mark { MARK_W } else { 0.0 }, count_w));
     true
