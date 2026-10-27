@@ -131,8 +131,12 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
     }
     let mut v = Vec::new();
     for entry in std::fs::read_dir(root)? {
-        let f = entry?.path();
-        if f.is_file() && is_supported(&f) && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+        let entry = entry?;
+        if crate::walk::is_hidden_entry(&entry) {
+            continue;
+        }
+        let f = entry.path();
+        if f.is_file() && is_supported(&f) {
             v.push(f.to_string_lossy().to_string());
         }
     }
