@@ -1,7 +1,8 @@
 //! The lens database without setup: on first run the app fetches lensfun's database by itself
 //! (`lightcraft_engine::lensfun_download`, an activity row while it runs), and whenever the database in use changes
 //! (it arrived, a newer pin replaced it) or Enable Lens Corrections is ticked on a photo without a profile, the
-//! library's raws that have none are looked up again on a worker thread (`lightcraft_engine::cmd::lens_refresh`).
+//! library's raws that have none are looked up again on a worker thread (`lightcraft_engine::cmd::lens_refresh`);
+//! when its files were replaced, so are those whose profile came from the database and those that named no lens.
 
 use lightcraft_engine::cmd::{lens_refresh, recheck};
 use lightcraft_engine::{lens_profiles, lensfun_download};
@@ -17,20 +18,14 @@ pub fn tick(app: &mut LightcraftApp) {
     refresh(app);
 }
 
-/// Once per run, when the host asked for the app's own copy and it is missing (or from an older pin).
+/// Once per run, when the start policy says so ([`lensfun_download::fetch_on_start`]: the host allows it and the
+/// pinned database is missing or damaged).
 fn start_download(app: &mut LightcraftApp) {
-    if app.ui.lens_download_checked || !app.session.lens_auto_download {
+    if app.ui.lens_download_checked {
         return;
     }
     app.ui.lens_download_checked = true;
-    // a folder of the user's own (LIGHTCRAFT_LENSFUN_DIR) is never replaced
-    if std::env::var_os(lens_profiles::ENV).is_some_and(|v| !v.is_empty()) {
-        return;
-    }
-    let Some(dir) = lensfun_download::default_dir() else { return };
-    if lensfun_download::installed(&dir) {
-        return;
-    }
+    let Some(dir) = lensfun_download::fetch_on_start(app.session.lens_auto_download) else { return };
     let activity = app.session.activity.clone();
     if let Err(e) = app.session.lensfun.start(&dir, lensfun_download::mirrors(), lensfun_download::FILES, &activity) {
         log::warn!("lens database: {e}");
@@ -50,9 +45,17 @@ pub fn to_look_up(session: &lightcraft_engine::Session, id: lightcraft_catalog::
     out
 }
 
-/// What a lookup's results belong to: the library and the lens database in use. Results for another key are stale.
-pub(crate) fn lookup_key(app: &LightcraftApp) -> (u64, u64) {
-    (app.session.library_generation(), lens_profiles::generation())
+/// What a lookup's results belong to: the library, the lens database in use and how often its files were replaced.
+/// Results for another key are stale.
+pub(crate) fn lookup_key(app: &LightcraftApp) -> (u64, u64, u64) {
+    (app.session.library_generation(), lens_profiles::generation(), lens_profiles::replacements())
+}
+
+/// Whether this lookup also reads the photos that have a database profile or no lens name
+/// ([`lens_refresh::missing`]'s `again`): only when the database's files were replaced since the last lookup, not at
+/// every start or library switch.
+pub(crate) fn look_up_again(last: Option<(u64, u64, u64)>, key: (u64, u64, u64)) -> bool {
+    last.map_or(key.2 > 0, |last| last.2 != key.2)
 }
 
 /// Look the library's raws up again when the database changed, the library changed, or photos asked for it.
@@ -68,10 +71,11 @@ fn refresh(app: &mut LightcraftApp) {
         return;
     }
     let ids = (app.ui.lens_refreshed == Some(key)).then_some(asked);
+    let again = ids.is_none() && look_up_again(app.ui.lens_refreshed, key);
     app.ui.lens_refreshed = Some(key);
     let Some(probe) = recheck::file_probe(&app.session) else { return };
     let Some(db) = lens_profiles::database() else { return };
-    let listed = lens_refresh::missing(&app.session.catalog, &db, ids.as_deref());
+    let listed = lens_refresh::missing(&app.session.catalog, &db, ids.as_deref(), again);
     if listed.is_empty() {
         return;
     }
@@ -169,7 +173,10 @@ mod tests {
         let mut p = (**app.session.catalog.photo(id).expect("the photo")).clone();
         p.meta.lens = "EF35mm f/1.4L II USM".into();
         p.embedded_lens = None;
-        let dir = std::env::temp_dir().join(format!("lc-lens-db-failed-{}", std::process::id()));
+        let unique = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let root = std::env::temp_dir().join(format!("lc-lens-db-failed-{}-{unique}", std::process::id()));
+        // (the download stages its files beside the database folder: both live in this test's own folder)
+        let dir = root.join("lensfun");
         // nothing listens on port 1: the download fails at once, without the network
         let activity = app.session.activity.clone();
         app.session
@@ -184,6 +191,6 @@ mod tests {
         if lightcraft_engine::lens_profiles::database().is_none() {
             assert_eq!(super::readout(&app, &p), "The lens database could not be downloaded. LightCraft tries again the next time it starts.");
         }
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

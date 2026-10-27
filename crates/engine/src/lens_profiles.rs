@@ -23,6 +23,8 @@ static HOST_DIR: RwLock<Option<PathBuf>> = RwLock::new(None);
 static LOADED: RwLock<Option<(PathBuf, Option<Arc<LensDb>>)>> = RwLock::new(None);
 /// Bumped whenever the database in use changes ([`reload`]): photos looked up before may now find a profile.
 static GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Bumped when the database's files were replaced ([`replaced`]): profiles found before may now be different.
+static REPLACED: AtomicU64 = AtomicU64::new(0);
 
 /// Use `dir` (the app's downloaded lensfun data, [`crate::lensfun_download::default_dir`]) when
 /// `LIGHTCRAFT_LENSFUN_DIR` is not set. Hosts with a file system call it; tests and sessions that don't stay
@@ -30,6 +32,24 @@ static GENERATION: AtomicU64 = AtomicU64::new(0);
 pub fn use_dir(dir: Option<PathBuf>) {
     *HOST_DIR.write().unwrap_or_else(PoisonError::into_inner) = dir;
     reload();
+}
+
+/// The database's files were replaced (a download put a new database in place): read it again, and photos whose
+/// profile came from the old one are looked up again too ([`replacements`]).
+pub fn replaced() {
+    REPLACED.fetch_add(1, Ordering::Relaxed);
+    reload();
+}
+
+/// Changes whenever the database's files were replaced ([`replaced`]); selecting a folder ([`use_dir`]) or reading
+/// it again doesn't change it, so photos with a profile are not read again at every start.
+pub fn replacements() -> u64 {
+    REPLACED.load(Ordering::Relaxed)
+}
+
+/// The folder the host selected ([`use_dir`]), whatever `LIGHTCRAFT_LENSFUN_DIR` says.
+pub fn host_dir() -> Option<PathBuf> {
+    HOST_DIR.read().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
 /// Read the database again (after a download or an update): the next lookup sees the new data.
@@ -47,20 +67,30 @@ pub fn generation() -> u64 {
 
 /// The folder the database is read from: `LIGHTCRAFT_LENSFUN_DIR`, else the host's ([`use_dir`]).
 pub fn dir() -> Option<PathBuf> {
-    std::env::var_os(ENV).filter(|v| !v.is_empty()).map(PathBuf::from).or_else(|| HOST_DIR.read().unwrap_or_else(PoisonError::into_inner).clone())
+    source().map(|(d, _)| d)
+}
+
+/// [`dir`], and whether it is the app's own downloaded folder (read only when whole, [`crate::lensfun_download::complete`])
+/// rather than the user's.
+fn source() -> Option<(PathBuf, bool)> {
+    match std::env::var_os(ENV).filter(|v| !v.is_empty()) {
+        Some(d) => Some((PathBuf::from(d), false)),
+        None => HOST_DIR.read().unwrap_or_else(PoisonError::into_inner).clone().map(|d| (d, true)),
+    }
 }
 
 /// The database in use, read once per folder (and again after [`reload`]); `None` when none is configured, the
 /// folder is missing or it holds no lenses.
 pub fn database() -> Option<Arc<LensDb>> {
-    let dir = dir()?;
+    let (dir, downloaded) = source()?;
     if let Some((d, db)) = LOADED.read().unwrap_or_else(PoisonError::into_inner).as_ref()
         && *d == dir
     {
         return db.clone();
     }
     let generation = generation();
-    let db = load(&dir);
+    // the app's own folder without its marker is a download that never finished: not read (the start fetches it)
+    let db = if downloaded && !crate::lensfun_download::complete(&dir) { None } else { load(&dir) };
     let mut loaded = LOADED.write().unwrap_or_else(PoisonError::into_inner);
     // a reload while the files were read: they may be the old ones, so they aren't kept (the next call reads again)
     if GENERATION.load(Ordering::Relaxed) == generation {

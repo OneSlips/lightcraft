@@ -8,8 +8,11 @@
 //! it is thrown away. A new pin in a later build replaces the folder's files once ([`installed`] compares the pin).
 //!
 //! The transfer is [`lightcraft_fetch`] (pure-Rust HTTPS, resume, size and hash checks) on a background thread; the
-//! files land in a staging folder first and move into place only when all of them are verified, so the database is
-//! never a mix of two versions. Failure is a message, never a panic.
+//! files land in a staging folder beside the database folder, the marker is written there last, and only then does the
+//! staged folder replace the database folder as a whole ([`publish`]): the previous complete database stays in use
+//! until the new one is in place, and comes back if the swap fails. The loader reads the app's folder only when it has
+//! the marker ([`complete`]), and [`installed`] also checks every pinned file is there, so a damaged folder is
+//! downloaded again. Failure is a message, never a panic.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,9 +28,11 @@ pub const DEFAULT_MIRROR: &str = "https://raw.githubusercontent.com/lensfun/lens
 pub const URL_ENV: &str = "LIGHTCRAFT_LENSFUN_URL";
 /// The file written once every database file is in place: the pin it holds says which data the folder has.
 pub const MARKER: &str = "SOURCE.txt";
-/// The folder inside the database folder where files wait until all have arrived.
+/// The suffix of the folder beside the database folder where files wait until all have arrived.
 #[cfg(not(target_arch = "wasm32"))]
-const STAGING: &str = ".download";
+const STAGING: &str = "download";
+/// The suffix of the folder the previous database is moved to while the new one takes its place.
+const PREVIOUS: &str = "previous";
 /// Largest database file accepted (the biggest is under 1 MB).
 #[cfg(not(target_arch = "wasm32"))]
 const MAX_FILE: u64 = 8 << 20;
@@ -97,9 +102,52 @@ pub fn default_dir() -> Option<PathBuf> {
     crate::config::config_dir().map(|d| d.join("lensfun"))
 }
 
-/// The folder holds the pinned data ([`MARKER`] names [`COMMIT`]).
+/// The folder holds the pinned data: [`MARKER`] names [`COMMIT`] and every pinned file is there at its pinned size
+/// (a folder whose files went missing is downloaded again).
 pub fn installed(dir: &Path) -> bool {
+    installed_with(dir, FILES)
+}
+
+fn installed_with(dir: &Path, files: &[Pin]) -> bool {
     std::fs::read_to_string(dir.join(MARKER)).is_ok_and(|s| s.contains(COMMIT))
+        && files.iter().all(|(name, size, _)| std::fs::metadata(dir.join(name)).is_ok_and(|m| m.is_file() && m.len() == *size))
+}
+
+/// The folder holds a whole database, of this pin or an older one: its [`MARKER`], written last, is there. The app's
+/// own folder is read only then ([`crate::lens_profiles::database`]).
+pub fn complete(dir: &Path) -> bool {
+    dir.join(MARKER).is_file()
+}
+
+/// `dir` with `suffix` added to its name: a folder beside it (`lensfun` → `lensfun.download`).
+fn beside(dir: &Path, suffix: &str) -> PathBuf {
+    let mut name = dir.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    name.push(format!(".{suffix}"));
+    dir.with_file_name(name)
+}
+
+/// Put back the previous database when a swap ([`publish`]) was interrupted between its two moves (the app quit or
+/// the machine stopped): `dir` is missing and the previous folder is whole. Best effort; says why it couldn't.
+pub fn recover(dir: &Path) {
+    let previous = beside(dir, PREVIOUS);
+    if !dir.exists()
+        && complete(&previous)
+        && let Err(e) = std::fs::rename(&previous, dir)
+    {
+        log::warn!("lens database: could not put back the previous database: {e}");
+    }
+}
+
+/// The first-start policy, in one place: the folder to fetch the database into without being asked, or `None`. The
+/// host must allow it (`auto`, [`crate::Session::lens_auto_download`]); a folder of the user's own
+/// (`LIGHTCRAFT_LENSFUN_DIR`) is never replaced; and the app's folder must lack the pinned data.
+pub fn fetch_on_start(auto: bool) -> Option<PathBuf> {
+    if !auto || std::env::var_os(crate::lens_profiles::ENV).is_some_and(|v| !v.is_empty()) {
+        return None;
+    }
+    let dir = default_dir()?;
+    recover(&dir);
+    (!installed(&dir)).then_some(dir)
 }
 
 /// The mirrors to try, in order: [`URL_ENV`]'s, then lensfun's own ([`DEFAULT_MIRROR`]).
@@ -171,7 +219,7 @@ impl Download {
 
     /// Fetch `files` from `mirrors` into `dir` on a background thread, shown in the activity stack until it ends
     /// (its ✕ stops it). Started once at a time; when it ends the database is read again
-    /// ([`crate::lens_profiles::reload`]).
+    /// ([`crate::lens_profiles::replaced`]).
     pub fn start(&mut self, dir: &Path, mirrors: Vec<String>, files: &'static [Pin], activity: &Activity) -> Result<(), String> {
         if self.running() {
             return Err("the lens database is already downloading".into());
@@ -218,7 +266,7 @@ impl Drop for Download {
 fn run(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) {
     match fetch_all(dir, mirrors, files, shared) {
         Ok(n) => {
-            crate::lens_profiles::reload();
+            crate::lens_profiles::replaced();
             shared.set(State::Done { files: n });
         }
         Err(e) if shared.cancel.load(Ordering::Relaxed) => {
@@ -234,7 +282,8 @@ fn run(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> Result<usize, String> {
-    let staging = dir.join(STAGING);
+    recover(dir);
+    let staging = beside(dir, STAGING);
     std::fs::create_dir_all(&staging).map_err(|e| format!("could not create {}: {e}", staging.display()))?;
     let specs: Vec<lightcraft_fetch::FileSpec<'_>> =
         files.iter().map(|(name, size, sha)| lightcraft_fetch::FileSpec { name, size: Some(*size), sha256: Some(sha), max: MAX_FILE }).collect();
@@ -249,22 +298,47 @@ fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> 
         }
         other => other.to_string(),
     })?;
-    // every file is here and checked: into place, then the marker that says so
-    let _ = std::fs::remove_file(dir.join(MARKER));
-    for (name, _, _) in files {
-        std::fs::rename(staging.join(name), dir.join(name)).map_err(|e| format!("could not move {name} into {}: {e}", dir.display()))?;
-    }
-    // database files an older pin had and this one doesn't would still be read: remove them, and without the marker
-    // when one can't be (the next start tries again rather than reading an old file beside the new ones)
-    remove_stale(dir, files, |p| std::fs::remove_file(p))?;
-    let _ = std::fs::remove_dir_all(&staging);
+    // every file is here and checked. The staged folder becomes the database: first without database files another
+    // pin left in it (a resumed older attempt), then with the marker, written last, then in place of the old folder
+    // as a whole
+    remove_stale(&staging, files, |p| std::fs::remove_file(p))?;
     let readme = format!(
-        "lensfun lens database (data/db), commit {COMMIT}\nfrom https://github.com/lensfun/lensfun, downloaded by LightCraft.\n\
-         Licence: Creative Commons Attribution-ShareAlike 3.0 (https://creativecommons.org/licenses/by-sa/3.0/), by the lensfun contributors.\n\
-         Data only, read by LightCraft at run time; not part of LightCraft.\n"
+        "lensfun lens database (data/db), commit {COMMIT}
+from https://github.com/lensfun/lensfun, downloaded by LightCraft.
+         Licence: Creative Commons Attribution-ShareAlike 3.0 (https://creativecommons.org/licenses/by-sa/3.0/), by the lensfun contributors.
+         Data only, read by LightCraft at run time; not part of LightCraft.
+"
     );
-    std::fs::write(dir.join(MARKER), readme).map_err(|e| format!("could not write {}: {e}", dir.join(MARKER).display()))?;
+    std::fs::write(staging.join(MARKER), readme).map_err(|e| format!("could not write {}: {e}", staging.join(MARKER).display()))?;
+    publish(&staging, dir, |from, to| std::fs::rename(from, to))?;
     Ok(files.len())
+}
+
+/// Replace the database folder `dir` with the complete `staged` one, moving with `rename`: the old folder is moved
+/// aside, the staged one takes its place, and the old one is removed. When the second move fails the old folder is
+/// put back, so `dir` is always either the previous complete database or the new one, never a mix.
+#[cfg(not(target_arch = "wasm32"))]
+fn publish(staged: &Path, dir: &Path, rename: impl Fn(&Path, &Path) -> std::io::Result<()>) -> Result<(), String> {
+    let previous = beside(dir, PREVIOUS);
+    // left by a swap that ended after its second move
+    if previous.exists() {
+        std::fs::remove_dir_all(&previous).map_err(|e| format!("could not remove {}: {e}", previous.display()))?;
+    }
+    let had = dir.exists();
+    if had {
+        rename(dir, &previous).map_err(|e| format!("could not move the old lens database aside ({}): {e}", dir.display()))?;
+    }
+    if let Err(e) = rename(staged, dir) {
+        if had && let Err(back) = rename(&previous, dir) {
+            // (the next start puts it back: [`recover`])
+            log::warn!("lens database: could not put back the previous database yet: {back}");
+        }
+        return Err(format!("could not move the new lens database into {}: {e}", dir.display()));
+    }
+    if had && let Err(e) = std::fs::remove_dir_all(&previous) {
+        log::warn!("lens database: could not remove the previous database {}: {e}", previous.display());
+    }
+    Ok(())
 }
 
 /// Remove the XML files in `dir` that are not among `files` (nothing else in the folder is touched) with `remove`: an
@@ -303,7 +377,9 @@ mod tests {
 
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lc-lensfun-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&d);
+        for leftover in [d.clone(), beside(&d, STAGING), beside(&d, PREVIOUS)] {
+            let _ = std::fs::remove_dir_all(leftover);
+        }
         std::fs::create_dir_all(&d).unwrap();
         d
     }
@@ -367,37 +443,103 @@ mod tests {
         let base = serve(vec![("lenses.xml", LENS.as_bytes().to_vec()), ("cameras.xml", CAMERA.as_bytes().to_vec())]);
         let activity = Activity::default();
         let mut d = Download::default();
-        assert!(!installed(&dir));
-        // left by an older pin: an XML file this one doesn't list goes, anything else stays
-        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!installed_with(&dir, pins()));
+        // an older pin's database: replaced as a whole, so a file this pin doesn't list is not read beside the new ones
         std::fs::write(dir.join("dropped.xml"), CAMERA).unwrap();
-        std::fs::write(dir.join("notes.txt"), "mine").unwrap();
+        std::fs::write(dir.join(MARKER), "older").unwrap();
+        // a resumed older attempt left a file this pin doesn't list in the staging folder: not published
+        std::fs::create_dir_all(beside(&dir, STAGING)).unwrap();
+        std::fs::write(beside(&dir, STAGING).join("old-staged.xml"), CAMERA).unwrap();
         d.start(&dir, vec![base], pins(), &activity).unwrap();
         let rows = activity.list();
         assert!(rows.iter().any(|r| r.kind == "download" && r.label == "Downloading the lens database" && r.cancellable), "{rows:?}");
         wait("the download never ended", || !d.running());
         assert_eq!(d.state(), State::Done { files: 2 });
-        assert!(installed(&dir), "the marker names the pinned commit");
-        assert!(!dir.join(STAGING).exists(), "the staging folder is gone");
+        assert!(installed_with(&dir, pins()), "the marker names the pinned commit and every file is there");
+        assert!(!beside(&dir, STAGING).exists() && !beside(&dir, PREVIOUS).exists(), "no staging or previous folder is left");
         let (db, errors) = lightcraft_lensdb::LensDb::load_dir(&dir).unwrap();
         assert!(errors.is_empty() && db.lenses.len() == 1 && db.cameras.len() == 1);
-        assert!(!dir.join("dropped.xml").exists() && dir.join("notes.txt").exists(), "only stale database files are removed");
+        assert!(!dir.join("dropped.xml").exists() && !dir.join("old-staged.xml").exists(), "only this pin's files");
         wait("the row stayed", || activity.list().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A file that is not the pinned one (another commit, a hostile mirror) is refused and nothing is installed.
+    /// A file that is not the pinned one (another commit, a hostile mirror) is refused and nothing is installed:
+    /// the previous complete database stays as it was.
     #[test]
     fn a_file_that_is_not_the_pinned_one_installs_nothing() {
         let dir = scratch("bad");
+        std::fs::write(dir.join("cameras.xml"), "previous").unwrap();
+        std::fs::write(dir.join(MARKER), "older").unwrap();
         let base = serve(vec![("lenses.xml", LENS.replace("0.01", "0.02").into_bytes()), ("cameras.xml", CAMERA.as_bytes().to_vec())]);
         let mut d = Download::default();
         d.start(&dir, vec![base], pins(), &Activity::default()).unwrap();
         wait("the download never ended", || !d.running());
         assert!(matches!(d.state(), State::Failed(_)), "{:?}", d.state());
-        assert!(!installed(&dir) && !dir.join("cameras.xml").exists(), "nothing moved into place");
+        assert!(!installed_with(&dir, pins()) && complete(&dir), "the previous database is still whole");
+        assert_eq!(std::fs::read_to_string(dir.join("cameras.xml")).unwrap(), "previous", "nothing moved into place");
         // no mirror at all is an error, not a thread
         assert!(Download::default().start(&dir, Vec::new(), pins(), &Activity::default()).is_err());
+        let _ = std::fs::remove_dir_all(beside(&dir, STAGING));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The new database replaces the old folder as a whole or not at all: when moving it into place fails, the
+    /// previous database is put back (and when even that fails, the next start puts it back).
+    #[test]
+    fn a_failed_swap_keeps_the_previous_database() {
+        let dir = scratch("swap");
+        std::fs::write(dir.join("lenses.xml"), "old").unwrap();
+        std::fs::write(dir.join(MARKER), "older").unwrap();
+        let staged = beside(&dir, STAGING);
+        std::fs::create_dir_all(&staged).unwrap();
+        std::fs::write(staged.join("lenses.xml"), "new").unwrap();
+        std::fs::write(staged.join(MARKER), COMMIT).unwrap();
+        let read = |d: &Path| std::fs::read_to_string(d.join("lenses.xml")).unwrap();
+        // the staged folder can't be moved into place: the old one comes back
+        let calls = std::cell::Cell::new(0);
+        let second_fails = |from: &Path, to: &Path| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 2 { Err(std::io::Error::other("in use")) } else { std::fs::rename(from, to) }
+        };
+        let err = publish(&staged, &dir, second_fails).unwrap_err();
+        assert!(err.contains("in use"), "{err}");
+        assert_eq!(read(&dir), "old", "the previous database is in place");
+        assert!(complete(&dir) && !beside(&dir, PREVIOUS).exists());
+        // neither move back works either (the app stops here): the next start puts the previous database back
+        let calls = std::cell::Cell::new(0);
+        let all_but_first_fail = |from: &Path, to: &Path| {
+            calls.set(calls.get() + 1);
+            if calls.get() == 1 { std::fs::rename(from, to) } else { Err(std::io::Error::other("in use")) }
+        };
+        assert!(publish(&staged, &dir, all_but_first_fail).is_err());
+        assert!(!dir.exists() && complete(&beside(&dir, PREVIOUS)));
+        recover(&dir);
+        assert_eq!(read(&dir), "old");
+        // and a swap that works leaves only the new database
+        publish(&staged, &dir, |from, to| std::fs::rename(from, to)).unwrap();
+        assert_eq!(read(&dir), "new");
+        assert!(!staged.exists() && !beside(&dir, PREVIOUS).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A folder whose marker is there but whose database files went missing (or were cut short) is not installed,
+    /// so the start downloads it again.
+    #[test]
+    fn installed_needs_every_pinned_file() {
+        let dir = scratch("installed");
+        std::fs::write(dir.join(MARKER), format!("commit {COMMIT}")).unwrap();
+        assert!(complete(&dir) && !installed_with(&dir, pins()), "the marker alone is not a database");
+        std::fs::write(dir.join("lenses.xml"), LENS).unwrap();
+        std::fs::write(dir.join("cameras.xml"), CAMERA).unwrap();
+        assert!(installed_with(&dir, pins()));
+        std::fs::write(dir.join("cameras.xml"), &CAMERA[..10]).unwrap();
+        assert!(!installed_with(&dir, pins()), "a file cut short");
+        std::fs::remove_file(dir.join("cameras.xml")).unwrap();
+        assert!(!installed_with(&dir, pins()), "a file gone");
+        std::fs::write(dir.join(MARKER), "an older commit").unwrap();
+        std::fs::write(dir.join("cameras.xml"), CAMERA).unwrap();
+        assert!(!installed_with(&dir, pins()) && complete(&dir), "an older pin: whole, but replaced");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -94,6 +94,20 @@ pub fn content_key(p: &Photo) -> String {
     }
 }
 
+/// What a photo's lens profile adds to its render and thumbnail keys: a database profile (0 without one, or with the
+/// correction off, where it changes nothing). When a database update gives the photo another profile, its cached
+/// renders and thumbnails no longer match. (The file's own correction changes only with the file, which the content
+/// key covers, so it adds nothing and existing thumbnails stay valid.)
+pub fn lens_key(p: &Photo, settings: &DevelopSettings) -> u64 {
+    match &p.embedded_lens {
+        Some(l) if settings.optics.lens_profile && l.source == lightcraft_develop::LensSource::Database => {
+            let k = Hasher128::new().str("lens").str(&format!("{l:?}")).finish();
+            (k.0 as u64) ^ ((k.0 >> 64) as u64) | 1
+        }
+        _ => 0,
+    }
+}
+
 pub fn source_info(p: &Photo) -> SourceInfo {
     // Procedural demo scenes are scene-referred HDR (like raw files): use the filmic tone map.
     // (They are drawn afresh at every size, so they have no original size.)

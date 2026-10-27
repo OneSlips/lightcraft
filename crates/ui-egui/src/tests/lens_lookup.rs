@@ -37,3 +37,14 @@ fn a_database_reloaded_during_a_lookup_makes_its_results_stale() {
     lightcraft_engine::lens_profiles::reload();
     assert_ne!(crate::lens_db::lookup_key(&app), key);
 }
+
+/// Photos that have a database profile (or named no lens) are read again only when the database's files were
+/// replaced, never at every start, library switch or folder selection: a big library isn't read at each launch.
+#[test]
+fn photos_with_a_profile_are_read_again_only_when_the_database_was_replaced() {
+    use crate::lens_db::look_up_again;
+    assert!(!look_up_again(None, (1, 1, 0)), "a start with the database already there");
+    assert!(!look_up_again(Some((1, 1, 0)), (2, 2, 0)), "another library, or the folder selected again");
+    assert!(look_up_again(Some((1, 1, 0)), (1, 2, 1)), "a download replaced it");
+    assert!(look_up_again(None, (1, 2, 1)), "replaced before the first lookup");
+}

@@ -348,9 +348,10 @@ pub struct UiState {
     /// The first-run lens database download was considered this run (`crate::lens_db`).
     #[serde(skip)]
     pub lens_download_checked: bool,
-    /// The library and lens database generation whose raws were last looked up for a lens profile.
+    /// The library, lens database generation and database replacement count whose raws were last looked up for a
+    /// lens profile (`crate::lens_db::lookup_key`).
     #[serde(skip)]
-    pub lens_refreshed: Option<(u64, u64)>,
+    pub lens_refreshed: Option<(u64, u64, u64)>,
     /// Photos to look up for a lens profile on the next frame (Enable Lens Corrections ticked without one).
     #[serde(skip)]
     pub lens_lookup_ids: Vec<lightcraft_catalog::PhotoId>,

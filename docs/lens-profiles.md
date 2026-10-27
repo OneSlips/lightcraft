@@ -11,7 +11,11 @@ run time, never bundled and never committed. Adobe LCP profiles are never used.
    (`<config dir>/lensfun`, beside the face and denoise models; see `crates/engine/src/config.rs`), with a row in
    the activity stack (its ✕ stops it; the next start resumes). The files are pinned to one lensfun commit by name,
    size and SHA-256 (`crates/engine/src/lensfun_download.rs`); a file that differs is thrown away. A later build with
-   a newer pin replaces them once. `SOURCE.txt` in the folder names the commit and the licence.
+   a newer pin replaces them once. The files are staged in `<config dir>/lensfun.download`, `SOURCE.txt` (the commit
+   and the licence) is written there last, and the staged folder then replaces the old one as a whole: until it is
+   in place the previous complete database is used, and if the swap fails it is put back. The app's folder is read
+   only when it has `SOURCE.txt`, and a folder whose pinned files are missing or cut short is downloaded again.
+   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never download it.
 2. By default the files come from lensfun's GitHub repository at the pinned commit. `LIGHTCRAFT_LENSFUN_URL` lists
    other places serving the same files (base URLs, tried first), e.g. a copy on LightCraft's own server.
 3. `LIGHTCRAFT_LENSFUN_DIR` points at a database of your own instead (lensfun's `data/db`, or a Linux
@@ -19,8 +23,16 @@ run time, never bundled and never committed. Adobe LCP profiles are never used.
 
 When the database arrives (or changes), every library raw without a profile whose lens it knows is read again in the
 background and gets its profile; a photo still as imported gets the correction switched on, as import would, and an
-edited one keeps its settings. Ticking **Enable Lens Corrections** on a photo without a profile looks it up again
-too. `library.refreshLensProfiles`, `lens.downloadDatabase` and `lens.databaseStatus` do the same for agents.
+edited one keeps its settings. When a download replaced the database's files, the raws whose profile came from the
+old database are read again too (they get the new profile, or lose one it no longer gives), and so are raws whose
+file named no lens at import. Ticking **Enable Lens Corrections** on a photo without a profile looks it up again
+too. `library.refreshLensProfiles` (`all: true` for the wider pass), `lens.downloadDatabase` (which also selects the
+downloaded folder) and `lens.databaseStatus` do the same for agents.
+
+A database profile is pinned to the photo: every render (fresh decode, cached preview, thumbnail, export) uses the
+profile the catalog holds, never one a decode looked up in a newer database, and the profile is part of the render
+and thumbnail cache keys, so a changed profile never shows an old cached render. A file's own correction comes from
+the file as before.
 
 The Optics panel says which profile is loaded: "Profile: from the file", "Profile: <lens> (lens database)", or
 "No lens profile found for <lens>". A profile is never copied between photos: presets, Copy / Paste, Sync and Auto
