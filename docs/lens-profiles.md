@@ -25,7 +25,7 @@ too. `library.refreshLensProfiles`, `lens.downloadDatabase` and `lens.databaseSt
 The Optics panel says which profile is loaded: "Profile: from the file", "Profile: <lens> (lens database)", or
 "No lens profile found for <lens>". A profile is never copied between photos: presets, Copy / Paste, Sync and Auto
 Sync carry Enable Lens Corrections and its amounts, and each photo keeps the profile of its own lens
-(`crates/engine/src/tests_lens_refresh.rs`).
+(`crates/engine/src/tests/lens_refresh.rs`).
 
 Files are read once per folder and again after a download. Invalid files are skipped with a warning in the log.
 
