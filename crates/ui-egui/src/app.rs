@@ -223,6 +223,11 @@ impl LightcraftApp {
         }
         // (a mask's sliders don't switch the overlay off, and creating or picking a mask doesn't
         // switch it on: one rule decides when it shows, see `panels::detail::overlay_mask`)
+        if r.is_ok() && !self.ui.mask_overlay_hidden.is_empty() {
+            // a mask an undo, a history step or pasted settings took away frees its id for the next new
+            // mask: whether O hid its overlay goes with it
+            crate::panels::masking::forget_missing_overlays(self);
+        }
         if r.is_ok() {
             // These commands finish synchronously, so their completion would otherwise
             // be invisible once the activity stack is gone. Never show success on error.

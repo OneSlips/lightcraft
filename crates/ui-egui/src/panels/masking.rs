@@ -938,6 +938,13 @@ pub(crate) fn delete_mask(app: &mut LightcraftApp, id: Option<u32>) {
     }
 }
 
+/// Forgets that O hid the overlay of a mask that no longer exists (undone, stepped back in the history, replaced by
+/// pasted settings): its id goes to the next new mask, which must not start hidden.
+pub(crate) fn forget_missing_overlays(app: &mut LightcraftApp) {
+    let session = &app.session;
+    app.ui.mask_overlay_hidden.retain(|(photo, id)| session.develop_of(*photo).is_some_and(|d| d.masks.iter().any(|m| m.id == *id)));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2048,3 +2048,25 @@ fn a_new_mask_with_a_deleted_masks_id_shows_its_overlay() {
     assert!(shown(&h), "the new mask shows");
     h.settle(SETTLE);
 }
+
+/// Undo taking a new mask away frees its id the same way: O having hid its overlay says nothing about the next
+/// new mask (CodeRabbit on #2920).
+#[test]
+fn a_new_mask_after_undoing_a_hidden_one_shows_its_overlay() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    exec(&mut h, "mask.add", json!({"kind": "linear", "start": [0.5, 0.2], "end": [0.5, 0.7]}));
+    let mask = h.app.session.active_mask.unwrap();
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    h.request("ui.key", json!({"key": "o"}), T);
+    assert!(!shown(&h));
+    exec(&mut h, "edit.undo", json!({}));
+    assert!(develop(&h).masks.iter().all(|m| m.id != mask), "the mask is undone");
+    assert!(h.app.ui.mask_overlay_hidden.is_empty(), "forgotten with the mask");
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.4, 0.5], "rx": 0.2, "ry": 0.2}));
+    assert_eq!(h.app.session.active_mask, Some(mask), "the same id again");
+    h.app.ui.mask_hover = None;
+    h.app.ui.mask_hover_prev = None;
+    assert!(shown(&h), "the new mask shows");
+    h.settle(SETTLE);
+}
