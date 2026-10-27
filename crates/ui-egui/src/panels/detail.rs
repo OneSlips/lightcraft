@@ -554,8 +554,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // or top/bottom keeps both panes, and the After pane is still the one shown)
     let mut shown_window_drawn = false;
     for (v, view) in &windows {
-        // (holding `\` in a wipe shows the Before everywhere: it is the Before view alone then)
-        let mode = if show_before { BeforeAfter::Original } else { app.ui.before_after };
+        // (holding `\` in a wipe shows the Before everywhere: it is the Before view alone then; side
+        // by side or top/bottom, both panes stay, and each window stays in its own)
+        let mode = if show_before && !split { BeforeAfter::Original } else { app.ui.before_after };
         let clip = crate::region::window_clip(mode, v.before, v.visible, canvas, img_rect);
         let drawn = draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
         window_drawn |= drawn;
