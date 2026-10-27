@@ -219,7 +219,7 @@ fn section_headers_stand_out_more_than_sub_sections() {
         let hover = super::flyout_fill(&t, true).map_or(0, |c| dist(c, t.chrome));
         assert!(band >= hover, "{kind:?}: even a hovered sub-section stays quieter ({hover} vs {band})");
     }
-    assert!(super::SECTION_TITLE > super::SUB_TITLE);
+    const { assert!(super::SECTION_TITLE > super::SUB_TITLE) };
 }
 
 /// Test note 3 (2026-10-27): corners are at most half of the earlier 4 (controls) and 6 (panels),
@@ -227,7 +227,7 @@ fn section_headers_stand_out_more_than_sub_sections() {
 #[test]
 fn corners_are_at_most_half_the_earlier_radius() {
     use crate::theme::{RADIUS, RADIUS_PANEL, ThemeKind, apply_kind};
-    assert!(RADIUS <= 2 && RADIUS_PANEL <= 3);
+    const { assert!(RADIUS <= 2 && RADIUS_PANEL <= 3) };
     for kind in ThemeKind::ALL {
         let ctx = egui::Context::default();
         apply_kind(&ctx, kind);

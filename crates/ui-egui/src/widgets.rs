@@ -344,7 +344,9 @@ pub(crate) fn row_parts(row: Rect, name_w: f32) -> RowParts {
     let value_w = VALUE_W.min(w * 0.25);
     let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
     let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
-    let track_l = label.right() + NAME_GAP;
+    // room for the handle at the track's left end, as far as a very narrow row allows
+    let name_gap = NAME_GAP.min(ROW_GAP.max(w * 0.05));
+    let track_l = label.right() + name_gap;
     let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
     RowParts { label, track, value }
 }
