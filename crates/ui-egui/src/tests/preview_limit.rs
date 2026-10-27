@@ -1091,6 +1091,33 @@ mod in_the_loupe {
         assert!(after.iter().all(|(_, clip, _)| clip.left() >= canvas.center().x), "the After window spills into the Before pane: {after:?}");
     }
 
+    // Given Before and After side by side at 1:1 with `\` held, both panes stay, so each window
+    // stays clipped to its own pane: the Before window's margin does not cover the After pane
+    #[test]
+    fn holding_backslash_side_by_side_keeps_each_window_in_its_pane() {
+        let (_fx, mut h, _) = detail_in([1800.0, 900.0]);
+        h.app.ui.before_after = crate::state::BeforeAfter::SideBySide;
+        h.request("engine.execute", json!({"command": "view.zoom100"}), T);
+        h.settle(SETTLE);
+        h.events.push(egui::Event::Key {
+            key: egui::Key::Backslash,
+            physical_key: Some(egui::Key::Backslash),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.settle(SETTLE);
+        // (the key's own shortcut switches to the Before view; side by side is chosen again with the key down)
+        h.app.ui.before_after = crate::state::BeforeAfter::SideBySide;
+        h.settle(SETTLE);
+        h.step();
+        let canvas = h.app.canvas_rect.unwrap();
+        let (before, after) = (drawn(&h, Slot::RegionBefore), drawn(&h, Slot::Region));
+        assert!(!before.is_empty() && !after.is_empty());
+        assert!(before.iter().all(|(_, clip, _)| clip.right() <= canvas.center().x), "the Before window spills into the After pane: {before:?}");
+        assert!(after.iter().all(|(_, clip, _)| clip.left() >= canvas.center().x), "the After window spills into the Before pane: {after:?}");
+    }
+
     // Given a Before and an After with the same look (an unedited photo), both windows are kept
     // apart: the job key is the same, and one tile must not replace the other
     #[test]
