@@ -254,22 +254,9 @@ fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> 
     for (name, _, _) in files {
         std::fs::rename(staging.join(name), dir.join(name)).map_err(|e| format!("could not move {name} into {}: {e}", dir.display()))?;
     }
-    // database files an older pin had and this one doesn't would still be read: remove them (only XML files; nothing
-    // else in the folder is touched)
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            let xml = std::path::Path::new(&*name).extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"));
-            if xml
-                && entry.path().is_file()
-                && !files.iter().any(|(pinned, _, _)| *pinned == name)
-                && let Err(e) = std::fs::remove_file(entry.path())
-            {
-                log::warn!("lens database: could not remove the old {name}: {e}");
-            }
-        }
-    }
+    // database files an older pin had and this one doesn't would still be read: remove them, and without the marker
+    // when one can't be (the next start tries again rather than reading an old file beside the new ones)
+    remove_stale(dir, files, |p| std::fs::remove_file(p))?;
     let _ = std::fs::remove_dir_all(&staging);
     let readme = format!(
         "lensfun lens database (data/db), commit {COMMIT}\nfrom https://github.com/lensfun/lensfun, downloaded by LightCraft.\n\
@@ -278,6 +265,26 @@ fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> 
     );
     std::fs::write(dir.join(MARKER), readme).map_err(|e| format!("could not write {}: {e}", dir.join(MARKER).display()))?;
     Ok(files.len())
+}
+
+/// Remove the XML files in `dir` that are not among `files` (nothing else in the folder is touched) with `remove`: an
+/// error names the first that could not be removed.
+#[cfg(not(target_arch = "wasm32"))]
+fn remove_stale(dir: &Path, files: &[Pin], remove: impl Fn(&Path) -> std::io::Result<()>) -> Result<(), String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        let xml = std::path::Path::new(&*name).extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"));
+        if xml
+            && entry.path().is_file()
+            && !files.iter().any(|(pinned, _, _)| *pinned == name)
+            && let Err(e) = remove(&entry.path())
+        {
+            return Err(format!("could not remove the old lens database file {name}: {e}"));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -389,6 +396,23 @@ mod tests {
         assert!(!installed(&dir) && !dir.join("cameras.xml").exists(), "nothing moved into place");
         // no mirror at all is an error, not a thread
         assert!(Download::default().start(&dir, Vec::new(), pins(), &Activity::default()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An old database file that can't be removed is an error (so no marker is written and the next start tries
+    /// again); the pinned files and other files are left alone.
+    #[test]
+    fn an_old_file_that_cannot_be_removed_is_an_error() {
+        let dir = scratch("stale");
+        for name in ["lenses.xml", "old-lenses.xml", "notes.txt"] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        let failing = |_: &Path| Err(std::io::Error::other("in use"));
+        let err = remove_stale(&dir, pins(), failing).unwrap_err();
+        assert!(err.contains("old-lenses.xml") && err.contains("in use"), "{err}");
+        remove_stale(&dir, pins(), |p| std::fs::remove_file(p)).unwrap();
+        assert!(!dir.join("old-lenses.xml").exists());
+        assert!(dir.join("lenses.xml").exists() && dir.join("notes.txt").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

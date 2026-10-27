@@ -337,10 +337,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 // ticked on photos without a profile: look their lenses up again (a database that arrived
                 // since they were imported may know them now)
                 if ok && lp {
-                    let without: Vec<_> = std::iter::once(id)
-                        .chain(app.session.selection.ids.iter().copied())
-                        .filter(|t| app.session.catalog.photo(*t).is_some_and(|p| p.embedded_lens.is_none()))
-                        .collect();
+                    let without = crate::lens_db::to_look_up(&app.session, id);
                     app.ui.lens_lookup_ids.extend(without);
                 }
             }

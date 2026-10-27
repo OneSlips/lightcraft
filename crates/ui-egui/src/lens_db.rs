@@ -37,9 +37,27 @@ fn start_download(app: &mut LightcraftApp) {
     }
 }
 
+/// After Enable Lens Corrections was ticked on photo `id`: the photos to look up again, those of `id` and the
+/// selection that now have corrections on and no profile. With Auto Sync off only `id` was changed, so the other
+/// selected photos are left alone unless their corrections were already on.
+pub fn to_look_up(session: &lightcraft_engine::Session, id: lightcraft_catalog::PhotoId) -> Vec<lightcraft_catalog::PhotoId> {
+    let mut out: Vec<lightcraft_catalog::PhotoId> = Vec::new();
+    for t in std::iter::once(id).chain(session.selection.ids.iter().copied()) {
+        if !out.contains(&t) && session.catalog.photo(t).is_some_and(|p| p.embedded_lens.is_none() && p.develop.optics.lens_profile) {
+            out.push(t);
+        }
+    }
+    out
+}
+
+/// What a lookup's results belong to: the library and the lens database in use. Results for another key are stale.
+pub(crate) fn lookup_key(app: &LightcraftApp) -> (u64, u64) {
+    (app.session.library_generation(), lens_profiles::generation())
+}
+
 /// Look the library's raws up again when the database changed, the library changed, or photos asked for it.
 fn refresh(app: &mut LightcraftApp) {
-    let key = (app.session.library_generation(), lens_profiles::generation());
+    let key = lookup_key(app);
     let asked = std::mem::take(&mut app.ui.lens_lookup_ids);
     if app.ui.lens_refreshed == Some(key) && asked.is_empty() {
         return;
@@ -57,10 +75,11 @@ fn refresh(app: &mut LightcraftApp) {
     if listed.is_empty() {
         return;
     }
-    let library = key.0;
     let work = move || lens_refresh::probe(&probe, listed);
     let done = move |app: &mut LightcraftApp, ctx: &egui::Context, results| {
-        if app.session.library_generation() != library {
+        // another library, or a database reloaded while the files were read (the probe may have used either): the
+        // next frame looks them up again with the database in use now
+        if lookup_key(app) != key {
             return;
         }
         match lens_refresh::apply(&mut app.session, results) {
