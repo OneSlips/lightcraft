@@ -268,11 +268,13 @@ fn fetch_all(dir: &Path, mirrors: &[String], files: &[Pin], shared: &Shared) -> 
 }
 
 /// Remove the XML files in `dir` that are not among `files` (nothing else in the folder is touched) with `remove`: an
-/// error names the first that could not be removed.
+/// error names the first that could not be removed, or why the folder could not be listed.
 #[cfg(not(target_arch = "wasm32"))]
 fn remove_stale(dir: &Path, files: &[Pin], remove: impl Fn(&Path) -> std::io::Result<()>) -> Result<(), String> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return Ok(()) };
-    for entry in entries.flatten() {
+    // a folder that can't be listed (or an entry that can't be read) may still hold an old file: an error, not success
+    let listing = |e: std::io::Error| format!("could not list the lens database folder {}: {e}", dir.display());
+    for entry in std::fs::read_dir(dir).map_err(listing)? {
+        let entry = entry.map_err(listing)?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
         let xml = std::path::Path::new(&*name).extension().is_some_and(|e| e.eq_ignore_ascii_case("xml"));
@@ -413,6 +415,12 @@ mod tests {
         remove_stale(&dir, pins(), |p| std::fs::remove_file(p)).unwrap();
         assert!(!dir.join("old-lenses.xml").exists());
         assert!(dir.join("lenses.xml").exists() && dir.join("notes.txt").exists());
+        // a folder that can't be listed is an error too, not "nothing stale"
+        let not_a_folder = dir.join("notes.txt");
+        let err = remove_stale(&not_a_folder, pins(), |p| std::fs::remove_file(p)).unwrap_err();
+        assert!(err.contains("could not list"), "{err}");
+        let err = remove_stale(&dir.join("missing"), pins(), |p| std::fs::remove_file(p)).unwrap_err();
+        assert!(err.contains("could not list"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
