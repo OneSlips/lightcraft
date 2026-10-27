@@ -628,10 +628,19 @@ impl Renderer {
         let wanted: HashMap<u64, usize> = jobs.iter().map(|j| (j.key, quick_edge(j))).collect();
         let mut free = Vec::new();
         for &s in &slots {
-            if held(self, s).is_none_or(|k| wanted.get(&k).is_none_or(|&edge| !self.ahead_covers(s, edge))) {
+            let key = held(self, s);
+            if key.is_none_or(|k| wanted.get(&k).is_none_or(|&edge| !self.ahead_covers(s, edge))) {
                 self.textures.remove(&s);
                 self.quick_tried.remove(&s);
-                self.drop_queued(s);
+                // a job already running: its result is thrown away when it arrives (not left as a
+                // hidden stand-in), unless the loupe is waiting for just that one (a step to the photo)
+                let preview_edge = self.quick_edge.get(&Slot::Preview).copied().unwrap_or(0);
+                let loupe_waits =
+                    key.is_some_and(|k| self.pending.get(&Slot::Preview).is_some_and(|p| p.0 == k)) && self.ahead_covers(s, preview_edge);
+                if !self.drop_queued(s) && !loupe_waits {
+                    self.pending.remove(&s);
+                    self.requests.remove(&s);
+                }
                 free.push(s);
             }
         }
@@ -1846,6 +1855,57 @@ mod thumbnail_tests {
         app.renderer.look_ahead(jobs, 96);
         assert_eq!((priority_of(&app.renderer, k3), priority_of(&app.renderer, k2)), (96, 95));
         assert_eq!(app.renderer.pool.queued(), 2, "nothing is queued twice");
+    }
+
+    /// A stand-in made ahead that is no longer wanted while it is being made is thrown away when it
+    /// arrives, not kept as a hidden texture (CodeRabbit on #3077); one the loupe waits for is kept.
+    #[test]
+    fn an_ahead_stand_in_no_longer_wanted_is_dropped_when_it_arrives() {
+        let gate = Arc::new(std::sync::Mutex::new(()));
+        let mut s = Session::new();
+        let g = gate.clone();
+        s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
+            drop(g.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            Some(lightcraft_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
+        }));
+        let raw = |id: u64| {
+            let mut p = Photo::new(PhotoId(id), Source::File { path: format!("r{id}.cr3") }, &format!("r{id}.cr3"), "CR3", 6000, 4000, "2026-01-01");
+            p.kind = lightcraft_catalog::MediaKind::Raw;
+            p.develop = Arc::new(p.camera_defaults());
+            p
+        };
+        let (mut app, _, ctx) = fixture_with(s, raw(1));
+        app.session.catalog.apply(Op::AddPhoto { photo: Box::new(raw(2)) }).unwrap();
+        let wait = |app: &mut crate::LightcraftApp, done: &dyn Fn(&Renderer) -> bool, what: &str| {
+            let t0 = std::time::Instant::now();
+            while !done(&app.renderer) {
+                assert!(t0.elapsed() < std::time::Duration::from_secs(20), "{what}");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                app.renderer.poll(&ctx, &mut app.session);
+            }
+        };
+        let any_ahead = |r: &Renderer| r.textures.keys().any(|s| matches!(s, Slot::QuickAhead(_)));
+        let held = gate.lock().unwrap();
+        let job = quick(&mut app, 2, 64);
+        app.renderer.look_ahead(vec![job], 96);
+        wait(&mut app, &|r| r.pool.queued() == 0, "the stand-in never started");
+        // not wanted any more (the user went elsewhere) while it is being made
+        app.renderer.look_ahead(Vec::new(), 96);
+        assert!(!app.renderer.pending.keys().any(|s| matches!(s, Slot::QuickAhead(_))));
+        let done = app.renderer.completed;
+        drop(held);
+        wait(&mut app, &|r| r.completed > done, "the stand-in never finished");
+        assert!(!any_ahead(&app.renderer), "a stand-in nobody wants is left as a hidden texture");
+        // the step to photo 2 while its stand-in is being made: the loupe takes it when it arrives
+        let held = gate.lock().unwrap();
+        let job = quick(&mut app, 2, 32);
+        app.renderer.look_ahead(vec![job], 96);
+        wait(&mut app, &|r| r.pool.queued() == 0, "the stand-in never started");
+        let job = quick(&mut app, 2, 32);
+        app.renderer.request_quick(Slot::Preview, job, 110);
+        app.renderer.look_ahead(Vec::new(), 96);
+        drop(held);
+        wait(&mut app, &|r| r.textures.get(&Slot::Preview).is_some_and(|t| t.photo == PhotoId(2)), "the loupe never got its stand-in");
     }
 
     /// The stand-in made ahead still shows when the loupe's own request for it failed first
