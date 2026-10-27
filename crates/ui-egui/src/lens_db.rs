@@ -37,8 +37,9 @@ fn start_download(app: &mut LightcraftApp) {
 /// selected photos are left alone unless their corrections were already on.
 pub fn to_look_up(session: &lightcraft_engine::Session, id: lightcraft_catalog::PhotoId) -> Vec<lightcraft_catalog::PhotoId> {
     let mut out: Vec<lightcraft_catalog::PhotoId> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for t in std::iter::once(id).chain(session.selection.ids.iter().copied()) {
-        if !out.contains(&t) && session.catalog.photo(t).is_some_and(|p| p.embedded_lens.is_none() && p.develop.optics.lens_profile) {
+        if seen.insert(t) && session.catalog.photo(t).is_some_and(|p| p.embedded_lens.is_none() && p.develop.optics.lens_profile) {
             out.push(t);
         }
     }
@@ -82,8 +83,9 @@ fn refresh(app: &mut LightcraftApp) {
     let work = move || lens_refresh::probe(&probe, listed);
     let done = move |app: &mut LightcraftApp, ctx: &egui::Context, results| {
         // another library, or a database reloaded while the files were read (the probe may have used either): the
-        // next frame looks them up again with the database in use now
+        // next frame looks them up again with the database in use now (asked for here: an idle window draws none)
         if lookup_key(app) != key {
+            ctx.request_repaint();
             return;
         }
         match lens_refresh::apply(&mut app.session, results) {

@@ -15,11 +15,13 @@ run time, never bundled and never committed. Adobe LCP profiles are never used.
    and the licence) is written there last, and the staged folder then replaces the old one as a whole: until it is
    in place the previous complete database is used, and if the swap fails it is put back. The app's folder is read
    only when it has `SOURCE.txt`, and a folder whose pinned files are missing or cut short is downloaded again.
-   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never download it.
+   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never start the
+   first-run download; `lens.downloadDatabase` fetches it on request from any of them.
 2. By default the files come from lensfun's GitHub repository at the pinned commit. `LIGHTCRAFT_LENSFUN_URL` lists
    other places serving the same files (base URLs, tried first), e.g. a copy on LightCraft's own server.
 3. `LIGHTCRAFT_LENSFUN_DIR` points at a database of your own instead (lensfun's `data/db`, or a Linux
-   distribution's `/usr/share/lensfun/version_1/`); then nothing is downloaded.
+   distribution's `/usr/share/lensfun/version_1/`); then the first-run download doesn't start, and that folder is read
+   even after `lens.downloadDatabase` fetches the app's own copy.
 
 When the database arrives (or changes), every library raw without a profile whose lens it knows is read again in the
 background and gets its profile; a photo still as imported gets the correction switched on, as import would, and an
