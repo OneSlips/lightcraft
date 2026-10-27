@@ -219,22 +219,15 @@ fn tab_walks_the_right_panels_top_to_bottom() {
     for right in [RightPanel::Edit, RightPanel::Crop, RightPanel::Remove, RightPanel::Masking] {
         let mut h = harness(ViewMode::Detail, right);
         let panel_left = 1500.0 - h.state().ui.right_width - 10.0;
-        // the tool strip beside the panel is a column of its own, walked before it
-        let strip = h
-            .root()
-            .children_recursive()
-            .map(|n| n.accesskit_node())
-            .find(|n| n.label().as_deref() == Some("Edit (E)"))
-            .and_then(|n| n.bounding_box())
-            .map(|b| b.x0 as f32)
-            .unwrap_or(f32::INFINITY);
+        // the tools are a row under the histogram inside the panel (the vertical strip only shows
+        // while no panel is open), so the whole panel column is walked: histogram, tool row, content
         let mut seen: Vec<(String, f32)> = Vec::new();
         for _ in 0..120 {
             h.key_press(egui::Key::Tab);
             h.run_steps(1);
             let Some(n) = h.root().children_recursive().map(|n| n.accesskit_node()).find(|n| n.is_focused()) else { continue };
             let Some(b) = n.bounding_box() else { continue };
-            if (b.x0 as f32) < panel_left || (b.x0 as f32) >= strip - 1.0 {
+            if (b.x0 as f32) < panel_left {
                 continue;
             }
             let name = n.label().unwrap_or_default();

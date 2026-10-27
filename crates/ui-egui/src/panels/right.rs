@@ -1,4 +1,4 @@
-//! The right-hand panel next to the tool strip: Edit, Crop, Remove, Masking, Red Eye, Info,
+//! The right-hand panel, its tool row at the top: Edit, Crop, Remove, Masking, Red Eye, Info,
 //! Keywords, Versions, Activity.
 
 use egui::{Align2, Rect, Sense, pos2, vec2};
@@ -32,6 +32,19 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let frame = egui::Frame::NONE.fill(t.chrome).stroke(egui::Stroke::new(1.0, t.divider));
     frame.show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        // fixed at the top, as the panel's content scrolls under them: the photo's histogram
+        // (while developing it), then the tool row
+        if app.ui.histogram
+            && let Some(id) = app.session.active()
+            && matches!(
+                app.ui.right,
+                RightPanel::Edit | RightPanel::Profiles | RightPanel::Crop | RightPanel::Remove | RightPanel::Masking | RightPanel::RedEye
+            )
+        {
+            super::edit::histogram(app, ui, id);
+        }
+        super::strip::row(app, ui);
         // (taken on every pass the panel is drawn; one from earlier than the pass before is forgotten)
         let held = held_offset(ui.ctx());
         let Some(id) = app.session.active() else {

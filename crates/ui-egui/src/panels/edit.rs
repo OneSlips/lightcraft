@@ -28,7 +28,8 @@ use grading::grading;
 pub(crate) use grading::wheel_pointer_frame_end;
 #[cfg(test)]
 pub(crate) use grading::{WheelGrab, WheelLock, WheelMods, wheel_pick};
-use histogram::{histogram, soft_proofing};
+pub(crate) use histogram::histogram;
+use histogram::soft_proofing;
 use mixer::{mixer, point_color};
 use sliders::{REL_TEMP, REL_TINT, hdr_row, k_to_rel, profile_menu, quick_develop, rel_to_k, reset_tip, section};
 pub use sliders::{apply_slider_out, sub_title};
@@ -56,13 +57,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     let preview_only = app.session.catalog.photo(id).and_then(|p| p.preview_only.clone());
 
-    if app.ui.histogram {
-        histogram(app, ui, id);
-    }
+    // (the histogram stands above the panel's scrolling content: `right::show`)
     if app.ui.soft_proof {
         soft_proofing(app, ui, id);
     }
-    // header: Auto / B&W / HDR … Reset, one row (no "Edit" title: the tool strip says which panel
+    // header: Auto / B&W / HDR … Reset, one row (no "Edit" title: the tool row says which panel
     // this is)
     let mut reset_clicked = false;
     egui::Frame::NONE.inner_margin(crate::widgets::row_margin(5, 5)).show(ui, |ui| {
