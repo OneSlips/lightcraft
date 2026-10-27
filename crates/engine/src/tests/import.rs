@@ -199,7 +199,7 @@ fn browsing_queues_unknown_files_in_the_order_the_view_shows_them() {
         assert_eq!(names(q).last().map(String::as_str), Some("gone.png"), "ascending {ascending}");
     }
     let q = crate::import::browse_queue(&input, files, &Sort { key: SortKey::Rating, ..Sort::default() });
-    assert_eq!(names(q), ["a.png", "c.png", "gone.png"]);
+    assert_eq!(names(q), ["gone.png", "c.png", "a.png"], "new photos tie on rating: by name, descending as the view");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -216,8 +216,16 @@ fn browsing_with_subfolders_skips_the_librarys_own_folder() {
     let (input, _) = crate::import::ScanInput::new(&mut s, &[]);
     let root = dir.to_string_lossy().to_string();
     let names = |v: Vec<String>| v.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect::<Vec<_>>();
-    assert_eq!(names(crate::import::browse_files(&input, &root, true)), ["a.png"]);
-    assert_eq!(names(crate::import::browse_files(&input, &root, false)), ["a.png"]);
+    assert_eq!(names(crate::import::browse_files(&input, &root, true).unwrap()), ["a.png"]);
+    assert_eq!(names(crate::import::browse_files(&input, &root, false).unwrap()), ["a.png"]);
+    // the library's folder chosen itself, with or without its subfolders
+    let lib = dir.join("lib").to_string_lossy().to_string();
+    assert!(crate::import::browse_files(&input, &lib, false).unwrap().is_empty());
+    assert!(crate::import::browse_files(&input, &lib, true).unwrap().is_empty());
+    // a folder that can't be listed is an error, not an empty folder (its photos aren't "gone")
+    let missing = dir.join("not-there").to_string_lossy().to_string();
+    assert!(crate::import::browse_files(&input, &missing, false).is_err());
+    assert!(crate::import::browse_files(&input, &missing, true).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -241,7 +249,7 @@ fn browsing_breaks_ties_by_name_in_the_views_direction() {
     };
     assert_eq!(order(SortKey::CaptureDate, false), ["y.png", "x.png", "z.png"]);
     assert_eq!(order(SortKey::CaptureDate, true), ["z.png", "x.png", "y.png"]);
-    for key in [SortKey::ImportDate, SortKey::EditDate] {
+    for key in [SortKey::ImportDate, SortKey::EditDate, SortKey::Rating] {
         assert_eq!(order(key, true), ["x.png", "y.png", "z.png"], "{key:?}");
         assert_eq!(order(key, false), ["z.png", "y.png", "x.png"], "{key:?}");
     }

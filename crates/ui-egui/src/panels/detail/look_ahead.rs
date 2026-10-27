@@ -23,8 +23,9 @@ pub struct LookAhead {
     last: Option<PhotoId>,
     /// +1 forward (the default), -1 backward.
     dir: i8,
-    /// (photo, direction, catalog revision, edge, crop) the requests were made for.
-    made_for: Option<(PhotoId, i8, u64, usize, bool)>,
+    /// (photo, direction, catalog revision, visible list generation, edge, crop) the requests
+    /// were made for: a new source, filter or sort changes the neighbours without an edit.
+    made_for: Option<(PhotoId, i8, u64, u64, usize, bool)>,
 }
 
 impl LookAhead {
@@ -54,12 +55,12 @@ pub(crate) fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop
         }
         app.look_ahead.last = Some(id);
     }
-    let want = (id, app.look_ahead.dir, rev, edge, crop);
+    let (visible_gen, ids) = app.session.visible_shared();
+    let want = (id, app.look_ahead.dir, rev, visible_gen, edge, crop);
     if app.look_ahead.made_for == Some(want) {
         return;
     }
     app.look_ahead.made_for = Some(want);
-    let ids = app.session.visible_cloned();
     let Some(i) = ids.iter().position(|p| *p == id) else { return };
     let targets = app.look_ahead.targets(&ids, i);
     // stepping through a whole wedding in the loupe would keep every thumbnail it ever drew: keep

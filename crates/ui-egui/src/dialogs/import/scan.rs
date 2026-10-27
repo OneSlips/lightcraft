@@ -114,7 +114,14 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     let sort = app.session.sort;
     let job = move || {
         // (never the library's own folder, which the import would otherwise read as photos)
-        let files = lightcraft_engine::import::browse_files(&input, &root, subfolders);
+        let files = match lightcraft_engine::import::browse_files(&input, &root, subfolders) {
+            Ok(files) => files,
+            Err(e) => {
+                // nothing is sent: the scan ends as failed, and no record is taken for a file gone
+                log::warn!("browse: can't list {root}: {e}");
+                return;
+            }
+        };
         // Nothing is read here: the import that follows reads the files and adds them batch by
         // batch, first screen first, so the view fills while the rest is read (PERF-CULL-1).
         let queue = lightcraft_engine::import::browse_queue(&input, files.clone(), &sort);
