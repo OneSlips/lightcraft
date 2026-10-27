@@ -2449,11 +2449,13 @@ pub(crate) fn zoomed_in(app: &LightcraftApp) -> bool {
     matches!((app.image_rect, app.canvas_rect), (Some(img), Some(canvas)) if larger_than(img, canvas))
 }
 
-/// The hand over a zoomed photo while a tool is in use (Lightroom Classic's Space): with Space
-/// held a drag pans, whatever tool is armed, and the tool doesn't get the press; a pan begun so
-/// (or by the Masking panel for a drag that grabs nothing, no tool armed) goes on until the
-/// button is let go, Space or not. Returns whether it has the pointer this frame. A tool's own
-/// gesture already under way keeps it.
+/// The hand while a tool is in use (Lightroom Classic's Space): with Space held a drag pans a
+/// zoomed photo and a click (no drag) toggles the zoom as a plain click does in Edit (fit ↔ the
+/// click zoom, centred on the click), whatever tool is armed, and the tool never gets the press
+/// (test notes 2026-10-27 note 8: a Space-click painted or placed instead); a pan begun so (or by
+/// the Masking panel for a drag that grabs nothing, no tool armed) goes on until the button is
+/// let go, Space or not. Returns whether it has the pointer this frame. A tool's own gesture
+/// already under way keeps it.
 fn tool_pan(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) -> bool {
     if let Some(Gesture::Pan { .. }) = app.gesture {
         if resp.dragged() {
@@ -2465,19 +2467,29 @@ fn tool_pan(app: &mut LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: 
         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
         return true;
     }
-    if app.gesture.is_some() || !larger_than(img, canvas) || !ui.input(|i| i.key_down(egui::Key::Space)) {
+    if app.gesture.is_some() || !ui.input(|i| i.key_down(egui::Key::Space)) {
         return false;
     }
-    if resp.drag_started() {
+    let zoomed = larger_than(img, canvas);
+    if zoomed && resp.drag_started() {
         app.gesture = Some(Gesture::Pan { start: app.ui.pan, at: resp.interact_pointer_pos().unwrap_or(canvas.center()) });
     }
-    if resp.dragged() {
+    if zoomed && resp.dragged() {
         pan_image(app, canvas, img, resp.drag_delta());
     }
-    if resp.hovered() || resp.dragged() {
-        ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+    // a click: zoom in at it, or back out to fit
+    if resp.clicked() {
+        click_zoom(app, resp, img, canvas);
     }
-    resp.hovered() || resp.dragged()
+    if resp.hovered() || resp.dragged() {
+        let cursor = match (zoomed, resp.dragged()) {
+            (true, true) => egui::CursorIcon::Grabbing,
+            (true, false) => egui::CursorIcon::Grab,
+            (false, _) => egui::CursorIcon::ZoomIn,
+        };
+        ui.ctx().set_cursor_icon(cursor);
+    }
+    resp.hovered() || resp.dragged() || resp.clicked()
 }
 
 fn general_cursor(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, img: Rect, canvas: Rect) {
@@ -3532,7 +3544,18 @@ const LINE_END: u8 = 12;
 /// The selected mask `m`'s gradient part under `q` when no handle is: (component, handle). A
 /// linear gradient's lines first, then a radial gradient's body or the band round it, then the
 /// first linear gradient as a whole (anywhere on the photo moves it).
-fn gradient_grab(m: &lightcraft_develop::Mask, q: Pos2, map: &CanvasMap) -> Option<(usize, u8)> {
+fn gradient_grab(m: &lightcraft_develop::Mask, only: Option<usize>, q: Pos2, map: &CanvasMap) -> Option<(usize, u8)> {
+    // the active component only (note 10: one component's controls on the photo at a time)
+    let Some(k) = only else { return gradient_grab_any(m, q, map) };
+    let c = m.components.get(k)?;
+    match c.shape {
+        MaskShape::Linear { .. } | MaskShape::Radial { .. } => gradient_part(&c.shape, q, map).map(|h| (k, h)),
+        _ => None,
+    }
+}
+
+/// [`gradient_grab`] over all of `m`'s gradients.
+fn gradient_grab_any(m: &lightcraft_develop::Mask, q: Pos2, map: &CanvasMap) -> Option<(usize, u8)> {
     let linear = |c: &&lightcraft_develop::MaskComponent| matches!(c.shape, MaskShape::Linear { .. });
     for (ci, c) in m.components.iter().enumerate().filter(|(_, c)| linear(c)) {
         if let Some(h) = gradient_part(&c.shape, q, map).filter(|h| *h != 0) {
@@ -3607,6 +3630,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     if mode == ToolOverlay::Auto && matches!(app.gesture, Some(Gesture::Brush { .. })) {
         pins.set_invisible();
     }
+    // the selected mask's component edited on the photo: only its handles and pin show (note 10)
+    let photo = app.session.active().map(|p| p.0);
+    let act = active.and_then(|id| d.masks.iter().find(|m| m.id == id)).and_then(|m| super::masking::active_component(app, m));
     for m in &d.masks {
         let sel = Some(m.id) == active;
         // (its coordinates on the photo, or an old mask's on the corrected frame)
@@ -3618,6 +3644,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         let show_outline = sel || (app.ui.mask_overlay_all && m.visible && !m.components.is_empty());
         let stroke_a: u8 = if sel { 230 } else { 170 };
         for (ci, c) in m.components.iter().enumerate() {
+            if sel && Some(ci) != act {
+                continue;
+            }
             match &c.shape {
                 MaskShape::Radial { center, rx, ry, angle, feather, .. } if show_outline => {
                     // the outer edge (where the effect ends) and, inside it, the feather ring (where
@@ -3727,9 +3756,20 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                     app.ui.mask_new = None;
                     // one press of a gradient tool makes one mask: the tool is put away, and later
                     // clicks and drags edit (or move) this mask, never make another one; the tool
-                    // pressed again draws the next (a brush keeps painting its mask)
+                    // pressed again draws the next (a brush keeps painting its mask: armed on the
+                    // component it just made)
                     if matches!(kind.as_str(), "linear" | "radial") {
                         app.ui.tool.clear();
+                    }
+                    let made = app.session.active().and_then(|id| app.session.develop_of(id)).and_then(|d| {
+                        let m = d.masks.iter().find(|m| Some(m.id) == app.session.active_mask)?;
+                        Some((m.id, m.components.len().checked_sub(1)?))
+                    });
+                    if let (Some(p), Some((mid, k))) = (photo, made) {
+                        app.ui.mask_component = Some((p, mid, k));
+                        if kind == "brush" {
+                            app.ui.brush_on = Some((p, mid, k));
+                        }
                     }
                     if shaped {
                         // drawing: the new gradient's end (or the ellipse's size) follows the pointer
@@ -3848,8 +3888,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         }
         return;
     }
-    // brush tool
-    if app.ui.tool == "brush" {
+    // brush tool (a press on a pin moves or selects it instead: the brush's own pin moves its
+    // strokes, another mask's pin selects that mask)
+    if app.ui.tool == "brush" && !brush_yields(app, ui, resp, &grips) {
         // an Auto Mask stroke cut short (no release seen): what went to the photo stays, in one step
         if matches!(app.gesture, Some(Gesture::Brush { live: Some(_), .. }))
             && !resp.drag_stopped()
@@ -3895,10 +3936,21 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 }
             }
         }
-        // Auto Mask: the stroke so far goes to the photo every moment while painting, so the
-        // edge-aware result shows live (one undo step for the whole stroke)
+        // the Brush component armed (note 10): strokes go into it
+        let target = app.ui.brush_on.filter(|(p, mid, _)| Some(*p) == photo && app.session.active_mask == Some(*mid)).map(|(_, mid, k)| (mid, k));
+        // the overlay rule (note 5): a mask with settings shows its effect while painted, never
+        // red; only one without settings (or O) shows the red stroke
+        let red = app
+            .session
+            .active()
+            .and_then(|id| app.session.develop_of(id))
+            .and_then(|d| app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid).cloned()))
+            .is_none_or(|m| overlay_shown(app, &m));
+        // Auto Mask, or a mask whose effect shows: the stroke so far goes to the photo every
+        // moment while painting, so the result shows live (one undo step for the whole stroke)
+        let live_stroke = app.ui.brush_auto_mask || !red;
         let now = ui.input(|i| i.time);
-        if app.ui.brush_auto_mask
+        if live_stroke
             && let Some(Gesture::Brush { points, pressure, live }) = &app.gesture
             && live_due(*live, points.len(), now)
         {
@@ -3907,11 +3959,10 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
             }
             let erase = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
-            let _ = app.run(
-                "mask.brushStroke",
-                json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                       "erase": erase, "autoMask": true, "pressure": pressure, "continue": !first}),
-            );
+            let mut params = json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
+                   "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": !first});
+            stroke_into(&mut params, target);
+            let _ = app.run("mask.brushStroke", params);
             if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
                 *live = Some((now, pts.len()));
             }
@@ -3920,7 +3971,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         // the stroke being painted (the render shows it once it's committed), with the committed
         // stroke's dab spacing, feather and flow (issue #517); with Auto Mask live the render shows
         // the real, edge-aware stroke instead
-        if let Some(Gesture::Brush { points, pressure, live: None }) = &app.gesture {
+        if let Some(Gesture::Brush { points, pressure, live: None }) = &app.gesture
+            && !live_stroke
+        {
             let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
             let opacity = if app.ui.mask_overlay && app.ui.mask_overlay_opacity > 0.0 { app.ui.mask_overlay_opacity / 100.0 } else { 110.0 / 255.0 };
             let params = crate::brush_live::LiveParams {
@@ -3947,11 +4000,10 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let erase = app.ui.brush_erase != alt;
             // a ⇧-click draws a straight line from where the last stroke ended, as in Lightroom
             let connect = shift && resp.clicked() && pts.len() == 1;
-            let _ = app.run(
-                "mask.brushStroke",
-                json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": live.is_some(), "connect": connect}),
-            );
+            let mut params = json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
+                   "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": live.is_some(), "connect": connect});
+            stroke_into(&mut params, target);
+            let _ = app.run("mask.brushStroke", params);
             if live.is_some() {
                 let _ = app.run("develop.endInteraction", json!({}));
             }
@@ -3972,7 +4024,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     let grab = |q: Pos2| {
         hit(q).map(|(m, c, h, _)| (m, c, h)).or_else(|| {
             let m = d.masks.iter().find(|m| Some(m.id) == active)?;
-            gradient_grab(m, q, &map.for_mask(m.on_photo)).map(|(ci, h)| (m.id, ci, h))
+            gradient_grab(m, act, q, &map.for_mask(m.on_photo)).map(|(ci, h)| (m.id, ci, h))
         })
     };
     // the pointer says what a drag will do: move, resize (the edge, a line, the feather ring) or
@@ -4004,10 +4056,14 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         }
     }
     let clicked_grip = resp.clicked().then(|| resp.interact_pointer_pos().and_then(hit)).flatten();
-    if let Some((mid, ..)) = clicked_grip
-        && Some(mid) != active
-    {
-        let _ = app.run("mask.select", json!({"id": mid}));
+    if let Some((mid, ci, ..)) = clicked_grip {
+        if Some(mid) != active {
+            let _ = app.run("mask.select", json!({"id": mid}));
+        }
+        // the component whose pin was clicked is the one edited (note 10)
+        if let Some(p) = photo {
+            app.ui.mask_component = Some((p, mid, ci));
+        }
     }
     // no tool armed and no pin or handle clicked: a click zooms, as in Edit (note 23; a drag pans below)
     if (resp.clicked() || resp.double_clicked())
@@ -4028,6 +4084,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         {
             if Some(mask) != active {
                 let _ = app.run("mask.select", json!({"id": mask}));
+            }
+            if let Some(p) = photo {
+                app.ui.mask_component = Some((p, mask, comp));
             }
             let _ = app.run("develop.beginInteraction", json!({"label": "Edit Mask"}));
             app.gesture = Some(Gesture::MaskHandle { mask, comp, handle, original_shape });
@@ -4055,6 +4114,30 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         app.gesture = None;
         let _ = app.run("develop.endInteraction", json!({}));
     }
+}
+
+/// The Brush component a stroke goes into (mask, component), when the brush is armed on one.
+fn stroke_into(params: &mut serde_json::Value, target: Option<(u32, usize)>) {
+    if let (Some((mid, k)), Some(o)) = (target, params.as_object_mut()) {
+        o.insert("id".into(), json!(mid));
+        o.insert("component".into(), json!(k));
+    }
+}
+
+/// Whether the armed brush leaves this frame's pointer to the pins: a pin (or the pan) being
+/// dragged, or, with no stroke under way, the pointer pressed on or over another mask's pin (a
+/// click selects that mask). The brush's own pin never takes a stroke away: it sits where the
+/// strokes are; the mask selected as a whole moves it.
+fn brush_yields(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, grips: &[(u32, usize, u8, Pos2)]) -> bool {
+    match app.gesture {
+        Some(Gesture::MaskHandle { .. } | Gesture::Pan { .. }) => return true,
+        Some(Gesture::Brush { .. }) => return false,
+        _ => {}
+    }
+    let at =
+        if resp.drag_started() || resp.clicked() { ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos()) } else { resp.hover_pos() };
+    let own = app.ui.brush_on.map(|(_, mid, k)| (mid, k));
+    at.is_some_and(|q| grips.iter().any(|g| g.2 == 0 && Some((g.0, g.1)) != own && g.3.distance(q) < 9.0))
 }
 
 /// How often (seconds) a stroke being painted with Auto Mask goes to the photo.

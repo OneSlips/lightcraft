@@ -2017,3 +2017,39 @@ fn auto_sync_hdr_enabled_preserves_per_photo_tuning() {
         assert!(s.auto_sync, "Auto Sync must remain enabled");
     }
 }
+
+/// Test notes 2026-10-27 note 10: a stroke can go into a chosen Brush component of a mask (the
+/// one armed on the photo), not only the last one; a component that isn't a Brush, or isn't
+/// there, is an error.
+#[test]
+fn brush_strokes_go_into_the_chosen_brush_component() {
+    use lightcraft_develop::{MaskOp, MaskShape};
+    let mut s = demo();
+    s.execute("mask.add", &json!({"kind": "brush"})).unwrap();
+    s.execute("mask.brushStroke", &json!({"points": [[0.2, 0.2]]})).unwrap();
+    s.execute("mask.addComponent", &json!({"kind": "linear", "start": [0.1, 0.5], "end": [0.9, 0.5]})).unwrap();
+    s.execute("mask.addComponent", &json!({"kind": "brush", "op": "subtract"})).unwrap();
+    let counts = |s: &Session| {
+        active_dev(s).masks[0]
+            .components
+            .iter()
+            .map(|c| match &c.shape {
+                MaskShape::Brush { strokes } => strokes.len() as i32,
+                _ => -1,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(counts(&s), vec![1, -1, 0]);
+    s.execute("mask.brushStroke", &json!({"points": [[0.3, 0.3]], "component": 0})).unwrap();
+    assert_eq!(counts(&s), vec![2, -1, 0], "into the first Brush, not the last");
+    s.execute("mask.brushStroke", &json!({"points": [[0.4, 0.4]], "component": 2, "erase": true})).unwrap();
+    assert_eq!(counts(&s), vec![2, -1, 1]);
+    assert_eq!(active_dev(&s).masks[0].components[2].op, MaskOp::Subtract, "its own operation is kept");
+    // a live stroke sent again replaces the chosen component's last stroke
+    s.execute("mask.brushStroke", &json!({"points": [[0.5, 0.5], [0.6, 0.6]], "component": 0, "continue": true})).unwrap();
+    assert_eq!(counts(&s), vec![2, -1, 1]);
+    for bad in [json!(1), json!(9), json!(-1), json!("x")] {
+        assert!(s.execute("mask.brushStroke", &json!({"points": [[0.5, 0.5]], "component": bad})).is_err(), "{bad}");
+    }
+    assert_eq!(counts(&s), vec![2, -1, 1], "a refused stroke changes nothing");
+}

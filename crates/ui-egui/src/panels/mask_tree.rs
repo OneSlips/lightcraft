@@ -140,6 +140,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         }
         let resp = if elided { resp.on_hover_text(&shown) } else { resp };
         if resp.clicked() {
+            // the mask as a whole: any tool is put away (note 9: one mode at a time)
+            super::masking::disarm(app);
+            app.ui.mask_before_arm = None;
             let _ = app.run("mask.select", json!({"id": m.id}));
         }
         if resp.double_clicked() {
@@ -175,6 +178,8 @@ fn overlay_button(app: &mut LightcraftApp, ui: &mut egui::Ui) {
 /// The selected mask's components (tree children) and its Add / Subtract / Intersect / Invert.
 fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings, m: &lightcraft_develop::Mask) {
     let t = Tokens::get(ui.ctx());
+    // the component edited on the photo (note 10), highlighted; a click on another row makes it so
+    let act = super::masking::active_component(app, m);
     for (i, c) in m.components.iter().enumerate() {
         let label = c.name.clone().unwrap_or_else(|| lightcraft_develop::recipe::shape_name(&c.shape));
         if let Some((_, _, name)) = app.ui.renaming_component.as_mut().filter(|(mid, k, _)| *mid == m.id && *k == i) {
@@ -197,6 +202,9 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), CHILD), Sense::click());
         register(ui.ctx(), format!("component:{i}"), r);
         let hovered = ui.rect_contains_pointer(r);
+        if Some(i) == act {
+            ui.painter().rect_filled(r, crate::theme::RADIUS, t.tool_active);
+        }
         if hovered {
             app.ui.mask_hover = Some(m.id);
             ui.painter().rect_filled(r, crate::theme::RADIUS, t.hover.gamma_multiply(0.5));
@@ -241,6 +249,11 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         paint(ui.painter(), more.shrink(2.0), Icon::Dots, if mv.hovered() { t.text } else { t.text_dim });
         egui::Popup::menu(&mv).show(|ui| super::masking::component_row_menu(app, ui, m.id, i, &label, m.components.len()));
         let resp = if elided { resp.on_hover_text(&text) } else { resp };
+        if resp.clicked()
+            && let Err(e) = app.run("mask.editComponent", json!({"id": m.id, "component": i}))
+        {
+            app.toast(ui.ctx(), e);
+        }
         if resp.double_clicked() {
             app.ui.renaming_component = Some((m.id, i, label.clone()));
         }
