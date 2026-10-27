@@ -30,3 +30,14 @@ fn short_times() {
     assert_eq!(super::short_time("2026-09-30T12:00:05"), "Sep 30, 2026, 12:00 PM");
     assert_eq!(super::short_time("2026-01-02"), "Jan 2, 2026");
 }
+
+// Feature: the Keywords panel keeps its scroll position when a photo is selected (CodeRabbit on #3031: the
+// no-selection list scrolled under another id)
+#[test]
+fn the_keywords_panel_scrolls_under_one_id_with_or_without_a_selection() {
+    use crate::state::RightPanel;
+    // (`show` names the no-selection list's scroll area by `scroll_salt(RightPanel::Keywords)`, as it names the
+    // panel's with a selection by `scroll_salt(app.ui.right)`)
+    assert_eq!(super::scroll_salt(RightPanel::Keywords), ("right-scroll", RightPanel::Keywords));
+    assert_ne!(super::scroll_salt(RightPanel::Keywords), super::scroll_salt(RightPanel::Edit), "each panel keeps its own");
+}

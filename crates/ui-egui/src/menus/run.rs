@@ -1021,7 +1021,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "tool.done" => {
-            // Return commits a tool panel (crop, remove, red eye, masking): back to Edit
+            // Return commits a tool panel (crop, remove, red eye, masking): back to the panel before it
             use RightPanel::*;
             if app.ui.dialog.is_none() && matches!(app.ui.right, Crop | Remove | RedEye | Masking) {
                 let _ = app.session.end_interaction();
