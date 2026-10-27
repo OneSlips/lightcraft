@@ -369,9 +369,9 @@ pub fn specs() -> Vec<CommandSpec> {
                     }
                     other => return Err(bad("library.select", format!("unknown mode `{other}`"))),
                 }
-                // a selection changed by hand is no longer "every photo of the view" (a click that changes nothing
-                // keeps it)
-                if s.selection != before {
+                // a selection changed by hand is no longer "every photo of the view" (a click that only makes another
+                // selected photo the active one keeps it)
+                if s.selection.ids != before.ids {
                     s.all_selected = None;
                 }
                 s.active_mask = None;

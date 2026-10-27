@@ -106,6 +106,20 @@ fn a_click_that_changes_nothing_keeps_select_all_and_select_by_ends_it() -> Resu
     Ok(())
 }
 
+#[test]
+fn a_click_that_only_moves_the_active_photo_keeps_select_all() -> Result<()> {
+    let mut s = session(3)?;
+    s.execute("library.selectAll", &json!({}))?;
+    let other = s.selection.ids.iter().find(|id| Some(**id) != s.selection.active).map(|id| id.0);
+    // a plain click on another photo of the selection (grid or filmstrip): it becomes active, the set stays
+    s.execute("library.select", &json!({"ids": [other], "mode": "click"}))?;
+    assert_eq!(s.selection.active.map(|a| a.0), other);
+    add(&mut s, 4)?;
+    assert_eq!(s.visible().len(), 4);
+    assert_eq!(s.selection.ids.len(), 4, "the new photo joins Select All");
+    Ok(())
+}
+
 /// Missing Photos fills in as the background checks find files gone: a photo found gone after Select All joins the
 /// selection (the checks are not another view).
 #[test]
