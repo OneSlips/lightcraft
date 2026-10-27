@@ -429,6 +429,15 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
     }
     // brush tool
     if app.ui.tool == "brush" {
+        // a live stroke cut short (no release seen): what went to the photo stays, in one step
+        if matches!(app.gesture, Some(Gesture::Brush { live: Some(_), .. }))
+            && !resp.drag_stopped()
+            && !resp.clicked()
+            && !ui.input(|i| i.pointer.any_down())
+        {
+            app.gesture = None;
+            let _ = app.run("develop.endInteraction", json!({}));
+        }
         let r = (app.ui.brush_size as f64 * long) as f32;
         if let Some(h) = resp.hover_pos() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
@@ -443,20 +452,51 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
             match &mut app.gesture {
                 // a held, unmoving pointer records nothing: coverage builds by passes, not time (#518)
                 Some(Gesture::Brush { points, .. }) if points.last() == Some(&n) => {}
-                Some(Gesture::Brush { points, pressure }) => {
+                Some(Gesture::Brush { points, pressure, .. }) => {
                     record_pressure(pressure, points.len(), force);
                     points.push(n);
                 }
                 _ => {
                     let mut pressure = Vec::new();
                     record_pressure(&mut pressure, 0, force);
-                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure });
+                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure, live: None });
                 }
             }
         }
-        // the stroke being painted (the render shows it once it's committed), with the committed
-        // stroke's dab spacing, feather and flow (issue #517)
-        if let Some(Gesture::Brush { points, pressure }) = &app.gesture {
+        // the overlay rule: a mask with settings shows its effect while painted, never red; only one
+        // without settings (or with O) shows the red stroke. Its stroke so far goes to the photo every
+        // moment while painting, so the effect shows live (one undo step for the whole stroke).
+        let red = app
+            .session
+            .active()
+            .and_then(|id| app.session.develop_of(id))
+            .and_then(|d| app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid).cloned()))
+            .is_none_or(|m| overlay_shown(app, &m));
+        let now = ui.input(|i| i.time);
+        if !red
+            && let Some(Gesture::Brush { points, pressure, live }) = &app.gesture
+            && live_due(*live, points.len(), now)
+        {
+            let (pts, pressure, first) = (points.iter().map(|q| [q.x, q.y]).collect::<Vec<_>>(), pressure.clone(), live.is_none());
+            if first {
+                let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
+            }
+            let erase = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
+            let _ = app.run(
+                "mask.brushStroke",
+                json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
+                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": !first}),
+            );
+            if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
+                *live = Some((now, pts.len()));
+            }
+            ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(LIVE_STROKE_EVERY));
+        }
+        // the stroke being painted in red (the render shows it once it's committed), with the
+        // committed stroke's dab spacing, feather and flow (issue #517)
+        if let Some(Gesture::Brush { points, pressure, live: None }) = &app.gesture
+            && red
+        {
             let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
             let opacity = if app.ui.mask_overlay && app.ui.mask_overlay_opacity > 0.0 { app.ui.mask_overlay_opacity / 100.0 } else { 110.0 / 255.0 };
             let params = crate::brush_live::LiveParams {
@@ -474,7 +514,7 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
             app.brush_live = None;
         }
         if (resp.drag_stopped() || resp.clicked())
-            && let Some(Gesture::Brush { points, pressure }) = app.gesture.take()
+            && let Some(Gesture::Brush { points, pressure, live }) = app.gesture.take()
         {
             app.brush_live = None;
             let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
@@ -486,8 +526,12 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
             let _ = app.run(
                 "mask.brushStroke",
                 json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "connect": connect}),
+                       "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "connect": connect && live.is_none(),
+                       "continue": live.is_some()}),
             );
+            if live.is_some() {
+                let _ = app.run("develop.endInteraction", json!({}));
+            }
         }
         return;
     }
@@ -546,6 +590,18 @@ pub(super) fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &eg
     if resp.drag_stopped() && matches!(app.gesture, Some(Gesture::MaskHandle { .. })) {
         app.gesture = None;
         let _ = app.run("develop.endInteraction", json!({}));
+    }
+}
+
+/// How often (seconds) a stroke whose effect shows while painting goes to the photo.
+const LIVE_STROKE_EVERY: f64 = 0.12;
+
+/// Whether the stroke of `len` points should go to the photo now: the first time once it has two
+/// points, then every [`LIVE_STROKE_EVERY`] when it grew.
+fn live_due(live: Option<(f64, usize)>, len: usize, now: f64) -> bool {
+    match live {
+        None => len >= 2,
+        Some((at, sent)) => len > sent && (now - at >= LIVE_STROKE_EVERY || now < at || now.is_nan()),
     }
 }
 

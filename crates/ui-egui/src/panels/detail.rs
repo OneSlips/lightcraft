@@ -59,6 +59,9 @@ pub enum Gesture {
         /// Pen pressure (0..1) at each point; empty when no pen pressure was reported (a mouse) or the
         /// brush's Pen Pressure switch is off.
         pressure: Vec<f32>,
+        /// A stroke whose effect shows while painting: when (app time) it last went to the photo and
+        /// how many points it had then; `None` until it first does (its undo step is open meanwhile).
+        live: Option<(f64, usize)>,
     },
     Spot {
         points: Vec<Point>,

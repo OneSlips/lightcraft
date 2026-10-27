@@ -2070,3 +2070,49 @@ fn a_new_mask_after_undoing_a_hidden_one_shows_its_overlay() {
     assert!(shown(&h), "the new mask shows");
     h.settle(SETTLE);
 }
+
+/// Painting on a mask that has settings shows its effect as it is painted (the stroke goes to the
+/// photo live, one undo step), never the red stroke; a mask without settings, or O, still shows the
+/// red stroke while painting (found in an evening of real editing).
+#[test]
+fn painting_a_mask_with_settings_shows_its_effect_not_red() {
+    let mut h = detail("panel.masking");
+    h.settle(SETTLE);
+    exec(&mut h, "tool.brush", json!({"new": true}));
+    h.app.ui.brush_auto_mask = false;
+    let strokes = |h: &Headless, mid: u32| -> Vec<usize> {
+        develop(h)
+            .masks
+            .iter()
+            .find(|m| m.id == mid)
+            .map(|m| {
+                m.components.iter().filter_map(|c| if let MaskShape::Brush { strokes } = &c.shape { Some(strokes.len()) } else { None }).collect()
+            })
+            .unwrap_or_default()
+    };
+    // no settings: the red stroke while painting
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.5}, {"kind": "drag", "x": 0.25, "y": 0.5}, {"kind": "drag", "x": 0.3, "y": 0.5}]));
+    assert!(h.app.brush_live.is_some(), "a mask without settings shows the red stroke");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.5}]));
+    let mid = h.app.session.active_mask.expect("the brush mask");
+    assert_eq!(strokes(&h, mid), vec![1]);
+    // with settings: no red; the stroke is on the photo while painted, one undo step
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.0}}));
+    assert_eq!(h.app.ui.tool, "brush", "the brush stays armed on its mask");
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.7}, {"kind": "drag", "x": 0.25, "y": 0.7}, {"kind": "drag", "x": 0.3, "y": 0.7}]));
+    assert!(h.app.brush_live.is_none(), "no red stroke on a mask with settings");
+    assert_eq!(strokes(&h, mid), vec![2], "the stroke shows its effect on the photo while painted");
+    assert!(h.app.session.interaction.is_some(), "one undo step stays open while painting");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.7}]));
+    h.step();
+    assert_eq!(strokes(&h, mid), vec![2]);
+    assert!(h.app.session.interaction.is_none());
+    exec(&mut h, "edit.undo", json!({}));
+    assert_eq!(strokes(&h, mid), vec![1], "one undo removes the whole stroke");
+    // O shows the overlay on purpose: the red stroke again
+    exec(&mut h, "view.maskOverlay", json!({"show": true}));
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.3}, {"kind": "drag", "x": 0.25, "y": 0.3}, {"kind": "drag", "x": 0.3, "y": 0.3}]));
+    assert!(h.app.brush_live.is_some(), "O: the overlay colour while painting");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.3}]));
+    h.settle(SETTLE);
+}
