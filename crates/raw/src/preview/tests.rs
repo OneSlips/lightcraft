@@ -529,3 +529,46 @@ fn cr3_preview_boxes_after_the_media_data_are_found() {
         let _ = embedded_preview(&file[..n]);
     }
 }
+
+/// Every valid `PRVW` of a CR3 is a candidate (CodeRabbit on #3055): with a small one first and
+/// one that covers the size after it, a thumbnail takes the second, not the full-size track.
+#[test]
+fn a_cr3_with_two_prvw_boxes_offers_both() {
+    let bx = |kind: &[u8; 4], body: &[u8]| -> Vec<u8> { [&((body.len() + 8) as u32).to_be_bytes()[..], kind, body].concat() };
+    let full = |kind: &[u8; 4], body: &[u8]| bx(kind, &[&[0u8; 4][..], body].concat());
+    let boxed = |j: &[u8]| {
+        let mut b = b"\0\0\0\0\0\x01\x06\x54\x04\x38\0\x01".to_vec();
+        b.extend_from_slice(&(j.len() as u32).to_be_bytes());
+        b.extend_from_slice(j);
+        b
+    };
+    let (small, covering, big) = (sized_jpeg(300, 200, 1, 50), sized_jpeg(1620, 1080, 1, 300), sized_jpeg(8192, 5464, 1, 3000));
+    let mut file = bx(b"ftyp", b"crx \0\0\0\x01crx isom");
+    file.extend(bx(b"PRVW", &boxed(&small)));
+    file.extend(bx(b"PRVW", &boxed(&covering)));
+    let mut craw = vec![0u8; 82];
+    craw.extend(bx(b"JPEG", &[0; 4]));
+    let at = 4096u64;
+    let stsd = full(b"stsd", &[&1u32.to_be_bytes()[..], &bx(b"CRAW", &craw)].concat());
+    let stsz = full(b"stsz", &[0u32.to_be_bytes(), 1u32.to_be_bytes(), (big.len() as u32).to_be_bytes()].concat());
+    let co64 = full(b"co64", &[&1u32.to_be_bytes()[..], &at.to_be_bytes()].concat());
+    let trak = bx(b"trak", &bx(b"mdia", &bx(b"minf", &bx(b"stbl", &[stsd, stsz, co64].concat()))));
+    file.extend(bx(b"moov", &trak));
+    file.resize(at as usize, 0);
+    file.extend_from_slice(&big);
+    assert_eq!(embedded_preview_covering(&file, 1024).unwrap(), covering);
+    assert_eq!(embedded_preview_covering(&file, 200).unwrap(), small);
+}
+
+/// A CR3 preview box claiming the largest sizes a file can give is skipped, never wrapped or
+/// panicked on (CodeRabbit on #3080: on a 32-bit build the plain sums could overflow).
+#[test]
+fn a_cr3_preview_box_with_hostile_sizes_is_skipped() {
+    let mut file = b"\0\0\0\x18ftypcrx \0\0\0\x01crx isom".to_vec();
+    file.extend_from_slice(&u32::MAX.to_be_bytes());
+    file.extend_from_slice(b"PRVW\0\0\0\0\0\x01\x06\x54\x04\x38\0\x01");
+    file.extend_from_slice(&u32::MAX.to_be_bytes());
+    file.extend_from_slice(&fake_jpeg(64));
+    assert!(embedded_preview(&file).is_none());
+    assert!(embedded_preview_covering(&file, 64).is_none());
+}

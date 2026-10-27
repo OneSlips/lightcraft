@@ -114,21 +114,30 @@ pub fn browse_queue(input: &ScanInput, files: Vec<String>, sort: &lightcraft_cat
 
 /// The files browsing `root` (Local) lists: the supported, non-hidden files in it, or below it
 /// with `subfolders`, never inside the library's own folder (as [`scan_with`] skips it).
-pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> Vec<String> {
-    if subfolders {
-        return expand(&[root.to_string()], input.skip.as_deref());
+///
+/// A folder that can't be listed whole (gone, no access, a network share dropping out) is an
+/// error, not an empty or partial listing: the browse bookkeeping would take the files missing
+/// from it for files gone. (With `subfolders` the walk skips the folders below it that it can't
+/// read, as the import's scan does.)
+pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io::Result<Vec<String>> {
+    // the library's folder itself, or a folder inside it: nothing to browse
+    if input.skip.as_deref().is_some_and(|lib| Path::new(root).starts_with(lib)) {
+        return Ok(Vec::new());
     }
-    let mut v: Vec<String> = std::fs::read_dir(root)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .filter(|f| f.is_file() && is_supported(f) && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')))
-                .map(|f| f.to_string_lossy().to_string())
-                .collect()
-        })
-        .unwrap_or_default();
+    if subfolders {
+        // (the root itself must be there to be walked)
+        std::fs::read_dir(root)?;
+        return Ok(expand(&[root.to_string()], input.skip.as_deref()));
+    }
+    let mut v = Vec::new();
+    for entry in std::fs::read_dir(root)? {
+        let f = entry?.path();
+        if f.is_file() && is_supported(&f) && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) {
+            v.push(f.to_string_lossy().to_string());
+        }
+    }
     v.sort();
-    v
+    Ok(v)
 }
 
 /// Order `files` the way a view sorted by `sort` will show them, as far as the file system can
@@ -136,7 +145,7 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> Vec<Stri
 /// time is its capture time, near enough to fill the first screen first), by name, or by size.
 /// New photos share one import time and have no edit time, so the import- and edit-date sorts
 /// show them by name. Ties go by name in the view's direction, as the catalog breaks them
-/// ([`lightcraft_catalog::Sort::order`]). Rating and random keep the given order. Files whose
+/// ([`lightcraft_catalog::Sort::order`]); new photos tie on rating too. Random keeps the given order. Files whose
 /// time or size can't be read go last.
 pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
     use lightcraft_catalog::SortKey;
@@ -164,11 +173,11 @@ pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
             // (nanoseconds since the epoch fit a u64 until 2554; earlier times count as the epoch)
             Some(t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)))
         }),
-        SortKey::ImportDate | SortKey::EditDate | SortKey::FileName => {
+        SortKey::ImportDate | SortKey::EditDate | SortKey::Rating | SortKey::FileName => {
             files.sort_by(|a, b| directed(cmp_name(&name(a), &name(b))));
         }
         SortKey::FileSize => by_key(files, &|f| std::fs::metadata(f).ok().map(|m| m.len())),
-        SortKey::Rating | SortKey::Random => {}
+        SortKey::Random => {}
     }
 }
 

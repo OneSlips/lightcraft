@@ -307,6 +307,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         if app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id) {
             app.renderer.drop_queued(Slot::Main);
         }
+        // the zoomed-in windows wait too (a region render decodes the raw as much as the frame)
+        app.renderer.drop_queued(Slot::Region);
+        app.renderer.drop_queued(Slot::RegionBefore);
         ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(crate::loupe_timing::SETTLE_SECS / 2.0));
     }
     if !settling && let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
@@ -445,7 +448,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     let mut windows: Vec<(WindowView, crate::region::RegionView)> = Vec::new();
-    for v in window_views {
+    // (stepping fast: no window is asked for until the photo stays, as for the frame above)
+    for v in window_views.into_iter().filter(|_| !settling) {
         if let Some(view) = request_window(app, &window_ctx, &v) {
             windows.push((v, view));
         }
@@ -594,7 +598,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     // what is on screen is settled once the window renders are drawn: the camera JPEG at full size
     // stands in for the whole-frame render until a window covers it
-    let shown = if camera_full_drawn && !window_drawn { "embedded" } else { shown };
+    let shown = if camera_full_drawn && !window_drawn {
+        "embedded"
+    } else if window_drawn && !crate::loupe_timing::is_full_size(shown) {
+        // a window rendered before the whole frame: the raw's own render is what is seen
+        "render"
+    } else {
+        shown
+    };
     app.loupe_shown = Some((id, shown));
     app.loupe_timing.observe(id, shown, now);
     // no picture of this photo yet, or only a small one while its full-size stand-in is on its way:

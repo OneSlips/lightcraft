@@ -1509,3 +1509,20 @@ fn the_look_ahead_asks_again_when_only_the_crop_changes() {
     assert_ne!(cropped, uncropped);
     assert!(ahead_keys(&app.renderer).contains(&uncropped), "the stand-ins are made again without the crop");
 }
+
+/// The loupe's look-ahead asks again when the view's order changes around the same photo (a new
+/// sort, filter or source changes its neighbours without an edit; CodeRabbit on #3055).
+#[test]
+fn the_look_ahead_follows_a_new_order_around_the_same_photo() {
+    let (mut app, _ctx) = raw_loupe(5);
+    let ahead_keys = |r: &Renderer| r.quick_tried.iter().filter(|(s, _)| matches!(s, Slot::QuickAhead(_))).map(|(_, k)| *k).collect::<Vec<u64>>();
+    app.session.sort.key = lightcraft_catalog::SortKey::FileName;
+    app.session.sort.ascending = true;
+    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true);
+    let one = quick(&mut app, 1, 64).key;
+    assert!(!ahead_keys(&app.renderer).contains(&one), "r1 is two behind: not prepared");
+    // reversed: r1 is two ahead now
+    app.session.sort.ascending = false;
+    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true);
+    assert!(ahead_keys(&app.renderer).contains(&one), "the new neighbours are prepared");
+}
