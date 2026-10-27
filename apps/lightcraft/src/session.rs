@@ -1,7 +1,7 @@
 #[cfg(any(target_os = "freebsd", target_os = "linux"))]
 use super::platform::DIALOG_PARENT;
 use super::platform::{explorer_select_command, file_dialog, windows_open_url_command};
-use super::prefs::display_profile_dir;
+use super::prefs::{config_dir, display_profile_dir};
 use super::*;
 
 /// The platform services; `cc` is the window the file dialogs belong to (its `egui_ctx` repaints
