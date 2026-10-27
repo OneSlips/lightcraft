@@ -1745,7 +1745,8 @@ impl crate::Session {
         let small = self.thumb_job(id, THUMB_SIZES[THUMB_SIZES.len() - 1])?;
         // (the thumbnail job itself starts with the cached thumbnail, after the sharper embedded preview)
         let cached = vec![(self.media.rendered.clone(), self.view_key(&p, apply_crop))];
-        let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).finish();
+        // (the photo too: a virtual copy shares the file and, unedited, the settings)
+        let h = Hasher128::new().str(&content_key(&p)).str("quick").u64(p.develop.hash64()).u64(apply_crop as u64).u64(id.0).finish();
         let key = h.0 as u64;
         let embedded = self.embedded_stand_in_of(&p).map(|(path, l)| (path, l, max_edge.clamp(1, SourceLevel::Preview.max_edge())));
         let embedded_cache = embedded
@@ -1773,7 +1774,7 @@ impl crate::Session {
             return None;
         }
         let (path, l) = self.embedded_stand_in_of(&p)?;
-        let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(max_edge as u64).finish().0 as u64;
+        let key = Hasher128::new().str(&content_key(&p)).str("embedded-full").u64(id.0).u64(max_edge as u64).finish().0 as u64;
         Some(QuickJob {
             request_id: 0,
             photo: id,
@@ -2019,6 +2020,24 @@ mod thumbnail_hash_tests {
         let q = s.quick_thumb_job(&thumb).expect("the grid's stand-in");
         assert_eq!(q.run().quick, Some(QuickSource::Embedded));
         assert!(s.embedded_full_job(PhotoId(1), 8192).is_some(), "framed and exposed as shot: a fair focus check");
+    }
+
+    /// A virtual copy shares its master's file and, unedited, its settings; its loupe stand-ins
+    /// are its own all the same (CodeRabbit on #3080).
+    #[test]
+    fn a_virtual_copy_has_its_own_stand_in_keys() {
+        let mut s = crate::Session::new();
+        s.media.preview_loader = Some(Arc::new(|_: &str, _: usize| None::<Rgba8>));
+        for id in [1, 2] {
+            let mut raw = Photo::new(PhotoId(id), Source::File { path: "a.cr3".into() }, "a.cr3", "CR3", 6000, 4000, "2026-01-01");
+            raw.kind = MediaKind::Raw;
+            raw.develop = Arc::new(raw.camera_defaults());
+            s.catalog.apply(Op::AddPhoto { photo: Box::new(raw) }).unwrap();
+        }
+        let quick = |s: &mut crate::Session, id: u64| s.quick_view_job(PhotoId(id), 48, true).unwrap().key;
+        assert_ne!(quick(&mut s, 1), quick(&mut s, 2));
+        let full = |s: &mut crate::Session, id: u64| s.embedded_full_job(PhotoId(id), 8192).unwrap().key;
+        assert_ne!(full(&mut s, 1), full(&mut s, 2));
     }
 
     #[test]
