@@ -277,7 +277,23 @@ fn marking_a_photo_prepares_it_in_the_marked_scope() {
     let next = next.expect("a build for the newly marked set");
     assert_eq!(next.total, 2);
     next.cancel.store(true, Ordering::Relaxed);
-    let _ = std::fs::remove_dir_all(root);
+    // both builds' workers stop before their library is removed under them
+    for b in [&first, &next] {
+        assert!(wait_finished(b), "a cancelled build stops");
+    }
+    drop(s);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
+/// Waits (up to 30 s) for a build's workers to finish.
+fn wait_finished(b: &crate::cmd::previews::PreviewBuild) -> bool {
+    for _ in 0..1500 {
+        if b.finished.load(Ordering::Relaxed) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    false
 }
 
 /// A background build started for one view is stopped when another view is shown (here the

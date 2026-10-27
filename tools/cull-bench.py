@@ -82,8 +82,13 @@ out["control_rtt_ms"] = stats(rtt)
 
 # --- browse -------------------------------------------------------------------------------------
 if "--skip-browse" not in args:
-    # thumbnails already in the cache aren't this browse's: count only the ones it adds
-    pre_thumbs = (inspect().get("perf") or {}).get("thumbTextures", 0)
+    # thumbnails already in the cache aren't this browse's: count only the ones it adds. thumbsMade
+    # counts every thumbnail stored (eviction doesn't lower it); thumbTextures is the fallback for
+    # builds without it
+    def thumbs_made(st):
+        p = st.get("perf") or {}
+        return p.get("thumbsMade", p.get("thumbTextures", 0))
+    pre_thumbs = thumbs_made(inspect())
     t0 = time.perf_counter()
     ex("library.browse", {"path": FOLDER})
     first = thumbs12 = thumb1 = allp = None
@@ -93,7 +98,7 @@ if "--skip-browse" not in args:
         st = inspect()
         el = time.perf_counter() - t0
         shown = ex("library.state").get("visibleCount", 0)
-        tt = max(0, (st.get("perf") or {}).get("thumbTextures", 0) - pre_thumbs)
+        tt = max(0, thumbs_made(st) - pre_thumbs)
         for k in range(1, min(12, tt) + 1):
             thumb_times.setdefault(k, el)
         if shown and first is None:

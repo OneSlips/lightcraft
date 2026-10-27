@@ -226,6 +226,9 @@ pub struct Renderer {
     pub completed: u64,
     /// Finished jobs thrown away because a newer request for their slot had replaced them.
     pub discarded: u64,
+    /// Grid thumbnails (stand-ins and renders) stored since start: unlike [`Renderer::thumb_textures`]
+    /// it never goes down when old thumbnails are evicted (for benchmarks).
+    pub thumbs_made: u64,
     /// Keep a CPU copy of every texture so the UI can be rasterized headlessly (set when the app
     /// is driven by the control channel).
     pub keep_pixels: bool,
@@ -338,6 +341,7 @@ impl Renderer {
             last_main_ms: 0.0,
             completed: 0,
             discarded: 0,
+            thumbs_made: 0,
             keep_pixels: false,
             stages: HashMap::new(),
             quick_tried: HashMap::new(),
@@ -1066,6 +1070,9 @@ impl Renderer {
                         },
                     );
                 }
+            }
+            if matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_)) {
+                self.thumbs_made += 1;
             }
             // (a preview taken from the cache says nothing about how long a render takes)
             if slot == Slot::Main && r.quick.is_none() {
