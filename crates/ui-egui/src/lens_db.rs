@@ -1,5 +1,7 @@
-//! The lens database without setup: on first run the app fetches lensfun's database by itself
-//! (`lightcraft_engine::lensfun_download`, an activity row while it runs), and whenever the database in use changes
+//! The lens database on request: the first launch offers lensfun's database once (its size, Download / Not Now,
+//! [`offer`]), Settings ▸ General can download it any time ([`download_default`]), and nothing is fetched without
+//! that click (`lightcraft_engine::lensfun_download::fetch_on_start` decides; an activity row while it runs).
+//! Whenever the database in use changes
 //! (it arrived, a newer pin replaced it) or Enable Lens Corrections is ticked on a photo without a profile, the
 //! library's raws that have none are looked up again on a worker thread (`lightcraft_engine::cmd::lens_refresh`);
 //! when its files were replaced, so are those whose profile came from the database and those that named no lens.
@@ -18,18 +20,75 @@ pub fn tick(app: &mut LightcraftApp) {
     refresh(app);
 }
 
-/// Once per run, when the start policy says so ([`lensfun_download::fetch_on_start`]: the host allows it and the
-/// pinned database is missing or damaged).
+/// Once per run, what the start policy says ([`lensfun_download::fetch_on_start`]): offer the database, fetch it
+/// (the user said yes before), or nothing. The offer waits for the window to be free (another dialog, the library
+/// chooser).
 fn start_download(app: &mut LightcraftApp) {
     if app.ui.lens_download_checked {
         return;
     }
-    app.ui.lens_download_checked = true;
-    let Some(dir) = lensfun_download::fetch_on_start(app.session.lens_auto_download) else { return };
-    let activity = app.session.activity.clone();
-    if let Err(e) = app.session.lensfun.start(&dir, lensfun_download::mirrors(), lensfun_download::FILES, &activity) {
-        log::warn!("lens database: {e}");
+    if !app.session.lens_auto_download {
+        app.ui.lens_download_checked = true;
+        return;
     }
+    if app.ui.dialog.is_some() || crate::panels::library_problem::blocks_dialog_input(app) {
+        return;
+    }
+    app.ui.lens_download_checked = true;
+    let start = lensfun_download::fetch_on_start(app.session.lens_auto_download, app.ui.settings.lens_database);
+    begin(app, start, lensfun_download::mirrors());
+}
+
+/// Act on the start policy's answer, fetching from `mirrors`. The offer counts as answered once it is shown: closing
+/// it any way but Download (Not Now, Esc) is "not now", and the next start doesn't ask again.
+pub(crate) fn begin(app: &mut LightcraftApp, start: lensfun_download::Start, mirrors: Vec<String>) {
+    match start {
+        lensfun_download::Start::Nothing => {}
+        lensfun_download::Start::Ask(dir) => {
+            app.ui.settings.lens_database = lensfun_download::Offer::Declined;
+            app.ui.dialog = Some(crate::state::Dialog::LensDatabase { dir: dir.to_string_lossy().into_owned(), mirrors });
+        }
+        lensfun_download::Start::Fetch(dir) => {
+            if let Err(e) = download(app, &dir, mirrors) {
+                log::warn!("lens database: {e}");
+            }
+        }
+    }
+}
+
+/// Download the database into `dir` from `mirrors` (the offer's Download, Settings' button): remembered as the
+/// user's yes, shown in the activity stack, and read once it is in place.
+pub(crate) fn download(app: &mut LightcraftApp, dir: &std::path::Path, mirrors: Vec<String>) -> Result<(), String> {
+    app.ui.settings.lens_database = lensfun_download::Offer::Accepted;
+    lens_refresh::start_download(&mut app.session, dir, mirrors, lensfun_download::FILES)
+}
+
+/// Settings' Download Lens Database: into the app's own folder, from the usual mirrors.
+pub fn download_default(app: &mut LightcraftApp) -> Result<(), String> {
+    let dir = lensfun_download::default_dir().ok_or("this computer has no folder for LightCraft's data")?;
+    download(app, &dir, lensfun_download::mirrors())
+}
+
+/// The offer's window: what the database does, its size, and that Settings has it later.
+pub fn offer(ui: &mut egui::Ui) {
+    let t = crate::theme::Tokens::get(ui.ctx());
+    ui.label(egui::RichText::new(crate::i18n::tr("Download lens profiles?")).strong());
+    ui.add_space(4.0);
+    ui.add(
+        egui::Label::new(crate::i18n::tr_format!(
+            "LightCraft can correct distortion and vignetting for many lenses using the open lens database (lensfun, about {size} MB).",
+            size = lensfun_download::download_megabytes()
+        ))
+        .wrap(),
+    );
+    ui.add_space(4.0);
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(crate::i18n::tr("Nothing is downloaded until you choose Download. You can download it later from Settings."))
+                .color(t.text_dim),
+        )
+        .wrap(),
+    );
 }
 
 /// After Enable Lens Corrections was ticked on photo `id`: the photos to look up again, those of `id` and the

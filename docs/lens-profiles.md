@@ -5,22 +5,30 @@ see [sony-lens-corrections.md](sony-lens-corrections.md) and [nikon-lens-correct
 XML format**. The app does not ship any lens database: lensfun's data is licensed CC BY-SA 3.0 and is downloaded at
 run time, never bundled and never committed. Adobe LCP profiles are never used.
 
-## Setup: none
+## Setup: one click
 
-1. On first run the desktop app downloads lensfun's `data/db` (56 XML files, about 5 MB) into its data folder
+1. Nothing is downloaded without the user's click. On the first launch the desktop app asks once: "Download lens
+   profiles? LightCraft can correct distortion and vignetting for many lenses using the open lens database
+   (lensfun, about N MB)", with **Download** and **Not Now** (N is the pinned files' sizes added up). Not Now (or
+   Esc) downloads nothing and the app doesn't ask again; Settings ▸ General ▸ Lens profiles has **Download Lens
+   Database** and a switch that turns the offer back on. The answer is kept with the app's settings (`ui.json`,
+   `lensDatabase`: `ask` / `accepted` / `declined`; a value it can't read asks again), and
+   `lensfun_download::fetch_on_start` is the one place that decides. After a yes, a start that finds the database
+   missing or from an older pin downloads it again (an interrupted download resumes).
+   Download fetches lensfun's `data/db` (56 XML files, about 5 MB) into the app's data folder
    (`<config dir>/lensfun`, beside the face and denoise models; see `crates/engine/src/config.rs`), with a row in
-   the activity stack (its ✕ stops it; the next start resumes). The files are pinned to one lensfun commit by name,
+   the activity stack (its ✕ stops it). The files are pinned to one lensfun commit by name,
    size and SHA-256 (`crates/engine/src/lensfun_download.rs`); a file that differs is thrown away. A later build with
    a newer pin replaces them once. The files are staged in `<config dir>/lensfun.download`, `SOURCE.txt` (the commit
    and the licence) is written there last, and the staged folder then replaces the old one as a whole: until it is
    in place the previous complete database is used, and if the swap fails it is put back. The app's folder is read
    only when it has `SOURCE.txt`, and a folder whose pinned files are missing or cut short is downloaded again.
-   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never start the
-   first-run download; `lens.downloadDatabase` fetches it on request from any of them.
+   The CLI (`render`, `merge`, `snapshot`) and the headless MCP server read this folder too, but never ask and never
+   fetch on their own; `lens.downloadDatabase` fetches it on request from any of them.
 2. By default the files come from lensfun's GitHub repository at the pinned commit. `LIGHTCRAFT_LENSFUN_URL` lists
    other places serving the same files (base URLs, tried first), e.g. a copy on LightCraft's own server.
 3. `LIGHTCRAFT_LENSFUN_DIR` points at a database of your own instead (lensfun's `data/db`, or a Linux
-   distribution's `/usr/share/lensfun/version_1/`); then the first-run download doesn't start, and that folder is read
+   distribution's `/usr/share/lensfun/version_1/`); then the app doesn't offer the download, and that folder is read
    even after `lens.downloadDatabase` fetches the app's own copy.
 
 When the database arrives (or changes), every library raw without a profile whose lens it knows is read again in the

@@ -159,8 +159,8 @@ impl Session {
         self
     }
 
-    /// Let the host fetch the lens database by itself when it is missing ([`crate::lensfun_download::fetch_on_start`]
-    /// decides when). Separate from selecting a database that is already there ([`Self::with_default_lens_database`]).
+    /// Let the host offer the lens database at its start, and fetch it there once the user said yes
+    /// ([`crate::lensfun_download::fetch_on_start`] decides). Separate from selecting a database that is already there ([`Self::with_default_lens_database`]).
     pub fn with_lens_auto_download(mut self) -> Self {
         self.lens_auto_download = true;
         self

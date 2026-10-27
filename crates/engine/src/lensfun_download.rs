@@ -1,7 +1,8 @@
-//! The lensfun lens database, downloaded by itself on first run (zero setup).
+//! The lensfun lens database, downloaded on request: the desktop app offers it once on the first launch
+//! ([`fetch_on_start`]: nothing is fetched without the user's click).
 //!
 //! lensfun's `data/db` (CC BY-SA 3.0, <https://github.com/lensfun/lensfun>) is data, never bundled with LightCraft and
-//! never committed to its repository: the desktop app fetches it at run time into its data folder
+//! never committed to its repository: the desktop app fetches it at run time, when the user chooses Download, into its data folder
 //! ([`default_dir`]), with a row in the activity stack, and [`crate::lens_profiles`] reads it from there. The files are
 //! pinned to one lensfun commit ([`COMMIT`]) by name, size and SHA-256 ([`FILES`]), so whatever mirror serves them
 //! ([`URL_ENV`] lists others, e.g. a copy on LightCraft's own server), what arrives is exactly that commit's data or
@@ -138,16 +139,64 @@ pub fn recover(dir: &Path) {
     }
 }
 
-/// The first-start policy, in one place: the folder to fetch the database into without being asked, or `None`. The
-/// host must allow it (`auto`, [`crate::Session::lens_auto_download`]); a folder of the user's own
-/// (`LIGHTCRAFT_LENSFUN_DIR`) is never replaced; and the app's folder must lack the pinned data.
-pub fn fetch_on_start(auto: bool) -> Option<PathBuf> {
-    if !auto || std::env::var_os(crate::lens_profiles::ENV).is_some_and(|v| !v.is_empty()) {
-        return None;
+/// The user's answer to the first-launch offer of the database (the desktop app keeps it in its settings).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Offer {
+    /// Not asked yet: the first start asks.
+    #[default]
+    Ask,
+    /// Download was clicked (in the offer or in Settings): a start downloads the pinned database when it is missing
+    /// or from an older pin (an interrupted or failed download is tried again).
+    Accepted,
+    /// Not Now: nothing is downloaded and the start doesn't ask again (Settings can download it, or turn the offer
+    /// back on).
+    Declined,
+}
+
+/// What a start does about the database ([`fetch_on_start`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Start {
+    Nothing,
+    /// Ask the user (once): download into this folder, or not now.
+    Ask(PathBuf),
+    /// Download into this folder (the user said yes before).
+    Fetch(PathBuf),
+}
+
+/// The first-start policy, in one place: what a start does about the database. Nothing touches the network
+/// without the user's click: the host must allow the question at all (`auto`, [`crate::Session::lens_auto_download`],
+/// the desktop app only), a folder of the user's own (`LIGHTCRAFT_LENSFUN_DIR`) is never replaced, an installed
+/// database needs nothing, and otherwise the user's answer (`offer`) decides: ask, download, or nothing.
+pub fn fetch_on_start(auto: bool, offer: Offer) -> Start {
+    let own = std::env::var_os(crate::lens_profiles::ENV).is_some_and(|v| !v.is_empty());
+    let dir = default_dir();
+    if let Some(d) = dir.as_deref().filter(|_| auto && !own) {
+        recover(d);
     }
-    let dir = default_dir()?;
-    recover(&dir);
-    (!installed(&dir)).then_some(dir)
+    let installed = dir.as_deref().is_some_and(installed);
+    decide(auto, own, dir, installed, offer)
+}
+
+/// [`fetch_on_start`] without the file system: `own` (`LIGHTCRAFT_LENSFUN_DIR` is set), the app's folder `dir` and
+/// whether it holds the pinned data.
+pub fn decide(auto: bool, own: bool, dir: Option<PathBuf>, installed: bool, offer: Offer) -> Start {
+    let Some(dir) = dir.filter(|_| auto && !own && !installed) else { return Start::Nothing };
+    match offer {
+        Offer::Ask => Start::Ask(dir),
+        Offer::Accepted => Start::Fetch(dir),
+        Offer::Declined => Start::Nothing,
+    }
+}
+
+/// The download's size in bytes: the pinned files' sizes added up (what the offer says).
+pub fn download_size() -> u64 {
+    FILES.iter().map(|f| f.1).fold(0u64, u64::saturating_add)
+}
+
+/// [`download_size`] in whole megabytes for people ("about 5 MB"), never 0.
+pub fn download_megabytes() -> u64 {
+    (download_size().saturating_add(500_000) / 1_000_000).max(1)
 }
 
 /// The mirrors to try, in order: [`URL_ENV`]'s, then lensfun's own ([`DEFAULT_MIRROR`]).
@@ -564,6 +613,26 @@ mod tests {
         let err = remove_stale(&dir.join("missing"), pins(), |p| std::fs::remove_file(p)).unwrap_err();
         assert!(err.contains("could not list"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The first start asks before anything is downloaded; Download (or Settings) means a start fetches a missing
+    /// database; Not Now means nothing, ever, on its own; an installed database, a folder of the user's own or a host
+    /// that may not ask (CLI, MCP) mean nothing whatever the answer.
+    #[test]
+    fn the_start_asks_once_and_downloads_only_after_a_yes() {
+        let dir = || Some(PathBuf::from("lensfun"));
+        assert_eq!(decide(true, false, dir(), false, Offer::Ask), Start::Ask(PathBuf::from("lensfun")), "the first start asks");
+        assert_eq!(decide(true, false, dir(), false, Offer::Accepted), Start::Fetch(PathBuf::from("lensfun")));
+        assert_eq!(decide(true, false, dir(), false, Offer::Declined), Start::Nothing, "Not Now: never asked again");
+        for offer in [Offer::Ask, Offer::Accepted, Offer::Declined] {
+            assert_eq!(decide(true, false, dir(), true, offer), Start::Nothing, "installed: no question, no download");
+            assert_eq!(decide(false, false, dir(), false, offer), Start::Nothing, "a headless host never asks or fetches");
+            assert_eq!(decide(true, true, dir(), false, offer), Start::Nothing, "the user's own folder");
+            assert_eq!(decide(true, false, None, false, offer), Start::Nothing, "no data folder");
+        }
+        // the size the offer names comes from the pins
+        assert_eq!(download_size(), FILES.iter().map(|f| f.1).sum::<u64>());
+        assert!((4..=8).contains(&download_megabytes()), "{}", download_megabytes());
     }
 
     /// The pinned list is lensfun's whole `data/db` at the commit: unique XML names, sane sizes, hex hashes.

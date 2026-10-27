@@ -1,6 +1,6 @@
 //! Lens profiles looked up again when the lens database appears or changes. A photo's lens data is
 //! stored when it is imported ([`Photo::embedded_lens`]), so photos imported before the database was there say "no
-//! profile" until something reads their file again. When the database arrives (the first-run download) or is updated,
+//! profile" until something reads their file again. When the database arrives (downloaded on the user's request) or is updated,
 //! and when "Enable Lens Corrections" is ticked on a photo without a profile, every library raw that has no profile
 //! but whose lens the database knows by name is probed again and gets what Reload from Disk would give it: the
 //! profile, and the correction switched on where its settings are still what import gave it (an edited photo keeps
@@ -144,7 +144,7 @@ fn download(s: &mut Session, _: &Value) -> Result<Value> {
 /// Fetch the database into `dir` and select it, so this session reads it once it is in place (a session that
 /// selected no database, e.g. a bare headless one, would otherwise download it and go on without it; the user's
 /// `LIGHTCRAFT_LENSFUN_DIR` still wins). Until the download is whole the folder has no marker and isn't read.
-pub(crate) fn start_download(
+pub fn start_download(
     s: &mut Session,
     dir: &std::path::Path,
     mirrors: Vec<String>,
@@ -188,7 +188,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Download the Lens Database",
             [],
             None,
-            "{} — fetch lensfun's lens database (CC BY-SA 3.0, pinned to one commit, checked file by file) into the app's data folder in the background, with an activity row, and read lens profiles from it once it is in place (unless LIGHTCRAFT_LENSFUN_DIR names another folder); the desktop app does this by itself on first run. LIGHTCRAFT_LENSFUN_URL lists other places to fetch the same files from → {started, dir}",
+            "{} — fetch lensfun's lens database (CC BY-SA 3.0, pinned to one commit, checked file by file) into the app's data folder in the background, with an activity row, and read lens profiles from it once it is in place (unless LIGHTCRAFT_LENSFUN_DIR names another folder); the desktop app offers it on its first launch and in Settings. LIGHTCRAFT_LENSFUN_URL lists other places to fetch the same files from → {started, dir}",
             always,
             download
         ),

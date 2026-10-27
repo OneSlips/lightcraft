@@ -3,7 +3,7 @@
 //! When a raw carries no lens correction of its own (DNG opcodes, or a camera correction a raw reader converts,
 //! [`crate::files::embedded_lens`]), the lens named in its EXIF is looked up in a lensfun-format database. The
 //! database is lensfun's `data/db` (CC BY-SA 3.0): never bundled with the app, it is downloaded at run time into the
-//! app's data folder ([`crate::lensfun_download`], which the desktop app starts by itself on first run), or it is the
+//! app's data folder ([`crate::lensfun_download`], which the desktop app offers on its first launch and Settings can start), or it is the
 //! directory in `LIGHTCRAFT_LENSFUN_DIR` (which wins). The profile is converted to the same
 //! [`lightcraft_develop::EmbeddedLens`] form (marked [`LensSource::Database`]), so "Enable Profile Corrections", its
 //! amount sliders, the GPU path and DNG export treat both alike. Without a database nothing changes.

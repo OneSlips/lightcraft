@@ -287,8 +287,8 @@ pub struct Session {
     pub face_downloads: face_download::Downloads,
     /// The lens database download ([`lensfun_download`]).
     pub lensfun: lensfun_download::Download,
-    /// The host may fetch the lens database by itself when it is missing ([`Session::with_lens_auto_download`];
-    /// when: [`lensfun_download::fetch_on_start`]).
+    /// The host may offer the lens database at its start, and fetch it after the user's yes
+    /// ([`Session::with_lens_auto_download`]; when: [`lensfun_download::fetch_on_start`]).
     pub lens_auto_download: bool,
     /// Reverse geocoding: the parsed place names and their download (`metadata.*PlaceNames`).
     pub place_names: cmd::geocode::PlaceNames,

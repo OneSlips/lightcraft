@@ -255,7 +255,7 @@ pub(crate) fn open_session(in_memory: bool, launch: &Launch, seed_demo: bool) ->
         Launch::Ask => (Session::new().with_fs().with_default_denoise_models().with_system_clock(), None),
         Launch::Open { dir, .. } => open_library_session(in_memory, dir.clone(), seed_demo),
     };
-    // lens profiles from the app's own lensfun copy, fetched by itself on first run (not for a throwaway session)
+    // lens profiles from the app's own lensfun copy, offered on the first launch (not for a throwaway session)
     if !in_memory {
         s = s.with_default_lens_database().with_lens_auto_download();
     }
