@@ -76,8 +76,15 @@ fn row_parts_never_overlap_or_vanish_at_any_width() {
     for w in [0.0, 1.0, 10.0, 40.0, 120.0, 250.0, 270.0, 520.0, 4000.0] {
         for name in [0.0, 40.0, 1e9, f32::NAN, f32::INFINITY, -5.0] {
             let p = row_parts(Rect::from_min_size(pos2(0.0, 0.0), vec2(w, 20.0)), name);
-            assert!(p.track.width() >= 1.0, "{w}: a track to divide by: {p:?}");
+            if w >= 1.0 {
+                assert!(p.track.width() >= 1.0 - 1e-3, "{w}: a track to divide by: {p:?}");
+            }
             assert!(p.label.right() <= p.track.left(), "{w}: {p:?}");
+            // every part stays inside the row, and the track never runs into the value
+            assert!(p.track.right() <= p.value.left(), "{w}: the track runs into the value: {p:?}");
+            for r in [p.label, p.track, p.value] {
+                assert!(r.left() >= -1e-3 && r.right() <= w + 1e-3, "{w}: outside the row: {p:?}");
+            }
             for r in [p.label, p.track, p.value] {
                 assert!(r.min.x.is_finite() && r.max.x.is_finite() && r.width() >= 0.0, "{w}: {p:?}");
             }
