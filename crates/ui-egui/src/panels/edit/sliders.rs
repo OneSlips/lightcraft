@@ -23,8 +23,35 @@ pub fn apply_slider_out(
 pub(crate) fn control(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool) {
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
-    let out = slider(ui, spec, v, enabled, None);
+    let out = slider(ui, spec, v, enabled, short_name(id));
     apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
+}
+
+/// The short name a slider shows under its group's caption (Grain ▸ Amount, Red Primary ▸ Hue,
+/// as Lightroom Classic labels them), so a section's name column stays narrow and its tracks
+/// long. The control keeps its full name everywhere else (commands, the console, menus).
+pub(crate) fn short_name(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "vignette.amount" | "grain.amount" | "detail.sharpenAmount" | "optics.defringePurple" | "optics.defringeGreen" => "Amount",
+        "detail.nrLuminance" => "Luminance",
+        "detail.nrColor" => "Color",
+        "optics.profileDistortion" => "Distortion",
+        "optics.profileVignetting" => "Vignetting",
+        "optics.defringePurpleHueLo" | "optics.defringeGreenHueLo" => "Hue Low",
+        "optics.defringePurpleHueHi" | "optics.defringeGreenHueHi" => "Hue High",
+        "optics.caRed" => "Red/Cyan",
+        "optics.caBlue" => "Blue/Yellow",
+        "calibration.shadowsTint" => "Tint",
+        "calibration.redHue" | "calibration.greenHue" | "calibration.blueHue" => "Hue",
+        "calibration.redSat" | "calibration.greenSat" | "calibration.blueSat" => "Saturation",
+        "hdr.sdrBrightness" => "Brightness",
+        "hdr.sdrContrast" => "Contrast",
+        "hdr.sdrHighlights" => "Highlights",
+        "hdr.sdrShadows" => "Shadows",
+        "hdr.sdrWhites" => "Whites",
+        "hdr.sdrClarity" => "Clarity",
+        _ => return None,
+    })
 }
 
 /// Relative temperature scale for rendered (non-raw) files: −100..100 ↔ Kelvin via mired shift.
@@ -169,8 +196,16 @@ fn profile_menu_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSett
 
 pub fn sub_title(ui: &mut egui::Ui, title: &str) {
     let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
-    ui.painter().text(pos2(r.left() + 24.0, r.center().y + 4.0), Align2::LEFT_CENTER, crate::i18n::tr(title), t.semibold(13.0), t.text_label);
+    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
+    let left = r.left() + crate::widgets::PAD_L;
+    let right = r.right() - crate::widgets::PAD_R;
+    let g = crate::widgets::one_line(ui.painter(), crate::i18n::tr(title), t.semibold(11.0), t.text_dim, (right - left).max(1.0));
+    let y = r.center().y + 2.0;
+    let text_right = left + g.size().x;
+    ui.painter().galley(pos2(left, y - g.size().y / 2.0), g, t.text_dim);
+    if right > text_right + 12.0 {
+        ui.painter().hline((text_right + 6.0)..=right, y.round() + 0.5, egui::Stroke::new(1.0, t.divider.gamma_multiply(0.75)));
+    }
 }
 
 pub(super) fn section(
@@ -218,7 +253,7 @@ pub(super) fn hdr_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSet
     if !d.hdr.enabled {
         return;
     }
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(4, 4)).show(ui, |ui| {
         let mut v = app.ui.hdr_visualize;
         let r = ui.checkbox(&mut v, "Visualize HDR");
         register(ui, "check:hdrVisualize", r.rect);
@@ -233,7 +268,7 @@ pub(super) fn hdr_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSet
 /// photo from its own value.
 pub(super) fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
     let t = Tokens::get(ui.ctx());
-    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
+    egui::Frame::NONE.inner_margin(crate::widgets::row_margin(0, 4)).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr_format!("Quick Develop · {n} photos", n = n)).color(t.text_label).size(12.5));
         ui.add_space(4.0);
         let rows: [(&str, &str, f64, f64); 9] = [
