@@ -112,7 +112,15 @@ impl crate::Session {
             job.source = self.media.source_ref(&p, job.level);
         }
         job.settings = Arc::new(settings.clone());
-        job.key = settings.hash64() ^ ((max_w as u64) << 40) ^ ((max_h as u64) << 20) ^ (apply_crop as u64) ^ (job.level as u64) << 60;
+        // (the imported camera profile's file is in the key, as in `render_job`'s: a profile file replaced under the
+        // same id is a new picture)
+        let profile_salt = self.media.camera_profile_salt(&settings.profile.id);
+        job.key = settings.hash64()
+            ^ ((max_w as u64) << 40)
+            ^ ((max_h as u64) << 20)
+            ^ (apply_crop as u64)
+            ^ (job.level as u64) << 60
+            ^ profile_salt.rotate_left(29);
         Some(job)
     }
 

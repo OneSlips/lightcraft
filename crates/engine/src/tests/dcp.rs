@@ -188,6 +188,11 @@ fn hover_previews_and_browser_thumbnails_decode_with_the_hovered_camera_profile(
     assert!(close(hover, selected), "{hover:?} vs {selected:?}");
     let back = mean(s.preview_job(id, 64, 64, true, &own).unwrap());
     assert!(close(back, builtin), "{back:?} vs {builtin:?}");
+    // the profile's file replaced under the same id: the hover's key changes with it, so the old picture isn't
+    // taken for current (CodeRabbit on #1063)
+    let before = s.preview_job(id, 64, 64, true, &hovered).unwrap().key;
+    s.media.camera_profiles.get_mut(&dcp_id).unwrap().fingerprint ^= 0x10;
+    assert_ne!(s.preview_job(id, 64, 64, true, &hovered).unwrap().key, before);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
