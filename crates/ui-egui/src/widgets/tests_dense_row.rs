@@ -239,3 +239,40 @@ fn corners_are_at_most_half_the_earlier_radius() {
         assert!(v.window_corner_radius.nw <= RADIUS_PANEL && v.menu_corner_radius.nw <= RADIUS_PANEL, "{kind:?}");
     }
 }
+
+/// Grey ramps inside the tracks, in every theme.
+#[test]
+fn shaded_tracks_run_the_way_their_spec_says() {
+    use super::shade_color;
+    use crate::theme::{ThemeKind, Tokens};
+    use lightcraft_develop::Shade;
+    let lum = |c: egui::Color32| u32::from(c.r()) + u32::from(c.g()) + u32::from(c.b());
+    for kind in ThemeKind::ALL {
+        let t = Tokens::for_kind(kind);
+        let at = |s: Shade, x: f32| lum(shade_color(s, &t, x).unwrap());
+        // "lighter" follows the theme: in the light themes the lighter end is still the lighter grey
+        assert!(at(Shade::Ramp, 1.0) > at(Shade::Ramp, 0.0) + 20, "{kind:?}: a ramp is lighter at the right");
+        assert!(at(Shade::ReverseRamp, 0.0) > at(Shade::ReverseRamp, 1.0) + 20, "{kind:?}: a reversed ramp is lighter at the left");
+        let c = at(Shade::CentreLight, 0.5);
+        assert!(c > at(Shade::CentreLight, 0.0) + 20 && c > at(Shade::CentreLight, 1.0) + 20, "{kind:?}: a centre ramp is lightest at the centre");
+        let red = shade_color(Shade::Tinted, &t, 1.0).unwrap();
+        assert!(red.r() > red.g() + 20, "{kind:?}: the tinted end is red: {red:?}");
+        assert!(shade_color(Shade::Plain, &t, 0.3).is_none(), "{kind:?}: a plain track is flat");
+        for x in [f32::NAN, f32::INFINITY, -1.0, 2.0] {
+            assert!(shade_color(Shade::Ramp, &t, x).is_some());
+        }
+    }
+    // the kind comes from the develop spec, so mask sliders and new controls follow it
+    let shade = |id: &str| lightcraft_develop::controls::find(id).unwrap().shade;
+    assert_eq!(shade("light.exposure"), Shade::Ramp);
+    assert_eq!(shade("light.contrast"), Shade::ReverseRamp);
+    assert_eq!(shade("vignette.amount"), Shade::CentreLight);
+    assert_eq!(shade("detail.sharpenAmount"), Shade::Tinted);
+    assert_eq!(shade("effects.texture"), Shade::Plain);
+    for s in crate::panels::masking::LOCAL {
+        let twin = ["light", "effects"].iter().find_map(|g| lightcraft_develop::controls::find(&format!("{g}.{}", s.id)));
+        if let Some(twin) = twin {
+            assert_eq!(s.shade, twin.shade, "mask {} follows its Edit twin {}", s.id, twin.id);
+        }
+    }
+}

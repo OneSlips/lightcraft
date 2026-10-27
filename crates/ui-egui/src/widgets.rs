@@ -3,7 +3,7 @@
 //! ([`register`]) so the control channel can find and click it by name.
 
 use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
-use lightcraft_develop::{ControlSpec, Track};
+use lightcraft_develop::{ControlSpec, Shade, Track};
 
 use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
@@ -283,9 +283,9 @@ fn track_stops(track: &Track) -> Option<Vec<Color32>> {
     })
 }
 
-/// A slider's track: a thin line, a colour gradient where colour is the meaning (Temp, Tint, Hue,
+/// A slider's track: a thin line, a grey ramp where the spec has a [`Shade`], a colour gradient where colour is the meaning (Temp, Tint, Hue,
 /// Saturation…), with a small tick at the middle of a centred one. Dimmed when disabled.
-fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, enabled: bool) {
+fn paint_track(ui: &Ui, rect: Rect, track: &Track, shade: Shade, t: &Tokens, enabled: bool) {
     let p = ui.painter();
     let y = rect.center().y;
     let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
@@ -317,14 +317,35 @@ fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, enabled: bool) {
             let local = a * n as f32 - seg as f32;
             lerp(stops[seg.min(n)], stops[(seg + 1).min(n)], local)
         });
+    } else if shade != Shade::Plain {
+        paint_ramp(&|a: f32| shade_color(shade, t, a).unwrap_or(t.track));
     } else {
         let h = TRACK_H / 2.0;
         p.rect_filled(Rect::from_min_max(pos2(rect.left(), y - h), pos2(rect.right(), y + h)), 1.0, dim(t.track));
     }
     if matches!(track, Track::Centered) {
-        // where the slider has no effect
-        p.rect_filled(Rect::from_center_size(pos2(rect.center().x, y), vec2(1.0, 6.0)), 0.0, dim(t.track));
+        // where the slider has no effect: lighter than a shaded track around it, so it shows on it
+        let tick = if shade == Shade::Plain { t.track } else { t.text_label };
+        p.rect_filled(Rect::from_center_size(pos2(rect.center().x, y), vec2(1.0, 6.0)), 0.0, dim(tick));
     }
+}
+
+/// The colour of a grey track shaded `shade` at `x` (0 = left end, 1 = right end), or `None` for
+/// a plain track. The ramp runs between the theme's track colour pulled toward its darkest and its
+/// lightest colour, so it stays subtle in every theme (as Lightroom's ~92 → 133 grey).
+pub(crate) fn shade_color(shade: Shade, t: &Tokens, x: f32) -> Option<Color32> {
+    let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.5 };
+    let lum = |c: Color32| u32::from(c.r()) + u32::from(c.g()) + u32::from(c.b());
+    let (darkest, lightest) = if lum(t.chrome) < lum(t.text) { (t.chrome, t.text) } else { (t.text, t.chrome) };
+    let dark = t.track.lerp_to_gamma(darkest, 0.4);
+    let light = t.track.lerp_to_gamma(lightest, 0.3);
+    Some(match shade {
+        Shade::Plain => return None,
+        Shade::Ramp => dark.lerp_to_gamma(light, x),
+        Shade::ReverseRamp => light.lerp_to_gamma(dark, x),
+        Shade::CentreLight => dark.lerp_to_gamma(light, 1.0 - (2.0 * x - 1.0).abs()),
+        Shade::Tinted => dark.lerp_to_gamma(light.lerp_to_gamma(Color32::from_rgb(0xc8, 0x40, 0x40), 0.45), x),
+    })
 }
 
 /// A slider's handle: a small dot on the track, a little larger while hovered or dragged, ringed
@@ -842,7 +863,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     if enabled && label_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    paint_track(ui, track_rect, &spec.track, &t, enabled);
+    paint_track(ui, track_rect, &spec.track, spec.shade, &t, enabled);
     let handle_c = if !enabled {
         t.text_disabled
     } else if hovered || scrub.is_some() {
@@ -1130,6 +1151,7 @@ mod tests {
             step,
             decimals: 2,
             track: Track::Plain,
+            shade: lightcraft_develop::Shade::Plain,
         };
         assert!((nudged(&spec("light.exposure", -5.0, 5.0, 0.01), 0.0, 1.0) - 0.05).abs() < 1e-9);
         assert_eq!(nudged(&spec("light.contrast", -100.0, 100.0, 1.0), 10.0, -5.0), 5.0);

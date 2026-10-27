@@ -2,7 +2,7 @@
 
 use egui::{Rect, Sense, Stroke, pos2, vec2};
 use lightcraft_catalog::PhotoId;
-use lightcraft_develop::{ControlSpec, LocalAdjustments, MaskShape, Section, Track};
+use lightcraft_develop::{ControlSpec, LocalAdjustments, MaskShape, Section, Shade, Track};
 use serde_json::json;
 
 use super::edit::apply_slider_out;
@@ -13,21 +13,27 @@ use crate::theme::Tokens;
 use crate::widgets::{divider, icon_button, one_line, register, slider, text_button};
 
 const fn spec(id: &'static str, label: &'static str, min: f64, max: f64, step: f64, decimals: u8, track: Track) -> ControlSpec {
-    ControlSpec { id, label, section: Section::Light, min, max, default: 0.0, step, decimals, track }
+    ControlSpec { id, label, section: Section::Light, min, max, default: 0.0, step, decimals, track, shade: Shade::Plain }
+}
+
+/// `s` with the grey ramp of its Edit-panel twin (a test keeps each in step with `light.*` /
+/// `effects.*`).
+const fn shaded(s: ControlSpec, shade: Shade) -> ControlSpec {
+    ControlSpec { shade, ..s }
 }
 
 /// Local adjustment sliders (key = `LocalAdjustments` field name).
 pub const LOCAL: &[ControlSpec] = &[
     spec("temp", "Temp", -100.0, 100.0, 1.0, 0, Track::Temp),
     spec("tint", "Tint", -100.0, 100.0, 1.0, 0, Track::Tint),
-    spec("exposure", "Exposure", -4.0, 4.0, 0.01, 2, Track::Centered),
-    spec("contrast", "Contrast", -100.0, 100.0, 1.0, 0, Track::Centered),
-    spec("highlights", "Highlights", -100.0, 100.0, 1.0, 0, Track::Centered),
-    spec("shadows", "Shadows", -100.0, 100.0, 1.0, 0, Track::Centered),
-    spec("whites", "Whites", -100.0, 100.0, 1.0, 0, Track::Centered),
-    spec("blacks", "Blacks", -100.0, 100.0, 1.0, 0, Track::Centered),
+    shaded(spec("exposure", "Exposure", -4.0, 4.0, 0.01, 2, Track::Centered), Shade::Ramp),
+    shaded(spec("contrast", "Contrast", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::ReverseRamp),
+    shaded(spec("highlights", "Highlights", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::Ramp),
+    shaded(spec("shadows", "Shadows", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::Ramp),
+    shaded(spec("whites", "Whites", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::Ramp),
+    shaded(spec("blacks", "Blacks", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::Ramp),
     spec("texture", "Texture", -100.0, 100.0, 1.0, 0, Track::Centered),
-    spec("clarity", "Clarity", -100.0, 100.0, 1.0, 0, Track::Centered),
+    shaded(spec("clarity", "Clarity", -100.0, 100.0, 1.0, 0, Track::Centered), Shade::ReverseRamp),
     spec("dehaze", "Dehaze", -100.0, 100.0, 1.0, 0, Track::Centered),
     spec("hue", "Hue", -100.0, 100.0, 1.0, 0, Track::Rainbow),
     spec("saturation", "Saturation", -100.0, 100.0, 1.0, 0, Track::Gradient { from: "#7a7a7a", to: "#e04a3a" }),
@@ -395,6 +401,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         step: 1.0,
         decimals: 0,
         track: Track::Plain,
+        shade: Shade::Plain,
     };
     let out = slider(ui, &refine, m.refine, true, None);
     apply_slider_out(app, &refine, out, |app, v| app.run("mask.refine", json!({"value": v})));
@@ -411,6 +418,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         step: 1.0,
         decimals: 0,
         track: Track::Plain,
+        shade: lightcraft_develop::Shade::Plain,
     };
     let out = slider(ui, &amt, m.adjust.amount, true, None);
     apply_slider_out(app, &amt, out, |app, v| app.run("mask.adjust", json!({"values": {"amount": v}})));
@@ -531,6 +539,7 @@ fn overlay_options(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         step: 1.0,
         decimals: 0,
         track: Track::Plain,
+        shade: lightcraft_develop::Shade::Plain,
     };
     let out = slider(ui, &spec, app.ui.mask_overlay_opacity as f64, colored && app.ui.mask_overlay, None);
     if let Some(v) = out.value {
@@ -617,6 +626,7 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 step: 1.0,
                 decimals: 0,
                 track: Track::Plain,
+                shade: lightcraft_develop::Shade::Plain,
             };
             let cur = ((lo_feather + hi_feather) / 2.0 / 0.5 * 100.0).clamp(0.0, 100.0);
             let out = slider(ui, &smooth, cur, true, None);
@@ -652,6 +662,7 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 step: 1.0,
                 decimals: 0,
                 track: Track::Centered,
+                shade: lightcraft_develop::Shade::Plain,
             };
             let out = slider(ui, &spec, *edge, true, None);
             let base = shape.clone();
@@ -689,6 +700,7 @@ fn range_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, comp: usize, shape
                 step: 1.0,
                 decimals: 0,
                 track: Track::Plain,
+                shade: lightcraft_develop::Shade::Plain,
             };
             let out = slider(ui, &spec, *refine, true, None);
             let samples = samples.clone();
@@ -943,7 +955,18 @@ fn brush_settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ("ui.brushFeather", "Feather", 0.0, 100.0, app.ui.brush_feather as f64),
         ("ui.brushFlow", "Flow", 1.0, 100.0, app.ui.brush_flow as f64),
     ] {
-        let s = ControlSpec { id, label, section: Section::Light, min, max, default: min, step: 1.0, decimals: 0, track: Track::Plain };
+        let s = ControlSpec {
+            id,
+            label,
+            section: Section::Light,
+            min,
+            max,
+            default: min,
+            step: 1.0,
+            decimals: 0,
+            track: Track::Plain,
+            shade: lightcraft_develop::Shade::Plain,
+        };
         let out = slider(ui, &s, get, true, None);
         if let Some(v) = out.value {
             match id {
