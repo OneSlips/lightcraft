@@ -1471,3 +1471,18 @@ fn a_thumbnail_replacing_its_stand_in_is_not_counted_again() {
     assert!(app.renderer.textures.contains_key(&Slot::Thumb(id)), "the render replaced the stand-in");
     assert_eq!(app.renderer.thumbs_made, 1, "still one photo");
 }
+
+/// The loupe's look-ahead asks again when only the crop changes (its stand-ins' keys include the
+/// crop), instead of keeping stand-ins the loupe can no longer use (CodeRabbit on #3077).
+#[test]
+fn the_look_ahead_asks_again_when_only_the_crop_changes() {
+    let (mut app, _ctx) = raw_loupe(3);
+    let ahead_keys = |r: &Renderer| r.quick_tried.iter().filter(|(s, _)| matches!(s, Slot::QuickAhead(_))).map(|(_, k)| *k).collect::<Vec<u64>>();
+    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, true);
+    let cropped = app.session.quick_view_job(PhotoId(2), 64, true).unwrap().key;
+    assert!(ahead_keys(&app.renderer).contains(&cropped));
+    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, false);
+    let uncropped = app.session.quick_view_job(PhotoId(2), 64, false).unwrap().key;
+    assert_ne!(cropped, uncropped);
+    assert!(ahead_keys(&app.renderer).contains(&uncropped), "the stand-ins are made again without the crop");
+}

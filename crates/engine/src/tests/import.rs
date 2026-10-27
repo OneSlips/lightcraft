@@ -203,6 +203,53 @@ fn browsing_queues_unknown_files_in_the_order_the_view_shows_them() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Browsing a folder with its subfolders lists nothing inside the library's own folder (the
+/// import that follows would read it as photos), as the import's scan skips it.
+#[test]
+fn browsing_with_subfolders_skips_the_librarys_own_folder() {
+    let dir = temp_dir("browse-skip-lib");
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+    let mut s = Session::new().with_fs();
+    s.open_library(dir.join("lib"), false).unwrap();
+    write_png(&dir.join("a.png"), 1);
+    write_png(&dir.join("lib").join("inside.png"), 2);
+    let (input, _) = crate::import::ScanInput::new(&mut s, &[]);
+    let root = dir.to_string_lossy().to_string();
+    let names = |v: Vec<String>| v.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect::<Vec<_>>();
+    assert_eq!(names(crate::import::browse_files(&input, &root, true)), ["a.png"]);
+    assert_eq!(names(crate::import::browse_files(&input, &root, false)), ["a.png"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Browsing's queue breaks ties the way the catalog does (by name, in the view's direction), and
+/// the import- and edit-date sorts, where new photos tie, go by name rather than file time.
+#[test]
+fn browsing_breaks_ties_by_name_in_the_views_direction() {
+    use lightcraft_catalog::{Sort, SortKey};
+    let dir = temp_dir("browse-ties");
+    // names and file times run in opposite directions; x and y share a time and a size
+    for (name, secs) in [("x.png", 100u64), ("y.png", 100), ("z.png", 50)] {
+        write_png(&dir.join(name), 7);
+        let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000 + secs);
+        std::fs::File::options().write(true).open(dir.join(name)).unwrap().set_modified(t).unwrap();
+    }
+    let files: Vec<String> = ["y.png", "z.png", "x.png"].iter().map(|n| dir.join(n).to_string_lossy().to_string()).collect();
+    let order = |key: SortKey, ascending: bool| {
+        let mut f = files.clone();
+        crate::import::browse_order(&mut f, &Sort { key, ascending, ..Sort::default() });
+        f.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect::<Vec<_>>()
+    };
+    assert_eq!(order(SortKey::CaptureDate, false), ["y.png", "x.png", "z.png"]);
+    assert_eq!(order(SortKey::CaptureDate, true), ["z.png", "x.png", "y.png"]);
+    for key in [SortKey::ImportDate, SortKey::EditDate] {
+        assert_eq!(order(key, true), ["x.png", "y.png", "z.png"], "{key:?}");
+        assert_eq!(order(key, false), ["z.png", "y.png", "x.png"], "{key:?}");
+    }
+    assert_eq!(order(SortKey::FileSize, true), ["x.png", "y.png", "z.png"]);
+    assert_eq!(order(SortKey::FileSize, false), ["z.png", "y.png", "x.png"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Photos a.png, b.png, c.png imported from `old`, then: a renamed into `moved`; b renamed, with
 /// an impostor (same name and size, other bytes) under its old name; c gone, with two impostors.
 fn renamed_and_ambiguous_scene(tag: &str) -> (std::path::PathBuf, Session) {

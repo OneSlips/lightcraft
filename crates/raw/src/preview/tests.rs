@@ -507,3 +507,25 @@ fn scanned_containers_give_the_largest_colour_jpeg() {
     f.extend_from_slice(&mosaic);
     assert_eq!(embedded_preview(&f), None);
 }
+
+/// A CR3's `PRVW` / `THMB` boxes are searched outside the media data only, but before and after
+/// it: a `moov` after the `mdat` (its Canon `uuid` holding the `THMB`) still gives its preview, and
+/// bytes inside the media data that look like a preview box are never taken for one.
+#[test]
+fn cr3_preview_boxes_after_the_media_data_are_found() {
+    let bx = |kind: &[u8; 4], body: &[u8]| -> Vec<u8> { [&((body.len() + 8) as u32).to_be_bytes()[..], kind, body].concat() };
+    let boxed = |j: &[u8]| {
+        let mut b = b"\0\0\0\0\0\x01\x06\x54\x04\x38\0\x01".to_vec();
+        b.extend_from_slice(&(j.len() as u32).to_be_bytes());
+        b.extend_from_slice(j);
+        b
+    };
+    let (thmb, in_media) = (sized_jpeg(160, 107, 1, 50), sized_jpeg(1620, 1080, 1, 300));
+    let mut file = bx(b"ftyp", b"crx \0\0\0\x01crx isom");
+    file.extend(bx(b"mdat", &bx(b"PRVW", &boxed(&in_media))));
+    file.extend(bx(b"moov", &bx(b"uuid", &[&[0x85u8; 16][..], &bx(b"THMB", &boxed(&thmb))].concat())));
+    assert_eq!(embedded_preview(&file).unwrap(), thmb);
+    for n in (0..file.len()).step_by(5) {
+        let _ = embedded_preview(&file[..n]);
+    }
+}
