@@ -59,7 +59,7 @@ fn the_edit_panel_comes_back_after_masking_and_crop_where_it_was() {
     }
     let (slider, at) = first_slider(&h);
     let photo = widget(&h, "canvas:image").expect("the photo");
-    for tool in ["panel.masking", "panel.crop", "panel.remove"] {
+    for tool in ["panel.masking", "panel.crop", "panel.remove", "panel.redeye"] {
         exec(&mut h, tool);
         assert!(h.app.ui.right.is_tool(), "{tool}: {:?}", h.app.ui.right);
         assert_eq!(widget(&h, "panel:right_panel"), Some(panel), "{tool}: the panel keeps its place and width");
