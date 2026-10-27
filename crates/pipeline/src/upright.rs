@@ -538,32 +538,34 @@ fn reliable(segs: &[Segment], v: [f64; 3], vertical: bool) -> Result<(), Reject>
     // long posts among them still decide)
     let mut family: f64 = segs.iter().map(Segment::len).sum();
     // (judged on the long lines: a gown's many short folds don't outvote the posts around it)
-    let long_family: f64 = segs.iter().filter(|s| s.len() >= LONG_LINE).map(Segment::len).sum();
+    let mut long_family: f64 = segs.iter().filter(|s| s.len() >= LONG_LINE).map(Segment::len).sum();
     let long_total: f64 = inl.iter().filter(|s| s.len() >= LONG_LINE).map(|s| s.len()).sum();
     let share = if tilt > HUGE_TILT { 0.6 } else { 0.5 };
-    if tilt > BIG_TILT && (long.len() < 3 || long_total < share * long_family) {
-        return Err(Reject::Disagree);
-    }
-    if total >= 0.6 * family {
-        return Ok(());
-    }
+    let big = tilt > BIG_TILT;
     // Lines that meet inside or near the photo are scene features (floorboards running to the horizon, the
     // apex of a drape, rays), never a camera tilt: they neither vote against the posts nor make a rival
-    // (the posts of a gazebo were outvoted by its deck and its curtains).
-    let mut rest: Vec<Segment> = segs.iter().copied().filter(|s| vp_error(s, v) >= thr).collect();
+    // (the posts of a gazebo were outvoted by its deck and its curtains), and the big-tilt test below
+    // doesn't count them either.
     let mut rival = 0.0;
-    for _ in 0..4 {
-        let Some((r, support)) = vanishing_point(&rest) else { break };
-        if !inside(r) {
-            rival = support;
-            break;
+    if big || total < 0.6 * family {
+        let mut rest: Vec<Segment> = segs.iter().copied().filter(|s| vp_error(s, v) >= thr).collect();
+        for _ in 0..4 {
+            let Some((r, support)) = vanishing_point(&rest) else { break };
+            if !inside(r) {
+                rival = support;
+                break;
+            }
+            let (scene, other): (Vec<Segment>, Vec<Segment>) = rest.iter().partition(|s| vp_error(s, r) < thr);
+            if scene.is_empty() {
+                break;
+            }
+            family -= scene.iter().map(Segment::len).sum::<f64>();
+            long_family -= scene.iter().filter(|s| s.len() >= LONG_LINE).map(Segment::len).sum::<f64>();
+            rest = other;
         }
-        let (scene, other): (Vec<Segment>, Vec<Segment>) = rest.iter().partition(|s| vp_error(s, r) < thr);
-        if scene.is_empty() {
-            break;
-        }
-        family -= scene.iter().map(Segment::len).sum::<f64>();
-        rest = other;
+    }
+    if big && (long.len() < 3 || long_total < share * long_family) {
+        return Err(Reject::Disagree);
     }
     if total >= 0.6 * family {
         return Ok(());
@@ -918,5 +920,25 @@ mod tests {
         let ok = |v: [f64; 3]| candidates.contains(&v);
         let (v, _) = vanishing_point_where(&segs, ok).expect("a point");
         assert!(ok(v), "{v:?} is not one of the candidates");
+    }
+
+    /// Long lines meeting inside the photo (floorboards, a drape) are scene features: they don't make a big
+    /// tilt's posts look outvoted (CodeRabbit on #2966).
+    #[test]
+    fn scene_lines_inside_the_photo_do_not_outvote_a_big_tilts_posts() {
+        // three posts leaning to a point far above the photo: a camera tilt of about 15 degrees
+        let v = norm([0.0, 5.6, 1.0]);
+        assert!(tilt_degrees(v) > BIG_TILT && tilt_degrees(v) < HUGE_TILT, "{}", tilt_degrees(v));
+        let toward = |x: f64, (px, py): (f64, f64), y1: f64| {
+            let t = (y1 + 0.8) / (py + 0.8);
+            Segment { a: Point::new(x, -0.8), b: Point::new(x + (px - x) * t, y1) }
+        };
+        let mut segs: Vec<Segment> = [-0.8, 0.0, 0.8].iter().map(|&x| toward(x, (0.0, 5.6), 0.8)).collect();
+        // six longer floor lines running to a point inside the photo, more length than the posts
+        segs.extend([-0.5, -0.35, -0.2, 0.2, 0.35, 0.5].iter().map(|&x| toward(x, (0.0, 0.9), 0.6)));
+        let posts: f64 = segs[..3].iter().map(Segment::len).sum();
+        let floor: f64 = segs[3..].iter().map(Segment::len).sum();
+        assert!(posts < 0.5 * (posts + floor), "the floor lines must outweigh the posts: {posts} vs {floor}");
+        assert_eq!(reliable(&segs, v, true), Ok(()));
     }
 }
