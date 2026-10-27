@@ -983,11 +983,14 @@ impl Renderer {
             }
             // made ahead for the photo the loupe is now waiting for: it is the loupe's stand-in
             // (the loupe's own request for it, if one was started, is dropped when it arrives)
-            // (also when the loupe's own request failed: the stand-in made ahead still shows)
+            // (also when the loupe's own request failed and it still wants that photo: the stand-in
+            // made ahead still shows, but never over another photo's request)
             if matches!(slot, Slot::QuickAhead(_))
                 && r.rendered.is_ok()
                 && (self.pending.get(&Slot::Preview).is_some_and(|p| p.0 == r.key)
-                    || self.failed.get(&Slot::Preview).is_some_and(|f| f.0 == r.key && f.3 == r.photo))
+                    || (!self.pending.contains_key(&Slot::Preview)
+                        && self.quick_tried.get(&Slot::Preview) == Some(&r.key)
+                        && self.failed.get(&Slot::Preview).is_some_and(|f| f.0 == r.key && f.3 == r.photo)))
                 && self.ahead_covers(slot, self.quick_edge.get(&Slot::Preview).copied().unwrap_or(0))
             {
                 self.pending.remove(&Slot::Preview);
@@ -1847,6 +1850,24 @@ mod thumbnail_tests {
         app.renderer.poll(&ctx, &mut app.session);
         assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(2)));
         assert!(!app.renderer.failed.contains_key(&Slot::Preview));
+        // the user has stepped on to photo 3 when photo 2's stand-in arrives: 3's request stays
+        let (mut app, ctx) = raw_loupe(3);
+        let job = quick(&mut app, 2, 64);
+        let key = job.key;
+        app.renderer.look_ahead(vec![job], 96);
+        let job = quick(&mut app, 2, 64);
+        app.renderer.request_quick(Slot::Preview, job, 110);
+        assert!(app.renderer.drop_queued(Slot::Preview));
+        app.renderer.failed.insert(Slot::Preview, (key, "unreadable".into(), 0, PhotoId(2)));
+        let job = quick(&mut app, 3, 64);
+        let key3 = job.key;
+        // (queued behind the stand-in made ahead, so that one arrives first)
+        app.renderer.request_quick(Slot::Preview, job, 50);
+        let ahead = app.renderer.pool.run_inline(1);
+        assert_eq!(ahead, 1);
+        app.renderer.poll(&ctx, &mut app.session);
+        assert!(app.renderer.textures.get(&Slot::Preview).is_none_or(|t| t.photo != PhotoId(2)), "photo 2 took photo 3's place");
+        assert_eq!(app.renderer.pending.get(&Slot::Preview).map(|p| p.0), Some(key3), "photo 3's request is kept");
     }
 
     /// A stand-in made ahead for a smaller loupe isn't taken over when the loupe has grown: the
