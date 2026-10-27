@@ -120,7 +120,7 @@ fn bench_cull_times_a_folder_and_leaves_it_untouched() {
     let before = listing(&dir);
     let work = tmp("bench-cull-work");
     let json_out = tmp("bench-cull.json");
-    let r = Command::new(BIN)
+    let r = Command::new(binary())
         .arg("bench-cull")
         .arg(&dir)
         .args(["--n", "3", "--copy", "1", "--work"])
@@ -139,11 +139,11 @@ fn bench_cull_times_a_folder_and_leaves_it_untouched() {
     assert_eq!(v["rate"]["n"], 3);
     assert_eq!(listing(&dir), before, "nothing written next to the photos");
     // a sample of the folder, no import
-    let r = Command::new(BIN).arg("bench-cull").arg(&dir).args(["--files", "2", "--n", "0", "--work"]).arg(&work).output().unwrap();
+    let r = Command::new(binary()).arg("bench-cull").arg(&dir).args(["--files", "2", "--n", "0", "--work"]).arg(&work).output().unwrap();
     let stdout = String::from_utf8_lossy(&r.stdout);
     assert!(r.status.success() && stdout.contains("browse 2 photos (first files)") && !stdout.contains("import"), "{stdout}");
     // a bad folder is an error, not a panic
-    let r = Command::new(BIN).args(["bench-cull", "/no/such/folder"]).output().unwrap();
+    let r = Command::new(binary()).args(["bench-cull", "/no/such/folder"]).output().unwrap();
     assert!(!r.status.success() && String::from_utf8_lossy(&r.stderr).contains("not a folder"));
 }
 

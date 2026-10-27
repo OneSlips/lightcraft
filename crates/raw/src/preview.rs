@@ -449,58 +449,63 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
 fn cr3_preview_box_list(bytes: &[u8]) -> Vec<&[u8]> {
     let mut out: Vec<&[u8]> = Vec::new();
     let mut walked = 0usize;
-    // the boxes sit before the media data: only that much is searched (the media data is most of
-    // the file, and a thumbnail is asked for every photo in view)
-    let bytes = bytes.get(..cr3_media_start(bytes)).unwrap_or(bytes);
-    for tag in [b"PRVW", b"THMB"] {
-        let mut from = 0;
-        while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
-            from = i + 4;
-            let Some(start) = i.checked_sub(4) else { continue };
-            let be32 = |at: usize| bytes.get(at..at + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
-            let (Some(size), Some(len)) = (be32(start), be32(start + 20)) else { continue };
-            let j = start + 24;
-            if len < 4 || j + len > start + size.max(24) || j + len > bytes.len() {
-                continue;
-            }
-            let Some(jpeg) = bytes.get(j..j + len) else { continue };
-            // One that doesn't fit the budget left is skipped; a smaller one later may still fit.
-            if walked + jpeg.len() > CR3_MAX_WALK {
-                continue;
-            }
-            walked += jpeg.len();
-            if is_dct_jpeg(jpeg) {
-                out.push(jpeg);
-                break;
+    // the boxes sit outside the media data: only the rest of the file is searched (the media data
+    // is most of the file, and a thumbnail is asked for every photo in view)
+    let file = bytes;
+    let regions: Vec<&[u8]> = match cr3_media_data(file) {
+        Some((start, end)) => [file.get(..start), file.get(end..)].into_iter().flatten().collect(),
+        None => vec![file],
+    };
+    'tags: for tag in [b"PRVW", b"THMB"] {
+        for &bytes in &regions {
+            let mut from = 0;
+            while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
+                from = i + 4;
+                let Some(start) = i.checked_sub(4) else { continue };
+                let be32 = |at: usize| bytes.get(at..at + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
+                let (Some(size), Some(len)) = (be32(start), be32(start + 20)) else { continue };
+                let j = start + 24;
+                if len < 4 || j + len > start + size.max(24) || j + len > bytes.len() {
+                    continue;
+                }
+                let Some(jpeg) = bytes.get(j..j + len) else { continue };
+                // One that doesn't fit the budget left is skipped; a smaller one later may still fit.
+                if walked + jpeg.len() > CR3_MAX_WALK {
+                    continue;
+                }
+                walked += jpeg.len();
+                if is_dct_jpeg(jpeg) {
+                    out.push(jpeg);
+                    continue 'tags;
+                }
             }
         }
     }
     out
 }
 
-/// Where a CR3's top-level `mdat` box starts (the file's length when there is none, or the boxes
-/// stop making sense first): what comes before it holds the metadata and the small previews.
-fn cr3_media_start(bytes: &[u8]) -> usize {
+/// Where a CR3's top-level `mdat` box lies (`start..end`, `end` clamped to the file): the media
+/// data, most of the file. `None` when there is none, or the boxes stop making sense first. The
+/// metadata and the small previews are in the other top-level boxes, before or after it.
+fn cr3_media_data(bytes: &[u8]) -> Option<(usize, usize)> {
     let be32 = |at: usize| bytes.get(at..at.checked_add(4)?).map(|s| u64::from(u32::from_be_bytes([s[0], s[1], s[2], s[3]])));
     let be64 = |at: usize| bytes.get(at..at.checked_add(8)?).map(|s| u64::from_be_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]));
     let mut at = 0usize;
     for _ in 0..64 {
-        let Some(size) = be32(at) else { break };
-        if bytes.get(at + 4..at + 8) == Some(b"mdat".as_slice()) {
-            return at;
-        }
+        let size = be32(at)?;
         let len = match size {
-            0 => break,
-            1 => match be64(at + 8) {
-                Some(l) => l,
-                None => break,
-            },
+            // (a box running to the end of the file)
+            0 => u64::try_from(bytes.len().saturating_sub(at)).unwrap_or(u64::MAX),
+            1 => be64(at.checked_add(8)?)?,
             n => n,
         };
-        let Some(next) = usize::try_from(len).ok().filter(|l| *l >= 8).and_then(|l| at.checked_add(l)) else { break };
-        at = next;
+        let next = usize::try_from(len).ok().filter(|l| *l >= 8).and_then(|l| at.checked_add(l));
+        if bytes.get(at.checked_add(4)?..at.checked_add(8)?) == Some(b"mdat".as_slice()) {
+            return Some((at, next.unwrap_or(bytes.len()).min(bytes.len())));
+        }
+        at = next?;
     }
-    bytes.len()
+    None
 }
 
 /// Trim trailing garbage after the last EOI when a stored length over-reports.

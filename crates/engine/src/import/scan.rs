@@ -112,50 +112,62 @@ pub fn browse_queue(input: &ScanInput, files: Vec<String>, sort: &lightcraft_cat
     files
 }
 
+/// The files browsing `root` (Local) lists: the supported, non-hidden files in it, or below it
+/// with `subfolders`, never inside the library's own folder (as [`scan_with`] skips it).
+pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> Vec<String> {
+    if subfolders {
+        return expand(&[root.to_string()], input.skip.as_deref());
+    }
+    let mut v: Vec<String> = std::fs::read_dir(root)
+        .map(|rd| {
+            rd.flatten()
+                .map(|e| e.path())
+                .filter(|f| f.is_file() && is_supported(f) && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')))
+                .map(|f| f.to_string_lossy().to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v
+}
+
 /// Order `files` the way a view sorted by `sort` will show them, as far as the file system can
-/// tell before the files are read: by modification time for the date sorts (a camera's file time
-/// is its capture time, near enough to fill the first screen first), by name, or by size. Other
-/// sorts keep the given order. Files whose time or size can't be read go last.
+/// tell before the files are read: by modification time for the capture date (a camera's file
+/// time is its capture time, near enough to fill the first screen first), by name, or by size.
+/// New photos share one import time and have no edit time, so the import- and edit-date sorts
+/// show them by name. Ties go by name in the view's direction, as the catalog breaks them
+/// ([`lightcraft_catalog::Sort::order`]). Rating and random keep the given order. Files whose
+/// time or size can't be read go last.
 pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
     use lightcraft_catalog::SortKey;
+    use lightcraft_catalog::query::cmp_name;
+    use std::cmp::Ordering;
     let asc = sort.ascending;
+    let name = |f: &str| Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let directed = |o: Ordering| if asc { o } else { o.reverse() };
+    // `key` per file (`None`: unreadable, last in either direction), then the name, in the view's direction
+    let by_key = |files: &mut [String], key: &dyn Fn(&str) -> Option<u64>| {
+        let mut keyed: Vec<(Option<u64>, String, String)> = files.iter().map(|f| (key(f), name(f), f.clone())).collect();
+        keyed.sort_by(|a, b| match (a.0, b.0) {
+            (Some(x), Some(y)) => directed(x.cmp(&y).then_with(|| cmp_name(&a.1, &b.1))),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => directed(cmp_name(&a.1, &b.1)),
+        });
+        for (slot, (_, _, f)) in files.iter_mut().zip(keyed) {
+            *slot = f;
+        }
+    };
     match sort.key {
-        SortKey::CaptureDate | SortKey::ImportDate | SortKey::EditDate => {
-            let mut keyed: Vec<(Option<std::time::SystemTime>, String)> =
-                files.iter().map(|f| (std::fs::metadata(f).and_then(|m| m.modified()).ok(), f.clone())).collect();
-            keyed.sort_by(|a, b| match (a.0, b.0) {
-                (Some(x), Some(y)) => if asc { x.cmp(&y) } else { y.cmp(&x) }.then_with(|| a.1.cmp(&b.1)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => a.1.cmp(&b.1),
-            });
-            for (slot, (_, f)) in files.iter_mut().zip(keyed) {
-                *slot = f;
-            }
+        SortKey::CaptureDate => by_key(files, &|f| {
+            let t = std::fs::metadata(f).and_then(|m| m.modified()).ok()?;
+            // (nanoseconds since the epoch fit a u64 until 2554; earlier times count as the epoch)
+            Some(t.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)))
+        }),
+        SortKey::ImportDate | SortKey::EditDate | SortKey::FileName => {
+            files.sort_by(|a, b| directed(cmp_name(&name(a), &name(b))));
         }
-        SortKey::FileName => {
-            let name = |f: &String| Path::new(f).file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
-            files.sort_by(|a, b| if asc { name(a).cmp(&name(b)) } else { name(b).cmp(&name(a)) });
-        }
-        SortKey::FileSize => {
-            // unreadable files last, in either direction
-            let mut keyed: Vec<(Option<u64>, String)> = files.iter().map(|f| (std::fs::metadata(f).ok().map(|m| m.len()), f.clone())).collect();
-            keyed.sort_by(|a, b| match (a.0, b.0) {
-                (Some(x), Some(y)) => {
-                    if asc {
-                        x.cmp(&y)
-                    } else {
-                        y.cmp(&x)
-                    }
-                }
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            });
-            for (slot, (_, f)) in files.iter_mut().zip(keyed) {
-                *slot = f;
-            }
-        }
+        SortKey::FileSize => by_key(files, &|f| std::fs::metadata(f).ok().map(|m| m.len())),
         SortKey::Rating | SortKey::Random => {}
     }
 }

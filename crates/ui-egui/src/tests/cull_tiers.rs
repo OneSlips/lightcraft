@@ -118,3 +118,25 @@ fn the_loupe_shows_the_camera_preview_at_once_while_the_raw_renders() {
         assert_eq!(r["ok"], true, "{r}");
     }
 }
+
+/// The filmstrip counts only its cells on screen as seen (CodeRabbit on #3080): the cells it
+/// draws ahead on either side are not waited for, so they neither skew `thumbFirst` nor hold
+/// back the background work.
+#[test]
+fn the_filmstrip_counts_only_its_cells_on_screen() {
+    let (mut h, _decodes) = culling(40);
+    let r = h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [20]}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    let r = h.request("ui.set", json!({"view": "detail"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    frames_until(&mut h, Duration::from_millis(300), |_| false);
+    h.app.thumb_first.reset();
+    let filled = frames_until(&mut h, Duration::from_secs(3), |h| {
+        let s = h.app.thumb_first.summary();
+        s.seen > 0 && s.empty_now == 0
+    });
+    assert!(filled.is_some(), "filmstrip cells empty: {:?}", h.app.thumb_first.summary());
+    // a 1400 px wide strip of 120 px cells shows 12 of them, 13 when one is cut at each end
+    let s = h.app.thumb_first.summary();
+    assert!(s.seen <= 13, "cells off screen were counted: {s:?}");
+}

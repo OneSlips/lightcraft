@@ -113,25 +113,8 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     let root = dir_s.clone();
     let sort = app.session.sort;
     let job = move || {
-        let files: Vec<String> = if subfolders {
-            lightcraft_engine::import::expand(&[root], None)
-        } else {
-            let mut v: Vec<String> = std::fs::read_dir(&root)
-                .map(|rd| {
-                    rd.flatten()
-                        .map(|e| e.path())
-                        .filter(|f| {
-                            f.is_file()
-                                && lightcraft_engine::import::is_supported(f)
-                                && !f.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
-                        })
-                        .map(|f| f.to_string_lossy().to_string())
-                        .collect()
-                })
-                .unwrap_or_default();
-            v.sort();
-            v
-        };
+        // (never the library's own folder, which the import would otherwise read as photos)
+        let files = lightcraft_engine::import::browse_files(&input, &root, subfolders);
         // Nothing is read here: the import that follows reads the files and adds them batch by
         // batch, first screen first, so the view fills while the rest is read (PERF-CULL-1).
         let queue = lightcraft_engine::import::browse_queue(&input, files.clone(), &sort);

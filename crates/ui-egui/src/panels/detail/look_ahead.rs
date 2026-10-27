@@ -23,8 +23,8 @@ pub struct LookAhead {
     last: Option<PhotoId>,
     /// +1 forward (the default), -1 backward.
     dir: i8,
-    /// (photo, direction, catalog revision, edge) the requests were made for.
-    made_for: Option<(PhotoId, i8, u64, usize)>,
+    /// (photo, direction, catalog revision, edge, crop) the requests were made for.
+    made_for: Option<(PhotoId, i8, u64, usize, bool)>,
 }
 
 impl LookAhead {
@@ -54,7 +54,7 @@ impl LookAhead {
 /// Culling: make the loupe's stand-ins (the camera JPEG of an unedited raw, or a cached render) of
 /// the next photos in the direction of travel, so that a step shows the next one at once instead
 /// of after reading and decoding it (see [`Slot::QuickAhead`]).
-pub(super) fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
+pub(crate) fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop: bool) {
     let rev = app.session.catalog.revision;
     if app.look_ahead.last != Some(id) {
         let ids = app.session.visible_cloned();
@@ -66,7 +66,7 @@ pub(super) fn look_ahead(app: &mut LightcraftApp, id: PhotoId, edge: usize, crop
         }
         app.look_ahead.last = Some(id);
     }
-    let want = (id, app.look_ahead.dir, rev, edge);
+    let want = (id, app.look_ahead.dir, rev, edge, crop);
     if app.look_ahead.made_for == Some(want) {
         return;
     }
