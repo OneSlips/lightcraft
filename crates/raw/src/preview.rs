@@ -445,7 +445,8 @@ fn cr3_preview_boxes(bytes: &[u8]) -> Option<&[u8]> {
     cr3_preview_box_list(bytes).into_iter().max_by_key(|j| j.len())
 }
 
-/// The valid JPEGs of a CR3's `PRVW` and `THMB` boxes (the first of each).
+/// The valid JPEGs of a CR3's `PRVW` and `THMB` boxes, every one: a file may carry more than one
+/// `PRVW`, and the smallest that covers a size is picked from them all.
 fn cr3_preview_box_list(bytes: &[u8]) -> Vec<&[u8]> {
     let mut out: Vec<&[u8]> = Vec::new();
     let mut walked = 0usize;
@@ -456,27 +457,27 @@ fn cr3_preview_box_list(bytes: &[u8]) -> Vec<&[u8]> {
         Some((start, end)) => [file.get(..start), file.get(end..)].into_iter().flatten().collect(),
         None => vec![file],
     };
-    'tags: for tag in [b"PRVW", b"THMB"] {
+    for tag in [b"PRVW", b"THMB"] {
         for &bytes in &regions {
             let mut from = 0;
             while let Some(i) = bytes.get(from..).and_then(|s| s.windows(4).position(|w| w == tag)).map(|p| p + from) {
                 from = i + 4;
                 let Some(start) = i.checked_sub(4) else { continue };
-                let be32 = |at: usize| bytes.get(at..at + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
-                let (Some(size), Some(len)) = (be32(start), be32(start + 20)) else { continue };
-                let j = start + 24;
-                if len < 4 || j + len > start + size.max(24) || j + len > bytes.len() {
-                    continue;
-                }
-                let Some(jpeg) = bytes.get(j..j + len) else { continue };
+                // (the sizes are the file's: checked, a 32-bit build must not wrap them)
+                let be32 = |at: usize| bytes.get(at..at.checked_add(4)?).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
+                let (Some(size), Some(len)) = (be32(start), start.checked_add(20).and_then(be32)) else { continue };
+                let (Some(j), Some(box_end)) = (start.checked_add(24), start.checked_add(size.max(24))) else { continue };
+                let Some(end) = j.checked_add(len).filter(|e| len >= 4 && *e <= box_end && *e <= bytes.len()) else { continue };
+                let Some(jpeg) = bytes.get(j..end) else { continue };
                 // One that doesn't fit the budget left is skipped; a smaller one later may still fit.
-                if walked + jpeg.len() > CR3_MAX_WALK {
+                if walked.saturating_add(jpeg.len()) > CR3_MAX_WALK {
                     continue;
                 }
-                walked += jpeg.len();
+                walked = walked.saturating_add(jpeg.len());
                 if is_dct_jpeg(jpeg) {
                     out.push(jpeg);
-                    continue 'tags;
+                    // (past it: a tag inside its JPEG is not another box)
+                    from = end;
                 }
             }
         }
