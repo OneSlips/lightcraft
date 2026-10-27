@@ -198,7 +198,11 @@ fn names_are_right_aligned_next_to_their_track() {
     let (long, short) = (right_of(specs[0].label), right_of(specs[1].label));
     assert!((long - short).abs() < 1.0, "names end together: {} at {long}, {} at {short}", specs[0].label, specs[1].label);
     let track = take_registry(&view.ctx).into_iter().find(|(id, _)| id == "slider:light.whites").unwrap().1;
-    assert!(track.left() - short <= super::ROW_GAP + 1.0, "the name ends a small gap before the track: {short} vs {}", track.left());
+    assert!(
+        track.left() - short <= super::NAME_GAP + 1.0 && track.left() - short >= super::HANDLE_R_HOT,
+        "the name ends a small gap before the track, clear of the handle: {short} vs {}",
+        track.left()
+    );
 }
 
 /// Test note 2 (2026-10-27): a major section's header band stands out from the panel more than a

@@ -198,15 +198,25 @@ fn paint_track(ui: &Ui, rect: Rect, track: &Track, shade: Shade, t: &Tokens, ena
     let p = ui.painter();
     let y = rect.center().y;
     let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
+    // one mesh with a colour per column of vertices: smooth, and no overlapping strips that would
+    // stripe a dimmed (translucent) track
     let paint_ramp = |colour: &dyn Fn(f32) -> Color32| {
         let h = TRACK_COLOR_H / 2.0;
-        let steps = 48;
-        for i in 0..steps {
-            let (a, b) = (i as f32 / steps as f32, (i + 1) as f32 / steps as f32);
-            let x0 = rect.left() + rect.width() * a;
-            let x1 = rect.left() + rect.width() * b;
-            p.rect_filled(Rect::from_min_max(pos2(x0, y - h), pos2(x1 + 0.5, y + h)), 0.0, dim(colour((a + b) / 2.0)));
+        let steps: u32 = 48;
+        let mut mesh = egui::Mesh::default();
+        for i in 0..=steps {
+            let a = i as f32 / steps as f32;
+            let x = rect.left() + rect.width() * a;
+            let c = dim(colour(a));
+            mesh.colored_vertex(pos2(x, y - h), c);
+            mesh.colored_vertex(pos2(x, y + h), c);
+            if i > 0 {
+                let k = 2 * i;
+                mesh.add_triangle(k - 2, k - 1, k);
+                mesh.add_triangle(k - 1, k, k + 1);
+            }
         }
+        p.add(egui::Shape::mesh(mesh));
     };
     if let Some(stops) = track_stops(track) {
         // gradient: segments between stops
@@ -294,6 +304,9 @@ const TRACK_H: f32 = 2.0;
 const TRACK_COLOR_H: f32 = 3.0;
 /// Space between a slider row's name, track and value.
 const ROW_GAP: f32 = 6.0;
+/// Gap between a right-aligned name and its track: room for the handle sitting at the track's
+/// left end, so a name never runs into it.
+const NAME_GAP: f32 = ROW_GAP + HANDLE_R_HOT;
 /// Left and right margins of the panels' rows (sliders, captions, buttons line up on them).
 pub const PAD_L: f32 = 14.0;
 pub const PAD_R: f32 = 12.0;
@@ -331,12 +344,12 @@ pub(crate) fn row_parts(row: Rect, name_w: f32) -> RowParts {
     let value_w = VALUE_W.min(w * 0.25);
     let label = Rect::from_min_max(pos2(left, row.top()), pos2(left + label_w, row.bottom()));
     let value = Rect::from_min_max(pos2(right - value_w, row.top()), pos2(right, row.bottom()));
-    let track_l = label.right() + ROW_GAP;
+    let track_l = label.right() + NAME_GAP;
     let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
     RowParts { label, track, value }
 }
 
-/// Where a slider's name starts: right-aligned in its name column, so it ends [`ROW_GAP`] before
+/// Where a slider's name starts: right-aligned in its name column, so it ends [`NAME_GAP`] before
 /// its own track however short it is (a name too wide for the column starts at its left edge).
 pub(crate) fn name_left(label: Rect, text_w: f32) -> f32 {
     let w = if text_w.is_finite() { text_w.max(0.0) } else { 0.0 };
