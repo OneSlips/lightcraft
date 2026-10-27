@@ -3003,18 +3003,21 @@ fn a_slider_released_outside_the_window_lets_go() {
     let (a, b) = (slider.center(), slider.center() + egui::vec2(40.0, 0.0));
     let edge = egui::pos2(b.x, 1599.0);
     let m = egui::Modifiers::NONE;
-    h.app.synthetic.extend([
-        egui::Event::PointerMoved(a),
-        egui::Event::PointerButton { pos: a, button: egui::PointerButton::Primary, pressed: true, modifiers: m },
-        egui::Event::PointerMoved(b),
-        egui::Event::PointerMoved(edge),
-        egui::Event::PointerGone,
-    ]);
+    // (the window system's own events, one frame each: the repair works on those, before anything is injected)
+    let host = |h: &mut Headless, e: egui::Event| {
+        h.events.push(e);
+        h.step();
+    };
+    host(&mut h, egui::Event::PointerMoved(a));
+    host(&mut h, egui::Event::PointerButton { pos: a, button: egui::PointerButton::Primary, pressed: true, modifiers: m });
+    host(&mut h, egui::Event::PointerMoved(b));
+    host(&mut h, egui::Event::PointerMoved(edge));
+    host(&mut h, egui::Event::PointerGone);
     h.settle(SETTLE);
     let dragged = amount(&h);
     assert!(dragged > 40.0, "the drag moved the slider ({dragged})");
     // back over the photo, and click it
-    h.app.synthetic.push(egui::Event::PointerMoved(canvas + egui::vec2(5.0, 0.0)));
+    host(&mut h, egui::Event::PointerMoved(canvas + egui::vec2(5.0, 0.0)));
     h.settle(SETTLE);
     // (without the repair egui still drags the slider here: the ↔ cursor sticks and the
     // drag's undo step stays open)

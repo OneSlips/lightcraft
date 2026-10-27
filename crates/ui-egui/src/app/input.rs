@@ -125,10 +125,12 @@ impl LightcraftApp {
     /// The hook also runs before a hidden logic-only tick, so it injects at most one batch and
     /// keeps that batch in flight until a completed UI pass consumed it. It never injects while
     /// the fonts are not installed (the pass would draw nothing and the events would be lost).
-    /// Then put back mouse-button releases the window integration dropped (`pointer_repair`).
+    /// First, mouse-button releases the window integration dropped are put back (`pointer_repair`),
+    /// over the host's own events: before a prompt's filter drops them, so a release under a prompt
+    /// still counts as one and the next press after it gets no extra release.
     pub fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.inject_synthetic(ctx, raw);
         self.pointer_repair.repair(raw);
+        self.inject_synthetic(ctx, raw);
     }
 
     fn inject_synthetic(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {

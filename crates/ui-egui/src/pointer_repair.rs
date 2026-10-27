@@ -103,6 +103,12 @@ impl PointerRepair {
         raw.events = out;
     }
 
+    /// Whether a button is down as far as the host's events said (tests).
+    #[cfg(test)]
+    pub(crate) fn any_down(&self) -> bool {
+        self.down.iter().any(|d| *d)
+    }
+
     fn release_all(&mut self, at: egui::Pos2, modifiers: egui::Modifiers, out: &mut Vec<egui::Event>) {
         out.push(egui::Event::PointerMoved(at));
         for (i, d) in self.down.iter_mut().enumerate() {
