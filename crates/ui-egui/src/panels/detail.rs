@@ -549,18 +549,23 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // …and the window renders go over the whole-frame ones, all of them, where they belong in the
     // frame (clipped to their pane, or their side of the line)
     let mut window_drawn = false;
+    // (the After side's window: what the timing and the source shown are about in a split view)
+    let mut after_window_drawn = false;
     for (v, view) in &windows {
         // (holding `\` in a wipe shows the Before everywhere: it is the Before view alone then)
         let mode = if show_before { BeforeAfter::Original } else { app.ui.before_after };
         let clip = crate::region::window_clip(mode, v.before, v.visible, canvas, img_rect);
-        window_drawn |= draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
+        let drawn = draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
+        window_drawn |= drawn;
+        after_window_drawn |= drawn && !v.before;
     }
     // what is on screen is settled once the window renders are drawn: the camera JPEG at full size
     // stands in for the whole-frame render until a window covers it
     let shown = if camera_full_drawn && !window_drawn {
         "embedded"
-    } else if window_drawn && !crate::loupe_timing::full_size(shown) {
-        // a window rendered before the whole frame: the raw's own render is what is seen
+    } else if after_window_drawn && !matches!(shown, "render" | "cached") {
+        // a window rendered over a stand-in (thumbnail or camera JPEG) before the whole frame:
+        // the raw's own render is what is seen
         "render"
     } else {
         shown
