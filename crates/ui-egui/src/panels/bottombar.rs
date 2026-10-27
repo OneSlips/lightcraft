@@ -427,7 +427,7 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 register(c.ctx(), format!("flag:{id}"), fr);
                 let on = x.flag == f && x.has_photo;
                 if resp.hovered() {
-                    c.painter().rect_filled(fr, 4.0, t.hover.gamma_multiply(0.7));
+                    c.painter().rect_filled(fr, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
                 }
                 let colour = if on {
                     flag_colour(t, f)
@@ -484,9 +484,9 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 register(c.ctx(), format!("filter:{id}"), br);
                 crate::widgets::announce_selected(&resp, format!("{} {n}", crate::i18n::tr(tip)), on);
                 if on {
-                    c.painter().rect_filled(br, 4.0, t.tool_active);
+                    c.painter().rect_filled(br, crate::theme::RADIUS, t.tool_active);
                 } else if resp.hovered() {
-                    c.painter().rect_filled(br, 4.0, t.hover.gamma_multiply(0.7));
+                    c.painter().rect_filled(br, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
                 }
                 let ir = Rect::from_min_size(pos2(br.left() + 3.0, br.center().y - 10.0), vec2(20.0, 20.0));
                 paint(c.painter(), ir, flag_icon(f), if on { flag_colour(t, f) } else { t.icon });
@@ -524,9 +524,9 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
             register(c.ctx(), "filter:stars", br);
             crate::widgets::announce_selected(&resp, format!("{}: {words} ({n})", crate::i18n::tr("Rating filter")), on);
             if on {
-                c.painter().rect_filled(br, 4.0, t.tool_active);
+                c.painter().rect_filled(br, crate::theme::RADIUS, t.tool_active);
             } else if resp.hovered() {
-                c.painter().rect_filled(br, 4.0, t.hover.gamma_multiply(0.7));
+                c.painter().rect_filled(br, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
             }
             let sr = Rect::from_min_size(pos2(br.left() + 3.0, br.center().y - 8.0), vec2(16.0, 16.0));
             paint(c.painter(), sr, if on { Icon::StarFilled } else { Icon::Star }, if on { t.star } else { t.icon });
@@ -562,9 +562,9 @@ fn draw_part(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, x: &Facts, 
                 };
                 crate::widgets::announce_selected(&resp, format!("{name} ({n})"), on);
                 if on {
-                    c.painter().rect_filled(br, 4.0, t.tool_active);
+                    c.painter().rect_filled(br, crate::theme::RADIUS, t.tool_active);
                 } else if resp.hovered() {
-                    c.painter().rect_filled(br, 4.0, t.hover.gamma_multiply(0.7));
+                    c.painter().rect_filled(br, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
                 }
                 let dot = Rect::from_center_size(pos2(br.left() + 2.0 + 7.0, br.center().y), vec2(15.0, 15.0));
                 label_chip(c.painter(), t, dot, l, false, false);
@@ -678,7 +678,7 @@ fn copy_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, r: Rect,
     register(ui.ctx(), "button:copySettings", copy_r);
     let cresp = if compact { cresp.on_hover_text(full_label) } else { cresp };
     if cresp.hovered() && has_photo {
-        ui.painter().rect_filled(copy_r, 4.0, t.hover.gamma_multiply(0.7));
+        ui.painter().rect_filled(copy_r, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
     }
     ui.painter().text(copy_r.center(), Align2::CENTER_CENTER, label, t.font(13.0), if has_photo { t.text_label } else { t.text_disabled });
     if cresp.clicked() && has_photo {
@@ -691,7 +691,7 @@ fn copy_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, r: Rect,
     crate::widgets::announce(&gresp, crate::i18n::tr("Copy Settings…"));
     register(ui.ctx(), "icon:copyGear", gear_r);
     if gresp.hovered() {
-        ui.painter().rect_filled(gear_r, 4.0, t.hover.gamma_multiply(0.7));
+        ui.painter().rect_filled(gear_r, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
     }
     paint(ui.painter(), gear_r.shrink(6.0), Icon::Gear, t.icon);
     if gresp.on_hover_text(crate::i18n::tr("Copy Settings…")).clicked() {
@@ -836,7 +836,7 @@ fn auto_sync_switch(ui: &mut egui::Ui, t: &Tokens, on: bool, labelled: bool) -> 
     } else {
         t.button
     };
-    p.rect_filled(r, 4.0, fill);
+    p.rect_filled(r, crate::theme::RADIUS, fill);
     p.rect_stroke(r, 4.0, Stroke::new(1.0, if on { t.accent } else { t.button_border }), StrokeKind::Inside);
     if labelled {
         p.galley(pos2(r.left() + 8.0, r.center().y - g.size().y / 2.0), g, text);

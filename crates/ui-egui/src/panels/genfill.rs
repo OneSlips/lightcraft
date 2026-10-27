@@ -352,7 +352,7 @@ pub fn remove_section(app: &mut LightcraftApp, ui: &mut egui::Ui, spot: Option<(
 /// dismissed or the next generation, so a failure is never missed.
 fn error_box(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, retry: Option<(usize, &Value)>) {
     let Some(e) = last_error(app) else { return };
-    egui::Frame::new().stroke(egui::Stroke::new(1.0, t.caution)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
+    egui::Frame::new().stroke(egui::Stroke::new(1.0, t.caution)).corner_radius(crate::theme::RADIUS).inner_margin(6.0).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let r =
             ui.add(egui::Label::new(RichText::new(crate::i18n::tr_format!("Generative Fill failed: {e}", e = e)).size(11.0).color(t.caution)).wrap());

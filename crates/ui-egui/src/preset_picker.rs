@@ -307,7 +307,7 @@ impl<'a> Picker<'a> {
                                 Row::Header { key, shown, count, open } => {
                                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
                                     register(ui.ctx(), format!("presetPickerGroup:{}:{key}", self.id), r);
-                                    ui.painter().rect_filled(r.shrink2(vec2(0.0, 1.0)), 3.0, if resp.hovered() { t.hover } else { t.inset });
+                                    ui.painter().rect_filled(r.shrink2(vec2(0.0, 1.0)), crate::theme::RADIUS, if resp.hovered() { t.hover } else { t.inset });
                                     paint(
                                         ui.painter(),
                                         Rect::from_center_size(pos2(r.left() + 12.0, r.center().y), vec2(14.0, 14.0)),

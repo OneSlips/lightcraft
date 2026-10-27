@@ -242,7 +242,7 @@ fn tab_strip(ui: &mut egui::Ui, t: &Tokens, tab: &mut String) {
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, active, crate::i18n::tr(label)));
         register(ui.ctx(), format!("button:settingsTab-{id}"), r);
         if resp.hovered() && !active {
-            painter.rect_filled(r.shrink2(egui::vec2(2.0, 3.0)), 4.0, t.hover);
+            painter.rect_filled(r.shrink2(egui::vec2(2.0, 3.0)), crate::theme::RADIUS, t.hover);
         }
         let color = if active {
             t.text
@@ -271,7 +271,7 @@ fn tab_strip(ui: &mut egui::Ui, t: &Tokens, tab: &mut String) {
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &more_label));
     register(ui.ctx(), "button:settingsTabMore", r);
     if resp.hovered() {
-        painter.rect_filled(r.shrink2(egui::vec2(2.0, 3.0)), 4.0, t.hover);
+        painter.rect_filled(r.shrink2(egui::vec2(2.0, 3.0)), crate::theme::RADIUS, t.hover);
     }
     let text_at = egui::pos2(r.left() + pad, r.center().y - more_galley.size().y / 2.0);
     painter.galley(text_at, more_galley.clone(), if resp.hovered() { t.text_label } else { t.text_dim });
@@ -1503,7 +1503,7 @@ fn theme_card<V: PartialEq + Copy>(
     egui::Frame::new()
         .fill(t.inset)
         .stroke(egui::Stroke::new(1.0, if active { t.accent } else { t.field_border }))
-        .corner_radius(6)
+        .corner_radius(crate::theme::RADIUS_PANEL)
         .inner_margin(8)
         .show(ui, |ui| {
             ui.vertical(|ui| {

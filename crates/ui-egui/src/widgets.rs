@@ -3,7 +3,7 @@
 //! ([`register`]) so the control channel can find and click it by name.
 
 use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
-use lightcraft_develop::{ControlSpec, Track};
+use lightcraft_develop::{ControlSpec, Shade, Track};
 
 use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
@@ -127,7 +127,7 @@ pub fn preview_only_notice(ui: &mut Ui, key: &str, reason: &str) -> bool {
     let r = egui::Frame::NONE
         .fill(t.canvas)
         .stroke(Stroke::new(1.0, t.caution.gamma_multiply(0.45)))
-        .corner_radius(6.0)
+        .corner_radius(crate::theme::RADIUS_PANEL)
         .inner_margin(egui::Margin { left: 10, right: 10, top: 8, bottom: 9 })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
@@ -192,34 +192,59 @@ fn track_stops(track: &Track) -> Option<Vec<Color32>> {
     })
 }
 
-/// A slider's track: a thin line, a colour gradient where colour is the meaning (Temp, Tint, Hue,
+/// A slider's track: a thin line, a grey ramp where the spec has a [`Shade`], a colour gradient where colour is the meaning (Temp, Tint, Hue,
 /// Saturation…), with a small tick at the middle of a centred one. Dimmed when disabled.
-fn paint_track(ui: &Ui, rect: Rect, track: &Track, t: &Tokens, enabled: bool) {
+fn paint_track(ui: &Ui, rect: Rect, track: &Track, shade: Shade, t: &Tokens, enabled: bool) {
     let p = ui.painter();
     let y = rect.center().y;
     let dim = |c: Color32| if enabled { c } else { c.gamma_multiply(0.45) };
-    if let Some(stops) = track_stops(track) {
+    let paint_ramp = |colour: &dyn Fn(f32) -> Color32| {
         let h = TRACK_COLOR_H / 2.0;
-        // gradient: segments between stops
-        let n = stops.len().max(2) - 1;
         let steps = 48;
         for i in 0..steps {
             let (a, b) = (i as f32 / steps as f32, (i + 1) as f32 / steps as f32);
-            let seg = (a * n as f32).floor() as usize;
-            let local = a * n as f32 - seg as f32;
-            let c = lerp(stops[seg.min(n)], stops[(seg + 1).min(n)], local);
             let x0 = rect.left() + rect.width() * a;
             let x1 = rect.left() + rect.width() * b;
-            p.rect_filled(Rect::from_min_max(pos2(x0, y - h), pos2(x1 + 0.5, y + h)), 0.0, dim(c));
+            p.rect_filled(Rect::from_min_max(pos2(x0, y - h), pos2(x1 + 0.5, y + h)), 0.0, dim(colour((a + b) / 2.0)));
         }
+    };
+    if let Some(stops) = track_stops(track) {
+        // gradient: segments between stops
+        let n = stops.len().max(2) - 1;
+        paint_ramp(&|a: f32| {
+            let seg = (a * n as f32).floor() as usize;
+            let local = a * n as f32 - seg as f32;
+            lerp(stops[seg.min(n)], stops[(seg + 1).min(n)], local)
+        });
+    } else if shade != Shade::Plain {
+        paint_ramp(&|a: f32| shade_color(shade, t, a).unwrap_or(t.track));
     } else {
         let h = TRACK_H / 2.0;
         p.rect_filled(Rect::from_min_max(pos2(rect.left(), y - h), pos2(rect.right(), y + h)), 1.0, dim(t.track));
-        if matches!(track, Track::Centered) {
-            // where the slider has no effect
-            p.rect_filled(Rect::from_center_size(pos2(rect.center().x, y), vec2(1.0, 6.0)), 0.0, dim(t.track));
-        }
     }
+    if matches!(track, Track::Centered) {
+        // where the slider has no effect: lighter than a shaded track around it, so it shows on it
+        let tick = if shade == Shade::Plain { t.track } else { t.text_label };
+        p.rect_filled(Rect::from_center_size(pos2(rect.center().x, y), vec2(1.0, 6.0)), 0.0, dim(tick));
+    }
+}
+
+/// The colour of a grey track shaded `shade` at `x` (0 = left end, 1 = right end), or `None` for
+/// a plain track. The ramp runs between the theme's track colour pulled toward its darkest and its
+/// lightest colour, so it stays subtle in every theme (as Lightroom's ~92 → 133 grey).
+pub(crate) fn shade_color(shade: Shade, t: &Tokens, x: f32) -> Option<Color32> {
+    let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.5 };
+    let lum = |c: Color32| u32::from(c.r()) + u32::from(c.g()) + u32::from(c.b());
+    let (darkest, lightest) = if lum(t.chrome) < lum(t.text) { (t.chrome, t.text) } else { (t.text, t.chrome) };
+    let dark = t.track.lerp_to_gamma(darkest, 0.4);
+    let light = t.track.lerp_to_gamma(lightest, 0.3);
+    Some(match shade {
+        Shade::Plain => return None,
+        Shade::Ramp => dark.lerp_to_gamma(light, x),
+        Shade::ReverseRamp => light.lerp_to_gamma(dark, x),
+        Shade::CentreLight => dark.lerp_to_gamma(light, 1.0 - (2.0 * x - 1.0).abs()),
+        Shade::Tinted => dark.lerp_to_gamma(light.lerp_to_gamma(Color32::from_rgb(0xc8, 0x40, 0x40), 0.45), x),
+    })
 }
 
 /// A slider's handle: a small dot on the track, a little larger while hovered or dragged, ringed
@@ -309,6 +334,13 @@ pub(crate) fn row_parts(row: Rect, name_w: f32) -> RowParts {
     let track_l = label.right() + ROW_GAP;
     let track = Rect::from_min_max(pos2(track_l, row.top()), pos2((value.left() - ROW_GAP).max(track_l + 1.0), row.bottom()));
     RowParts { label, track, value }
+}
+
+/// Where a slider's name starts: right-aligned in its name column, so it ends [`ROW_GAP`] before
+/// its own track however short it is (a name too wide for the column starts at its left edge).
+pub(crate) fn name_left(label: Rect, text_w: f32) -> f32 {
+    let w = if text_w.is_finite() { text_w.max(0.0) } else { 0.0 };
+    (label.right() - w).max(label.left())
 }
 
 /// Where the current slider group is kept, per layer (a dialog's sliders aren't the panel's).
@@ -685,7 +717,8 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     };
     // a name too long for its column is cut short (hovering it shows it whole, with the reset hint)
     let name = one_line(ui.painter(), &label_text, font.clone(), name_c, label_rect.width());
-    ui.painter().galley(pos2(label_rect.left(), label_rect.center().y - name.size().y / 2.0), name, name_c);
+    let name_x = name_left(label_rect, name.size().x);
+    ui.painter().galley(pos2(name_x, label_rect.center().y - name.size().y / 2.0), name, name_c);
     if typing.is_none() {
         // a value at its default is dim, a changed one bright: what was touched shows at a glance
         let changed = (v - spec.default).abs() > spec.step.max(1e-9) / 2.0;
@@ -705,7 +738,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     if enabled && label_resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
     }
-    paint_track(ui, track_rect, &spec.track, &t, enabled);
+    paint_track(ui, track_rect, &spec.track, spec.shade, &t, enabled);
     let handle_c = if !enabled {
         t.text_disabled
     } else if hovered || scrub.is_some() {
@@ -739,6 +772,30 @@ pub fn nudged(spec: &ControlSpec, value: f64, steps: f64) -> f64 {
     (((value + unit * steps) / step).round() * step).clamp(spec.min, spec.max)
 }
 
+/// Title size of a major section header (Light, Color…); sub-section rows use [`SUB_TITLE`].
+pub(crate) const SECTION_TITLE: f32 = 13.0;
+/// Title size of a sub-section row (Curve, Color Mixer…): smaller and regular weight, so it reads
+/// as part of its section.
+pub(crate) const SUB_TITLE: f32 = 12.0;
+
+/// The fill of a major section header's band: the section-band token, a shade lighter (darker in
+/// light themes) under the pointer.
+pub(crate) fn section_fill(t: &Tokens, hovered: bool) -> Color32 {
+    if hovered { t.section_band.lerp_to_gamma(t.text, 0.06) } else { t.section_band }
+}
+
+/// The fill of a sub-section row (Curve, Color Mixer…): none at rest, a light hover, so the rows
+/// stay quieter than the section header above them.
+pub(crate) fn flyout_fill(t: &Tokens, hovered: bool) -> Option<Color32> {
+    hovered.then(|| t.chrome.lerp_to_gamma(t.hover, 0.6))
+}
+
+/// Paints a major section header's band over `r`: the band fill and a separator along its top.
+pub(crate) fn paint_section_band(p: &egui::Painter, r: Rect, t: &Tokens, hovered: bool) {
+    p.rect_filled(r, 0.0, section_fill(t, hovered));
+    p.rect_filled(Rect::from_min_max(r.left_top(), pos2(r.right(), r.top() + 1.0)), 0.0, t.divider);
+}
+
 /// Collapsible section header ("› Light"): one thin bar of the theme's `section_h`, the chevron
 /// and name at the left, the section's eye (show the photo without it) at the right. The same bar
 /// heads the Edit panel's and the mask panel's sections, and would head a tab's (Tabs layout).
@@ -753,15 +810,13 @@ pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: O
     // the section's sliders line their names up in one column of their own
     begin_slider_group(ui, id);
     let p = ui.painter();
-    if ui.rect_contains_pointer(r) {
-        p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));
-    }
+    paint_section_band(p, r, &t, ui.rect_contains_pointer(r));
     if resp.has_focus() {
-        p.rect_stroke(r.shrink(1.0), 3.0, Stroke::new(1.5, t.accent), StrokeKind::Inside);
+        p.rect_stroke(r.shrink(1.0), crate::theme::RADIUS, Stroke::new(1.5, t.accent), StrokeKind::Inside);
     }
     let chev = Rect::from_center_size(pos2(r.left() + PAD_L + 5.0, r.center().y), vec2(12.0, 12.0));
-    paint(p, chev, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text_label);
-    p.text(pos2(r.left() + PAD_L + 16.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(12.5), t.text);
+    paint(p, chev, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.text);
+    p.text(pos2(r.left() + PAD_L + 16.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(SECTION_TITLE), t.text);
     let mut toggled = None;
     // shown while the pointer is anywhere on the header: `resp.hovered()` turns false as soon as the
     // pointer is over the eye itself (the eye is on top), which hid the eye before it could be
@@ -792,7 +847,8 @@ pub fn divider(ui: &mut Ui) {
     ui.painter().rect_filled(r, 0.0, t.divider);
 }
 
-/// A flyout row inside a section (Curve, Color Mixer, Color Grading…): inset dark box with icon tile.
+/// A sub-section row inside a section (Curve, Color Mixer, Color Grading…): indented icon and a
+/// regular-weight title, no box of its own, so it reads as part of the section above it.
 pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) -> Response {
     let title = crate::i18n::tr(title);
     let t = Tokens::get(ui.ctx());
@@ -803,10 +859,13 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     register(ui.ctx(), format!("flyout:{id}"), r);
     let p = ui.painter();
-    p.rect_filled(r, 4.0, if resp.hovered() { t.hover.gamma_multiply(0.8) } else { t.inset });
-    let tile = Rect::from_min_size(pos2(r.left() + 3.0, r.top() + 3.0), vec2(r.height() - 6.0, r.height() - 6.0));
-    paint(p, tile.shrink(1.0), icon, t.text_label);
-    p.text(pos2(tile.right() + 7.0, r.center().y), Align2::LEFT_CENTER, title, t.semibold(12.0), t.text_label);
+    if let Some(fill) = flyout_fill(&t, resp.hovered()) {
+        p.rect_filled(r, crate::theme::RADIUS, fill);
+    }
+    // indented under the section's title: a nested part of it, not a section of its own
+    let tile = Rect::from_min_size(pos2(r.left() + 10.0, r.top() + 4.0), vec2(r.height() - 8.0, r.height() - 8.0));
+    paint(p, tile.shrink(1.0), icon, t.text_dim);
+    p.text(pos2(tile.right() + 6.0, r.center().y), Align2::LEFT_CENTER, title, t.font(SUB_TITLE), t.text_label);
     paint(
         p,
         Rect::from_center_size(pos2(r.right() - 10.0, r.center().y), vec2(12.0, 12.0)),
@@ -837,7 +896,7 @@ pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response
         t.button
     };
     let p = ui.painter();
-    p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    p.rect(r, CornerRadius::same(crate::theme::RADIUS), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
     p.galley(r.center() - galley.size() / 2.0, galley, t.text);
     resp
 }
@@ -868,7 +927,7 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
                     t.button
                 };
                 let p = ui.painter();
-                p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+                p.rect(r, CornerRadius::same(crate::theme::RADIUS), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
                 p.text(r.center(), Align2::CENTER_CENTER, label, t.semibold(11.0), t.text);
                 if resp.clicked() {
                     clicked = Some(i);
@@ -889,9 +948,9 @@ pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: 
     let p = ui.painter();
     let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
     if active {
-        p.rect_filled(sq, 4.0, t.tool_active);
+        p.rect_filled(sq, crate::theme::RADIUS, t.tool_active);
     } else if resp.hovered() && enabled {
-        p.rect_filled(sq, 4.0, t.hover.gamma_multiply(0.7));
+        p.rect_filled(sq, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
     }
     let c = if !enabled {
         t.text_disabled
@@ -957,6 +1016,7 @@ mod tests {
             step,
             decimals: 2,
             track: Track::Plain,
+            shade: lightcraft_develop::Shade::Plain,
         };
         assert!((nudged(&spec("light.exposure", -5.0, 5.0, 0.01), 0.0, 1.0) - 0.05).abs() < 1e-9);
         assert_eq!(nudged(&spec("light.contrast", -100.0, 100.0, 1.0), 10.0, -5.0), 5.0);

@@ -833,9 +833,9 @@ pub fn bar(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         crate::widgets::announce_selected(&resp, text.clone(), on);
         register(ui.ctx(), format!("button:importTake-{key}"), r);
         if on {
-            ui.painter().rect_filled(r.shrink(2.0), 4.0, t.pressed);
+            ui.painter().rect_filled(r.shrink(2.0), crate::theme::RADIUS, t.pressed);
         } else if resp.hovered() {
-            ui.painter().rect_filled(r.shrink(2.0), 4.0, t.hover);
+            ui.painter().rect_filled(r.shrink(2.0), crate::theme::RADIUS, t.hover);
         }
         if i > 0 {
             ui.painter().line_segment([pos2(r.left(), r.top() + 6.0), pos2(r.left(), r.bottom() - 6.0)], Stroke::new(1.0, t.button_border));
@@ -916,7 +916,7 @@ pub fn bar(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let resp = ui.interact(r, egui::Id::new("import-crumb-dots"), Sense::click());
                 register(ui.ctx(), "crumb:more", r);
                 if resp.hovered() {
-                    ui.painter().rect_filled(r, 3.0, t.hover);
+                    ui.painter().rect_filled(r, crate::theme::RADIUS, t.hover);
                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, "…", crumb_font.clone(), t.text_label);

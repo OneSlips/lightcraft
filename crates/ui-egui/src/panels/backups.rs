@@ -131,7 +131,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
         });
         if confirm.as_deref() == Some(path.as_str()) {
-            egui::Frame::NONE.fill(t.inset).corner_radius(4.0).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+            egui::Frame::NONE.fill(t.inset).corner_radius(crate::theme::RADIUS).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
                 ui.add(
                     egui::Label::new(
                         RichText::new(tr(

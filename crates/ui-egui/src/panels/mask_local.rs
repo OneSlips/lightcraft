@@ -18,7 +18,7 @@ use crate::widgets::{divider, register, section_header, slider, text_button};
 pub const PICK_TOOL: &str = "maskPointColor";
 
 const fn spec(id: &'static str, label: &'static str, min: f64, max: f64, default: f64, track: Track) -> ControlSpec {
-    ControlSpec { id, label, section: Section::PointColor, min, max, default, step: 1.0, decimals: 0, track }
+    ControlSpec { id, label, section: Section::PointColor, min, max, default, step: 1.0, decimals: 0, track, shade: lightcraft_develop::Shade::Plain }
 }
 
 /// A sample's sliders (`maskPointColor.<the mask.setPointColor field>`), as the global Point Color's.

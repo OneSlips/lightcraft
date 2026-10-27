@@ -165,3 +165,109 @@ fn hostile_values_and_widths_never_panic() {
     let r = Row::new("light.exposure", 0.0);
     let _ = r.rect("slider");
 }
+
+/// Test note 1 (2026-10-27): a short name ends next to its own track, not at the left edge.
+#[test]
+fn names_are_right_aligned_next_to_their_track() {
+    let label = Rect::from_min_max(pos2(14.0, 0.0), pos2(80.0, 20.0));
+    assert_eq!(super::name_left(label, 30.0), 50.0);
+    assert_eq!(super::name_left(label, 200.0), 14.0, "too wide: starts at the column's left edge");
+    for w in [f32::NAN, f32::INFINITY, -5.0] {
+        let x = super::name_left(label, w);
+        assert!(x.is_finite() && x >= label.left() && x <= label.right(), "{w}: {x}");
+    }
+    // two rows sharing one name column: the short and the long name end at the same x
+    let mut view = HeadlessView::new();
+    let specs = [*controls::find("light.exposure").unwrap(), *controls::find("light.whites").unwrap()];
+    for i in 0..4 {
+        view.run(HeadlessView::raw_input(vec2(320.0, 100.0), 1.0, 0.02 * f64::from(i), vec![]), |ui| {
+            for s in &specs {
+                slider(ui, s, s.default, true, None);
+            }
+        });
+    }
+    let right_of = |text: &str| {
+        view.painted_shapes()
+            .into_iter()
+            .find_map(|s| match s {
+                egui::epaint::Shape::Text(t) if t.galley.job.text == text => Some(t.pos.x + t.galley.size().x),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{text} not painted"))
+    };
+    let (long, short) = (right_of(specs[0].label), right_of(specs[1].label));
+    assert!((long - short).abs() < 1.0, "names end together: {} at {long}, {} at {short}", specs[0].label, specs[1].label);
+    let track = take_registry(&view.ctx).into_iter().find(|(id, _)| id == "slider:light.whites").unwrap().1;
+    assert!(track.left() - short <= super::ROW_GAP + 1.0, "the name ends a small gap before the track: {short} vs {}", track.left());
+}
+
+/// Test note 2 (2026-10-27): a major section's header band stands out from the panel more than a
+/// sub-section row (Curve, Color Mixer…), which has no fill of its own at rest, in every theme.
+#[test]
+fn section_headers_stand_out_more_than_sub_sections() {
+    use crate::theme::{ThemeKind, Tokens};
+    let dist = |a: egui::Color32, b: egui::Color32| (0..3).map(|i| (i32::from(a[i]) - i32::from(b[i])).abs()).max().unwrap_or(0);
+    for kind in ThemeKind::ALL {
+        let t = Tokens::for_kind(kind);
+        assert!(super::flyout_fill(&t, false).is_none(), "{kind:?}: a sub-section row has no box at rest");
+        let band = dist(super::section_fill(&t, false), t.chrome);
+        assert!(band >= 10, "{kind:?}: the section band is distinct from the chrome ({band})");
+        let hover = super::flyout_fill(&t, true).map_or(0, |c| dist(c, t.chrome));
+        assert!(band >= hover, "{kind:?}: even a hovered sub-section stays quieter ({hover} vs {band})");
+    }
+    assert!(super::SECTION_TITLE > super::SUB_TITLE);
+}
+
+/// Test note 3 (2026-10-27): corners are at most half of the earlier 4 (controls) and 6 (panels),
+/// and egui's own widgets, windows and menus take them from the theme.
+#[test]
+fn corners_are_at_most_half_the_earlier_radius() {
+    use crate::theme::{RADIUS, RADIUS_PANEL, ThemeKind, apply_kind};
+    assert!(RADIUS <= 2 && RADIUS_PANEL <= 3);
+    for kind in ThemeKind::ALL {
+        let ctx = egui::Context::default();
+        apply_kind(&ctx, kind);
+        let v = ctx.global_style().visuals.clone();
+        for w in [v.widgets.inactive, v.widgets.hovered, v.widgets.active, v.widgets.noninteractive] {
+            assert!(w.corner_radius.nw <= RADIUS, "{kind:?}: widget corner {:?}", w.corner_radius);
+        }
+        assert!(v.window_corner_radius.nw <= RADIUS_PANEL && v.menu_corner_radius.nw <= RADIUS_PANEL, "{kind:?}");
+    }
+}
+
+/// Test note 4 (2026-10-27): grey ramps inside the tracks, in every theme.
+#[test]
+fn shaded_tracks_run_the_way_their_spec_says() {
+    use super::shade_color;
+    use crate::theme::{ThemeKind, Tokens};
+    use lightcraft_develop::Shade;
+    let lum = |c: egui::Color32| u32::from(c.r()) + u32::from(c.g()) + u32::from(c.b());
+    for kind in ThemeKind::ALL {
+        let t = Tokens::for_kind(kind);
+        let at = |s: Shade, x: f32| lum(shade_color(s, &t, x).unwrap());
+        // "lighter" follows the theme: in the light themes the lighter end is still the lighter grey
+        assert!(at(Shade::Ramp, 1.0) > at(Shade::Ramp, 0.0) + 20, "{kind:?}: a ramp is lighter at the right");
+        assert!(at(Shade::ReverseRamp, 0.0) > at(Shade::ReverseRamp, 1.0) + 20, "{kind:?}: a reversed ramp is lighter at the left");
+        let c = at(Shade::CentreLight, 0.5);
+        assert!(c > at(Shade::CentreLight, 0.0) + 20 && c > at(Shade::CentreLight, 1.0) + 20, "{kind:?}: a centre ramp is lightest at the centre");
+        let red = shade_color(Shade::Tinted, &t, 1.0).unwrap();
+        assert!(red.r() > red.g() + 20, "{kind:?}: the tinted end is red: {red:?}");
+        assert!(shade_color(Shade::Plain, &t, 0.3).is_none(), "{kind:?}: a plain track is flat");
+        for x in [f32::NAN, f32::INFINITY, -1.0, 2.0] {
+            assert!(shade_color(Shade::Ramp, &t, x).is_some());
+        }
+    }
+    // the kind comes from the develop spec, so mask sliders and new controls follow it
+    let shade = |id: &str| lightcraft_develop::controls::find(id).unwrap().shade;
+    assert_eq!(shade("light.exposure"), Shade::Ramp);
+    assert_eq!(shade("light.contrast"), Shade::ReverseRamp);
+    assert_eq!(shade("vignette.amount"), Shade::CentreLight);
+    assert_eq!(shade("detail.sharpenAmount"), Shade::Tinted);
+    assert_eq!(shade("effects.texture"), Shade::Plain);
+    for s in crate::panels::masking::LOCAL {
+        let twin = ["light", "effects"].iter().find_map(|g| lightcraft_develop::controls::find(&format!("{g}.{}", s.id)));
+        if let Some(twin) = twin {
+            assert_eq!(s.shade, twin.shade, "mask {} follows its Edit twin {}", s.id, twin.id);
+        }
+    }
+}

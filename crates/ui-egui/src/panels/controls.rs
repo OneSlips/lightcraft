@@ -237,7 +237,7 @@ fn top_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 fn banners(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let waiting: Vec<_> = app.surface.pairing.waiting().cloned().collect();
     for w in waiting {
-        egui::Frame::new().fill(t.inset).stroke(Stroke::new(1.0, t.accent)).corner_radius(4.0).inner_margin(6.0).show(ui, |ui| {
+        egui::Frame::new().fill(t.inset).stroke(Stroke::new(1.0, t.accent)).corner_radius(crate::theme::RADIUS).inner_margin(6.0).show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.label(
                     RichText::new(crate::i18n::tr_format!("{name} asks to pair. Code: {code}", name = w.name.clone(), code = w.code.clone()))
@@ -292,10 +292,10 @@ fn device_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let color = if *drawing == Drawing::Later { t.text_dim } else { t.text };
             let galley = ui.painter().layout_no_wrap(tr(name).to_string(), FontId::proportional(11.5), color);
             let (rect, _) = ui.allocate_exact_size(vec2(galley.size().x + 30.0, 24.0), Sense::hover());
-            ui.painter().rect_filled(rect, CornerRadius::same(4), fill);
+            ui.painter().rect_filled(rect, CornerRadius::same(crate::theme::RADIUS), fill);
             ui.painter().rect_stroke(
                 rect,
-                CornerRadius::same(4),
+                CornerRadius::same(crate::theme::RADIUS),
                 Stroke::new(1.0, if selected { t.accent } else { t.button_border }),
                 StrokeKind::Inside,
             );
@@ -542,7 +542,7 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
                 let has = profile.base.contains_key(&p) || ls::loupedeck::default_binding(&p).is_some();
                 ui.painter().rect_filled(
                     chip,
-                    CornerRadius::same(3),
+                    CornerRadius::same(crate::theme::RADIUS),
                     if on {
                         t.accent
                     } else if r.hovered() {
@@ -756,8 +756,8 @@ fn draw_control(ui: &mut egui::Ui, t: &Tokens, rect: Rect, control: &str, view: 
         p.circle_filled(rect.center(), rect.width() / 2.0, fill);
         p.circle_stroke(rect.center(), rect.width() / 2.0, stroke);
     } else {
-        p.rect_filled(rect, CornerRadius::same(8), fill);
-        p.rect_stroke(rect, CornerRadius::same(8), stroke, StrokeKind::Inside);
+        p.rect_filled(rect, CornerRadius::same(crate::theme::RADIUS_PANEL), fill);
+        p.rect_stroke(rect, CornerRadius::same(crate::theme::RADIUS_PANEL), stroke, StrokeKind::Inside);
     }
     let text_h = if label.is_empty() { 0.0 } else { (rect.height() * 0.3).min(28.0) };
     let icon_side = ((rect.height() - text_h) * 0.62).min(rect.width() * 0.62);
@@ -805,7 +805,7 @@ fn drag_preview(ui: &egui::Ui, t: &Tokens) {
     let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("surfaceDragPreview")));
     let galley = painter.layout_no_wrap(d.label.clone(), FontId::proportional(12.0), t.text);
     let rect = Rect::from_min_size(at + vec2(14.0, 6.0), vec2(galley.size().x + 36.0, 26.0));
-    painter.rect_filled(rect, CornerRadius::same(5), t.inset);
+    painter.rect_filled(rect, CornerRadius::same(crate::theme::RADIUS), t.inset);
     painter.rect_stroke(rect, CornerRadius::same(5), Stroke::new(1.0, t.accent), StrokeKind::Inside);
     if let Some(icon) = d.icon {
         crate::surface_icons::paint_with(ui.ctx(), &painter, icon, Rect::from_min_size(rect.min + vec2(5.0, 4.0), vec2(18.0, 18.0)), Color32::WHITE);

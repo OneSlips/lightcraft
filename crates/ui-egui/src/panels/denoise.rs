@@ -312,7 +312,7 @@ pub fn settings_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 /// No model is installed and none can be downloaded: say so plainly, and what to use meanwhile, without promising one.
 fn no_model_yet(ui: &mut egui::Ui, t: &Tokens) {
     ui.add_space(4.0);
-    let r = egui::Frame::NONE.fill(t.inset).corner_radius(6.0).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+    let r = egui::Frame::NONE.fill(t.inset).corner_radius(crate::theme::RADIUS_PANEL).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
         ui.set_max_width(ui.available_width().min(680.0));
         ui.label(RichText::new(tr("No AI Denoise model is installed")).font(t.semibold(13.0)).color(t.text));
         ui.add_space(2.0);

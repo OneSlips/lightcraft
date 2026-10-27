@@ -356,7 +356,7 @@ fn profile_row(
         egui::Frame::NONE
             .fill(t.inset)
             .stroke(egui::Stroke::new(1.0, t.caution.gamma_multiply(0.7)))
-            .corner_radius(4.0)
+            .corner_radius(crate::theme::RADIUS)
             .inner_margin(egui::Margin { left: 30, right: 8, top: 6, bottom: 6 })
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());

@@ -199,7 +199,7 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         let hovered = ui.rect_contains_pointer(r);
         if hovered {
             app.ui.mask_hover = Some(m.id);
-            ui.painter().rect_filled(r, 3.0, t.hover.gamma_multiply(0.5));
+            ui.painter().rect_filled(r, crate::theme::RADIUS, t.hover.gamma_multiply(0.5));
         }
         // tree line, operation, thumbnail of this component alone
         let x0 = r.left() + 14.0;
@@ -230,7 +230,7 @@ fn children(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         let iv = ui.interact(inv, egui::Id::new(("compInvert", m.id, i)), Sense::click());
         register(ui.ctx(), format!("componentInvert:{i}"), inv);
         if c.invert {
-            ui.painter().rect_filled(inv, 3.0, t.pressed);
+            ui.painter().rect_filled(inv, crate::theme::RADIUS, t.pressed);
         }
         paint(ui.painter(), inv.shrink(2.0), Icon::Invert, if iv.hovered() || c.invert { t.text } else { t.text_dim });
         if iv.on_hover_text(crate::i18n::tr("Invert")).clicked() {

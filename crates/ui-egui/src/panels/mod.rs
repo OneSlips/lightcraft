@@ -117,7 +117,7 @@ pub fn toast(app: &mut LightcraftApp, ctx: &egui::Context) {
     // a slideshow's playback controls sit at the bottom: the toast goes to the top there, clear of them
     let y = if app.ui.slideshow.is_some() { canvas.top() + 60.0 } else { canvas.bottom() - 60.0 };
     let r = Rect::from_center_size(pos2(canvas.center().x, y), size);
-    painter.rect_filled(r, 6.0, background.gamma_multiply(fade));
+    painter.rect_filled(r, crate::theme::RADIUS_PANEL, background.gamma_multiply(fade));
     let text_at = pos2(r.left() + 20.0, r.center().y - galley.size().y / 2.0);
     painter.galley(text_at, galley, foreground);
     if let (Some(a), Some(g)) = (action, button) {
@@ -129,7 +129,7 @@ pub fn toast(app: &mut LightcraftApp, ctx: &egui::Context) {
             .show(ctx, |ui| ui.allocate_response(br.size(), egui::Sense::click()))
             .inner;
         let fill = if resp.hovered() { t.accent.gamma_multiply(1.15) } else { t.accent };
-        painter.rect_filled(br, 4.0, fill.gamma_multiply(fade));
+        painter.rect_filled(br, crate::theme::RADIUS, fill.gamma_multiply(fade));
         painter.galley(br.center() - g.size() / 2.0, g, egui::Color32::WHITE);
         if resp.clicked() {
             app.ui.toast = None;

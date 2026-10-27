@@ -2773,7 +2773,18 @@ fn same_name_warning(app: &mut LightcraftApp, ui: &mut egui::Ui, template: &str,
 const LABEL_W: f32 = 78.0;
 
 const fn spec(id: &'static str, label: &'static str, min: f64, max: f64, default: f64, step: f64) -> ControlSpec {
-    ControlSpec { id, label, section: Section::Light, min, max, default, step, decimals: 0, track: Track::Plain }
+    ControlSpec {
+        id,
+        label,
+        section: Section::Light,
+        min,
+        max,
+        default,
+        step,
+        decimals: 0,
+        track: Track::Plain,
+        shade: lightcraft_develop::Shade::Plain,
+    }
 }
 const QUALITY: ControlSpec = spec("export.quality", "Quality", 1.0, 100.0, 90.0, 1.0);
 const LIMIT_KB: ControlSpec = spec("export.limitKb", "Limit file size (KB, 0 = off)", 0.0, 20_000.0, 0.0, 10.0);

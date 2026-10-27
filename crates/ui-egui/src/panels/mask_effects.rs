@@ -233,7 +233,7 @@ fn menu(app: &mut LightcraftApp, ui: &mut egui::Ui, mask: &Mask, current: Option
             }
             let lit = st.highlight == Some(i) || resp.hovered();
             if lit {
-                ui.painter().rect_filled(rect, 3.0, t.hover);
+                ui.painter().rect_filled(rect, crate::theme::RADIUS, t.hover);
             }
             if current == Some(name.as_str()) {
                 ui.painter().text(rect.left_center() + vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, "✓", t.font(12.0), t.accent);
@@ -554,9 +554,9 @@ pub fn manage_body(
                         register(ui.ctx(), format!("effectRow:{}", e.name), rect);
                     }
                     if sel {
-                        ui.painter().rect_filled(rect, 3.0, t.tool_active);
+                        ui.painter().rect_filled(rect, crate::theme::RADIUS, t.tool_active);
                     } else if r.hovered() {
-                        ui.painter().rect_filled(rect, 3.0, t.hover);
+                        ui.painter().rect_filled(rect, crate::theme::RADIUS, t.hover);
                     }
                     let g = crate::widgets::one_line(ui.painter(), &display_name(&e.name), t.font(12.5), t.text, rect.width() - 8.0);
                     let elided = g.elided;

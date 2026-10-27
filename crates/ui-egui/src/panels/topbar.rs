@@ -255,7 +255,7 @@ fn workspace_tabs(app: &mut LightcraftApp, ui: &mut egui::Ui, right_center: egui
         } else {
             egui::Color32::TRANSPARENT
         };
-        ui.painter().rect_filled(r, 5.0, fill);
+        ui.painter().rect_filled(r, crate::theme::RADIUS, fill);
         let colour = if on { t.canvas } else { t.text_label };
         let g = ui.painter().layout_no_wrap(crate::i18n::tr(label).to_string(), t.semibold(12.5), colour);
         let w = 16.0 + 6.0 + g.size().x;

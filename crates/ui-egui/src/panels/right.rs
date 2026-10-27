@@ -149,13 +149,11 @@ pub fn fold_title(app: &mut LightcraftApp, ui: &egui::Ui, id: &str, r: Rect, res
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, open, title));
     register(ui.ctx(), format!("section:{id}"), r);
     let p = ui.painter();
-    if resp.hovered() {
-        p.rect_filled(r, 0.0, t.chrome.gamma_multiply(1.06));
-    }
+    crate::widgets::paint_section_band(p, r, &t, resp.hovered());
     if resp.has_focus() {
-        p.rect_stroke(r.shrink(2.0), 4.0, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+        p.rect_stroke(r.shrink(2.0), crate::theme::RADIUS, egui::Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
     }
-    p.text(pos2(r.left() + crate::widgets::PAD_L, r.center().y), Align2::LEFT_CENTER, title, t.semibold(12.5), t.text);
+    p.text(pos2(r.left() + crate::widgets::PAD_L, r.center().y), Align2::LEFT_CENTER, title, t.semibold(crate::widgets::SECTION_TITLE), t.text);
     let chevron = Rect::from_center_size(pos2(r.right() - crate::widgets::PAD_R - 8.0, r.center().y), vec2(12.0, 12.0));
     paint(p, chevron, if open { Icon::ChevronDown } else { Icon::ChevronRight }, t.icon);
     if resp.clicked() {
@@ -577,6 +575,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         step: 1.0,
         decimals: 0,
         track: lightcraft_develop::Track::Plain,
+        shade: lightcraft_develop::Shade::Plain,
     };
     let sliders = [
         (plain("ui.removeSize", "Size", 1.0, 250.0, 20.0), "size", (app.ui.remove_size * 1000.0) as f64),
@@ -658,6 +657,7 @@ fn remove(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         step: 1.0,
         decimals: 0,
         track: lightcraft_develop::Track::Plain,
+        shade: lightcraft_develop::Shade::Plain,
     };
     let out = slider(ui, &spec, app.ui.spots_threshold as f64, app.ui.visualize_spots, None);
     if let Some(v) = out.value {
@@ -1004,7 +1004,7 @@ fn info(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
 fn camera_card(ui: &mut egui::Ui, p: &lightcraft_catalog::Photo) {
     let t = Tokens::get(ui.ctx());
     let m = &p.meta;
-    egui::Frame::NONE.fill(t.canvas).corner_radius(6.0).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
+    egui::Frame::NONE.fill(t.canvas).corner_radius(crate::theme::RADIUS_PANEL).inner_margin(egui::Margin::symmetric(12, 10)).show(ui, |ui| {
         ui.set_width(ui.available_width());
         let dim = |s: &str| egui::RichText::new(s.to_string()).size(12.0).color(t.text_label);
         if !m.camera.is_empty() {
@@ -1016,7 +1016,7 @@ fn camera_card(ui: &mut egui::Ui, p: &lightcraft_catalog::Photo) {
         ui.horizontal(|ui| {
             ui.label(dim(&format!("{} × {}  ·  {}", p.width, p.height, human_size(p.file_size))));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                egui::Frame::NONE.fill(t.chrome).corner_radius(3.0).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| {
+                egui::Frame::NONE.fill(t.chrome).corner_radius(crate::theme::RADIUS).inner_margin(egui::Margin::symmetric(5, 1)).show(ui, |ui| {
                     ui.label(egui::RichText::new(p.format.to_uppercase()).size(10.5).color(t.text_label));
                 });
             });
@@ -1466,7 +1466,7 @@ fn versions(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             register(ui.ctx(), format!("version:{i}"), r);
             let current = *v.settings == *p.develop;
             if resp.hovered() {
-                ui.painter().rect_filled(r, 4.0, t.hover.gamma_multiply(0.7));
+                ui.painter().rect_filled(r, crate::theme::RADIUS, t.hover.gamma_multiply(0.7));
             }
             // thumbnail of the version's look
             let tr = Rect::from_min_size(r.min + vec2(4.0, 5.0), vec2(72.0, 48.0));
@@ -1579,9 +1579,9 @@ fn activity(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             register(ui.ctx(), format!("history:{i}"), r);
             let row = history_row(i, cursor);
             if row == HistoryRow::Current {
-                ui.painter().rect_filled(r, 3.0, t.pressed);
+                ui.painter().rect_filled(r, crate::theme::RADIUS, t.pressed);
             } else if resp.hovered() {
-                ui.painter().rect_filled(r, 3.0, t.hover);
+                ui.painter().rect_filled(r, crate::theme::RADIUS, t.hover);
             }
             let (icon, text) = if row == HistoryRow::Undone { (t.text_disabled, t.text_disabled) } else { (t.icon, t.text_label) };
             paint(ui.painter(), Rect::from_min_size(r.min + vec2(0.0, 4.0), vec2(16.0, 16.0)), Icon::Clock, icon);

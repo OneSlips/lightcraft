@@ -122,6 +122,7 @@ const REL_TEMP: ControlSpec = ControlSpec {
     step: 1.0,
     decimals: 0,
     track: Track::Temp,
+    shade: lightcraft_develop::Shade::Plain,
 };
 const REL_TINT: ControlSpec = ControlSpec {
     id: "wb.tintRel",
@@ -133,6 +134,7 @@ const REL_TINT: ControlSpec = ControlSpec {
     step: 1.0,
     decimals: 0,
     track: Track::Tint,
+    shade: lightcraft_develop::Shade::Plain,
 };
 
 fn k_to_rel(k: f64) -> f64 {

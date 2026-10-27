@@ -156,10 +156,10 @@ fn row_sensed(
     let edge = r.right().min(visible_right);
     let inner = Rect::from_min_max(r.min + vec2(8.0, 0.0), pos2((r.right() - 8.0).min(edge - 8.0).max(r.left() + 8.0), r.bottom()));
     if selected {
-        ui.painter().rect_filled(inner, 4.0, t.canvas);
+        ui.painter().rect_filled(inner, crate::theme::RADIUS, t.canvas);
         register(ui.ctx(), format!("highlight:{id}"), inner);
     } else if resp.hovered() {
-        ui.painter().rect_filled(inner, 4.0, t.hover.gamma_multiply(0.6));
+        ui.painter().rect_filled(inner, crate::theme::RADIUS, t.hover.gamma_multiply(0.6));
     }
     paint(
         ui.painter(),
@@ -478,7 +478,7 @@ fn section_header(app: &mut LightcraftApp, ui: &mut egui::Ui, section: SidebarSe
     let hovered = resp.hovered() && app.ui.dragging_section.is_none();
     if hovered {
         let bar = Rect::from_min_max(r.min + vec2(8.0, 2.0), pos2((edge - 8.0).max(r.left() + 8.0), r.bottom() - 2.0));
-        ui.painter().rect_filled(bar, 4.0, t.hover.gamma_multiply(0.6));
+        ui.painter().rect_filled(bar, crate::theme::RADIUS, t.hover.gamma_multiply(0.6));
     }
     let c = pos2(r.left() + 10.0, r.center().y);
     register(ui.ctx(), format!("{widget}Chevron:{id}"), Rect::from_center_size(c, vec2(16.0, 16.0)));
