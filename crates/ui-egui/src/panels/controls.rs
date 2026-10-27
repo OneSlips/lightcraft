@@ -18,8 +18,8 @@ use ls::settings::OsdPosition;
 use ls::{Binding, PageGroup};
 use serde_json::{Value, json};
 
-use super::settings::{check, choices, heading, hint, row};
 use crate::LightcraftApp;
+use crate::dialogs::settings::{check, choices, heading, hint, row};
 use crate::i18n::tr;
 use crate::theme::Tokens;
 use crate::widgets::register;
