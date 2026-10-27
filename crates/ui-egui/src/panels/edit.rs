@@ -311,10 +311,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 app.ui.toggle_flyout("sdrRendition");
             }
             if open {
-                for c in ["hdr.sdrBrightness", "hdr.sdrContrast", "hdr.sdrHighlights", "hdr.sdrShadows", "hdr.sdrWhites", "hdr.sdrClarity"] {
-                    control(app, ui, d, c, true);
-                }
-                ui.add_space(3.0);
+                crate::widgets::slider_group(ui, "sdrRendition", |ui| {
+                    for c in ["hdr.sdrBrightness", "hdr.sdrContrast", "hdr.sdrHighlights", "hdr.sdrShadows", "hdr.sdrWhites", "hdr.sdrClarity"] {
+                        control(app, ui, d, c, true);
+                    }
+                    ui.add_space(3.0);
+                });
             }
         }
         let open = app.ui.flyout_open("curve");
@@ -322,7 +324,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             app.ui.toggle_flyout("curve");
         }
         if open {
-            curve_editor(app, ui, id, d);
+            crate::widgets::slider_group(ui, "curve", |ui| {
+                curve_editor(app, ui, id, d);
+            });
         }
         ui.add_space(4.0);
     });
@@ -383,14 +387,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             app.ui.toggle_flyout("mixer");
         }
         if open {
-            mixer(app, ui, d);
+            crate::widgets::slider_group(ui, "mixer", |ui| {
+                mixer(app, ui, d);
+            });
         }
         let open = app.ui.flyout_open("grading");
         if flyout_row(ui, "grading", crate::i18n::tr("Color Grading"), Icon::Presets, open).clicked() {
             app.ui.toggle_flyout("grading");
         }
         if open {
-            grading(app, ui, d, id);
+            crate::widgets::slider_group(ui, "grading", |ui| {
+                grading(app, ui, d, id);
+            });
         }
         ui.add_space(4.0);
     });
@@ -527,19 +535,21 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             app.ui.toggle_flyout("defringe");
         }
         if open {
-            sub_title(ui, crate::i18n::tr("Purple"));
-            control(app, ui, d, "optics.defringePurple", true);
-            let on = d.optics.defringe_purple_amount > 0.0;
-            control(app, ui, d, "optics.defringePurpleHueLo", on);
-            control(app, ui, d, "optics.defringePurpleHueHi", on);
-            sub_title(ui, crate::i18n::tr("Green"));
-            control(app, ui, d, "optics.defringeGreen", true);
-            let on = d.optics.defringe_green_amount > 0.0;
-            control(app, ui, d, "optics.defringeGreenHueLo", on);
-            control(app, ui, d, "optics.defringeGreenHueHi", on);
-            sub_title(ui, crate::i18n::tr("Lateral Chromatic Aberration"));
-            control(app, ui, d, "optics.caRed", true);
-            control(app, ui, d, "optics.caBlue", true);
+            crate::widgets::slider_group(ui, "defringe", |ui| {
+                sub_title(ui, crate::i18n::tr("Purple"));
+                control(app, ui, d, "optics.defringePurple", true);
+                let on = d.optics.defringe_purple_amount > 0.0;
+                control(app, ui, d, "optics.defringePurpleHueLo", on);
+                control(app, ui, d, "optics.defringePurpleHueHi", on);
+                sub_title(ui, crate::i18n::tr("Green"));
+                control(app, ui, d, "optics.defringeGreen", true);
+                let on = d.optics.defringe_green_amount > 0.0;
+                control(app, ui, d, "optics.defringeGreenHueLo", on);
+                control(app, ui, d, "optics.defringeGreenHueHi", on);
+                sub_title(ui, crate::i18n::tr("Lateral Chromatic Aberration"));
+                control(app, ui, d, "optics.caRed", true);
+                control(app, ui, d, "optics.caBlue", true);
+            });
         }
         ui.add_space(4.0);
     });

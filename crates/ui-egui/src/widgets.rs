@@ -370,6 +370,25 @@ pub(crate) fn begin_slider_group(ui: &Ui, id: &str) {
     ui.data_mut(|d| d.insert_temp(group_slot(ui.layer_id()), (egui::Id::new(("slider-names", id)), pass)));
 }
 
+/// Draws `body` as a slider group of its own (a flyout such as Color Grading or the Color Mixer):
+/// its names get their own column, so a few long ones ("Highlights Luminance") neither shorten the
+/// tracks of the section around it nor move them as it opens and closes. The section's group
+/// carries on after it.
+pub(crate) fn slider_group<R>(ui: &mut Ui, id: &str, body: impl FnOnce(&mut Ui) -> R) -> R {
+    let slot = group_slot(ui.layer_id());
+    let outer = ui.data(|d| d.get_temp::<(egui::Id, u64)>(slot));
+    begin_slider_group(ui, id);
+    let out = body(ui);
+    ui.data_mut(|d| {
+        if let Some(g) = outer {
+            d.insert_temp(slot, g);
+        } else {
+            d.remove::<(egui::Id, u64)>(slot);
+        }
+    });
+    out
+}
+
 /// The width of the name column of the slider group being drawn: the longest name in it, as
 /// measured over this pass and the one before (a group's rows below this one count once they have
 /// been drawn), so a section's tracks start together just after its longest name.
