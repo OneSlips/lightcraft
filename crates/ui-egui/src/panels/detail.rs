@@ -48,8 +48,9 @@ use info::{
     preview_only_pill, quick_name,
 };
 pub(crate) use info::{draw_focus_point, failed_pill, loupe_pill, rendering_overdue};
+use look_ahead::BEHIND;
 pub use look_ahead::LookAhead;
-use look_ahead::{BEHIND, look_ahead};
+pub(crate) use look_ahead::look_ahead;
 use masks::{RegionEdit, color_range_pick, mask_overlay, region_overlay};
 use retouch::{eye_overlay, remove_overlay};
 pub(crate) use window::overlay_supports_window;
@@ -547,13 +548,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
         }
     }
-    app.loupe_shown = Some((id, shown));
-    app.loupe_timing.observe(id, shown, now);
-    // the camera's own JPEG is on screen, not LightCraft's rendering of the raw: say so, so colour
-    // and tone are not judged on it (PERF-CULL-4; Lightroom Classic badges its embedded previews)
-    if shown == "embedded" || (shown == "thumb" && app.session.embedded_thumb_is_final(&photo)) {
-        camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
-    }
     // a wipe shows the Before whole-frame render on its side of the line…
     let line = crate::region::wipe_line(img_rect, canvas);
     if app.ui.before_after == BeforeAfter::Split
@@ -590,8 +584,15 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let clip = crate::region::window_clip(mode, v.before, v.visible, canvas, img_rect);
         window_drawn |= draw_window(&p.with_clip_rect(clip), app, &window_ctx, v, view);
     }
-    if camera_full_drawn && !window_drawn {
-        app.loupe_shown = Some((id, "embedded"));
+    // what is on screen is settled once the window renders are drawn: the camera JPEG at full size
+    // stands in for the whole-frame render until a window covers it
+    let shown = if camera_full_drawn && !window_drawn { "embedded" } else { shown };
+    app.loupe_shown = Some((id, shown));
+    app.loupe_timing.observe(id, shown, now);
+    // the camera's own JPEG is on screen, not LightCraft's rendering of the raw: say so (once), so
+    // colour and tone are not judged on it (PERF-CULL-4; Lightroom Classic badges its embedded
+    // previews). Not over a window render, which is LightCraft's own.
+    if !window_drawn && (shown == "embedded" || (shown == "thumb" && app.session.embedded_thumb_is_final(&photo))) {
         camera_preview_badge(ui, canvas, img_rect.intersect(canvas));
     }
     if let Some((bg, g)) = before_badge {
