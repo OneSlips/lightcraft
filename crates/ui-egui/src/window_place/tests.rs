@@ -643,3 +643,17 @@ fn the_window_is_maximized_once_it_shows_and_again_if_it_only_says_so() {
     let mut s = StartPlace::new(false);
     assert_eq!(s.step(&big, 0.0, 2.0), vec![C::InnerSize(egui::vec2(864.0, 486.0))]);
 }
+
+/// A screen smaller than the window's minimum (800 × 600 beside a 900 pt minimum): the window is fitted within it
+/// and the minimum is lowered to it, so it never asks for more than the screen (CodeRabbit on #2974).
+#[test]
+fn a_window_on_a_screen_smaller_than_its_minimum_fits_within_the_screen() {
+    use egui::ViewportCommand as C;
+    let mut s = StartPlace::new(false);
+    let small = Seen { size: Some([900.0, 560.0]), screen: Some([800.0, 600.0]), ..Default::default() };
+    assert_eq!(s.step(&small, 0.0, 1.0), vec![C::MinInnerSize(egui::vec2(800.0, 560.0)), C::InnerSize(egui::vec2(800.0, 560.0))]);
+    // a screen the minimum fits on keeps the minimum
+    let mut s = StartPlace::new(false);
+    let big = Seen { size: Some([3000.0, 2000.0]), screen: Some([1920.0, 1080.0]), ..Default::default() };
+    assert_eq!(s.step(&big, 0.0, 1.0), vec![C::InnerSize(egui::vec2(1728.0, 972.0))]);
+}

@@ -382,12 +382,20 @@ impl StartPlace {
         let shown = *self.shown.get_or_insert(now);
         if !self.maximize {
             self.done = true;
-            // remembered larger than this screen: fitted to it
+            // remembered larger than this screen: fitted to it, and never larger than it (a screen smaller than
+            // the window's minimum lowers the minimum to the screen)
             if !seen.zoomed && (size[0] > screen[0] + SAME_WITHIN || size[1] > screen[1] + SAME_WITHIN) {
-                let fit = [(screen[0] * FIT_TO_SCREEN).max(MIN_SIZE[0]), (screen[1] * FIT_TO_SCREEN).max(MIN_SIZE[1])];
-                // (`seen` is in the system's points, the command in the interface's)
+                let side = |i: usize| (screen[i] * FIT_TO_SCREEN).max(MIN_SIZE[i]).min(screen[i]);
+                let fit = [side(0), side(1)];
+                // (`seen` is in the system's points, the commands in the interface's)
                 let zoom = if zoom.is_finite() && zoom > 0.0 { zoom } else { 1.0 };
-                return vec![egui::ViewportCommand::InnerSize(egui::vec2(fit[0] / zoom, fit[1] / zoom))];
+                let mut told = Vec::new();
+                if screen[0] < MIN_SIZE[0] || screen[1] < MIN_SIZE[1] {
+                    let min = [MIN_SIZE[0].min(screen[0]), MIN_SIZE[1].min(screen[1])];
+                    told.push(egui::ViewportCommand::MinInnerSize(egui::vec2(min[0] / zoom, min[1] / zoom)));
+                }
+                told.push(egui::ViewportCommand::InnerSize(egui::vec2(fit[0] / zoom, fit[1] / zoom)));
+                return told;
             }
             return Vec::new();
         }
