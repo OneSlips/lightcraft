@@ -375,10 +375,40 @@ pub fn caps_lock_from(events: &[egui::Event]) -> Option<bool> {
     seen
 }
 
+/// Ctrl+V (and ⇧Ctrl+V) when the system clipboard holds no text (empty, a screenshot, a copied
+/// file): the windowing layer turns the press into a Paste event only when there is text to
+/// paste, and otherwise drops it, so the paste shortcuts did nothing until some text was copied
+/// (test notes 2026-10-27 notes 6/7: paste "didn't work about 5 times, then worked"). Its release
+/// still arrives: a V released with Ctrl / ⌘ held whose press never came is that press. Returns
+/// the modifiers it was pressed with. The state lives across frames (press and release may come
+/// in different frames).
+pub(crate) fn orphan_paste(ctx: &egui::Context) -> Option<Modifiers> {
+    let id = egui::Id::new("shortcuts-paste-pressed");
+    let mut pressed = ctx.data(|d| d.get_temp::<bool>(id)).unwrap_or(false);
+    let mut orphan = None;
+    ctx.input(|i| {
+        for e in &i.events {
+            match e {
+                egui::Event::Paste(_) | egui::Event::Key { key: Key::V, pressed: true, .. } => pressed = true,
+                egui::Event::Key { key: Key::V, pressed: false, modifiers, .. } => {
+                    if !pressed && modifiers.command {
+                        orphan = Some(*modifiers);
+                    }
+                    pressed = false;
+                }
+                _ => {}
+            }
+        }
+    });
+    ctx.data_mut(|d| d.insert_temp(id, pressed));
+    orphan
+}
+
 pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     if let Some(on) = ctx.input(|i| caps_lock_from(&i.events)) {
         app.ui.caps_lock = on;
     }
+    let orphan = orphan_paste(ctx);
     if !matches!(app.ui.dialog, Some(crate::state::Dialog::Shortcuts)) {
         app.recording_shortcut = None;
     }
@@ -392,6 +422,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     // don't steal keys from text fields or from the keymap editor recording a shortcut
     if keyboard_owned(app, ctx) || app.recording_shortcut.is_some() || app.ui.name_edit.is_some() {
         return;
+    }
+    // a paste key press the windowing layer dropped (no text on the clipboard): run it as one
+    if let Some(modifiers) = orphan {
+        ctx.input_mut(|i| i.events.push(egui::Event::Key { key: Key::V, physical_key: None, pressed: true, repeat: false, modifiers }));
     }
     let mut fire: Vec<String> = Vec::new();
     // shortcuts the native menu bar handles (it consumes those key presses itself)
@@ -481,13 +515,12 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         }
     };
     for (id, params) in aliased {
-        // zoomed in with a tool in use (a tool panel, or a picker armed): Space is the hand that
-        // pans, held while dragging, so it doesn't zoom out from under it
+        // a tool in use (a tool panel, or a picker armed): Space is the hand, held while dragging
+        // (pans) or clicking (zooms there, note 8), so pressing it doesn't zoom by itself
         if id == "view.zoomToggle"
             && app.ui.slideshow.is_none()
             && app.ui.view == crate::state::ViewMode::Detail
             && (app.ui.right.is_tool() || !app.ui.tool.is_empty())
-            && crate::panels::detail::zoomed_in(app)
         {
             continue;
         }

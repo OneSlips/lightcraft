@@ -607,7 +607,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), continue?: bool (the stroke being painted, sent again as it grows: it replaces the mask's last stroke, so Auto Mask shows live), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, so the stroke shows live), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
             has_active,
             |s, p| {
                 let pts: Vec<Point> = p
@@ -637,6 +637,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 let exists = want.is_some_and(|m| s.active().and_then(|id| s.develop_of(id)).is_some_and(|d| d.masks.iter().any(|x| x.id == m)));
                 let adjust = if exists { LocalAdjustments::default() } else { super::mask_effects::new_mask_adjust(s, "brush") };
                 let again = bool_or(p, "continue", false);
+                let target = optional_index(p, "component", "mask.brushStroke")?;
+                if target.is_some() && !exists {
+                    return Err(bad("mask.brushStroke", "`component` needs an existing mask"));
+                }
                 let mut out = masks_edit(s, "mask.brushStroke", "Brush", |masks, active| {
                     let i = match want.and_then(|m| masks.iter().position(|x| x.id == m)) {
                         Some(i) => i,
@@ -647,9 +651,17 @@ pub fn specs() -> Vec<CommandSpec> {
                         }
                     };
                     let m = &mut masks[i];
-                    if let Some(MaskComponent { shape: MaskShape::Brush { strokes }, .. }) =
-                        m.components.iter_mut().rev().find(|c| matches!(c.shape, MaskShape::Brush { .. }))
-                    {
+                    // the Brush component armed on the photo (note 10: strokes and erasing go into
+                    // THAT component, Add or Subtract), else the mask's last one
+                    let chosen = match target {
+                        Some(k) => match m.components.get_mut(k) {
+                            Some(c) if matches!(c.shape, MaskShape::Brush { .. }) => Some(c),
+                            Some(_) => return Err(bad("mask.brushStroke", format!("component {k} is not a Brush"))),
+                            None => return Err(bad("mask.brushStroke", format!("no component {k}"))),
+                        },
+                        None => m.components.iter_mut().rev().find(|c| matches!(c.shape, MaskShape::Brush { .. })),
+                    };
+                    if let Some(MaskComponent { shape: MaskShape::Brush { strokes }, .. }) = chosen {
                         // the previous stroke's end and its brush values (not its points)
                         let anchor = strokes.last().filter(|_| connect && !again).and_then(|l| {
                             Some((

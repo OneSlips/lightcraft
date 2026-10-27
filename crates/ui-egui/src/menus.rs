@@ -349,6 +349,8 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("osd.settings", "Overlay Settings", None, ""),
     ("osd.mode", "Overlay: What It Shows", None, ""),
     ("osd.state", "Overlay State", None, ""),
+    // the selected mask's component edited on the photo (its tree row clicked): `{id?, component}`
+    ("mask.editComponent", "Edit Mask Component", None, ""),
 ];
 
 fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str) {
@@ -1502,6 +1504,21 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "view.colorMixer" => color_mixer_layout(app, p),
+        "mask.editComponent" => {
+            let mid = match p.get("id").filter(|v| !v.is_null()) {
+                Some(v) => v.as_u64().and_then(|v| u32::try_from(v).ok()).ok_or("mask.editComponent: `id` must be a mask id"),
+                None => app.session.active_mask.ok_or("mask.editComponent: no mask selected"),
+            };
+            let k = p
+                .get("component")
+                .and_then(Value::as_u64)
+                .and_then(|v| usize::try_from(v).ok())
+                .ok_or("mask.editComponent: `component` must be a component index");
+            match (mid, k) {
+                (Ok(mid), Ok(k)) => crate::panels::masking::edit_component(app, mid, k),
+                (Err(e), _) | (_, Err(e)) => Err(e.to_string()),
+            }
+        }
         "panel.close" => {
             app.ui.right = RightPanel::None;
             app.ui.presets = false;
@@ -1544,7 +1561,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 "brush" | "linear" | "radial" => {
                     // A new mask, or Add / Subtract (selection operations, not the brush's Erase
                     // mode), is made by the first stroke or drag on the photo: armed here, never an
-                    // empty mask. Without either, the brush paints into the selected mask.
+                    // empty mask.
                     let op = if p.get("new").and_then(Value::as_bool) == Some(true) {
                         Some("new".to_string())
                     } else {
@@ -1552,13 +1569,30 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     };
                     app.ui.right = RightPanel::Masking;
                     app.ui.view = ViewMode::Detail;
-                    app.ui.tool = tool.into();
-                    app.ui.mask_new = match op {
-                        Some(op) => Some((tool.to_string(), op)),
-                        // the linear / radial tools without a mask to edit: draw a new one
-                        None if tool != "brush" || app.session.active_mask.is_none() => Some((tool.to_string(), "new".to_string())),
-                        None => None,
-                    };
+                    // the brush without either, on a selected mask that has a Brush component:
+                    // armed on that component (its active one, else its last Brush), so strokes
+                    // add to it (test notes 2026-10-27 note 10)
+                    let photo = app.session.active();
+                    let d = photo.and_then(|id| app.session.develop_of(id)).unwrap_or_default();
+                    let brush_comp = app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid)).and_then(|m| {
+                        let is_brush = |k: usize| m.components.get(k).is_some_and(|c| matches!(c.shape, lightcraft_develop::MaskShape::Brush { .. }));
+                        let k = crate::panels::masking::active_component(app, m)
+                            .filter(|k| is_brush(*k))
+                            .or_else(|| (0..m.components.len()).rev().find(|k| is_brush(*k)))?;
+                        Some((m.id, k))
+                    });
+                    match (op, brush_comp) {
+                        (None, Some((mid, k))) if tool == "brush" => {
+                            return Some(crate::panels::masking::edit_component(app, mid, k));
+                        }
+                        // otherwise a new mask (one mode at a time, note 9: the tool doesn't edit
+                        // the selected mask), or Add / Subtract on it
+                        (op, _) => {
+                            crate::panels::masking::disarm(app);
+                            app.ui.tool = tool.into();
+                            app.ui.mask_new = Some((tool.to_string(), op.unwrap_or_else(|| "new".to_string())));
+                        }
+                    }
                     if tool == "brush" {
                         app.ui.brush_erase = false;
                     }

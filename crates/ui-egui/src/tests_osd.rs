@@ -204,3 +204,27 @@ fn the_overlay_stays_off_the_photo_while_a_tool_is_in_use() {
     assert_eq!(h.app.widgets.iter().filter(|(w, _)| w == "osd:surface").count(), 1, "one overlay");
     assert_eq!(shown(&mut h)["value"], "+0.70");
 }
+
+/// Test notes 2026-10-27 notes 6/7: a brush armed in Masking stayed armed after Masking was
+/// toggled off, so for a stretch the overlay never showed (copy, paste and every other change
+/// looked ignored) and back in Masking a pin drag painted instead of moving the pin. Leaving
+/// Masking now puts the brush away, and the next change shows.
+#[test]
+fn leaving_masking_with_the_brush_armed_lets_the_overlay_show_again() {
+    let mut h = demo();
+    open(&mut h, 1);
+    run(&mut h, "tool.brush", json!({"new": true}));
+    h.settle(T);
+    assert_eq!(h.app.ui.right, RightPanel::Masking);
+    assert_eq!(h.app.ui.tool, "brush");
+    // the Masking panel toggled off (its tool-strip button, M again)
+    run(&mut h, "panel.masking", json!({}));
+    h.settle(T);
+    assert_ne!(h.app.ui.right, RightPanel::Masking);
+    assert!(h.app.ui.tool.is_empty(), "the brush was put away: {:?}", h.app.ui.tool);
+    run(&mut h, "develop.copy", json!({}));
+    run(&mut h, "develop.set", json!({"control": "light.exposure", "value": 0.4}));
+    h.step();
+    h.step();
+    assert!(widget(&h, "osd:surface").is_some(), "the change shows");
+}

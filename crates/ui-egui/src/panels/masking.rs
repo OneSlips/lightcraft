@@ -721,6 +721,18 @@ pub(crate) fn keep_selection(app: &mut LightcraftApp) {
     let in_masks = app.ui.right == crate::state::RightPanel::Masking;
     let d = photo.and_then(|id| app.session.develop_of(id)).unwrap_or_default();
     let has = |id: u32| d.masks.iter().any(|m| m.id == id);
+    one_mode(app, photo.map(|p| p.0), in_masks, &d);
+    // a mask selected (its row, pin or a command) while a tool waits for a new mask: the tool is
+    // put away and the mask stays selected (note 9: one mode at a time)
+    if in_masks
+        && arming_new(app)
+        && app.session.active_mask.is_some_and(has)
+        && photo.is_some_and(|p| app.ui.mask_before_arm.is_some_and(|(q, _)| q == p.0))
+        && app.ui.mask_new.as_ref().is_some_and(|(_, op)| op == "new")
+    {
+        disarm(app);
+        app.ui.mask_before_arm = None;
+    }
     let armed = in_masks && arming_new(app);
     if armed {
         if let Some(p) = photo
@@ -747,6 +759,99 @@ pub(crate) fn keep_selection(app: &mut LightcraftApp) {
         app.ui.mask_memory.insert(p, id);
         app.ui.mask_last = Some((p, id));
     }
+}
+
+/// The on-photo tools that belong to Masking (armed from its panel or a shortcut).
+pub(crate) fn is_mask_tool(tool: &str) -> bool {
+    matches!(tool, "brush" | "linear" | "radial" | "colorRange" | "lumRange" | "object") || tool == super::mask_local::PICK_TOOL
+}
+
+/// Put every mask tool away: a tool waiting for a new mask, and the brush armed on a component.
+pub(crate) fn disarm(app: &mut LightcraftApp) {
+    if is_mask_tool(&app.ui.tool) {
+        app.ui.tool.clear();
+    }
+    app.ui.mask_new = None;
+    app.ui.brush_on = None;
+}
+
+/// One mode at a time (test notes 2026-10-27 note 9), checked every frame whatever changed it:
+/// leaving Masking, the photo or Edit puts the mask tools away (coming back never finds one
+/// armed); the brush without a new mask armed paints only into the Brush component it was armed
+/// on, of the selected mask, so selecting another mask (or the component going away) puts it
+/// away rather than letting it paint into whatever is selected.
+fn one_mode(app: &mut LightcraftApp, photo: Option<u64>, in_masks: bool, d: &lightcraft_develop::DevelopSettings) {
+    use crate::state::ViewMode;
+    let left_edit = matches!(app.ui.view, ViewMode::PhotoGrid | ViewMode::SquareGrid | ViewMode::People);
+    let other_photo = app.ui.mask_seen.is_some_and(|(seen, _)| seen != photo);
+    // (Colour Range's eyedropper also samples from Edit)
+    let armed = (is_mask_tool(&app.ui.tool) && app.ui.tool != "colorRange") || app.ui.mask_new.is_some() || app.ui.brush_on.is_some();
+    if armed && (!in_masks || left_edit || other_photo) {
+        disarm(app);
+        return;
+    }
+    if app.ui.tool != "brush" || app.ui.mask_new.is_some() {
+        app.ui.brush_on = None;
+        return;
+    }
+    let is_brush = |mid: u32, k: usize| {
+        d.masks.iter().find(|m| m.id == mid).and_then(|m| m.components.get(k)).is_some_and(|c| matches!(c.shape, MaskShape::Brush { .. }))
+    };
+    match app.ui.brush_on {
+        Some((p, mid, k)) if Some(p) == photo && app.session.active_mask == Some(mid) && is_brush(mid, k) => {}
+        // armed on another mask (or a component gone): put away
+        Some(_) => disarm(app),
+        // the brush armed without a component (a script, an older path): on the selected mask's
+        // Brush (its active one, else its last), else for a new mask
+        None => {
+            let target = app.session.active_mask.and_then(|mid| d.masks.iter().find(|m| m.id == mid)).and_then(|m| {
+                let k =
+                    active_component(app, m).filter(|k| is_brush(m.id, *k)).or_else(|| (0..m.components.len()).rev().find(|k| is_brush(m.id, *k)))?;
+                Some((m.id, k))
+            });
+            match (photo, target) {
+                (Some(p), Some((mid, k))) => {
+                    app.ui.brush_on = Some((p, mid, k));
+                    app.ui.mask_component = Some((p, mid, k));
+                }
+                _ => app.ui.mask_new = Some(("brush".into(), "new".into())),
+            }
+        }
+    }
+}
+
+/// The selected mask `m`'s active component (note 10): the one chosen in its tree, else its last.
+pub(crate) fn active_component(app: &LightcraftApp, m: &lightcraft_develop::Mask) -> Option<usize> {
+    let photo = app.session.active().map(|p| p.0);
+    match app.ui.mask_component {
+        Some((p, mid, k)) if Some(p) == photo && mid == m.id && k < m.components.len() => Some(k),
+        _ => m.components.len().checked_sub(1),
+    }
+}
+
+/// `mask.editComponent`: make component `k` of mask `mid` the one edited on the photo (note 10):
+/// any tool is put away, the mask is selected, and only that component's controls show; a Brush
+/// component arms the brush on it (strokes add to it, erasing takes from it, by its own Add or
+/// Subtract).
+pub(crate) fn edit_component(app: &mut LightcraftApp, mid: u32, k: usize) -> Result<serde_json::Value, String> {
+    let photo = app.session.active().ok_or("mask.editComponent: no photo")?;
+    let d = app.session.develop_of(photo).unwrap_or_default();
+    let m = d.masks.iter().find(|m| m.id == mid).ok_or_else(|| format!("mask.editComponent: no mask {mid}"))?;
+    let c = m.components.get(k).ok_or_else(|| format!("mask.editComponent: mask {mid} has no component {k}"))?;
+    let brush = matches!(c.shape, MaskShape::Brush { .. });
+    disarm(app);
+    app.ui.mask_before_arm = None;
+    if app.session.active_mask != Some(mid) {
+        app.run("mask.select", serde_json::json!({"id": mid}))?;
+    }
+    app.ui.mask_component = Some((photo.0, mid, k));
+    if brush {
+        app.ui.right = crate::state::RightPanel::Masking;
+        app.ui.tool = "brush".into();
+        app.ui.brush_on = Some((photo.0, mid, k));
+        app.ui.brush_erase = false;
+    }
+    Ok(serde_json::json!({"mask": mid, "component": k, "brush": brush}))
 }
 
 /// The mask entering Masks on photo `p` (with `masks`) lands on ([`keep_selection`]).
@@ -952,7 +1057,9 @@ fn tile_active(app: &LightcraftApp, kind: &str) -> bool {
         "concept" => app.ui.concept_pick && app.ui.mask_pick_op.is_none(),
         "landscape" => app.ui.landscape_pick && app.ui.mask_pick_op.is_none(),
         "prompt" => app.ui.describe.as_ref().is_some_and(|(op, _)| op == "new"),
-        k => app.ui.tool == k,
+        // a tile is pressed while its tool waits for a NEW mask, not while the brush paints into
+        // a selected mask's component (note 10)
+        k => app.ui.tool == k && (app.ui.brush_on.is_none() || app.ui.mask_new.is_some()),
     }
 }
 

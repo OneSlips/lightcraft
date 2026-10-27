@@ -959,6 +959,16 @@ pub struct UiState {
     /// putting the tool away without making a mask selects it again (test notes 2026-10-25 note 9).
     #[serde(skip)]
     pub mask_before_arm: Option<(u64, Option<u32>)>,
+    /// The selected mask's active component (photo, mask, index): the only one whose handles or
+    /// pin show and move on the photo (test notes 2026-10-27 note 10). Unset or stale: the mask's
+    /// last component ([`crate::panels::masking::active_component`]).
+    #[serde(skip)]
+    pub mask_component: Option<(u64, u32, usize)>,
+    /// The Brush component the brush is armed on (photo, mask, index): strokes and erasing go into
+    /// it. Only while `tool` is "brush" and no new mask is armed (`mask_new`); any other selection
+    /// puts the brush away (note 9: one mode at a time).
+    #[serde(skip)]
+    pub brush_on: Option<(u64, u32, usize)>,
     pub mask_overlay_mode: String,
     pub mask_overlay_color: [u8; 3],
     pub mask_overlay_opacity: f32,
@@ -1923,6 +1933,8 @@ impl Default for UiState {
             mask_last: None,
             mask_seen: None,
             mask_before_arm: None,
+            mask_component: None,
+            brush_on: None,
             mask_overlay_mode: "color".into(),
             mask_overlay_color: [230, 30, 40],
             mask_overlay_opacity: 50.0,

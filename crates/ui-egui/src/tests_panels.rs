@@ -103,7 +103,9 @@ fn assert_inside_right_panel(h: &Headless, what: &str) {
 #[test]
 fn masking_contents_fit_the_right_panel_at_any_width() {
     let mut h = demo([1400.0, 900.0], json!({"view": "detail", "right": "masking"}));
-    for (kind, op) in [("subject", None), ("linear", None), ("luminanceRange", Some("subtract")), ("radial", Some("intersect"))] {
+    for (kind, op) in
+        [("subject", None), ("linear", None), ("luminanceRange", Some("subtract")), ("radial", Some("intersect")), ("brush", Some("add"))]
+    {
         let (command, params) = match op {
             None => ("mask.add", json!({"kind": kind})),
             Some(op) => ("mask.addComponent", json!({"kind": kind, "op": op})),
@@ -138,6 +140,7 @@ fn masking_contents_fit_the_right_panel_at_any_width() {
         }
         let (name, row) = (widget(&h, "maskName:1"), widget(&h, "mask:1"));
         assert!(name.right() <= row.right() - 27.0, "width {width}: the name {name:?} runs under the eye of {row:?}");
+        // (the brush armed on the selected mask's Brush component: note 10 of 2026-10-27)
         for (selected, tool) in [(false, ""), (true, ""), (true, "brush")] {
             let mask = if selected { json!(2) } else { serde_json::Value::Null };
             h.request("engine.execute", json!({"command": "mask.select", "params": {"id": mask}}), T);
