@@ -164,12 +164,24 @@ fn drop_keyword(app: &mut LightcraftApp, ctx: &egui::Context, keyword: &str, par
     }
 }
 
+/// A keyword's path as it is read out: on one line, as its name is painted.
+fn spoken_path(path: &str) -> String {
+    lightcraft_catalog::keywords::one_line(path).into_owned()
+}
+
+/// A keyword's path as its row's hover text shows it: on one line, levels joined by ›.
+fn hover_path(path: &str) -> String {
+    spoken_path(path).replace('|', " › ")
+}
+
 /// One keyword's row: the triangle, the tick box, the name, the count, and on hover the arrow.
 /// `can_fold`: the triangle opens and closes the level (not while a filter opens it).
 fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, r: &Row, selection: &[PhotoId], ticks: &Ticks, can_fold: bool) {
     let t = Tokens::get(ui.ctx());
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click_and_drag());
-    crate::widgets::announce(&resp, r.path.clone());
+    // what is read out and hovered shows the path on one line, as the name is painted
+    let visible_path = spoken_path(&r.path);
+    crate::widgets::announce(&resp, visible_path.clone());
     register(ui, format!("keywordRow:{}", r.path), rect);
     if resp.drag_started() {
         app.ui.dragging_keyword = Some(r.path.clone());
@@ -211,7 +223,7 @@ fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, r: &Row, selection: &[PhotoId
     // (it senses drags too, so a press there that moves doesn't pick the keyword up)
     let sense = if on { Sense::click_and_drag() } else { Sense::hover() };
     let tb = ui.interact(boxr.expand(3.0), egui::Id::unique(("keyword-list-tick", r.path.to_lowercase())), sense);
-    crate::widgets::announce(&tb, format!("{} {}", crate::i18n::tr("Keyword"), r.path));
+    crate::widgets::announce(&tb, format!("{} {}", crate::i18n::tr("Keyword"), visible_path));
     register(ui, format!("keywordCheck:{}", r.path), boxr);
     let edge = if on { t.text_label } else { t.text_dim.gamma_multiply(0.5) };
     match state {
@@ -283,7 +295,7 @@ fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, r: &Row, selection: &[PhotoId
         ui.painter().circle_filled(dot.center(), 3.0, t.accent);
         register(ui, format!("keywordDefault:{}", r.path), dot);
     }
-    let resp = resp.on_hover_text(r.path.replace('|', " › "));
+    let resp = resp.on_hover_text(hover_path(&r.path));
     if resp.clicked() {
         app.ui.keyword_list_selected = Some(r.path.clone());
     }
@@ -611,6 +623,17 @@ mod tests {
     use lightcraft_catalog::{Op, Photo, Source};
 
     use super::*;
+
+    /// A path holding line breaks (CR, LF, U+2028, U+2029) is read out and hovered on one line, as its
+    /// name is painted (CodeRabbit on #2922).
+    #[test]
+    fn a_keyword_path_with_line_breaks_is_read_and_hovered_on_one_line() {
+        let path = "Wedding|Bride\r\nGroom\u{2028}Guests\u{2029}Cake";
+        let breaks = |s: &str| s.contains(['\r', '\n', '\u{2028}', '\u{2029}']);
+        assert!(!breaks(&spoken_path(path)), "{:?}", spoken_path(path));
+        assert!(!breaks(&hover_path(path)), "{:?}", hover_path(path));
+        assert!(hover_path(path).starts_with("Wedding › Bride"), "{:?}", hover_path(path));
+    }
 
     fn library(keywords: &[&[&str]]) -> (Catalog, Vec<PhotoId>) {
         let mut c = Catalog::new();
