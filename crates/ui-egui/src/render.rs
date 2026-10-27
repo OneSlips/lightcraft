@@ -653,16 +653,18 @@ impl Renderer {
             let key = held(self, s);
             if key.is_none_or(|k| wanted.get(&k).is_none_or(|&edge| !self.ahead_covers(s, edge))) {
                 self.textures.remove(&s);
-                self.quick_tried.remove(&s);
                 // a job already running: its result is thrown away when it arrives (not left as a
-                // hidden stand-in), unless the loupe is waiting for just that one (a step to the photo)
+                // hidden stand-in), unless the loupe is waiting for just that one (a step to the
+                // photo): then the slot stays reserved for it until it arrives
                 let preview_edge = self.quick_edge.get(&Slot::Preview).copied().unwrap_or(0);
                 let loupe_waits =
                     key.is_some_and(|k| self.pending.get(&Slot::Preview).is_some_and(|p| p.0 == k)) && self.ahead_covers(s, preview_edge);
-                if !self.drop_queued(s) && !loupe_waits {
-                    self.pending.remove(&s);
-                    self.requests.remove(&s);
+                if !self.drop_queued(s) && loupe_waits {
+                    continue;
                 }
+                self.quick_tried.remove(&s);
+                self.pending.remove(&s);
+                self.requests.remove(&s);
                 free.push(s);
             }
         }
@@ -1942,6 +1944,62 @@ mod thumbnail_tests {
         app.renderer.look_ahead(Vec::new(), 96);
         drop(held);
         wait(&mut app, &|r| r.textures.get(&Slot::Preview).is_some_and(|t| t.photo == PhotoId(2)), "the loupe never got its stand-in");
+    }
+
+    /// The loupe waits for a stand-in made ahead that is still being made when the next look-ahead
+    /// brings new photos: its slot stays reserved, so the result still reaches the loupe (CodeRabbit
+    /// on #3055 and #3080).
+    #[test]
+    fn a_running_stand_in_the_loupe_waits_for_keeps_its_slot() {
+        // the first camera preview read (photo 2's, made ahead) waits for `first`, every later one
+        // for `later`
+        let first = Arc::new(std::sync::Mutex::new(()));
+        let later = Arc::new(std::sync::Mutex::new(()));
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut s = Session::new();
+        let (f, l, c) = (first.clone(), later.clone(), calls.clone());
+        s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
+            let gate = if c.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 { &f } else { &l };
+            drop(gate.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
+            Some(lightcraft_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
+        }));
+        let raw = |id: u64| {
+            let mut p = Photo::new(PhotoId(id), Source::File { path: format!("r{id}.cr3") }, &format!("r{id}.cr3"), "CR3", 6000, 4000, "2026-01-01");
+            p.kind = lightcraft_catalog::MediaKind::Raw;
+            p.develop = Arc::new(p.camera_defaults());
+            p
+        };
+        let (mut app, _, ctx) = fixture_with(s, raw(1));
+        for id in 2..=3 {
+            app.session.catalog.apply(Op::AddPhoto { photo: Box::new(raw(id)) }).unwrap();
+        }
+        app.renderer.pool = JobPool::new(4);
+        let wait = |app: &mut crate::LightcraftApp, done: &dyn Fn(&Renderer) -> bool, what: &str| {
+            let t0 = std::time::Instant::now();
+            while !done(&app.renderer) {
+                assert!(t0.elapsed() < std::time::Duration::from_secs(20), "{what}");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                app.renderer.poll(&ctx, &mut app.session);
+            }
+        };
+        let held_first = first.lock().unwrap();
+        let held_later = later.lock().unwrap();
+        let job = quick(&mut app, 2, 64);
+        app.renderer.look_ahead(vec![job], 96);
+        wait(&mut app, &|r| r.pool.queued() == 0, "photo 2's stand-in never started");
+        wait(&mut app, &|_| calls.load(std::sync::atomic::Ordering::SeqCst) == 1, "photo 2's preview was never read");
+        // the step to photo 2, then the next look-ahead, for photos 3 and 1
+        let job = quick(&mut app, 2, 64);
+        app.renderer.request_quick(Slot::Preview, job, 110);
+        assert!(app.renderer.is_pending(Slot::Preview));
+        let jobs = vec![quick(&mut app, 3, 64), quick(&mut app, 1, 64)];
+        app.renderer.look_ahead(jobs, 96);
+        let done = app.renderer.completed;
+        drop(held_first);
+        wait(&mut app, &|r| r.completed > done, "photo 2's stand-in never finished");
+        assert_eq!(app.renderer.textures.get(&Slot::Preview).map(|t| t.photo), Some(PhotoId(2)), "the loupe lost the stand-in it waited for");
+        drop(held_later);
+        wait(&mut app, &|r| r.pool.queued() == 0 && !r.pending.keys().any(|s| matches!(s, Slot::QuickAhead(_))), "the look-ahead never finished");
     }
 
     /// The stand-in made ahead still shows when the loupe's own request for it failed first
