@@ -106,10 +106,9 @@ impl crate::Session {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         // the source as these settings develop it: another camera profile (or none) decodes anew
         let mut p = (**self.catalog.photo(id)?).clone();
-        if self.media.camera_profile_of(&p).map(|c| c.0) != {
-            p.develop = Arc::new(settings.clone());
-            self.media.camera_profile_of(&p).map(|c| c.0)
-        } {
+        let own_profile = self.media.camera_profile_of(&p).map(|c| c.0);
+        p.develop = Arc::new(settings.clone());
+        if self.media.camera_profile_of(&p).map(|c| c.0) != own_profile {
             job.source = self.media.source_ref(&p, job.level);
         }
         job.settings = Arc::new(settings.clone());

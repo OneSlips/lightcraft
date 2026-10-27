@@ -114,7 +114,12 @@ fn load_bytes_now(
         let kept_tone = match dcp {
             Some(p) if p.color.profile.tone_curve.is_none() => raw.color.profile.tone_curve.as_ref().and_then(dng_tone_curve).or_else(|| {
                 let own = raw.color.clone();
-                let tone = crate::camera_preview::starting_colour(&mut raw, &bytes, lens_geometry.as_ref(), lens.as_ref()).2.map(|look| look.tone);
+                // the same proxy as the starting colour's fit below: the DNG's lens opcodes back in, no embedded lens
+                let tone = with_dng_lens_ops(&mut raw, dng_lens_ops.as_ref(), lens.as_ref(), list3, |raw, embedded| {
+                    crate::camera_preview::starting_colour(raw, &bytes, lens_geometry.as_ref(), embedded)
+                })
+                .2
+                .map(|look| look.tone);
                 raw.color = own;
                 tone
             }),
@@ -131,14 +136,9 @@ fn load_bytes_now(
         // the source's segmentation mattes (DNG semantic masks), read while the starting colour is fitted
         let ((xy, t, camera_look), mattes) = rayon::join(
             || {
-                let removed = dng_lens_ops.map(|ops| std::mem::replace(&mut raw.opcodes.list3, ops));
-                // With the opcodes restored, the proxy already includes vignetting; do not apply it twice.
-                let embedded = if removed.is_some() { None } else { lens.as_ref() };
-                let colour = crate::camera_preview::starting_colour(&mut raw, &bytes, lens_geometry.as_ref(), embedded);
-                if let Some(ops) = removed {
-                    raw.opcodes.list3 = ops;
-                }
-                colour
+                with_dng_lens_ops(&mut raw, dng_lens_ops.as_ref(), lens.as_ref(), list3, |raw, embedded| {
+                    crate::camera_preview::starting_colour(raw, &bytes, lens_geometry.as_ref(), embedded)
+                })
             },
             || dng_mattes(&bytes, &info),
         );
@@ -381,4 +381,55 @@ pub(crate) fn dng_tone_curve(curve: &lightcraft_raw::profile::ToneCurve) -> Opti
         [x, curve.eval(x).min(0.9995)]
     });
     lightcraft_pipeline::tone::CameraTone::new(knots)
+}
+
+/// A raw's `OpcodeList3`.
+fn list3(raw: &mut lightcraft_raw::RawImage) -> &mut Vec<lightcraft_raw::Opcode> {
+    &mut raw.opcodes.list3
+}
+
+/// `fit(raw, embedded)` with a DNG's lens opcodes `ops` back in `raw`'s `OpcodeList3` (`list3`), as its preview has
+/// them applied, and the list as it was afterwards. With the opcodes restored the proxy already includes the
+/// vignetting, so `embedded` is `None` then (else `lens`): every tone fit of one photo sees the same proxy.
+fn with_dng_lens_ops<R, L, T>(
+    raw: &mut R,
+    ops: Option<&Vec<lightcraft_raw::Opcode>>,
+    lens: Option<&L>,
+    list3: fn(&mut R) -> &mut Vec<lightcraft_raw::Opcode>,
+    fit: impl FnOnce(&mut R, Option<&L>) -> T,
+) -> T {
+    let removed = ops.map(|ops| std::mem::replace(list3(raw), ops.clone()));
+    let embedded = if removed.is_some() { None } else { lens };
+    let out = fit(raw, embedded);
+    if let Some(ops) = removed {
+        *list3(raw) = ops;
+    }
+    out
+}
+
+#[cfg(test)]
+mod lens_ops_tests {
+    use lightcraft_raw::Opcode;
+
+    use super::with_dng_lens_ops;
+
+    fn same(v: &mut Vec<Opcode>) -> &mut Vec<Opcode> {
+        v
+    }
+
+    /// Both tone fits of a DNG (the kept tone for a camera profile without a curve, and the starting colour) see its
+    /// lens opcodes restored and no embedded lens; the list is as it was afterwards (CodeRabbit on #1063: the
+    /// kept-tone fit ran without the opcodes and with the embedded lens).
+    #[test]
+    fn a_dngs_tone_fit_sees_its_lens_opcodes_and_no_embedded_lens() {
+        let vignette = Opcode::FixVignetteRadial { k: [0.1, 0.0, 0.0, 0.0, 0.0], center: [0.5, 0.5] };
+        let ops = vec![vignette.clone()];
+        let mut list: Vec<Opcode> = Vec::new();
+        let lens = 7;
+        let seen = with_dng_lens_ops(&mut list, Some(&ops), Some(&lens), same, |l, embedded| (l.clone(), embedded.copied()));
+        assert_eq!(seen, (vec![vignette], None), "the opcodes are in, the embedded lens is not");
+        assert!(list.is_empty(), "the list is as it was");
+        let seen = with_dng_lens_ops(&mut list, None, Some(&lens), same, |l, embedded| (l.len(), embedded.copied()));
+        assert_eq!(seen, (0, Some(7)), "without DNG lens opcodes the embedded lens is used");
+    }
 }
