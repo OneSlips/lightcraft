@@ -59,8 +59,10 @@ pub(crate) fn begin(app: &mut LightcraftApp, start: lensfun_download::Start, mir
 /// Download the database into `dir` from `mirrors` (the offer's Download, Settings' button): remembered as the
 /// user's yes, shown in the activity stack, and read once it is in place.
 pub(crate) fn download(app: &mut LightcraftApp, dir: &std::path::Path, mirrors: Vec<String>) -> Result<(), String> {
+    lens_refresh::start_download(&mut app.session, dir, mirrors, lensfun_download::FILES)?;
+    // a yes only once it started: a download that couldn't start isn't fetched again at the next start
     app.ui.settings.lens_database = lensfun_download::Offer::Accepted;
-    lens_refresh::start_download(&mut app.session, dir, mirrors, lensfun_download::FILES)
+    Ok(())
 }
 
 /// Settings' Download Lens Database: into the app's own folder, from the usual mirrors.

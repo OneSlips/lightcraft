@@ -68,6 +68,34 @@ fn sync_and_presets_keep_each_photos_own_profile() {
     assert_eq!(lens_of(&s, a), Some(lens(-0.05)));
 }
 
+/// A batch of results gives each probed photo's profile to that photo and to its own virtual copies, never to the
+/// copies of a photo that wasn't probed.
+#[test]
+fn each_result_reaches_its_photos_virtual_copies_and_no_others() {
+    let mut s = Session::new();
+    for p in [raw(1, "50mm F1.8", false), raw(2, "50mm F1.8", false), raw(3, "50mm F1.8", false)] {
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    }
+    for (id, of) in [(11, 1), (12, 1), (21, 2), (31, 3)] {
+        let mut copy = raw(id, "50mm F1.8", false);
+        copy.copy_of = Some(PhotoId(of));
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(copy) }).unwrap();
+    }
+    let probed = [1, 2].map(|id| {
+        let m = crate::cmd::lens_refresh::Missing { id: PhotoId(id), path: format!("/photos/{id}.cr3") };
+        (m, Ok(crate::media::ProbeInfo { embedded_lens: Some(lens(-0.01)), ..Default::default() }))
+    });
+    let mut found = crate::cmd::lens_refresh::apply(&mut s, probed.into()).unwrap();
+    found.sort();
+    assert_eq!(found, [1, 2, 11, 12, 21].map(PhotoId), "each probed photo and its own copies");
+    for id in [1, 2, 11, 12, 21] {
+        assert!(s.catalog.photo(PhotoId(id)).unwrap().embedded_lens.is_some(), "photo {id} gets the profile");
+    }
+    for id in [3, 31] {
+        assert!(s.catalog.photo(PhotoId(id)).unwrap().embedded_lens.is_none(), "photo {id} wasn't probed: unchanged");
+    }
+}
+
 /// A raw in a library folder, as an older import left it: no lens data.
 fn raw(id: u64, lens_name: &str, edited: bool) -> Photo {
     let mut p =

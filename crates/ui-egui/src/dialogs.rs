@@ -1417,7 +1417,8 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool) {
         match confirm_dialog(app, &dlg) {
             // the import review stays open on an error (e.g. an unusable folder template), and so
             // does Export (e.g. no folder chosen) so the choices aren't lost, and Edit Capture Time
-            // (a time that isn't a date, or a shift it refuses)
+            // (a time that isn't a date, or a shift it refuses), and the lens database offer (a download that can't
+            // start: Download again or Not Now)
             Err(e)
                 if matches!(
                     dlg,
@@ -1434,6 +1435,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context, blocked: bool) {
                         | Dialog::SynchronizeFolder { .. }
                         | Dialog::SaveEffect { .. }
                         | Dialog::CaptureTime { .. }
+                        | Dialog::LensDatabase { .. }
                 ) =>
             {
                 app.toast(ctx, e)

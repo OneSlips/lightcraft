@@ -110,3 +110,36 @@ fn a_headless_app_never_offers_or_fetches() {
         assert_eq!(app.session.lensfun.state(), lensfun_download::State::Idle);
     }
 }
+
+/// A download that can't start keeps the offer open with a toast saying why (Download again or Not Now), from its
+/// Download button and from `ui.dialog.confirm`, and isn't remembered as a yes.
+#[test]
+fn a_download_that_cannot_start_keeps_the_offer_open_and_says_why() {
+    use crate::headless::Headless;
+    let t = std::time::Duration::from_secs(20);
+    let app = LightcraftApp::new(Session::with_demo(), Services { png: None, ..Default::default() });
+    let mut h = Headless::new(app, [1300.0, 900.0], 1.0);
+    h.step();
+    let root = std::env::temp_dir().join(format!("lc-lens-offer-fail-{}", std::process::id()));
+    // no place to download from: the start is refused
+    let refused = Dialog::LensDatabase { dir: root.join("lensfun").to_string_lossy().into_owned(), mirrors: Vec::new() };
+    let offer_open = |h: &Headless| matches!(h.app.ui.dialog, Some(Dialog::LensDatabase { .. }));
+
+    h.app.ui.settings.lens_database = Offer::Declined;
+    h.app.ui.dialog = Some(refused.clone());
+    h.settle(std::time::Duration::from_secs(10));
+    let r = h.request("ui.clickWidget", serde_json::json!({"id": "button:dialogOk"}), t);
+    assert_eq!(r["ok"], true, "{r}");
+    let toast = h.app.ui.toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+    assert!(toast.contains("no download location"), "Download says why it didn't start: {toast:?}");
+    assert!(offer_open(&h), "the offer stays open: {:?}", h.app.ui.dialog);
+    assert_eq!(h.app.session.lensfun.state(), lensfun_download::State::Idle);
+    assert_eq!(h.app.ui.settings.lens_database, Offer::Declined, "a start that failed isn't a yes");
+
+    // the control channel's confirm keeps it open too
+    let r = h.request("ui.dialog.confirm", serde_json::json!({}), t);
+    assert_eq!(r["ok"], false, "{r}");
+    assert!(offer_open(&h), "the offer stays open after ui.dialog.confirm: {:?}", h.app.ui.dialog);
+    assert_eq!(h.request("ui.dialog.cancel", serde_json::json!({}), t)["ok"], true);
+    assert!(h.app.ui.dialog.is_none(), "Not Now still closes it");
+}

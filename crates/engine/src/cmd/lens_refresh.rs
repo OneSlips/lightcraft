@@ -65,13 +65,20 @@ pub fn apply(s: &mut Session, results: Vec<(Missing, std::result::Result<ProbeIn
     let mut ops = Vec::new();
     let mut found = Vec::new();
     let mut changed = Vec::new();
+    // each photo's virtual copies, gathered once for the whole batch (the catalog doesn't change until it's applied)
+    let mut copies: std::collections::HashMap<PhotoId, Vec<PhotoId>> = std::collections::HashMap::new();
+    for p in s.catalog.photos() {
+        if let Some(original) = p.copy_of {
+            copies.entry(original).or_default().push(p.id);
+        }
+    }
     for (item, info) in results {
         let Ok(info) = info else { continue };
         // the photo moved or left the library while its file was read: the result is stale, for its copies too
         if s.catalog.photo(item.id).and_then(|p| crate::cmd::missing::checked_path(p)) != Some(item.path.as_str()) {
             continue;
         }
-        let family: Vec<PhotoId> = s.catalog.photos().filter(|p| p.id == item.id || p.copy_of == Some(item.id)).map(|p| p.id).collect();
+        let family = std::iter::once(item.id).chain(copies.get(&item.id).into_iter().flatten().copied());
         for id in family {
             let Some(p) = s.catalog.photo(id) else { continue };
             // nothing found for a photo without a database profile: a file's own correction is Reload's business
