@@ -261,7 +261,7 @@ fn top_bar(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.label(RichText::new(tr("Profile")).color(t.text_label));
         let names: Vec<String> = app.surface.settings().profiles.iter().map(|p| p.name.clone()).collect();
         let current = app.surface.settings().profile.clone();
-        let r = egui::ComboBox::from_id_salt("surfaceProfile").selected_text(&current).width(140.0).show_ui(ui, |ui| {
+        let r = craft_ui::ComboBox::from_id_salt("surfaceProfile").selected_text(&current).width(140.0).show_ui(ui, |ui| {
             for n in &names {
                 if ui.selectable_label(*n == current, n).clicked() && *n != current {
                     let _ = app.run("surface.profile", json!({"profile": n}));
@@ -419,7 +419,7 @@ fn layout_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max_h:
         if !tools.is_empty() {
             let is_tool = tools.iter().any(|p| p.name == page_key);
             let text = if is_tool { page_key.clone() } else { tr("Tool pages").to_string() };
-            let r = egui::ComboBox::from_id_salt("surfaceToolPage").selected_text(text).show_ui(ui, |ui| {
+            let r = craft_ui::ComboBox::from_id_salt("surfaceToolPage").selected_text(text).show_ui(ui, |ui| {
                 for p in &tools {
                     if ui.selectable_label(p.name == page_key, &p.name).clicked() {
                         app.surface.editor.page = Some(p.name.clone());
@@ -523,7 +523,7 @@ fn loupedeck_section(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens, max
         if !found.is_empty() {
             let mut pick = ui.ctx().data(|d| d.get_temp::<usize>(egui::Id::unique("surfaceLoupedeckPick"))).unwrap_or(0).min(found.len() - 1);
             ui.label(RichText::new(tr("Loupedeck profile")).color(t.text_label));
-            let r = egui::ComboBox::from_id_salt("surfaceLoupedeckProfile").selected_text(found[pick].0.clone()).width(240.0).show_ui(ui, |ui| {
+            let r = craft_ui::ComboBox::from_id_salt("surfaceLoupedeckProfile").selected_text(found[pick].0.clone()).width(240.0).show_ui(ui, |ui| {
                 for (i, (name, path)) in found.iter().enumerate() {
                     if ui.selectable_label(i == pick, name).on_hover_text(path.to_string_lossy()).clicked() {
                         pick = i;
@@ -1315,7 +1315,7 @@ fn contexts(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     for (key, label) in ls::context::KNOWN {
         let current = profile.contexts.get(*key).and_then(|l| l.first()).cloned();
         row(ui, t, label, |ui| {
-            let r = egui::ComboBox::from_id_salt(format!("surfaceContext-{key}"))
+            let r = craft_ui::ComboBox::from_id_salt(format!("surfaceContext-{key}"))
                 .selected_text(current.clone().unwrap_or_else(|| "—".into()))
                 .show_ui(ui, |ui| {
                     if ui.selectable_label(current.is_none(), "—").clicked() {
@@ -1609,7 +1609,7 @@ fn feel(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let target = app.surface.editor.tuning_target.clone();
     let label = ls::targets::target_spec(&target).map_or(target.clone(), |s| tr(s.label).to_string());
     row(ui, t, "Value", |ui| {
-        let r = egui::ComboBox::from_id_salt("surfaceTuningTarget").selected_text(label).show_ui(ui, |ui| {
+        let r = craft_ui::ComboBox::from_id_salt("surfaceTuningTarget").selected_text(label).show_ui(ui, |ui| {
             for s in ls::targets::all_targets() {
                 if ui.selectable_label(s.id == target, format!("{} — {}", tr(s.group), tr(s.label))).clicked() {
                     app.surface.editor.tuning_target = s.id.clone();
