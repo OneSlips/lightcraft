@@ -98,6 +98,12 @@ impl ScanInput {
     pub(crate) fn library(&self) -> std::sync::Arc<lightcraft_catalog::Catalog> {
         std::sync::Arc::clone(&self.library)
     }
+
+    /// The probes of earlier scans this input took from the session ([`ScanInput::new`]), to hand back with a
+    /// scan's output that probes nothing itself (browsing), so a later import doesn't read those files again.
+    pub fn take_probes(&mut self) -> HashMap<String, ProbeInfo> {
+        std::mem::take(&mut self.cache)
+    }
 }
 
 /// What browsing a folder (Local) has to read: the files of `files` the library has no photo at,
@@ -106,10 +112,20 @@ impl ScanInput {
 /// screen of a 3,000-raw wedding shows within a second instead of after every file was read
 /// (measured on 2,933 EOS R5 C CR3s: 30.6 s to the first photo before).
 pub fn browse_queue(input: &ScanInput, files: Vec<String>, sort: &lightcraft_catalog::Sort) -> Vec<String> {
+    browse_queue_until(input, files, sort, &std::sync::atomic::AtomicBool::new(false)).unwrap_or_default()
+}
+
+/// [`browse_queue`] that stops reading the files' times or sizes once `cancel` is set (another folder was
+/// chosen): `None` then.
+pub fn browse_queue_until(
+    input: &ScanInput,
+    files: Vec<String>,
+    sort: &lightcraft_catalog::Sort,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Option<Vec<String>> {
     let known = library_files(&input.library, &files);
     let mut files: Vec<String> = files.into_iter().filter(|f| !known.contains_key(Path::new(f))).collect();
-    browse_order(&mut files, sort);
-    files
+    browse_order_until(&mut files, sort, cancel).then_some(files)
 }
 
 /// The files browsing `root` (Local) lists: the supported, non-hidden files in it, or below it
@@ -152,15 +168,28 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
 /// ([`lightcraft_catalog::Sort::order`]); new photos tie on rating too. Random keeps the given order. Files whose
 /// time or size can't be read go last.
 pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
+    browse_order_until(files, sort, &std::sync::atomic::AtomicBool::new(false));
+}
+
+/// [`browse_order`] that stops reading the files' times or sizes once `cancel` is set: `false` then, and
+/// `files` is left as it was.
+fn browse_order_until(files: &mut [String], sort: &lightcraft_catalog::Sort, cancel: &std::sync::atomic::AtomicBool) -> bool {
     use lightcraft_catalog::SortKey;
     use lightcraft_catalog::query::cmp_name;
     use std::cmp::Ordering;
+    use std::sync::atomic::Ordering::Relaxed;
     let asc = sort.ascending;
     let name = |f: &str| Path::new(f).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let directed = |o: Ordering| if asc { o } else { o.reverse() };
     // `key` per file (`None`: unreadable, last in either direction), then the name, in the view's direction
     let by_key = |files: &mut [String], key: &dyn Fn(&str) -> Option<u64>| {
-        let mut keyed: Vec<(Option<u64>, String, String)> = files.iter().map(|f| (key(f), name(f), f.clone())).collect();
+        let mut keyed: Vec<(Option<u64>, String, String)> = Vec::with_capacity(files.len());
+        for f in files.iter() {
+            if cancel.load(Relaxed) {
+                return false;
+            }
+            keyed.push((key(f), name(f), f.clone()));
+        }
         keyed.sort_by(|a, b| match (a.0, b.0) {
             (Some(x), Some(y)) => directed(x.cmp(&y).then_with(|| cmp_name(&a.1, &b.1))),
             (Some(_), None) => Ordering::Less,
@@ -170,6 +199,7 @@ pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
         for (slot, (_, _, f)) in files.iter_mut().zip(keyed) {
             *slot = f;
         }
+        true
     };
     match sort.key {
         SortKey::CaptureDate => by_key(files, &|f| {
@@ -179,9 +209,10 @@ pub fn browse_order(files: &mut [String], sort: &lightcraft_catalog::Sort) {
         }),
         SortKey::ImportDate | SortKey::EditDate | SortKey::Rating | SortKey::FileName => {
             files.sort_by(|a, b| directed(cmp_name(&name(a), &name(b))));
+            !cancel.load(Relaxed)
         }
         SortKey::FileSize => by_key(files, &|f| std::fs::metadata(f).ok().map(|m| m.len())),
-        SortKey::Random => {}
+        SortKey::Random => !cancel.load(Relaxed),
     }
 }
 

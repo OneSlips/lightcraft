@@ -203,6 +203,29 @@ fn browsing_queues_unknown_files_in_the_order_the_view_shows_them() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Choosing another folder while a browse orders its files (`cancel` set) stops the ordering: no queue comes
+/// back, and nothing more is read (CodeRabbit on #3055). Browsing hands back the probes of earlier scans it took.
+#[test]
+fn a_cancelled_browse_stops_ordering_and_keeps_earlier_probes() {
+    use lightcraft_catalog::{Sort, SortKey};
+    use std::sync::atomic::AtomicBool;
+    let dir = temp_dir("browse-cancel");
+    write_png(&dir.join("a.png"), 1);
+    write_png(&dir.join("b.png"), 2);
+    let files: Vec<String> = ["a.png", "b.png"].iter().map(|n| dir.join(n).to_string_lossy().to_string()).collect();
+    let mut s = Session::new().with_fs();
+    s.import_probes.insert(files[0].clone(), crate::media::ProbeInfo { file_size: 1, ..Default::default() });
+    let (mut input, _) = crate::import::ScanInput::new(&mut s, &[]);
+    for key in [SortKey::CaptureDate, SortKey::FileSize, SortKey::FileName, SortKey::Random] {
+        let sort = Sort { key, ..Sort::default() };
+        assert_eq!(crate::import::browse_queue_until(&input, files.clone(), &sort, &AtomicBool::new(true)), None, "{key:?}");
+        assert_eq!(crate::import::browse_queue_until(&input, files.clone(), &sort, &AtomicBool::new(false)).map(|q| q.len()), Some(2), "{key:?}");
+    }
+    let probes = input.take_probes();
+    assert!(probes.contains_key(&files[0]), "the earlier scan's probe comes back");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Browsing a folder with its subfolders lists nothing inside the library's own folder (the
 /// import that follows would read it as photos), as the import's scan skips it.
 #[test]
