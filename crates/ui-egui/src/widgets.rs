@@ -507,6 +507,14 @@ fn name_column(ui: &Ui, name_w: f32) -> f32 {
 /// it, or the wheel after clicking it, to nudge it; ↑ / ↓ nudge a hovered or focused slider. A
 /// value at its default is dim, a changed one bright.
 pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_override: Option<&str>) -> SliderOut {
+    slider_named(ui, spec, value, enabled, label_override, label_override)
+}
+
+/// [`slider`] showing the name `shown` (or the spec's) while screen readers announce `spoken` (or
+/// the spec's): a short name under a caption ("Amount" under Grain) only makes sense to the eye,
+/// so assistive tools get the control's full name ("Grain").
+pub fn slider_named(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, shown: Option<&str>, spoken: Option<&str>) -> SliderOut {
+    let label_override = shown;
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (row, _) = ui.allocate_exact_size(vec2(w, t.slider_row_h), Sense::hover());
@@ -515,6 +523,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     // (a hostile value is drawn at the nearest end, never at NaN)
     let value = if value.is_finite() { value } else { spec.default };
     let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
+    let access_name = crate::i18n::tr(spoken.unwrap_or(spec.label)).to_string();
     let font = t.font(ROW_FONT);
     let name_w = ui.painter().layout_no_wrap(label_text.clone(), font.clone(), t.text).size().x.ceil();
     let RowParts { label: label_rect, track: track_rect, value: value_rect } = row_parts(row, name_column(ui, name_w));
@@ -561,7 +570,7 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         wheel_armed = false;
     }
     // screen readers: a slider named after its control, with its value
-    resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, label_text.clone()));
+    resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, access_name.clone()));
     // and its range, step and the value as shown ("+0.50", "5600")
     let shown = shown_value(spec, value);
     ui.ctx().accesskit_node_builder(resp.id, |node| {
@@ -580,12 +589,12 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
     // say how to reset (issue #1436: the double-click was hard to discover), as the curve channels do
     let reset_hint = crate::i18n::tr_format!("{name} — double-click to reset it", name = label_text);
     let label_resp = if enabled { label_resp.on_hover_text(reset_hint.as_str()) } else { label_resp };
-    crate::widgets::announce(&label_resp, crate::i18n::tr_format!("Reset {name}", name = label_text.clone()));
+    crate::widgets::announce(&label_resp, crate::i18n::tr_format!("Reset {name}", name = access_name.clone()));
     register(ui, format!("sliderLabel:{}", spec.id), label_rect);
     register(ui, format!("slider:{}", spec.id), track_rect);
     // the value: click it to type an exact one, drag it sideways to scrub
     let value_resp = ui.interact(value_rect, id.with("value"), if enabled { Sense::click_and_drag() } else { Sense::hover() });
-    crate::widgets::announce(&value_resp, format!("{label_text}: {}", crate::i18n::tr("Click to type a value, drag to change it")));
+    crate::widgets::announce(&value_resp, format!("{access_name}: {}", crate::i18n::tr("Click to type a value, drag to change it")));
     register(ui, format!("sliderValue:{}", spec.id), value_rect);
     // say that an exact value can be typed here (issue #534: an exact crop angle was hard to find)
     let value_resp = if enabled { value_resp.on_hover_text(crate::i18n::tr("Click to type a value, drag to change it")) } else { value_resp };

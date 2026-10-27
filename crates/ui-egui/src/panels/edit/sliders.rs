@@ -23,13 +23,15 @@ pub fn apply_slider_out(
 pub(crate) fn control(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, id: &str, enabled: bool) {
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
-    let out = slider(ui, spec, v, enabled, short_name(id));
+    // (the short name is for the eye; screen readers announce the full one)
+    let out = crate::widgets::slider_named(ui, spec, v, enabled, short_name(id), None);
     apply_slider_out(app, spec, out, |app, v| app.run("develop.set", json!({"control": id, "value": v})));
 }
 
 /// The short name a slider shows under its group's caption (Grain ▸ Amount, Red Primary ▸ Hue,
 /// as Lightroom Classic labels them), so a section's name column stays narrow and its tracks
-/// long. The control keeps its full name everywhere else (commands, the console, menus).
+/// long. The control keeps its full name everywhere else (commands, the console, menus, and what
+/// screen readers announce).
 pub(crate) fn short_name(id: &str) -> Option<&'static str> {
     Some(match id {
         "vignette.amount" | "grain.amount" | "detail.sharpenAmount" | "optics.defringePurple" | "optics.defringeGreen" => "Amount",
