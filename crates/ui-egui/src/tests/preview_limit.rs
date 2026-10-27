@@ -1069,10 +1069,10 @@ mod in_the_loupe {
         h.app.renderer.textures.remove(&Slot::Region);
         h.step();
         assert!(!drawn(&h, Slot::RegionBefore).is_empty(), "the Before window is painted");
-        if !h.app.renderer.textures.contains_key(&Slot::Main) && !h.app.renderer.textures.contains_key(&Slot::Region) {
-            let shown = h.app.loupe_shown.map(|l| l.1);
-            assert_ne!(shown, Some("render"), "the After pane shows a stand-in, not the render");
-        }
+        // (the step must not bring the After pane's render back, or the check below proves nothing)
+        assert!(!h.app.renderer.textures.contains_key(&Slot::Main), "the whole-frame render came back during the step");
+        assert!(!h.app.renderer.textures.contains_key(&Slot::Region), "the After window came back during the step");
+        assert_ne!(h.app.loupe_shown.map(|l| l.1), Some("render"), "the After pane shows a stand-in, not the render");
     }
 
     // Given Before and After side by side at 1:1, each window is painted inside its own pane: its
