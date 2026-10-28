@@ -1024,8 +1024,9 @@ impl Renderer {
         }
     }
 
-    /// Turn finished jobs into textures. Returns true if anything changed.
-    fn collect(&mut self, ctx: &egui::Context, session: &mut Session, inline_ms: f64) -> bool {
+    /// The jobs the pool and the offload finished: (slot, result, texture pixels, look, ms).
+    #[allow(clippy::type_complexity)]
+    fn take_finished(&mut self, inline_ms: f64) -> Vec<(Slot, RenderResult, Option<Arc<egui::ColorImage>>, Option<(u64, bool)>, f64)> {
         let mut finished = Vec::new();
         while let Some(done) = self.pool.try_recv() {
             finished.push((done.slot, done.result.result, done.result.color, done.result.look, if done.ms > 0.0 { done.ms } else { inline_ms }));
@@ -1036,6 +1037,12 @@ impl Renderer {
                 (slot, r, None, look, ms)
             }));
         }
+        finished
+    }
+
+    /// Turn finished jobs into textures. Returns true if anything changed.
+    fn collect(&mut self, ctx: &egui::Context, session: &mut Session, inline_ms: f64) -> bool {
+        let finished = self.take_finished(inline_ms);
         self.dispatch();
         let mut changed = false;
         for (mut slot, mut r, mut color, completed_look, ms) in finished {
