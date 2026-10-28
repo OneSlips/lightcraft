@@ -613,6 +613,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     p => p,
                 };
                 app.ui.right = p;
+                // (a tool shown again this way still closes to the panel before it)
+                app.ui.right_shown_by_f8 = Some(p);
                 if p.is_edit_tool() && !matches!(app.ui.view, ViewMode::Detail) {
                     app.ui.view = ViewMode::Detail;
                 }

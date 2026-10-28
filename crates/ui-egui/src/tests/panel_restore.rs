@@ -194,3 +194,60 @@ fn a_tool_hidden_and_shown_by_f8_still_closes_to_the_panel_before_it() {
     exec(&mut h, "panel.masking");
     assert_eq!(h.app.ui.right, RightPanel::Info, "a panel picked after F8 is what comes back");
 }
+
+/// A tool opened another way on the column F8 hid is not F8 showing a tool again: Info → Crop → F8 → Brush → Done
+/// leaves the column hidden, as it was when the brush was picked (CodeRabbit on #3031).
+#[test]
+fn a_tool_opened_on_the_column_f8_hid_closes_to_the_hidden_column() {
+    let mut h = detail();
+    exec(&mut h, "panel.close");
+    exec(&mut h, "panel.info");
+    exec(&mut h, "panel.crop");
+    exec(&mut h, "view.rightPanel");
+    assert_eq!(h.app.ui.right, RightPanel::None, "F8 hides Crop");
+    exec(&mut h, "tool.brush");
+    assert_eq!(h.app.ui.right, RightPanel::Masking);
+    exec(&mut h, "tool.done");
+    assert_eq!(h.app.ui.right, RightPanel::None, "Info → Crop → F8 → Brush → Done = hidden");
+}
+
+/// A tool opened from another tool keeps where it closes to across F8: Masking → Crop → F8 → F8 → closed = Masking,
+/// and Masking then closes to Edit (CodeRabbit on #3031).
+#[test]
+fn a_nested_tool_hidden_and_shown_by_f8_still_closes_to_the_tool_before_it() {
+    let mut h = detail();
+    for close in ["tool.done", "panel.crop"] {
+        exec(&mut h, "panel.masking");
+        exec(&mut h, "panel.crop");
+        assert_eq!(h.app.ui.right, RightPanel::Crop);
+        exec(&mut h, "view.rightPanel");
+        assert_eq!(h.app.ui.right, RightPanel::None, "F8 hides Crop");
+        exec(&mut h, "view.rightPanel");
+        assert_eq!(h.app.ui.right, RightPanel::Crop, "F8 shows Crop again");
+        exec(&mut h, close);
+        assert_eq!(h.app.ui.right, RightPanel::Masking, "{close}: Masking → Crop → F8 → F8 → closed = Masking");
+        exec(&mut h, "panel.masking");
+        assert_eq!(h.app.ui.right, RightPanel::Edit, "{close}: then Masking closes to Edit");
+    }
+}
+
+/// Toggles nest: Edit → I → K → K → I = Edit, each press taking back exactly the one before it (CodeRabbit on #3031).
+#[test]
+fn nested_panel_toggles_come_back_one_at_a_time() {
+    let mut h = detail();
+    exec(&mut h, "panel.info");
+    exec(&mut h, "panel.keywords");
+    assert_eq!(h.app.ui.right, RightPanel::Keywords);
+    exec(&mut h, "panel.keywords");
+    assert_eq!(h.app.ui.right, RightPanel::Info, "Keywords toggled off: Info again");
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Edit, "Info toggled off: Edit again");
+    // pressing two keys in turn many times keeps a bounded history and still unwinds to a panel
+    for _ in 0..crate::state::TOGGLE_HISTORY {
+        exec(&mut h, "panel.info");
+        exec(&mut h, "panel.keywords");
+    }
+    assert!(h.app.ui.toggle_return.len() <= crate::state::TOGGLE_HISTORY);
+    exec(&mut h, "panel.keywords");
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+}

@@ -50,15 +50,21 @@ pub struct UiState {
     /// The right panel F8 (`view.rightPanel`) hid, which the next F8 shows again.
     #[serde(skip)]
     pub right_hidden: RightPanel,
+    /// The panel F8 just showed again, until [`UiState::note_right`] sees it: a tool coming back this way still closes
+    /// to the panel before it, while a tool opened any other way on a hidden column closes to the hidden column.
+    #[serde(skip)]
+    pub right_shown_by_f8: Option<RightPanel>,
     /// The panel on show before a tool panel ([`RightPanel::is_tool`]) took its place, put back
     /// when the tool closes ([`RightPanel::None`]: the panel was hidden, and stays hidden).
     #[serde(skip)]
     pub tool_return: Option<RightPanel>,
-    /// The panel a toggle (a panel key or button: I, M, R, Q…) opened, with what the right column showed before it
-    /// and that one's [`UiState::tool_return`]: toggling it off puts back exactly that, closed included (test notes
-    /// 2026-10-24 note 21). Forgotten once another panel is shown.
+    /// The panels toggles (a panel key or button: I, M, R, Q…) opened, each with what the right column showed before
+    /// it and that one's [`UiState::tool_return`], the latest last: toggling the panel on show off puts back exactly
+    /// that, closed included (test notes 2026-10-24 note 21), and the one below it is then on show with its own
+    /// record (Edit → I → K → K → I = Edit). Forgotten once another panel is shown (not when F8 hides the panel and
+    /// shows it again). At most [`TOGGLE_HISTORY`] deep.
     #[serde(skip)]
-    pub toggle_return: Option<(RightPanel, RightPanel, Option<RightPanel>)>,
+    pub toggle_return: Vec<(RightPanel, RightPanel, Option<RightPanel>)>,
     /// The panel [`UiState::note_right`] last saw.
     #[serde(skip)]
     pub right_seen: RightPanel,
@@ -366,20 +372,26 @@ pub struct UiState {
     pub print: crate::print_view::PrintUi,
 }
 
+/// How many panel toggles [`UiState::toggle_return`] remembers (pressing I and K in turn would grow it without end).
+pub const TOGGLE_HISTORY: usize = 16;
+
 impl UiState {
     /// Notes the panel on show: a tool panel opened from another panel (or from none) remembers
     /// that one, to put it back when the tool closes; any other panel forgets it.
     pub fn note_right(&mut self) {
+        let shown_by_f8 = self.right_shown_by_f8.take();
         if self.right == self.right_seen {
             return;
         }
-        if self.toggle_return.is_some_and(|(opened, ..)| opened != self.right) {
-            self.toggle_return = None;
+        // F8 hiding the panel a toggle opened keeps its record, for F8 showing it again
+        let f8_hid = |opened: RightPanel| self.right == RightPanel::None && self.right_hidden == opened;
+        if self.toggle_return.last().is_some_and(|&(opened, ..)| opened != self.right && !f8_hid(opened)) {
+            self.toggle_return.clear();
         }
         if self.right.is_tool() {
             // F8 showing a tool it hid: the panel before that tool still holds (`None` is F8's hidden column, not
-            // what the tool came from)
-            let back_from_f8 = self.right_seen == RightPanel::None && self.tool_return.is_some();
+            // what the tool came from). A tool opened another way on the hidden column came from the hidden column.
+            let back_from_f8 = self.right_seen == RightPanel::None && shown_by_f8 == Some(self.right);
             if !self.right_seen.is_tool() && !back_from_f8 {
                 self.tool_return = Some(self.right_seen);
             }
@@ -417,9 +429,13 @@ impl UiState {
             false
         } else {
             let saved = (p, if exposed || self.right != p { self.right } else { RightPanel::None }, self.tool_return);
+            if self.toggle_return.len() >= TOGGLE_HISTORY {
+                self.toggle_return.remove(0);
+            }
+            // (on the history before `note_right` sees `p`: the panel it replaced keeps its own record below it)
+            self.toggle_return.push(saved);
             self.right = p;
             self.note_right();
-            self.toggle_return = Some(saved);
             true
         }
     }
@@ -427,8 +443,11 @@ impl UiState {
     /// What the toggle that opened the panel on show replaced (see [`UiState::toggle_panel`]), with its own tool
     /// memory put back, or `None` when that panel wasn't opened by a toggle.
     fn untoggle(&mut self) -> Option<RightPanel> {
-        let (_, before, tool_return) = self.toggle_return.filter(|(opened, ..)| *opened == self.right)?;
-        self.toggle_return = None;
+        let &(opened, before, tool_return) = self.toggle_return.last()?;
+        if opened != self.right {
+            return None;
+        }
+        self.toggle_return.pop();
         self.tool_return = tool_return;
         // seen already: `note_right` must not take the panel being left for the one this came back from
         self.right_seen = before;
@@ -454,7 +473,8 @@ impl Default for UiState {
             right: RightPanel::Edit,
             right_hidden: RightPanel::None,
             tool_return: None,
-            toggle_return: None,
+            toggle_return: Vec::new(),
+            right_shown_by_f8: None,
             right_seen: RightPanel::Edit,
             presets: false,
             preset_thumbs: false,

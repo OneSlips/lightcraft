@@ -404,7 +404,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                     u.tool_return = app.ui.tool_return;
                     u.right_seen = app.ui.right_seen;
                     // (and what a panel toggle replaced, so pressing its key again still puts that back)
-                    u.toggle_return = app.ui.toggle_return;
+                    u.toggle_return = app.ui.toggle_return.clone();
+                    u.right_shown_by_f8 = app.ui.right_shown_by_f8;
                     u.dialog = app.ui.dialog.clone();
                     u.status = app.ui.status.clone();
                     crate::docking::cancel_replaced_gesture(app, u.docking.as_ref());
