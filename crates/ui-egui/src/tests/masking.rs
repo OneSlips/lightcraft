@@ -2137,3 +2137,26 @@ fn a_refused_live_stroke_does_not_replace_the_previous_stroke() {
     h.app.gesture = None;
     h.settle(SETTLE);
 }
+
+/// Another tool chosen while a live Brush stroke is open (a gradient's key mid-stroke) ends the stroke first: the
+/// new mask is a step of its own, not folded into the "Brush" step (CodeRabbit on #2920).
+#[test]
+fn a_gradient_chosen_mid_stroke_is_its_own_undo_step() {
+    let mut h = detail("panel.masking");
+    h.settle(SETTLE);
+    exec(&mut h, "tool.brush", json!({"new": true}));
+    h.app.ui.brush_auto_mask = false;
+    brush_at(&mut h, 0.2, 0.5);
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.0}}));
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.7}, {"kind": "drag", "x": 0.25, "y": 0.7}, {"kind": "drag", "x": 0.3, "y": 0.7}]));
+    assert!(matches!(h.app.gesture, Some(crate::panels::detail::Gesture::Brush { live: Some(_), .. })), "a live stroke");
+    let masks = develop(&h).masks.len();
+    exec(&mut h, "tool.linear", json!({}));
+    assert!(h.app.gesture.is_none(), "the stroke ended");
+    assert!(h.app.session.interaction.is_none(), "its undo step closed");
+    assert_eq!(develop(&h).masks.len(), masks + 1);
+    exec(&mut h, "edit.undo", json!({}));
+    assert_eq!(develop(&h).masks.len(), masks, "one undo takes the gradient alone");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.7}]));
+    h.settle(SETTLE);
+}

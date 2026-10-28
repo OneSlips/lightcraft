@@ -1011,6 +1011,12 @@ fn ui_commands_8(app: &mut LightcraftApp, _ctx: &egui::Context, id: &str, p: &Va
         }),
         s if s.starts_with("tool.") => {
             let tool = &s["tool.".len()..];
+            // a live Brush stroke ends before another tool takes over: its undo step closes, so a new mask
+            // isn't folded into the "Brush" step
+            if tool != "brush" && matches!(app.gesture, Some(crate::panels::detail::Gesture::Brush { live: Some(_), .. })) {
+                app.gesture = None;
+                let _ = app.run("develop.endInteraction", json!({}));
+            }
             match tool {
                 "none" => app.ui.tool.clear(),
                 "guidedUpright" => {
