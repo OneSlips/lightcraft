@@ -143,8 +143,12 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(job);
+    // the job takes the probes back out of `input`, so it is an FnMut where it runs in place
     #[cfg(target_arch = "wasm32")]
-    job();
+    {
+        let mut job = job;
+        job();
+    }
     let guard = scan_guard(app, &progress, true);
     app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse: true, sources: Vec::new(), guard });
     app.renderer.forget_imports();
