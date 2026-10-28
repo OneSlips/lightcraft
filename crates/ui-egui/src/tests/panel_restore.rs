@@ -284,3 +284,53 @@ fn f8_is_noted_before_the_next_command_of_the_same_frame() {
     }
     assert_eq!(h.app.ui.right, RightPanel::None, "the brush was opened on the hidden column");
 }
+
+/// Info → Remove → F8 → A (Visualize Spots opens Remove again on the hidden column) → Done leaves the column
+/// hidden: F8 kept Remove's record, but this opening is a new one, from the hidden column (CodeRabbit on #3031).
+#[test]
+fn a_tool_hidden_by_f8_and_opened_again_by_a_command_closes_to_the_hidden_column() {
+    let mut h = detail();
+    for command in ["panel.info", "view.visualizeSpots", "view.rightPanel", "view.visualizeSpots"] {
+        h.app.run(command, json!({})).unwrap_or_else(|e| panic!("{command}: {e}"));
+    }
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    h.app.run("tool.done", json!({})).unwrap_or_else(|e| panic!("tool.done: {e}"));
+    assert_eq!(h.app.ui.right, RightPanel::None, "Remove was opened again on the hidden column");
+    // the same steps a frame apart
+    let mut h = detail();
+    for command in ["panel.info", "view.visualizeSpots", "view.rightPanel", "view.visualizeSpots", "tool.done"] {
+        exec(&mut h, command);
+    }
+    assert_eq!(h.app.ui.right, RightPanel::None, "frame by frame");
+}
+
+/// Commands run in one frame (a script, queued shortcuts) each see the panel the one before left: Close Panel →
+/// B → Done keeps the column hidden, and B → A → Done goes back to Masking (CodeRabbit on #3031).
+#[test]
+fn every_command_notes_the_panel_it_leaves_on_show() {
+    let mut h = detail();
+    for command in ["panel.close", "tool.brush", "tool.done"] {
+        h.app.run(command, json!({})).unwrap_or_else(|e| panic!("{command}: {e}"));
+    }
+    assert_eq!(h.app.ui.right, RightPanel::None, "the brush was opened on the hidden column");
+    let mut h = detail();
+    for command in ["tool.brush", "view.visualizeSpots", "tool.done"] {
+        h.app.run(command, json!({})).unwrap_or_else(|e| panic!("{command}: {e}"));
+    }
+    assert_eq!(h.app.ui.right, RightPanel::Masking, "Remove was opened from Masking");
+}
+
+/// `ui.set` changing the panel notes it at once: a tool opened before the next frame closes back to that panel
+/// (CodeRabbit on #3031).
+#[test]
+fn a_panel_set_by_ui_set_is_noted_before_the_next_command() {
+    let mut h = detail();
+    let (req, _rx) = crate::control::ControlRequest::new("ui.set", json!({"right": "info"}));
+    let ctx = h.view.ctx.clone();
+    let _ = crate::control::handle(&mut h.app, &ctx, &req);
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    for command in ["tool.brush", "tool.done"] {
+        h.app.run(command, json!({})).unwrap_or_else(|e| panic!("{command}: {e}"));
+    }
+    assert_eq!(h.app.ui.right, RightPanel::Info, "the brush was opened from Info");
+}

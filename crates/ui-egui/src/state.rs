@@ -379,6 +379,12 @@ impl UiState {
     /// Notes the panel on show: a tool panel opened from another panel (or from none) remembers
     /// that one, to put it back when the tool closes; any other panel forgets it.
     pub fn note_right(&mut self) {
+        self.note_right_from(None);
+    }
+
+    /// [`UiState::note_right`], told which panel a toggle ([`UiState::toggle_panel`]) just opened (its record is
+    /// on the history already).
+    fn note_right_from(&mut self, toggled: Option<RightPanel>) {
         let shown_by_f8 = self.right_shown_by_f8.take();
         if self.right == self.right_seen {
             return;
@@ -388,8 +394,10 @@ impl UiState {
         let back_from_f8 = self.right_seen == RightPanel::None && shown_by_f8 == Some(self.right);
         // A tool opened by a command, not a toggle (B, a mask tool from Crop…), is recorded like a toggle: closing
         // it shows exactly what the column showed before (Info → Crop → B → Done = Crop), and the records below it
-        // stay (Crop closed = Info, I = Edit).
-        let opened_directly = self.right.is_tool() && !back_from_f8 && self.toggle_return.last().is_none_or(|&(opened, ..)| opened != self.right);
+        // stay (Crop closed = Info, I = Edit). That holds when the history already ends with this tool: F8 hiding it
+        // kept its record, and opening it again by a command on the hidden column (Info → Remove → F8 → Visualize
+        // Spots) closes it back to the hidden column, not to Info.
+        let opened_directly = self.right.is_tool() && !back_from_f8 && toggled != Some(self.right);
         if opened_directly {
             if self.toggle_return.len() >= TOGGLE_HISTORY {
                 self.toggle_return.remove(0);
@@ -445,7 +453,7 @@ impl UiState {
             // (on the history before `note_right` sees `p`: the panel it replaced keeps its own record below it)
             self.toggle_return.push(saved);
             self.right = p;
-            self.note_right();
+            self.note_right_from(Some(p));
             true
         }
     }
