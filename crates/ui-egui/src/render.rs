@@ -301,6 +301,9 @@ pub struct Renderer {
     /// A budget other than the memory budget's share (tests).
     #[cfg(test)]
     pub(crate) stage_budget_override: Option<usize>,
+    /// Every render submitted, by slot and photo (tests count what an edit sets off).
+    #[cfg(test)]
+    pub(crate) submitted: Vec<(Slot, PhotoId)>,
     /// The monitor profile textures are made for (`app.displayProfile`; `None`: sRGB).
     display: Option<Arc<lightcraft_engine::display::Display>>,
     /// Since when nothing has been pending, and whether the GPU pool was trimmed since.
@@ -457,6 +460,8 @@ impl Renderer {
             stages_trimmed: 0,
             #[cfg(test)]
             stage_budget_override: None,
+            #[cfg(test)]
+            submitted: Vec::new(),
             display: None,
             #[cfg(not(target_arch = "wasm32"))]
             idle: None,
@@ -665,6 +670,8 @@ impl Renderer {
             return;
         }
         self.pending.insert(slot, (job.key, priority));
+        #[cfg(test)]
+        self.submitted.push((slot, job.photo));
         job.request_id = lightcraft_preview::next_tick();
         self.requests.insert(slot, Requested { id: job.request_id, source: Some(job.origin.clone()) });
         if has_fill(&job.settings) {
@@ -868,6 +875,8 @@ impl Renderer {
         }
         self.prefetched.insert(slot, job.key);
         self.pending.insert(slot, (job.key, priority));
+        #[cfg(test)]
+        self.submitted.push((slot, job.photo));
         job.request_id = lightcraft_preview::next_tick();
         self.requests.insert(slot, Requested { id: job.request_id, source: Some(job.origin.clone()) });
         let key = job.key;

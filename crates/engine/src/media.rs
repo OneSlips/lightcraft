@@ -1619,21 +1619,37 @@ impl QuickJob {
                 return done(rendered(fitted(img)), Some(QuickSource::Cached), want);
             }
         }
-        for (cache, k) in &self.latest {
-            if let Some((img, meta)) = cache.get_latest_with(*k) {
-                let have = placement_from(meta.as_deref());
-                let ok = match (&have, &want) {
-                    (_, None) => true,
-                    (Some(h), Some(w)) => {
-                        crate::placement::may_stand_in(h, w, STAND_IN_SLACK) && crate::placement::fits_shape(h, img.width, img.height)
-                    }
-                    // (made before pictures said where they lie: its crop and look are unknown)
-                    (None, Some(_)) => false,
-                };
-                if ok {
-                    return done(rendered(fitted(img)), Some(QuickSource::Last), have);
-                }
-            }
+        // a latest picture with the look asked for first, then the thumbnail of the photo's settings (built
+        // already), and only then a latest picture with a look close to it: a photo edited since (an Auto
+        // Sync edit) shows its edit at once, never the picture from before it while its thumbnail is there
+        // (test notes 2026-10-28 note 17)
+        let latest: Vec<(Arc<Rgba8>, Option<crate::placement::Placement>)> = self
+            .latest
+            .iter()
+            .filter_map(|(cache, k)| cache.get_latest_with(*k))
+            .map(|(img, meta)| (img, placement_from(meta.as_deref())))
+            .filter(|(img, have)| match (have, &want) {
+                (_, None) => true,
+                (Some(h), Some(w)) => crate::placement::may_stand_in(h, w, STAND_IN_SLACK) && crate::placement::fits_shape(h, img.width, img.height),
+                // (made before pictures said where they lie: its crop and look are unknown)
+                (None, Some(_)) => false,
+            })
+            .collect();
+        let exact = |have: &Option<crate::placement::Placement>| match (have, &want) {
+            (Some(h), Some(w)) => h.look == w.look,
+            _ => true,
+        };
+        if let Some((img, have)) = latest.iter().find(|(_, have)| exact(have)) {
+            return done(rendered(fitted(img.clone())), Some(QuickSource::Last), *have);
+        }
+        if let Some(job) = self.small.as_deref()
+            && let Some((cache, k)) = &job.cache
+            && let Some(img) = cache.get_at(job.cache_generation, *k)
+        {
+            return done(rendered(Arc::unwrap_or_clone(img)), Some(QuickSource::Small), want.or(job.placement));
+        }
+        if let Some((img, have)) = latest.into_iter().next() {
+            return done(rendered(fitted(img)), Some(QuickSource::Last), have);
         }
         if let Some((path, loader, edge, job)) = self.draft.as_ref()
             && let Some(r) = draft_from_camera_jpeg(path, loader, *edge, job)
@@ -2685,6 +2701,35 @@ mod thumbnail_hash_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test notes 2026-10-28 note 17: a photo edited since its last view (an Auto Sync edit, its
+    /// thumbnail built with the edit) steps in with the edit, never with the picture from before it.
+    #[test]
+    fn a_step_shows_the_thumbnail_of_the_edit_before_the_view_from_before_it() {
+        let mut s = crate::Session::with_demo();
+        let id = s.active().unwrap();
+        // an edited photo (an as-shot picture never stands in for an edit at all) seen in the loupe: its
+        // latest view has that look
+        s.execute("develop.set", &serde_json::json!({"values": {"light.contrast": 10}})).unwrap();
+        assert!(s.loupe_job(id, 800, 800, true).unwrap().run().rendered.is_ok());
+        // edited since (a change small enough that the old view would pass as close to it)
+        s.execute("develop.set", &serde_json::json!({"values": {"light.exposure": 0.8}})).unwrap();
+        let want = s.placement_of(id, true).unwrap();
+        let q = s.quick_view_job(id, 800, true).unwrap();
+        let r = q.run();
+        assert_eq!(r.quick, Some(QuickSource::Last), "no thumbnail of the edit yet: the view from before stands in");
+        assert_ne!(r.placement.map(|p| p.look), Some(want.look));
+        // its thumbnail with the edit is built: that is what the step shows
+        assert!(s.thumb_job(id, THUMB_SIZES[THUMB_SIZES.len() - 1]).unwrap().run().rendered.is_ok());
+        let r = s.quick_view_job(id, 800, true).unwrap().run();
+        assert!(matches!(r.quick, Some(QuickSource::Small | QuickSource::Last)), "{:?}", r.quick);
+        assert_eq!(r.placement.map(|p| p.look), Some(want.look), "the built thumbnail of the edit, not the view from before it");
+        // and once a view of the edit is made, that
+        assert!(s.loupe_job(id, 800, 800, true).unwrap().run().rendered.is_ok());
+        let r = s.quick_view_job(id, 800, true).unwrap().run();
+        assert!(matches!(r.quick, Some(QuickSource::Cached | QuickSource::Last)), "{:?}", r.quick);
+        assert_eq!(r.placement.map(|p| p.look), Some(want.look));
+    }
 
     /// A loupe job with a display fit returns its image shrunk to the drawn size, aspect kept;
     /// a draft, and a render no larger than the drawn size, are left as rendered.
