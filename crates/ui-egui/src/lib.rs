@@ -304,6 +304,9 @@ pub struct LightcraftApp {
     pub import: Option<import::ImportTask>,
     /// A folder scan in progress (feeds the import review).
     pub scan: Option<import::ScanTask>,
+    /// Scans stopped without waiting for their workers: each channel is kept until its worker ends, so
+    /// the probes it took from the session come back.
+    pub(crate) scans_stopping: Vec<std::sync::mpsc::Receiver<import::ScanEnd>>,
     /// A Synchronize Folder scan in progress (feeds its dialog).
     pub sync: Option<sync::SyncTask>,
     /// `session.folder_changes` came from the Synchronize Folder dialog (and goes with it).

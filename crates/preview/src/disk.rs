@@ -187,15 +187,17 @@ impl DiskCache {
         jpeg_dims(&head)
     }
 
-    pub fn put(&self, key: Hash128, img: &Rgba8) {
-        let Some(bytes) = encode_jpeg(img) else { return };
+    /// Write `img` under `key`. Returns whether the file was written (a full or unwritable cache folder
+    /// gives `false`; the cache is unchanged then).
+    pub fn put(&self, key: Hash128, img: &Rgba8) -> bool {
+        let Some(bytes) = encode_jpeg(img) else { return false };
         let p = self.path(key);
-        let Some(parent) = p.parent() else { return };
+        let Some(parent) = p.parent() else { return false };
         // a folder the cache makes for itself says that it is a cache; one that was there
         // already may hold somebody's files, and is not declared one
         let made = !self.dir.exists();
         if std::fs::create_dir_all(parent).is_err() || !is_real_dir(parent) {
-            return;
+            return false;
         }
         if made {
             let _ = std::fs::write(self.dir.join(TAG), TAG_TEXT);
@@ -208,7 +210,7 @@ impl DiskCache {
         let tmp = p.with_extension(format!("tmp{:?}", std::thread::current().id()).replace(['(', ')'], ""));
         if std::fs::write(&tmp, &bytes).is_err() || std::fs::rename(&tmp, &p).is_err() {
             let _ = std::fs::remove_file(&tmp);
-            return;
+            return false;
         }
         self.writes.fetch_add(1, Ordering::Relaxed);
         *used = used.saturating_sub(old_len).saturating_add(bytes.len() as u64);
@@ -217,6 +219,7 @@ impl DiskCache {
         if over {
             self.prune();
         }
+        true
     }
 
     /// All cache files (only names of the cache's own shape, see [`is_cache_file`]):

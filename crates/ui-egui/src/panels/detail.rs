@@ -50,7 +50,7 @@ use info::{
 pub(crate) use info::{draw_focus_point, failed_pill, loupe_pill, rendering_overdue};
 use look_ahead::BEHIND;
 pub use look_ahead::LookAhead;
-pub(crate) use look_ahead::look_ahead;
+pub(crate) use look_ahead::{Prepare, look_ahead};
 use masks::{RegionEdit, color_range_pick, mask_overlay, region_overlay};
 use retouch::{eye_overlay, remove_overlay};
 pub(crate) use window::overlay_supports_window;
@@ -404,7 +404,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         app.renderer.request_quick(Slot::Preview, q, 110);
     }
     if !interacting {
-        look_ahead(app, id, want.max(8), !crop_tool);
+        // (what Settings ▸ Performance lets this mode prepare ahead)
+        let mode = prep_mode(app);
+        let prep = app.session.prep_settings();
+        let prepare = Prepare::of(prep.ahead(mode), prep.scope(mode));
+        look_ahead(app, id, want.max(8), !crop_tool, prepare);
     }
     let show_before = app.ui.before_after == BeforeAfter::Original || ui.input(|i| i.key_down(egui::Key::Backslash));
     if (split || show_before || split_view)
