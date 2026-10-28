@@ -343,3 +343,28 @@ pub(super) fn reset_tip(keymap: &crate::shortcuts::Keymap, mac: bool) -> String 
         None => base.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    /// Every short slider name has a translation in every catalog: a missing one would show the
+    /// English name under a translated caption.
+    #[test]
+    fn every_short_name_is_translated() {
+        let names: std::collections::BTreeSet<&str> = lightcraft_develop::CONTROLS.iter().filter_map(|c| super::short_name(c.id)).collect();
+        assert!(names.contains("Hue Low") && names.contains("Brightness"), "{names:?}");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("locales");
+        let mut catalogs = 0;
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            if !name.ends_with(".json") || name.ends_with("-formats.json") {
+                continue;
+            }
+            catalogs += 1;
+            let catalog: std::collections::BTreeMap<String, String> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let missing: Vec<&&str> = names.iter().filter(|n| !catalog.contains_key(**n)).collect();
+            assert!(missing.is_empty(), "{name} lacks {missing:?}");
+        }
+        assert!(catalogs > 0);
+    }
+}
