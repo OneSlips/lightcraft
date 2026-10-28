@@ -81,14 +81,15 @@ fn detail_masking_and_remove_keep_bracket_brush_sizing() {
         app.ui.view = ViewMode::Detail;
         app.ui.right = panel;
         let ctx = egui::Context::default();
-        app.ui.brush_size = 0.05;
+        // (the brush's Size is Lightroom's 1..100 slider, a size on the screen: note 27)
+        app.ui.brush_size = 10.0;
         app.ui.remove_size = 0.05;
         frame(&mut app, &ctx, Some(Key::CloseBracket), None);
-        let size = if panel == RightPanel::Remove { app.ui.remove_size } else { app.ui.brush_size };
-        assert!((size - 0.06).abs() < 1e-6);
+        let size = if panel == RightPanel::Remove { app.ui.remove_size / 0.05 } else { app.ui.brush_size / 10.0 };
+        assert!((size - 1.2).abs() < 1e-5, "{size}");
         frame(&mut app, &ctx, Some(Key::OpenBracket), None);
-        let size = if panel == RightPanel::Remove { app.ui.remove_size } else { app.ui.brush_size };
-        assert!((size - 0.05).abs() < 1e-6);
+        let size = if panel == RightPanel::Remove { app.ui.remove_size / 0.05 } else { app.ui.brush_size / 10.0 };
+        assert!((size - 1.0).abs() < 1e-5, "{size}");
         assert_eq!(ratings(&app).unwrap(), [0, 2, 5]);
         assert!(app.session.undo.is_empty());
     }

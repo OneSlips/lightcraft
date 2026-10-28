@@ -825,6 +825,28 @@ pub enum KeywordChips {
     Grouped,
 }
 
+/// The brush Size slider's range and starting value (Lightroom's Size: a size on the screen, note 27).
+pub const BRUSH_SIZE_MIN: f32 = 1.0;
+pub const BRUSH_SIZE_MAX: f32 = 100.0;
+pub const BRUSH_SIZE_DEFAULT: f32 = 12.0;
+
+/// The radius of the brush's solid core, in screen points, at Size `size` (1..100): the same at every zoom,
+/// as in Lightroom (note 27). Lightroom's Size → core radius measured at Fit on a ~1000-point-wide photo
+/// (`lightcraft_develop::brush_model::size_to_core`).
+pub fn brush_core_points(size: f32) -> f32 {
+    (1000.0 * lightcraft_develop::brush_model::size_to_core(f64::from(size))) as f32
+}
+
+/// One of the brush's two sets of settings (note 23): painting's or erasing's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BrushSet {
+    /// Size (1..100, [`brush_core_points`]), Feather (0..100), Flow and Density (1..100).
+    pub size: f32,
+    pub feather: f32,
+    pub flow: f32,
+    pub density: f32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UiState {
@@ -1184,9 +1206,22 @@ pub struct UiState {
     /// Backspace on it removes that guide alone; a click away or leaving the tool clears it.
     #[serde(skip)]
     pub selected_guide: Option<(u64, usize)>,
+    /// The brush's Size, Feather, Flow and Density (note 23: the eraser keeps its own, `erase_*`). Size is
+    /// Lightroom's slider (1..100), a size on the screen: the solid core's radius is [`brush_core_points`]
+    /// screen points at every zoom (note 27); a stroke stores it in photo units as painted.
     pub brush_size: f32,
     pub brush_feather: f32,
     pub brush_flow: f32,
+    pub brush_density: f32,
+    /// The eraser's own Size, Feather, Flow and Density (note 23), used while erasing (Erase picked, or ⌥ /
+    /// Alt held to switch modes) and remembered beside the brush's.
+    pub erase_size: f32,
+    pub erase_feather: f32,
+    pub erase_flow: f32,
+    pub erase_density: f32,
+    /// ⌥ / Alt held over the photo with the brush this frame (it switches between painting and erasing).
+    #[serde(skip)]
+    pub brush_alt: bool,
     pub brush_erase: bool,
     /// Brush Auto Mask: dabs stick to areas like the one under the brush centre.
     pub brush_auto_mask: bool,
@@ -1769,6 +1804,37 @@ pub struct SyncCounts {
 }
 
 impl UiState {
+    /// Whether the brush erases now: Erase picked, or ⌥ / Alt held to switch modes (note 23: the panel, the
+    /// cursor and the [ / ] keys then show and change the eraser's settings).
+    pub fn brush_erasing(&self) -> bool {
+        self.brush_erase != self.brush_alt
+    }
+
+    /// The brush's settings for painting (`erase` false) or erasing (note 23).
+    pub fn brush_set(&self, erase: bool) -> BrushSet {
+        if erase {
+            BrushSet { size: self.erase_size, feather: self.erase_feather, flow: self.erase_flow, density: self.erase_density }
+        } else {
+            BrushSet { size: self.brush_size, feather: self.brush_feather, flow: self.brush_flow, density: self.brush_density }
+        }
+    }
+
+    /// Store `s` as the painting (`erase` false) or erasing settings, clamped to the sliders' ranges.
+    pub fn set_brush_set(&mut self, erase: bool, s: BrushSet) {
+        let fin = |v: f32, lo: f32, hi: f32, d: f32| if v.is_finite() { v.clamp(lo, hi) } else { d };
+        let s = BrushSet {
+            size: fin(s.size, BRUSH_SIZE_MIN, BRUSH_SIZE_MAX, BRUSH_SIZE_DEFAULT),
+            feather: fin(s.feather, 0.0, 100.0, 50.0),
+            flow: fin(s.flow, 1.0, 100.0, 100.0),
+            density: fin(s.density, 1.0, 100.0, 100.0),
+        };
+        if erase {
+            (self.erase_size, self.erase_feather, self.erase_flow, self.erase_density) = (s.size, s.feather, s.flow, s.density);
+        } else {
+            (self.brush_size, self.brush_feather, self.brush_flow, self.brush_density) = (s.size, s.feather, s.flow, s.density);
+        }
+    }
+
     /// Notes the panel on show: a tool panel opened from another panel (or from none) remembers
     /// that one, to put it back when the tool closes; any other panel forgets it.
     pub fn note_right(&mut self) {
@@ -2008,9 +2074,15 @@ impl Default for UiState {
             tool: String::new(),
             remove_tool: "remove".into(),
             selected_guide: None,
-            brush_size: 0.04,
+            brush_size: BRUSH_SIZE_DEFAULT,
             brush_feather: 50.0,
             brush_flow: 60.0,
+            brush_density: 100.0,
+            erase_size: BRUSH_SIZE_DEFAULT,
+            erase_feather: 50.0,
+            erase_flow: 100.0,
+            erase_density: 100.0,
+            brush_alt: false,
             brush_erase: false,
             brush_auto_mask: false,
             brush_pressure: true,
@@ -2148,7 +2220,16 @@ impl UiState {
         self.left_width = LEFT_WIDTH.clamp(self.left_width);
         self.right_width = RIGHT_WIDTH.clamp(self.right_width);
         self.film_height = FILM_HEIGHT.clamp(self.film_height);
-        self.brush_size = self.brush_size.clamp(0.002, 0.5);
+        // (a size saved as a fraction of the photo, before Size was a screen size, starts afresh)
+        for v in [&mut self.brush_size, &mut self.erase_size] {
+            *v = if v.is_finite() && *v >= BRUSH_SIZE_MIN { v.min(BRUSH_SIZE_MAX) } else { BRUSH_SIZE_DEFAULT };
+        }
+        for v in [&mut self.brush_feather, &mut self.erase_feather] {
+            *v = if v.is_finite() { v.clamp(0.0, 100.0) } else { 50.0 };
+        }
+        for v in [&mut self.brush_flow, &mut self.erase_flow, &mut self.brush_density, &mut self.erase_density] {
+            *v = if v.is_finite() { v.clamp(1.0, 100.0) } else { 100.0 };
+        }
         self.sidebar.adopt_collapsed(&std::mem::take(&mut self.collapsed_sidebar));
         self.dialog = None;
         self.fullscreen = false;
