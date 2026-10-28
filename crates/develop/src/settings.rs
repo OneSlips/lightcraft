@@ -678,15 +678,19 @@ impl Default for Vignette {
 #[serde(default)]
 pub struct Grain {
     pub amount: f64,
-    /// Mean grain size, relative to the frame (0..100; ≈ 4–48 µm on a 35 mm frame).
+    /// Grain size, relative to the frame (0..100): mean radius 0.3–3 px on a 6000 px export
+    /// (≈ 1.8–18 µm on a 35 mm frame); finer grain is also stronger, as in Lightroom Classic.
     pub size: f64,
-    /// Grain shape (Camera Raw's Roughness): 0 = round grains; 100 = elongated, irregular ones.
+    /// Camera Raw's Roughness: 0 = fine, round, regular grain; 100 = coarse, elongated, irregular
+    /// grains. Both ends are stronger than 50, as in Lightroom Classic.
     pub roughness: f64,
     /// Seed for the procedural grain (stable per photo).
     pub seed: u32,
     /// Colour (chroma) grain, 0..100: independent dye-layer grain on top of the luminance grain.
     pub color: f64,
-    /// Where grain is strongest: −100 shadows … 0 midtones … +100 highlights.
+    /// Where grain is strongest: −100 shadows (4× the highlights) … 0 equal at every tone …
+    /// +100 highlights.
+    #[serde(skip_serializing_if = "is_zero")]
     pub response: f64,
     /// Spread of grain sizes, 0..100: 0 = all grains the mean size.
     pub size_variation: f64,
