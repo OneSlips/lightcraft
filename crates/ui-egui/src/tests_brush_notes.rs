@@ -216,25 +216,27 @@ fn brush_size_is_a_screen_size() {
     let mut h = detail();
     exec(&mut h, "tool.brush", json!({"new": true}));
     h.app.ui.brush_size = 20.0;
-    let cursor = |h: &mut Headless| {
-        let p = at(h, 0.5, 0.5);
+    // after the first click its pin sits at the centre, and a pin wins over the brush within a few points (note 28),
+    // so the cursor and the second stroke stay off it
+    let cursor = |h: &mut Headless, x: f32| {
+        let p = at(h, x, 0.5);
         frame(h, vec![Event::PointerMoved(p)]);
         h.step();
         h.app.widgets.iter().find(|w| w.0 == "brushCursor:paint").map(|w| w.1.width()).expect("the brush cursor")
     };
     let long_of = |h: &Headless| h.app.image_rect.map(|r| r.width().max(r.height())).expect("a photo on screen");
-    let fit = cursor(&mut h);
+    let fit = cursor(&mut h, 0.5);
     let long_fit = long_of(&h);
     gesture(&mut h, &[Some((0.5, 0.5))]);
     h.app.ui.zoom = Zoom::Percent(100.0);
     for _ in 0..4 {
         h.step();
     }
-    let at_100 = cursor(&mut h);
+    let at_100 = cursor(&mut h, 0.55);
     let long_100 = long_of(&h);
     assert!(long_100 > long_fit * 1.2, "100 % is closer than Fit here: {long_fit} vs {long_100}");
     assert!((fit - at_100).abs() < 0.5, "the cursor keeps its size on the screen: {fit} vs {at_100}");
-    gesture(&mut h, &[Some((0.5, 0.5))]);
+    gesture(&mut h, &[Some((0.55, 0.5))]);
     let got = strokes(&h);
     assert_eq!(got.len(), 2, "{got:?}");
     let ratio = got[0].size / got[1].size;
