@@ -190,13 +190,18 @@ fn run_photo_cancellable(jobs: Vec<RenderJob>, cancel: Option<&AtomicBool>) -> O
         // not left to the cache's writer (which skips writes when it falls behind): a built
         // preview is on disk, for this session and the next. (Taken out of the job: it would only
         // queue the write, and would serve a smaller cached view.)
-        // A write that fails (a full or unwritable cache folder) fails the photo: it is not built.
+        // A preview that isn't kept fails the photo: it is not built (a full or unwritable cache folder, or the
+        // cache discarded while the photo rendered).
         let keep = j.view_cache.take().map(|v| (v, j.cache_generation));
         let r = j.run();
         if let (Some(((cache, key), generation)), Ok(img)) = (keep, r.rendered.as_ref())
             && !cache.put_at(generation, key, Arc::new(img.image.clone()))
         {
-            log::warn!("building previews: the view preview could not be written to the cache folder");
+            if cache.generation() == generation {
+                log::warn!("building previews: the view preview could not be written to the cache folder");
+            } else {
+                log::warn!("building previews: the preview cache was discarded while the photo rendered");
+            }
             ok = false;
         }
         ok &= r.rendered.is_ok();
