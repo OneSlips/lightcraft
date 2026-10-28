@@ -1079,6 +1079,11 @@ fn the_switch_on_more_photos_than_the_queue_holds_makes_every_picture() {
     x.s.denoise.queue_cap = 1;
     x.s.execute("denoise.toggle", &json!({"ids": ids, "enabled": true})).unwrap();
     assert_eq!(x.s.denoise_in_flight(true).len(), 3, "one queued, two waiting");
+    // switched on again while they wait, the queued one now behind the others: none is taken in twice (CodeRabbit,
+    // #2932)
+    let reversed: Vec<u64> = ids.iter().rev().copied().collect();
+    x.s.execute("denoise.toggle", &json!({"ids": reversed, "enabled": true})).unwrap();
+    assert_eq!(x.s.denoise_in_flight(true).len(), 3, "the photos in flight are not queued again");
     pump_until_ready(&mut x.s, 3);
     drop(x.s);
     let _ = std::fs::remove_dir_all(x.dir);

@@ -208,11 +208,14 @@ impl Session {
         if self.denoise.active.is_none() || self.denoise_products_dir().is_none() {
             return;
         }
+        // photos already in flight (queued, being made, waiting) are not taken in twice: an import of thousands of
+        // photos, or the switch flipped on again, checks membership by set, not by walking the queues for each
+        let mut waiting: HashSet<PhotoId> = self.denoise.backlog.iter().chain(self.denoise.queue.iter()).copied().collect();
+        waiting.extend(self.denoise.running.as_ref().map(|r| r.photo));
+        let ids: Vec<PhotoId> = ids.iter().copied().filter(|id| !waiting.contains(id)).collect();
         let room = self.denoise.queue_cap.saturating_sub(self.denoise.queue.len());
         let (now, later) = ids.split_at(room.min(ids.len()));
         self.denoise_enqueue(now, false, false);
-        // (an import of thousands of photos: membership by set, not by walking the backlog for each)
-        let mut waiting: HashSet<PhotoId> = self.denoise.backlog.iter().copied().collect();
         for id in later {
             if waiting.insert(*id) {
                 self.denoise.backlog.push_back(*id);
