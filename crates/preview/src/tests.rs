@@ -840,3 +840,15 @@ fn dims_finds_a_size_marker_past_the_first_few_kib() {
     assert_eq!(d.dims(key), Some((40, 30)), "found past the first read");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A picture bigger than the room pruning leaves is removed by the pruning its own write starts: `put` says it
+/// was not kept (CodeRabbit on #3077).
+#[test]
+fn a_write_the_pruning_removes_is_not_reported_as_kept() {
+    let dir = temp_dir("pruned-away");
+    let d = DiskCache::new(&dir, 64);
+    assert!(!d.put(hash_bytes(b"too big"), &gradient(64, 64, 9)), "pruned away at once");
+    let roomy = DiskCache::new(&dir, 1 << 20);
+    assert!(roomy.put(hash_bytes(b"fits"), &gradient(64, 64, 9)));
+    let _ = std::fs::remove_dir_all(&dir);
+}

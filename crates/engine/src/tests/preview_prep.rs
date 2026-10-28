@@ -422,3 +422,23 @@ fn a_preview_rendered_for_a_discarded_cache_fails_the_photo() {
     assert!(crate::cmd::previews::run_photo(jobs), "built for the cache as it is now");
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A photo another build is rendering is not counted until that render is over: here the other build never
+/// made its previews, so this build renders it (CodeRabbit on #3080).
+#[test]
+fn a_photo_another_build_is_rendering_is_counted_only_once_it_is_built() {
+    let (mut s, root, ids) = library("shared", 1);
+    let jobs = crate::cmd::previews::jobs_for(&mut s, ids[0], Some(300));
+    let held = crate::cmd::previews::hold_building(ids[0].0, &jobs).expect("nobody renders it yet");
+    s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300})).unwrap();
+    let b = s.preview_build.clone().expect("the build");
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert_eq!(b.done.load(Ordering::Relaxed), 0, "not counted while the other build holds it");
+    drop(held);
+    assert!(wait_finished(&b));
+    assert_eq!((b.done.load(Ordering::Relaxed), b.failed.load(Ordering::Relaxed), b.shared.load(Ordering::Relaxed)), (1, 0, 0));
+    let p = s.catalog.photo(ids[0]).unwrap().clone();
+    let key = s.view_key(&p, true);
+    assert!(s.media.rendered.disk().and_then(|d| d.dims(key)).is_some(), "rendered here, on disk");
+    let _ = std::fs::remove_dir_all(root);
+}
