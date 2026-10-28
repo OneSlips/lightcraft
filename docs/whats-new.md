@@ -1,5 +1,12 @@
 # What's new in LightCraft
 
+## 2026-10-29
+
+### Mask tools
+- **A new mask gets exactly what the sliders show**, as in Lightroom Classic: the settings you dial in while no
+  mask exists yet (nothing selected, or a tool picked and not yet used) go to the next mask, whatever its tool,
+  and stay for the masks after it. Editing a mask, or applying an effect to it, changes only that mask.
+
 ## 2026-10-24
 
 ### Editing several photos

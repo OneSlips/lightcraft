@@ -495,18 +495,18 @@ pub struct Session {
     pub curve_presets: Vec<cmd::curves::CurvePreset>,
     /// Mask effect presets (the Masking panel's Effect menu).
     pub mask_effects: Vec<cmd::mask_effects::MaskEffect>,
-    /// The effect a new mask of each kind (`brush`, `linear`…) starts with: the one last applied
-    /// to a mask of that kind.
+    /// The effect last applied to a mask of each kind (`brush`, `linear`…), for the Effect menu's
+    /// "Update … with Current Settings" (a new mask starts with [`mask_next`](Self::mask_next)).
     pub mask_tool_effects: std::collections::BTreeMap<String, String>,
-    /// The adjustments the next new mask starts with: the last mask's (Lightroom keeps a mask's
-    /// settings for the next one), or what was set in the Masking panel while no mask was
-    /// selected ([`mask_next_set`](Self::mask_next_set)).
+    /// The adjustments the next new mask starts with, whatever its tool: what was dialed in the
+    /// Masking panel while no mask existed yet (none selected, or a tool armed before its first
+    /// stroke), as Lightroom Classic does (test notes 2026-10-28 #21). Edits of existing masks never
+    /// change it. Kept across photos.
     pub mask_next: lightcraft_develop::LocalAdjustments,
-    /// [`mask_next`](Self::mask_next) was set on purpose with no mask selected: the next new mask
-    /// takes it even when [`mask_reset_new`](Self::mask_reset_new) is on.
+    /// [`mask_next`](Self::mask_next) was dialed in since it was last zeroed.
     pub mask_next_set: bool,
-    /// A new mask starts with every setting at zero (Lightroom's Reset Sliders Automatically)
-    /// instead of the last mask's.
+    /// Reset Settings on New Mask: once a new mask took [`mask_next`](Self::mask_next), it goes back
+    /// to zero, so the next one starts at zero unless something is dialed in again.
     pub mask_reset_new: bool,
     /// Imported camera profiles (`.dcp`).
     pub dcp_profiles: Vec<cmd::dcp_profiles::DcpEntry>,
@@ -2139,6 +2139,8 @@ mod tests_mask_geometry;
 mod tests_mask_links;
 #[cfg(test)]
 mod tests_mask_local;
+#[cfg(test)]
+mod tests_mask_next;
 #[cfg(test)]
 mod tests_merge;
 #[cfg(test)]

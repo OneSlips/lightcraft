@@ -302,23 +302,19 @@ pub fn mask_tool(m: &Mask) -> Option<String> {
     m.components.first().and_then(|c| serde_json::to_value(&c.shape).ok()).and_then(|v| v.get("kind").and_then(Value::as_str).map(str::to_string))
 }
 
-/// The adjustments a new mask made with `tool` starts with (and the next one's are used up):
-/// what was set with no mask selected; else, unless Reset Settings on New Mask is on, the effect
-/// last applied to a mask of that kind, else the last mask's settings (Lightroom carries them
-/// over); else all at 0.
-pub fn new_mask_adjust(s: &mut Session, tool: &str) -> LocalAdjustments {
-    if std::mem::take(&mut s.mask_next_set) {
-        return super::masks::clamp_local(s.mask_next);
-    }
+/// The adjustments a new mask starts with, whatever its tool, as Lightroom Classic does (test
+/// notes 2026-10-28 #21): exactly the "next mask" settings the Masking panel shows, i.e. what was
+/// dialed in while no mask existed yet (no mask selected, or a tool armed before its first stroke
+/// or drag); an existing mask's edits never travel. With Reset Settings on New Mask on, they go
+/// back to 0 once a mask took them, so the mask after starts at 0 unless something is dialed in
+/// again.
+pub fn new_mask_adjust(s: &mut Session, _tool: &str) -> LocalAdjustments {
+    let a = super::masks::clamp_local(s.mask_next);
     if s.mask_reset_new {
-        return LocalAdjustments::default();
+        s.mask_next = LocalAdjustments::default();
+        s.mask_next_set = false;
     }
-    s.mask_tool_effects
-        .get(tool)
-        .and_then(|name| position(s, name))
-        .and_then(|i| s.mask_effects.get(i))
-        .map(|e| super::masks::clamp_local(e.apply(&LocalAdjustments::default())))
-        .unwrap_or_else(|| super::masks::clamp_local(s.mask_next))
+    a
 }
 
 fn list(s: &Session) -> Value {
@@ -391,12 +387,9 @@ fn apply_effect(s: &mut Session, p: &Value) -> Result<Value> {
     } else {
         Vec::new()
     };
+    // (an effect on existing masks changes only them, never the next mask's settings: note
+    // 2026-10-28 #21)
     let mine = set_masks(&d, &ids);
-    // the next new mask starts with these settings (unless Reset Settings on New Mask is on)
-    if let Some(m) = ids.first().and_then(|first| mine.masks.iter().find(|m| m.id == *first)) {
-        s.mask_next = m.adjust;
-        s.mask_next_set = false;
-    }
     let photos = 1 + others.len();
     if others.is_empty() {
         s.set_develop(id, mine, &label)?;
@@ -406,7 +399,8 @@ fn apply_effect(s: &mut Session, p: &Value) -> Result<Value> {
         ops.extend(others.into_iter().filter_map(|(x, o)| s.develop_op(x, o, &label)));
         s.commit(&label, lightcraft_catalog::Op::Batch { ops })?;
     }
-    // the next mask made with this tool starts with the effect
+    // remembered per tool for the Effect menu's "Update … with Current Settings" (never what a
+    // new mask starts with: note 2026-10-28 #21)
     if p.get("remember").and_then(Value::as_bool).unwrap_or(true) {
         for m in d.masks.iter().filter(|m| ids.contains(&m.id)) {
             if let Some(tool) = mask_tool(m) {

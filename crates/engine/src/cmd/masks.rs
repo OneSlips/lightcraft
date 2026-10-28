@@ -1204,26 +1204,20 @@ pub fn specs() -> Vec<CommandSpec> {
                     let a: LocalAdjustments = serde_json::from_value(v).map_err(|e| bad("mask.adjust", e.to_string()))?;
                     Ok(clamp_local(a))
                 };
-                // no mask selected (nor named): the settings for the next new mask
+                // no mask selected (nor named), a tool armed or not: the settings for the next new
+                // mask (note 2026-10-28 #21)
                 if s.active_mask.is_none() && p.get("id").and_then(Value::as_u64).is_none() {
                     s.mask_next = merged(s.mask_next)?;
                     s.mask_next_set = true;
                     return Ok(json!({"next": s.mask_next}));
                 }
+                // an existing mask: only it changes, never the next mask's settings
                 let mid = mask_id(p, s.active_mask, "mask.adjust")?;
-                let mut last = None;
-                let out = masks_edit(s, "mask.adjust", "Mask Adjustment", |masks, _| {
+                masks_edit(s, "mask.adjust", "Mask Adjustment", |masks, _| {
                     let i = find(masks, mid, "mask.adjust")?;
                     masks[i].adjust = merged(masks[i].adjust)?;
-                    last = Some(masks[i].adjust);
                     Ok(())
-                })?;
-                // the next new mask starts with these (unless Reset Settings on New Mask is on)
-                if let Some(a) = last {
-                    s.mask_next = a;
-                    s.mask_next_set = false;
-                }
-                Ok(out)
+                })
             }
         ),
         cmd!(
@@ -1231,7 +1225,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "New Mask Settings",
             [],
             None,
-            "{resetNew?: bool (Reset Settings on New Mask: a new mask starts at zero instead of the last mask's settings), clear?: bool (zero the settings set for the next mask)} — the settings the next new mask starts with → {next, set, resetNew}",
+            "{resetNew?: bool (Reset Settings on New Mask: once a new mask took the next-mask settings they go back to zero), clear?: bool (zero the settings set for the next mask)} — the settings the next new mask starts with (what was dialed in while no mask existed: mask.adjust / mask.applyEffect with no mask selected) → {next, set, resetNew}",
             super::always,
             |s, p| {
                 if let Some(on) = p.get("resetNew").and_then(Value::as_bool) {
