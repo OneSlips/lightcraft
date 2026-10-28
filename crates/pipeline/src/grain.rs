@@ -43,9 +43,6 @@ pub const CHANNEL_SALT: [u32; 3] = [0x68e3_1da4, 0xb529_7a4d, 0x1b56_c4e9];
 pub const P_MIN: f32 = 0.2;
 pub const P_MAX: f32 = 0.8;
 
-/// Grain amplitude in the deepest shadows and brightest highlights relative to the midtones.
-pub const TONE_FLOOR: f32 = 0.35;
-
 /// Clumps a cell may hold (a bound for the loop, far above any reachable mean).
 pub const MAX_PER_CELL: u32 = 48;
 
@@ -61,6 +58,14 @@ pub const MAX_REACH: i32 = 12;
 
 /// Edge softness of the film itself (grain units), on top of the pixel's footprint.
 const FILM_SOFT: f64 = 0.4;
+
+/// The development halo at most (its ring's integral as a fraction of the grain's), and its outer
+/// radius at most (grain radii).
+const HALO_MAX: f64 = 3.0;
+const HALO_R_MAX: f64 = 6.0;
+
+/// Response ±100: the amplitude at black relative to white is `exp(∓RESPONSE_TILT)`.
+const RESPONSE_TILT: f64 = 1.386_294_4;
 
 /// Size Variation 100: the log-radius spread (radii from 0.35× to 2.9× the mean).
 const SPREAD_MAX: f64 = 0.35;
@@ -101,6 +106,11 @@ pub const PHASES: [[f32; 2]; 16] = [
 /// wider one.
 pub const PIXEL_SOFTNESS: [f64; 2] = [0.44, 0.5];
 
+/// The softening one output pixel applies to the halo (pixels). Below the reference resolution
+/// the amplitude is set from the reference render's covariance (`ref_covariance`), so this only
+/// shapes the halo of a small render, not its strength.
+const HALO_PIXEL_SOFTNESS: f64 = 0.44;
+
 /// Grain units are mean grain radii; the reference resolution for the Amount calibration is a
 /// 6000 px long edge (a 24 MP export).
 const REF_PX_PER_LONG: f64 = 6000.0;
@@ -137,6 +147,9 @@ pub struct GrainParams {
     pub s: f32,
     /// `1 / s`.
     pub inv_s: f32,
+    /// Edge softness of the halo (grain units) and its inverse.
+    pub halo_s: f32,
+    pub halo_inv_s: f32,
     /// Log-radius spread of the grains (Size Variation).
     pub spread: f32,
     /// Extra elongation at most (a grain's aspect ratio is `1 + aspect·u`; Shape).
@@ -157,6 +170,25 @@ pub struct GrainParams {
     pub cell: f32,
     /// `E[∫a_clump²] / E[∫a_clump]` for this softness (the variance formula's exponent).
     pub kappa: f32,
+    /// The halo's moments relative to `E[∫a_clump]`: `E[∫h]`, `E[∫h²]` and `E[∫a·h]`.
+    pub halo_mean: f32,
+    pub k_hh: f32,
+    pub k_ah: f32,
+    /// `area`, `kappa`, `k_hh` and `k_ah` at the reference resolution: the per-tone amplitude
+    /// makes the grain's standard deviation there the same at every tone
+    /// ([`GrainParams::tone_weight`]).
+    pub area_ref: f32,
+    pub kappa_ref: f32,
+    pub k_hh_ref: f32,
+    pub k_ah_ref: f32,
+    /// Development halo `k`: a grain of radius `r` and density `o` lightens its surroundings by
+    /// `k·o·(disc(halo_r·r) − disc(r))`, a ring of lower density whose integral is `halo` times
+    /// the grain's ([`GrainParams::sub_cover`]); 0 = none.
+    pub halo: f32,
+    /// The halo's outer radius, in grain radii (1 without a halo).
+    pub halo_r: f32,
+    /// Response: the amplitude is multiplied by `exp(tilt·(l − ½))` at luminance `l`.
+    pub tilt: f32,
     /// Cross-fade weights of the explicit field and of the Gaussian noise (`cos² + sin² = 1`).
     pub w_field: f32,
     pub w_noise: f32,
@@ -173,40 +205,230 @@ fn finite(v: f64, lo: f64, hi: f64, default: f64) -> f64 {
     if v.is_finite() { v.clamp(lo, hi) } else { default }
 }
 
-/// Mean grain radius as a fraction of the frame's long edge for the Size slider (0..100): fine at
-/// the low end, where most photos want it, and individual particles towards the top. On a
-/// 6000 px export: 0.7 px at 0, 0.8 at the default 25, 1.2 at 50, 1.9 at 75, 3 px at 100 (4.3 to
-/// 18 µm on a 35 mm frame).
-pub fn radius_for_size(size: f64) -> f64 {
-    let t = finite(size, 0.0, 100.0, 25.0) / 100.0;
-    0.000_12 + t.powf(2.2) * 0.000_38
+/// What Size and Roughness map to (calibrated against Lightroom Classic exports: see
+/// [`GrainLook::new`] and `docs/grain.md`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GrainLook {
+    /// Mean grain radius, as a fraction of the frame's long edge.
+    pub radius: f64,
+    /// Grain shape, 0..1: round, even beads (0) to elongated, lobed grains (1).
+    pub shape: f64,
+    /// Development halo: the ring's integral as a fraction of the grain's (0 = none).
+    pub halo: f64,
+    /// The halo's outer radius, in grain radii.
+    pub halo_r: f64,
+    /// Standard deviation of the grain at Amount 100 at the reference resolution (display-encoded
+    /// units: 1 = 255 levels), the same at every tone.
+    pub level: f64,
 }
 
-/// Standard deviation of the coverage at `p` for exponent `kappa` (fade correction off).
-fn std_base(p: f64, kappa: f64) -> f64 {
+impl GrainLook {
+    /// The look of Size `size` and Roughness `roughness` (both 0..100), fitted to Lightroom
+    /// Classic exports at a 6000 px long edge (`docs/grain.md`, checked by
+    /// `grain_matches_lightroom_classic_exports`): the grain's strength and its autocorrelation at Size 0, 25 and 100 (Roughness 50) and at Roughness 0
+    /// and 100 (Size 25). Between those points the curves are smooth guesses.
+    pub fn new(size: f64, roughness: f64) -> GrainLook {
+        let size = finite(size, 0.0, 100.0, 25.0);
+        let rough = finite(roughness, 0.0, 100.0, 50.0) / 100.0;
+        // mean radius at 6000 px: 0.3 px at Size 0 (grain finer than a pixel), 0.83 at 25, 3 at
+        // 100; Roughness 0 is finer, 100 coarser
+        let r_px = (0.3 + 2.7 * (size / 100.0).powf(1.17)) * (0.9 - 0.15 * rough + 0.7 * rough * rough);
+        // a development halo makes the grain regular (negative autocorrelation one to three
+        // pixels out): below Roughness 50, and for grain finer than Size 25
+        let smooth = (1.0 - 2.0 * rough).max(0.0);
+        let fine = (1.0 - size / 25.0).max(0.0);
+        let halo = 0.8 * smooth + 1.1 * fine * fine;
+        // strength at Amount 100 (8-bit levels at every tone): Size 0 46.2, 25 17.1, 100 11.7;
+        // Roughness 0 and 100 are 1.45× and 1.37× Roughness 50
+        let levels = (2.447 + 1.386 * (-size / 19.88).exp()).exp();
+        let d = rough - 0.5;
+        let rough_gain = 1.0 - 0.084 * d + 1.6384 * d * d;
+        GrainLook { radius: r_px / REF_PX_PER_LONG, shape: rough, halo, halo_r: 3.2 + 0.3 * smooth, level: levels * rough_gain / 255.0 }
+    }
+}
+
+/// Standard deviation of the explicit field at `p` (coverage less halo), for a clump coverage
+/// integral `area`, the moment ratios `kappa`, `k_hh`, `k_ah` and Poisson cell side `cell`:
+/// `(1 − p)²·(exp(κ·μ') − 1 + μ'·(k_hh − 2·k_ah))`, where `μ' = −ln(1 − p)` counts
+/// fading-in clumps by `f²` (shared with the GPU kernel).
+#[inline]
+pub fn coverage_std_at(p: f32, area: f32, kappa: f32, k_hh: f32, k_ah: f32, cell: f32) -> f32 {
     let q = 1.0 - p;
-    q * (q.powf(-kappa) - 1.0).max(0.0).sqrt()
+    let t = -q.ln() / area * cell * cell;
+    let fw = t.min(1.0);
+    let mu = -q.ln() * (1.0 - fw / (6.0 * t.max(1e-12)));
+    let var = q * q * ((kappa * mu).exp() - 1.0 + mu * (k_hh - 2.0 * k_ah));
+    var.max(0.0).sqrt()
 }
 
-/// Cached [`clump_moments`]: keyed by the shape parameters and the softness.
-type MomentKey = [u32; 6];
-static MOMENTS: Mutex<Vec<(MomentKey, (f64, f64))>> = Mutex::new(Vec::new());
+/// A clump's moments ([`clump_moments`]): `E[∫a]`, `E[∫a²]` of its coverage `a`, and `E[∫h]`,
+/// `E[∫h²]`, `E[∫a·h]` with its halo `h`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Moments {
+    a1: f64,
+    a2: f64,
+    h1: f64,
+    h2: f64,
+    ah: f64,
+}
 
-/// `(E[∫a_clump], E[∫a_clump²])` for `gp`'s shape parameters and softness, measured by rasterising
-/// a fixed set of sample clumps drawn by the renderer's own generator (cached: a slider drag
-/// that changes only Amount, Color or Response, or a render at the same size, measures nothing).
-fn clump_moments(gp: &GrainParams) -> (f64, f64) {
-    let key: MomentKey =
-        [gp.spread.to_bits(), gp.aspect.to_bits(), gp.lump.to_bits(), gp.clump_extra.to_bits(), gp.clump_d.to_bits(), gp.s.to_bits()];
+/// The parameters a clump's statistics depend on: shape, halo and softness.
+fn moment_key(gp: &GrainParams) -> MomentKey {
+    [
+        gp.spread.to_bits(),
+        gp.aspect.to_bits(),
+        gp.lump.to_bits(),
+        gp.clump_extra.to_bits(),
+        gp.clump_d.to_bits(),
+        gp.s.to_bits(),
+        gp.halo.to_bits(),
+        gp.halo_r.to_bits(),
+        gp.halo_s.to_bits(),
+    ]
+}
+
+/// Cached [`clump_moments`]: keyed by the shape parameters, the halo and the softness.
+type MomentKey = [u32; 9];
+static MOMENTS: Mutex<Vec<(MomentKey, Moments)>> = Mutex::new(Vec::new());
+
+/// The clump moments for `gp`'s shape parameters, halo and softness, measured by rasterising a
+/// fixed set of sample clumps drawn by the renderer's own generator (cached: a slider drag that
+/// changes only Amount, Color or Response, or a render at the same size, measures nothing).
+fn clump_moments(gp: &GrainParams) -> Moments {
+    let key = moment_key(gp);
     if let Some(m) = MOMENTS.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|e| e.0 == key).map(|e| e.1) {
         return m;
     }
+    const SAMPLES: u32 = 512;
+    // finer with a halo: the box holds the halo, the grain is a smaller part of it
+    let grid: usize = if gp.halo > 0.0 { 44 } else { 28 };
+    // one entry per sample clump, in parallel, summed in order (the same result every time)
+    let mut per = vec![Moments::default(); SAMPLES as usize];
+    lightcraft_raster::par_rows(&mut per, 1, |k, out| {
+        let mut subs = [Sub::default(); MAX_SUB as usize];
+        let h = pcg(0x51ed_270b ^ (k as u32).wrapping_mul(0x2545_f491));
+        let n = gp.sub_count(h);
+        let mut rb = 0.0f32;
+        for (j, g) in subs.iter_mut().enumerate().take(n as usize) {
+            let hj = sub_hash(h, j as u32);
+            let (ox, oy) = gp.sub_offset(hj);
+            *g = gp.sub_shape(hj, ox, oy);
+            rb = rb.max((ox * ox + oy * oy).sqrt() + g.reach);
+        }
+        let Some(out) = out.first_mut() else { return };
+        if !(rb > 0.0 && rb.is_finite()) {
+            return;
+        }
+        let step = 2.0 * rb / grid as f32;
+        let mut acc = Moments::default();
+        for gy in 0..grid {
+            for gx in 0..grid {
+                let (px, py) = (-rb + (gx as f32 + 0.5) * step, -rb + (gy as f32 + 0.5) * step);
+                let (mut t, mut hs) = (1.0f32, 0.0f32);
+                for g in subs.iter().take(n as usize) {
+                    let (dx, dy) = (px - g.x, py - g.y);
+                    let d2 = dx * dx + dy * dy;
+                    if d2 < g.reach * g.reach {
+                        let (a, h) = gp.sub_cover(g, dx, dy, d2);
+                        t *= 1.0 - a;
+                        hs += h;
+                    }
+                }
+                let (a, h) = ((1.0 - t) as f64, hs as f64);
+                acc.a1 += a;
+                acc.a2 += a * a;
+                acc.h1 += h;
+                acc.h2 += h * h;
+                acc.ah += a * h;
+            }
+        }
+        let cell = (step * step) as f64;
+        *out = Moments { a1: acc.a1 * cell, a2: acc.a2 * cell, h1: acc.h1 * cell, h2: acc.h2 * cell, ah: acc.ah * cell };
+    });
+    let m =
+        per.iter().fold(Moments::default(), |m, e| Moments { a1: m.a1 + e.a1, a2: m.a2 + e.a2, h1: m.h1 + e.h1, h2: m.h2 + e.h2, ah: m.ah + e.ah });
+    let n = SAMPLES as f64;
+    let m = Moments { a1: m.a1 / n, a2: m.a2 / n, h1: m.h1 / n, h2: m.h2 / n, ah: m.ah / n };
+    let mut cache = MOMENTS.lock().unwrap_or_else(PoisonError::into_inner);
+    if cache.len() >= 64 {
+        cache.remove(0);
+    }
+    cache.push((key, m));
+    m
+}
+
+/// Lags of the reference render's covariance at most, per axis ([`ref_covariance`]).
+const LAG_MAX: usize = 16;
+
+/// The covariance of the grain at the reference resolution between points `(lx, ly)·pitch` apart
+/// (`lx` in `0..=lags`, `ly` in `−lags..=lags`), at coverage ½ ([`ref_covariance`]).
+#[derive(Clone, Debug, PartialEq)]
+struct RefCovariance {
+    /// Lattice pitch, in reference pixels (1, or more for coarse grain).
+    pitch: f64,
+    lags: usize,
+    c: Vec<f64>,
+}
+
+impl RefCovariance {
+    fn at(&self, lx: i64, ly: i64) -> f64 {
+        let (lx, ly) = if lx < 0 { (-lx, -ly) } else { (lx, ly) };
+        let l = self.lags as i64;
+        if lx > l || ly.abs() > l {
+            return 0.0;
+        }
+        self.c.get((lx * (2 * l + 1) + ly + l) as usize).copied().unwrap_or(0.0)
+    }
+
+    /// The variance of the reference render box-averaged over blocks of `k × k` pixels, relative
+    /// to its variance per pixel (`None` below one lattice pitch).
+    fn block_variance(&self, k: f64) -> Option<f64> {
+        let kp = k / self.pitch;
+        if !(kp >= 1.0 && kp.is_finite()) {
+            return None;
+        }
+        let l = self.lags as i64;
+        let tri = |v: i64| (1.0 - v.unsigned_abs() as f64 / kp).max(0.0);
+        let mut v = 0.0;
+        for lx in -l..=l {
+            let wx = tri(lx);
+            if wx <= 0.0 {
+                continue;
+            }
+            for ly in -l..=l {
+                v += self.at(lx, ly) * wx * tri(ly);
+            }
+        }
+        let c0 = self.at(0, 0);
+        (c0 > 0.0).then(|| (v / (kp * kp) / c0).max(0.0))
+    }
+}
+
+/// Cached [`ref_covariance`].
+static REF_COVARIANCE: Mutex<Vec<(MomentKey, RefCovariance)>> = Mutex::new(Vec::new());
+
+/// The covariance between the pixels of the reference render (`gp` set up at the reference
+/// resolution, `px` its pixel in grain units, `m` its clump moments), from the same exact
+/// statistics as the variance: the clump integrals `E[∫a(u)·a(u + l)]`, `E[∫h(u)·h(u + l)]` and
+/// `E[∫a(u)·h(u + l) + h(u)·a(u + l)]`, measured on sample clumps rasterised at random phases.
+fn ref_covariance(gp: &GrainParams, px: f64, m: &Moments) -> RefCovariance {
+    let key = moment_key(gp);
+    if let Some(c) = REF_COVARIANCE.lock().unwrap_or_else(PoisonError::into_inner).iter().find(|e| e.0 == key).map(|e| e.1.clone()) {
+        return c;
+    }
+    let reach = 2.0 * gp.support as f64;
+    let pitch = px.max(reach / LAG_MAX as f64).max(1e-6);
+    let lags = ((reach / pitch).ceil() as usize).clamp(1, LAG_MAX);
+    let width = 2 * lags + 1;
     const SAMPLES: u32 = 128;
-    const GRID: usize = 28;
-    let (mut a1, mut a2) = (0.0f64, 0.0f64);
-    let mut subs = [Sub::default(); MAX_SUB as usize];
-    for k in 0..SAMPLES {
-        let h = pcg(0x51ed_270b ^ k.wrapping_mul(0x2545_f491));
+    let p = pitch as f32;
+    // one table per sample clump, in parallel, summed in order (the same result every time)
+    let mut per = vec![Vec::new(); SAMPLES as usize];
+    lightcraft_raster::par_rows(&mut per, 1, |k, out| {
+        let Some(out) = out.first_mut() else { return };
+        let mut acc = vec![[0.0f64; 3]; (lags + 1) * width];
+        let mut subs = [Sub::default(); MAX_SUB as usize];
+        let h = pcg(0x51ed_270b ^ (k as u32).wrapping_mul(0x2545_f491));
         let n = gp.sub_count(h);
         let mut rb = 0.0f32;
         for (j, g) in subs.iter_mut().enumerate().take(n as usize) {
@@ -216,56 +438,106 @@ fn clump_moments(gp: &GrainParams) -> (f64, f64) {
             rb = rb.max((ox * ox + oy * oy).sqrt() + g.reach);
         }
         if !(rb > 0.0 && rb.is_finite()) {
-            continue;
+            return;
         }
-        let step = 2.0 * rb / GRID as f32;
-        let (mut s1, mut s2) = (0.0f64, 0.0f64);
-        for gy in 0..GRID {
-            for gx in 0..GRID {
-                let (px, py) = (-rb + (gx as f32 + 0.5) * step, -rb + (gy as f32 + 0.5) * step);
-                let mut t = 1.0f32;
+        // the lattice at a random phase: an unbiased estimate of the integrals
+        let ph = pcg(h ^ 0x7f4a_7c15);
+        let (fx, fy) = (unit16(ph) * p, unit16(ph >> 16) * p);
+        let i0 = ((-rb - fx) / p).floor() as i64;
+        let g_n = ((2.0 * rb / p).ceil() as usize + 2).min(2 * LAG_MAX + 4);
+        let mut a = vec![0.0f64; g_n * g_n];
+        let mut hv = vec![0.0f64; g_n * g_n];
+        for gy in 0..g_n {
+            for gx in 0..g_n {
+                let (ux, uy) = (fx + (i0 + gx as i64) as f32 * p, fy + (i0 + gy as i64) as f32 * p);
+                let (mut t, mut hs) = (1.0f32, 0.0f32);
                 for g in subs.iter().take(n as usize) {
-                    let (dx, dy) = (px - g.x, py - g.y);
+                    let (dx, dy) = (ux - g.x, uy - g.y);
                     let d2 = dx * dx + dy * dy;
                     if d2 < g.reach * g.reach {
-                        t *= 1.0 - gp.sub_cover(g, dx, dy, d2);
+                        let (ca, ch) = gp.sub_cover(g, dx, dy, d2);
+                        t *= 1.0 - ca;
+                        hs += ch;
                     }
                 }
-                let a = (1.0 - t) as f64;
-                s1 += a;
-                s2 += a * a;
+                if let (Some(av), Some(hh)) = (a.get_mut(gy * g_n + gx), hv.get_mut(gy * g_n + gx)) {
+                    (*av, *hh) = ((1.0 - t) as f64, hs as f64);
+                }
             }
         }
-        let cell = (step * step) as f64;
-        a1 += s1 * cell;
-        a2 += s2 * cell;
+        let reach_l = lags.min(g_n - 1);
+        for lx in 0..=reach_l {
+            for ly in -(reach_l as i64)..=reach_l as i64 {
+                let mut s3 = [0.0f64; 3];
+                for y in 0..g_n {
+                    let y2 = y as i64 + ly;
+                    if y2 < 0 || y2 >= g_n as i64 {
+                        continue;
+                    }
+                    for x in 0..g_n - lx {
+                        let (i, j) = (y * g_n + x, y2 as usize * g_n + x + lx);
+                        let (Some(&a1), Some(&a2), Some(&h1), Some(&h2)) = (a.get(i), a.get(j), hv.get(i), hv.get(j)) else { continue };
+                        s3[0] += a1 * a2;
+                        s3[1] += h1 * h2;
+                        s3[2] += a1 * h2 + h1 * a2;
+                    }
+                }
+                if let Some(e) = acc.get_mut(lx * width + (ly + lags as i64) as usize) {
+                    *e = s3;
+                }
+            }
+        }
+        *out = acc;
+    });
+    let mut acc = vec![[0.0f64; 3]; (lags + 1) * width];
+    for table in &per {
+        for (e, v) in acc.iter_mut().zip(table) {
+            for (e, v) in e.iter_mut().zip(v) {
+                *e += v;
+            }
+        }
     }
-    let m = (a1 / SAMPLES as f64, a2 / SAMPLES as f64);
-    let mut cache = MOMENTS.lock().unwrap_or_else(PoisonError::into_inner);
+    // the covariance at coverage ½ from the integrals (as `coverage_std_at`)
+    let cell = (pitch * pitch) / SAMPLES as f64;
+    let (q, a1) = (0.5f64, m.a1.max(1e-9));
+    let t = -q.ln() / a1 * (gp.cell as f64).powi(2);
+    let mu = -q.ln() * (1.0 - t.min(1.0) / (6.0 * t.max(1e-12)));
+    let c = acc.iter().map(|[aa, hh, ah]| q * q * ((mu * aa * cell / a1).exp() - 1.0 + mu * (hh - ah) * cell / a1)).collect();
+    let cov = RefCovariance { pitch: pitch / px, lags, c };
+    let mut cache = REF_COVARIANCE.lock().unwrap_or_else(PoisonError::into_inner);
     if cache.len() >= 64 {
         cache.remove(0);
     }
-    cache.push((key, m));
-    m
+    cache.push((key, cov.clone()));
+    cov
 }
 
 impl GrainParams {
     /// Parameters for a render with `px_per_long` output pixels per long edge of the uncropped
     /// frame; `None` when there is no grain. Out-of-range or non-finite settings are clamped.
     pub fn new(g: &Grain, px_per_long: f64) -> Option<GrainParams> {
+        let look = GrainLook::new(finite(g.size, 0.0, 100.0, 25.0), finite(g.roughness, 0.0, 100.0, 50.0));
+        GrainParams::with_look(g, px_per_long, &look)
+    }
+
+    /// [`GrainParams::new`] with the Size and Roughness mapping given explicitly (calibration).
+    pub fn with_look(g: &Grain, px_per_long: f64, look: &GrainLook) -> Option<GrainParams> {
         let amount = finite(g.amount, 0.0, 100.0, 0.0) / 100.0;
         let ppl = finite(px_per_long, 1.0, 1e7, 1.0);
         if amount <= 0.0 {
             return None;
         }
-        let size = finite(g.size, 0.0, 100.0, 25.0);
         let variation = finite(g.size_variation, 0.0, 100.0, 40.0) / 100.0;
-        let shape = finite(g.roughness, 0.0, 100.0, 50.0) / 100.0;
+        let shape = finite(look.shape, 0.0, 1.0, 0.5);
         let clumping = finite(g.clumping, 0.0, 100.0, 30.0) / 100.0;
-        let r_norm = radius_for_size(size);
+        let r_norm = finite(look.radius, 1e-6, 0.01, 0.000_14);
+        let halo = finite(look.halo, 0.0, HALO_MAX, 0.0);
+        let halo_r = if halo > 0.0 { finite(look.halo_r, 1.05, HALO_R_MAX, 2.0) } else { 1.0 };
+        // the halo's ring, scaled so that its integral is `halo` times the grain's
+        let halo_k = if halo > 0.0 { halo / (halo_r * halo_r - 1.0) } else { 0.0 };
         // the softness, quantized so that nearby render sizes share their cached moments
         let pixel_soft = PIXEL_SOFTNESS[0] + (PIXEL_SOFTNESS[1] - PIXEL_SOFTNESS[0]) * clumping;
-        let soft_at = |ppl: f64| {
+        let soft_at = |ppl: f64, pixel_soft: f64| {
             let s = (FILM_SOFT * FILM_SOFT + (pixel_soft / (r_norm * ppl)).powi(2)).sqrt();
             (s * 256.0).round().max(1.0) / 256.0
         };
@@ -277,6 +549,8 @@ impl GrainParams {
             inv_r: (1.0 / r_norm) as f32,
             s: 0.0,
             inv_s: 0.0,
+            halo_s: 0.0,
+            halo_inv_s: 0.0,
             spread: spread as f32,
             aspect: aspect as f32,
             lump: lump as f32,
@@ -287,6 +561,16 @@ impl GrainParams {
             sub_reach: 0.0,
             cell: CELL,
             kappa: 1.0,
+            halo_mean: 0.0,
+            k_hh: 0.0,
+            k_ah: 0.0,
+            area_ref: 1.0,
+            kappa_ref: 1.0,
+            k_hh_ref: 0.0,
+            k_ah_ref: 0.0,
+            halo: halo_k as f32,
+            halo_r: halo_r as f32,
+            tilt: (finite(g.response, -100.0, 100.0, 0.0) / 100.0 * RESPONSE_TILT) as f32,
             w_field: 1.0,
             w_noise: 0.0,
             color: (finite(g.color, 0.0, 100.0, 0.0) / 100.0) as f32,
@@ -294,27 +578,49 @@ impl GrainParams {
             seed: g.seed,
             px_per_long: ppl as f32,
         };
-        let set_soft = |gp: &mut GrainParams, s: f64| {
-            gp.s = s as f32;
-            gp.inv_s = (1.0 / s) as f32;
-            let r_max = (3.0 * spread).exp() * (1.0 + aspect).sqrt() * (1.0 + lump);
+        let set_soft = |gp: &mut GrainParams, ppl: f64| {
+            let s = soft_at(ppl, pixel_soft);
+            let sh = soft_at(ppl, HALO_PIXEL_SOFTNESS);
+            (gp.s, gp.inv_s) = (s as f32, (1.0 / s) as f32);
+            (gp.halo_s, gp.halo_inv_s) = (sh as f32, (1.0 / sh) as f32);
+            let s = s.max(sh);
+            let r_max = (3.0 * spread).exp() * (1.0 + aspect).sqrt() * (1.0 + lump) * halo_r;
             gp.sub_reach = ((r_max * r_max + s * s).sqrt() + s) as f32;
             gp.support = (clump_d * std::f64::consts::SQRT_2 + gp.sub_reach as f64).min(CELL as f64 * MAX_REACH as f64 * 0.5 - 0.01) as f32;
         };
-        // Amount 100 ≈ 0.06 (8-bit: 15 levels) standard deviation in mid-grey at the reference
-        // resolution, a little more for coarse grain
-        set_soft(&mut gp, soft_at(REF_PX_PER_LONG));
-        let (ref1, ref2) = clump_moments(&gp);
-        let kappa_ref = if ref1 > 0.0 { (ref2 / ref1).clamp(1e-6, 1.0) } else { 1.0 };
-        let s = soft_at(ppl);
-        set_soft(&mut gp, s);
-        let (m1, m2) = clump_moments(&gp);
-        gp.area = m1.max(1e-3) as f32;
-        gp.kappa = if m1 > 0.0 { (m2 / m1).clamp(1e-6, 1.0) as f32 } else { 1.0 };
-        let target = amount * 0.055 * (0.8 + 0.4 * size / 100.0);
-        gp.amp = (target / std_base(0.5, kappa_ref).max(1e-4)) as f32;
-        // a clump's scale: one grain, or a cluster
-        let scale = 1.0 + 0.7 * clump_d * clump_extra.min(1.0);
+        // the grain's standard deviation at the reference resolution is `look.level` per unit of
+        // Amount at every tone (`tone_weight` divides by the coverage's own deviation there)
+        set_soft(&mut gp, REF_PX_PER_LONG);
+        let ratios = |m: &Moments| {
+            if m.a1 > 0.0 {
+                let r = |v: f64| (v / m.a1).clamp(0.0, 1e3) as f32;
+                (m.a1.max(1e-3) as f32, (m.a2 / m.a1).clamp(1e-6, 1.0) as f32, r(m.h1), r(m.h2), r(m.ah))
+            } else {
+                (1.0, 1.0, 0.0, 0.0, 0.0)
+            }
+        };
+        let m_ref = clump_moments(&gp);
+        (gp.area_ref, gp.kappa_ref, _, gp.k_hh_ref, gp.k_ah_ref) = ratios(&m_ref);
+        // below the reference resolution, the grain is the reference render box-averaged
+        let ref_block = if ppl < REF_PX_PER_LONG {
+            ref_covariance(&gp, 1.0 / (r_norm * REF_PX_PER_LONG), &m_ref).block_variance(REF_PX_PER_LONG / ppl)
+        } else {
+            None
+        };
+        set_soft(&mut gp, ppl);
+        let s = gp.s as f64;
+        (gp.area, gp.kappa, gp.halo_mean, gp.k_hh, gp.k_ah) = ratios(&clump_moments(&gp));
+        gp.amp = (amount * finite(look.level, 0.0, 1.0, 0.0)) as f32;
+        if let Some(v) = ref_block {
+            // what this render's own statistics give, scaled to the box-averaged reference render
+            let own = coverage_std_at(0.5, gp.area, gp.kappa, gp.k_hh, gp.k_ah, gp.cell) as f64;
+            let at_ref = coverage_std_at(0.5, gp.area_ref, gp.kappa_ref, gp.k_hh_ref, gp.k_ah_ref, gp.cell) as f64;
+            if own > 0.0 && v > 0.0 {
+                gp.amp *= (v.sqrt() * at_ref / own).clamp(0.25, 4.0) as f32;
+            }
+        }
+        // a clump's scale: one grain, or a cluster, and its halo
+        let scale = (1.0 + 0.7 * clump_d * clump_extra.min(1.0)) * (1.0 + (halo_r - 1.0) * halo.min(1.0));
         let t = ((s / scale - EXPLICIT_UPTO) / (GAUSSIAN_FROM - EXPLICIT_UPTO)).clamp(0.0, 1.0);
         (gp.w_field, gp.w_noise) = if t <= 0.0 {
             (1.0, 0.0)
@@ -342,13 +648,16 @@ impl GrainParams {
         if self.gamma == 1.0 { d } else { d.powf(self.gamma) }
     }
 
-    /// Amplitude weight for display-encoded luminance `lum`: 1 in the midtones (moved by the
-    /// response), [`TONE_FLOOR`] at black and white.
+    /// Amplitude weight for display-encoded luminance `lum`: the inverse of the coverage's standard
+    /// deviation at the reference resolution, so that the grain is equally strong at every tone,
+    /// times the Response's tilt towards the shadows or the highlights.
     #[inline]
     pub fn tone_weight(&self, lum: f32) -> f32 {
         let l = if lum.is_finite() { lum.clamp(0.0, 1.0) } else { 0.5 };
-        let m = 1.0 - self.shade(l);
-        TONE_FLOOR + (1.0 - TONE_FLOOR) * 4.0 * m * (1.0 - m)
+        let p = P_MIN + (P_MAX - P_MIN) * self.shade(l);
+        let sd = coverage_std_at(p, self.area_ref, self.kappa_ref, self.k_hh_ref, self.k_ah_ref, self.cell);
+        let tilt = if self.tilt == 0.0 { 1.0 } else { (self.tilt * (l - 0.5)).exp() };
+        tilt / sd.max(1e-4)
     }
 
     /// Expected clumps per Poisson cell at coverage `p`.
@@ -357,14 +666,11 @@ impl GrainParams {
         -(1.0 - p).ln() / self.area * self.cell * self.cell
     }
 
-    /// Standard deviation of the coverage the explicit field has at `p` (the Gaussian noise's
-    /// amplitude): `(1 − p)·√(exp(κ·μ') − 1)`, where `μ'` counts fading-in clumps by `f²`.
+    /// Standard deviation of the explicit field at `p` at this render's resolution (the Gaussian
+    /// noise's amplitude; see [`coverage_std_at`]).
     #[inline]
     pub fn coverage_std(&self, p: f32) -> f32 {
-        let t = self.per_cell(p);
-        let fw = t.min(1.0);
-        let mu = -(1.0 - p).ln() * (1.0 - fw / (6.0 * t.max(1e-12)));
-        (1.0 - p) * ((self.kappa * mu).exp() - 1.0).max(0.0).sqrt()
+        coverage_std_at(p, self.area, self.kappa, self.k_hh, self.k_ah, self.cell)
     }
 
     /// Number of grains in the clump with hash `h`.
@@ -401,7 +707,7 @@ impl GrainParams {
         let m = 0.5 + ((shp >> 28) & 15) as f32 * (1.0 / 30.0);
         let p2 = PHASES.get(((shp >> 20) & 15) as usize).copied().unwrap_or([1.0, 0.0]);
         let p3 = PHASES.get(((shp >> 24) & 15) as usize).copied().unwrap_or([1.0, 0.0]);
-        let rr = r * asp.sqrt() * (1.0 + self.lump);
+        let rr = r * asp.sqrt() * (1.0 + self.lump) * self.halo_r;
         Sub {
             x: ox,
             y: oy,
@@ -412,15 +718,17 @@ impl GrainParams {
             ux,
             uy,
             h: [0.6 * m * p2[0], 0.6 * m * p2[1], 0.4 * m * p3[0], 0.4 * m * p3[1]],
-            reach: (rr * rr + self.s * self.s).sqrt() + self.s,
+            reach: {
+                let s = self.s.max(self.halo_s);
+                (rr * rr + s * s).sqrt() + s
+            },
         }
     }
 
-    /// Coverage (density × softened profile) of grain `g` at offset (dx, dy) from its centre,
-    /// `d2 = dx² + dy²`.
+    /// Coverage (density × softened profile) and halo of grain `g` at offset (dx, dy) from its
+    /// centre, `d2 = dx² + dy²`.
     #[inline]
-    fn sub_cover(&self, g: &Sub, dx: f32, dy: f32, d2: f32) -> f32 {
-        let s = self.s;
+    fn sub_cover(&self, g: &Sub, dx: f32, dy: f32, d2: f32) -> (f32, f32) {
         let d = d2.sqrt();
         let mut r = g.r;
         if d > 1e-6 {
@@ -438,18 +746,33 @@ impl GrainParams {
                 r *= 1.0 + self.lump * (g.h[0] * c2 + g.h[1] * s2 + g.h[2] * c3 + g.h[3] * s3);
             }
         }
+        let core = Self::profile(d, r, self.s, self.inv_s);
+        if self.halo > 0.0 {
+            // the development halo: a ring of lower density out to `halo_r` radii
+            let (sh, ish) = (self.halo_s, self.halo_inv_s);
+            (g.o * core, g.o * self.halo * (Self::profile(d, self.halo_r * r, sh, ish) - Self::profile(d, r, sh, ish)))
+        } else {
+            (g.o * core, 0.0)
+        }
+    }
+
+    /// A disc of radius `r` softened by the edge width: its value at distance `d` from the centre
+    /// (integral ≈ πr²).
+    #[inline]
+    fn profile(d: f32, r: f32, s: f32, inv_s: f32) -> f32 {
         let rho2 = r * r + s * s;
-        let tau = (d - rho2.sqrt()) * self.inv_s;
+        let tau = (d - rho2.sqrt()) * inv_s;
         if tau >= 1.0 {
             return 0.0;
         }
         let prof = if tau <= -1.0 { 1.0 } else { (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25 };
-        g.o * r * r / (rho2 + s * s * 0.2) * prof
+        r * r / (rho2 + s * s * 0.2) * prof
     }
 
-    /// Coverage of the clump with hash `h` at offset (dx, dy) from its centre.
-    fn clump_cover(&self, h: u32, dx: f32, dy: f32) -> f32 {
-        let mut t = 1.0f32;
+    /// Coverage (the union of its grains) and halo (their sum) of the clump with hash `h` at
+    /// offset (dx, dy) from its centre.
+    fn clump_cover(&self, h: u32, dx: f32, dy: f32) -> (f32, f32) {
+        let (mut t, mut hs) = (1.0f32, 0.0f32);
         let rr = self.sub_reach * self.sub_reach;
         for j in 0..self.sub_count(h) {
             let hj = sub_hash(h, j);
@@ -463,12 +786,22 @@ impl GrainParams {
             if d2 >= g.reach * g.reach {
                 continue;
             }
-            t *= 1.0 - self.sub_cover(&g, ex, ey, d2);
+            let (a, ha) = self.sub_cover(&g, ex, ey, d2);
+            t *= 1.0 - a;
+            hs += ha;
         }
-        1.0 - t
+        (1.0 - t, hs)
     }
 
-    /// Grain coverage at grain-unit position (x, y) for expected coverage `p` and layer seed.
+    /// The halo's expected value at coverage `p` (its sum over the clumps).
+    #[inline]
+    fn halo_at(&self, p: f32) -> f32 {
+        if self.halo > 0.0 { -(1.0 - p).ln() * self.halo_mean } else { 0.0 }
+    }
+
+    /// Grain coverage at grain-unit position (x, y) for expected coverage `p` and layer seed, less
+    /// the halo's deviation from its mean on the light the grains let through (`1 − p`), so that
+    /// the mean is `p` and the halo is as strong relative to the grains at every tone.
     pub fn field(&self, x: f32, y: f32, p: f32, seed: u32) -> f32 {
         let t = self.per_cell(p);
         // clumps fade in over the last `fw` of the cell's mark range, so the field changes
@@ -484,7 +817,7 @@ impl GrainParams {
         // exp(−end) (Poisson arrivals in mark order, `mₖ = −ln Π uᵢ`); full weight above exp(fw − end)
         let (e_end, e_full) = ((-end).exp(), (fw - end).exp());
         let salt = pcg(seed);
-        let mut keep = 1.0f32;
+        let (mut keep, mut hs) = (1.0f32, 0.0f32);
         for dj in 0..=nj {
             let j = j0.saturating_add(dj);
             let (cy0, cy1) = (j as f32 * c, (j as f32 + 1.0) * c);
@@ -510,16 +843,17 @@ impl GrainParams {
                     if ex * ex + ey * ey >= r * r {
                         continue;
                     }
-                    let a = self.clump_cover(h, ex, ey);
-                    if a <= 0.0 {
+                    let (a, ha) = self.clump_cover(h, ex, ey);
+                    if a == 0.0 && ha == 0.0 {
                         continue;
                     }
                     let f = if prod >= e_full { 1.0 } else { ((end + prod.ln()) / fw).clamp(0.0, 1.0) };
                     keep *= 1.0 - f * a;
+                    hs += f * ha;
                 }
             }
         }
-        1.0 - keep
+        1.0 - keep - (1.0 - p) * (hs - self.halo_at(p))
     }
 
     /// [`GrainParams::field`] for a band of output rows: `xs`, `ys` are the grain-unit positions of
@@ -567,6 +901,9 @@ impl GrainParams {
         keep.fill(1.0);
         // per pixel, the clump being splatted: Π(1 − aⱼ) over its grains, and the pixels it touched
         let mut clump_t = vec![1.0f32; n];
+        // and Σ hⱼ (the halo), and the halo summed over the clumps
+        let mut clump_h = vec![0.0f32; n];
+        let mut halo = vec![0.0f32; n];
         let mut touched: Vec<usize> = Vec::new();
         let salt = pcg(seed);
         let last = (cols - 1) as f32;
@@ -669,39 +1006,44 @@ impl GrainParams {
                                 if prod <= e_end {
                                     continue;
                                 }
-                                let (ex, ey) = (x - sx, y - sy);
+                                // as `field` rounds it: from the clump's centre, then the grain's offset
+                                let (ex, ey) = ((x - cx) - ox, (y - cy) - oy);
                                 let d2 = ex * ex + ey * ey;
                                 if d2 >= g.reach * g.reach {
                                     continue;
                                 }
-                                let a = self.sub_cover(&g, ex, ey, d2);
-                                if a <= 0.0 {
+                                let (a, ha) = self.sub_cover(&g, ex, ey, d2);
+                                if a == 0.0 && ha == 0.0 {
                                     continue;
                                 }
-                                if let Some(t) = clump_t.get_mut(q) {
-                                    if *t == 1.0 {
+                                if let (Some(t), Some(hq)) = (clump_t.get_mut(q), clump_h.get_mut(q)) {
+                                    if *t == 1.0 && *hq == 0.0 {
                                         touched.push(q);
                                     }
                                     *t *= 1.0 - a;
+                                    *hq += ha;
                                 }
                             }
                         }
                     }
                     let mut ln_prod = None;
                     for &q in &touched {
-                        let (Some(&(end, fw, _, e_full)), Some(t)) = (ends.get(q), clump_t.get_mut(q)) else { continue };
-                        let a = 1.0 - *t;
-                        *t = 1.0;
+                        let (Some(&(end, fw, _, e_full)), Some(t), Some(hq)) = (ends.get(q), clump_t.get_mut(q), clump_h.get_mut(q)) else {
+                            continue;
+                        };
+                        let (a, ha) = (1.0 - *t, *hq);
+                        (*t, *hq) = (1.0, 0.0);
                         let f = if prod >= e_full { 1.0 } else { ((end + *ln_prod.get_or_insert_with(|| prod.ln())) / fw).clamp(0.0, 1.0) };
-                        if let Some(kq) = keep.get_mut(q) {
+                        if let (Some(kq), Some(hs)) = (keep.get_mut(q), halo.get_mut(q)) {
                             *kq *= 1.0 - f * a;
+                            *hs += f * ha;
                         }
                     }
                 }
             }
         }
-        for v in keep.iter_mut() {
-            *v = 1.0 - *v;
+        for ((v, hs), p) in keep.iter_mut().zip(&halo).zip(ps) {
+            *v = 1.0 - *v - (1.0 - p) * (hs - self.halo_at(*p));
         }
     }
 
@@ -866,6 +1208,119 @@ mod tests {
         (0..n * n).map(|i| gp.apply(((i % n) as f32 + 0.5) / ppl + 0.1003, ((i / n) as f32 + 0.5) / ppl + 0.1007, lum)[0]).collect()
     }
 
+    /// Autocorrelation of an `n × n` patch at lags 0..8, averaged over the horizontal and
+    /// vertical directions.
+    fn acf(v: &[f32], n: usize) -> [f64; 8] {
+        let (m, var) = stats(v);
+        let mut out = [0.0; 8];
+        for (k, o) in out.iter_mut().enumerate() {
+            let mut c = 0.0;
+            for y in 0..n - k {
+                for x in 0..n - k {
+                    let a = v[y * n + x] as f64 - m;
+                    c += a * (v[y * n + x + k] as f64 - m) + a * (v[(y + k) * n + x] as f64 - m);
+                }
+            }
+            *o = c / (2 * (n - k) * (n - k)) as f64 / var.max(1e-30);
+        }
+        out
+    }
+
+    /// The lag at which an autocorrelation first drops to `level` (linear between lags).
+    fn width_at(ac: &[f64; 8], level: f64) -> f64 {
+        for k in 1..8 {
+            if ac[k] < level {
+                return (k - 1) as f64 + (ac[k - 1] - level) / (ac[k - 1] - ac[k]);
+            }
+        }
+        8.0
+    }
+
+    /// Calibration report (not a check): std (8-bit levels) and autocorrelation of the seven
+    /// Lightroom Classic settings at 6000 px, for the mapping or for looks given in `GRAIN_LOOK`
+    /// ("size rough radius_px shape halo halo_r level_scale;…").
+    #[test]
+    #[ignore]
+    fn lrc_fit_report() {
+        let report = |name: &str, g: Grain, look: GrainLook| {
+            let gp = GrainParams::with_look(&g, 6000.0, &look).unwrap();
+            let n = 256;
+            let tones: Vec<String> =
+                [39.0f32, 63.0, 118.0, 179.0, 231.0].iter().map(|t| format!("{:5.2}", stats(&patch(&gp, n, t / 255.0)).1.sqrt() * 255.0)).collect();
+            let v = patch(&gp, n, 118.0 / 255.0);
+            let ac = acf(&v, n);
+            if std::env::var("GRAIN_DOWN").is_ok() {
+                let big = patch(&gp, 640, 118.0 / 255.0);
+                let downs: Vec<String> = [2usize, 4, 8, 16]
+                    .iter()
+                    .map(|k| {
+                        let d = box_down(&big, 640, *k);
+                        let sm = GrainParams::with_look(&g, 6000.0 / *k as f64, &look).unwrap();
+                        let small = patch(&sm, 640 / k, 118.0 / 255.0);
+                        format!("{:.2}/{:.2}", stats(&d).1.sqrt() * 255.0, stats(&small).1.sqrt() * 255.0)
+                    })
+                    .collect();
+                println!("{name:<22} downscaled k2 k4 k8 k16 (export/small render): {}", downs.join("  "));
+            }
+            println!(
+                "{name:<22} std {} mean {:+.2} | hm {:.2} 1/e {:.2} | ac {:.3} {:.3} {:.3} {:.3} | r {:.2}px wf {:.2}",
+                tones.join(" "),
+                stats(&v).0 * 255.0,
+                width_at(&ac, 0.5),
+                width_at(&ac, (-1f64).exp()),
+                ac[1],
+                ac[2],
+                ac[3],
+                ac[4],
+                look.radius * 6000.0,
+                gp.w_field
+            );
+        };
+        for (a, sz, r) in [
+            (25.0, 25.0, 50.0),
+            (50.0, 25.0, 50.0),
+            (100.0, 25.0, 50.0),
+            (50.0, 0.0, 50.0),
+            (50.0, 100.0, 50.0),
+            (50.0, 25.0, 0.0),
+            (50.0, 25.0, 100.0),
+        ] {
+            report(&format!("A{a} S{sz} R{r}"), grain(a, sz, r), GrainLook::new(sz, r));
+        }
+        if let Ok(spec) = std::env::var("GRAIN_LOOK") {
+            for item in spec.split(';').filter(|s| !s.trim().is_empty()) {
+                let v: Vec<f64> = item.split_whitespace().map(|x| x.parse().unwrap()).collect();
+                let base = GrainLook::new(v[0], v[1]);
+                let look = GrainLook { radius: v[2] / 6000.0, shape: v[3], halo: v[4], halo_r: v[5], level: base.level * v[6] };
+                report(&format!("S{} R{} {:?}", v[0], v[1], &v[2..]), grain(50.0, v[0], v[1]), look);
+            }
+        }
+    }
+
+    /// Downscale report (not a check): grain sd and lag-1 correlation of a render at 6000/k vs the
+    /// 6000 px render box-downscaled by k.
+    #[test]
+    #[ignore]
+    fn downscale_report() {
+        for (size, rough, clumping) in
+            [(0.0, 50.0, 30.0), (0.0, 50.0, 80.0), (10.0, 50.0, 30.0), (25.0, 0.0, 30.0), (25.0, 50.0, 30.0), (60.0, 0.0, 30.0)]
+        {
+            let g = Grain { clumping, ..grain(60.0, size, rough) };
+            let full = GrainParams::new(&g, 6000.0).unwrap();
+            let mut line = format!("S{size} R{rough} C{clumping}:");
+            for k in [2usize, 3, 4, 8] {
+                let small = GrainParams::new(&g, 6000.0 / k as f64).unwrap();
+                let n = 96;
+                let big = patch(&full, n * k, 0.5);
+                let down = box_down(&big, n * k, k);
+                let sm = patch(&small, n, 0.5);
+                let ratio = (stats(&sm).1 / stats(&down).1).sqrt();
+                line += &format!("  k{k} sd {ratio:.2} lag1 {:.2}/{:.2} wf {:.2}", lag1(&down, n), lag1(&sm, n), small.w_field);
+            }
+            println!("{line}");
+        }
+    }
+
     fn stats(v: &[f32]) -> (f64, f64) {
         let n = v.len() as f64;
         let mean = v.iter().map(|x| *x as f64).sum::<f64>() / n;
@@ -939,7 +1394,6 @@ mod tests {
             let g = Grain { clumping, ..grain(60.0, size, 50.0) };
             let full = GrainParams::new(&g, 3000.0).unwrap();
             let small = GrainParams::new(&g, 3000.0 / k as f64).unwrap();
-            assert_eq!(full.amp, small.amp, "Amount is calibrated independently of the render size");
             let n = 120;
             for lum in [0.25f32, 0.5, 0.8] {
                 let big = patch(&full, n * k, lum);
@@ -956,18 +1410,72 @@ mod tests {
         }
     }
 
+    /// Grain on a flat grey chart rendered as the CPU renderer does ([`GrainParams::apply_band`]),
+    /// at a 6000 px long edge: `n × n` pixels of 8-bit tone `tone`. Returns the grain's standard
+    /// deviation in 8-bit levels and its autocorrelation.
+    fn chart(g: &Grain, tone: f32, n: usize) -> (f64, [f64; 8]) {
+        let gp = GrainParams::new(g, 6000.0).unwrap();
+        let (mut gx, mut gy) = (Vec::with_capacity(n * n), Vec::with_capacity(n * n));
+        for y in 0..n {
+            for x in 0..n {
+                gx.push((x as f32 + 0.5) / 6000.0 + 0.2);
+                gy.push((y as f32 + 0.5) / 6000.0 + 0.3);
+            }
+        }
+        let e = tone / 255.0;
+        let mut px = vec![[e; 3]; n * n];
+        gp.apply_band(&gx, &gy, n, &mut px);
+        let v: Vec<f32> = px.iter().map(|c| (c[1] - e) * 255.0).collect();
+        (stats(&v).1.sqrt(), acf(&v, n))
+    }
+
+    /// Measured from Lightroom Classic exports (Lightroom Classic 15.1.1, process version 15.4:
+    /// full-size 6000 × 4000 JPEGs of a chart of flat grey steps; `docs/grain.md`): Amount, Size,
+    /// Roughness; the grain's standard deviation in 8-bit levels in mid grey (118), the same from
+    /// 63 to 179 within 1 %; and the lag (pixels) at which its autocorrelation falls to ½.
+    const LRC_GRAIN: [(f64, f64, f64, f64, f64); 7] = [
+        (25.0, 25.0, 50.0, 4.29, 1.13),
+        (50.0, 25.0, 50.0, 8.55, 1.13),
+        (100.0, 25.0, 50.0, 17.01, 1.14),
+        (50.0, 0.0, 50.0, 23.08, 0.43),
+        (50.0, 100.0, 50.0, 5.83, 3.38),
+        (50.0, 25.0, 0.0, 12.42, 0.86),
+        (50.0, 25.0, 100.0, 11.68, 1.54),
+    ];
+
+    /// The seven Lightroom Classic settings: the same strength (within 10 %) at every tone from 63
+    /// to 179 (within 6 % of each other), and the same correlation width (within 10 %).
     #[test]
-    fn grain_is_strongest_in_the_midtones_and_response_moves_it() {
+    fn grain_matches_lightroom_classic_exports() {
+        for (amount, size, rough, lrc_sd, lrc_width) in LRC_GRAIN {
+            let g = grain(amount, size, rough);
+            let (sd, ac) = chart(&g, 118.0, 160);
+            let width = width_at(&ac, 0.5);
+            assert!((sd / lrc_sd - 1.0).abs() < 0.1, "A{amount} S{size} R{rough}: sd {sd:.2} levels, Lightroom Classic {lrc_sd}");
+            assert!((width / lrc_width - 1.0).abs() < 0.1, "A{amount} S{size} R{rough}: width {width:.2} px, Lightroom Classic {lrc_width}");
+            let tones: Vec<f64> = [63.0, 179.0].iter().map(|t| chart(&g, *t, 120).0).collect();
+            for (t, v) in [63, 179].iter().zip(&tones) {
+                assert!((v / sd - 1.0).abs() < 0.06, "A{amount} S{size} R{rough}: sd {v:.2} at {t} vs {sd:.2} at 118");
+            }
+        }
+        // Roughness 0 is regular: negative autocorrelation two pixels out, as in Lightroom Classic
+        // (−0.15); Size 0 is finer than a pixel, with negative correlation at one (−0.17)
+        assert!(chart(&grain(50.0, 25.0, 0.0), 118.0, 160).1[2] < -0.08);
+        assert!(chart(&grain(50.0, 0.0, 50.0), 118.0, 160).1[1] < -0.08);
+    }
+
+    #[test]
+    fn grain_is_equally_strong_at_every_tone_and_response_tilts_it() {
         let sd = |gp: &GrainParams, lum: f32| stats(&patch(gp, 160, lum)).1.sqrt();
         let gp = GrainParams::new(&grain(50.0, 30.0, 50.0), 6000.0).unwrap();
         let (dark, mid, light) = (sd(&gp, 0.05), sd(&gp, 0.5), sd(&gp, 0.95));
-        assert!(mid > dark && mid > light && dark > 0.0 && light > 0.0, "{dark} {mid} {light}");
+        assert!((dark / mid - 1.0).abs() < 0.08 && (light / mid - 1.0).abs() < 0.08, "{dark} {mid} {light}");
         let shadows = GrainParams::new(&Grain { response: -100.0, ..grain(50.0, 30.0, 50.0) }, 6000.0).unwrap();
         let highlights = GrainParams::new(&Grain { response: 100.0, ..grain(50.0, 30.0, 50.0) }, 6000.0).unwrap();
-        assert!(sd(&shadows, 0.15) > sd(&shadows, 0.85), "negative response favours the shadows");
-        assert!(sd(&highlights, 0.85) > sd(&highlights, 0.15), "positive response favours the highlights");
-        // Amount 50 in mid-grey at the reference resolution: about 0.03 (8 levels of 255)
-        assert!((0.018..0.05).contains(&mid), "mid-grey sd {mid}");
+        assert!(sd(&shadows, 0.15) > 1.5 * sd(&shadows, 0.85), "negative response favours the shadows");
+        assert!(sd(&highlights, 0.85) > 1.5 * sd(&highlights, 0.15), "positive response favours the highlights");
+        // Amount 50 at Size 30 at the reference resolution: about 0.03 (8 levels of 255)
+        assert!((0.025..0.035).contains(&mid), "mid-grey sd {mid}");
     }
 
     /// Colour 0: one grain layer, the same in every channel. Colour 100: an independent dye layer
@@ -1137,7 +1645,12 @@ mod tests {
             }
             e
         };
-        let (round, rough) = (edges(&at(Grain { roughness: 0.0, ..base }, 6000.0)), edges(&at(Grain { roughness: 100.0, ..base }, 6000.0)));
+        // (the shape alone: Roughness also scales the grains and adds a halo)
+        let shaped = |shape: f64| {
+            let look = GrainLook { shape, halo: 0.0, ..GrainLook::new(base.size, 50.0) };
+            field(&GrainParams::with_look(&base, 6000.0, &look).unwrap(), 150, 0.45, 0.5, base.seed)
+        };
+        let (round, rough) = (edges(&shaped(0.0)), edges(&shaped(1.0)));
         assert!(rough as f64 > round as f64 * 1.05, "shape 100 has more edge than shape 0 ({rough} vs {round})");
         // Clumping: particles gather, so coverage varies more between neighbourhoods
         let blocks = |v: &[f32]| stats(&box_down(v, 150, 10)).1;

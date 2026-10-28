@@ -80,6 +80,18 @@ const FIELDS: &[(&str, usize)] = &[
     ("GRAIN_SUB_REACH", 1),
     ("GRAIN_CELL", 1),
     ("GRAIN_KAPPA", 1),
+    ("GRAIN_K_HH", 1),
+    ("GRAIN_K_AH", 1),
+    ("GRAIN_AREA_REF", 1),
+    ("GRAIN_KAPPA_REF", 1),
+    ("GRAIN_K_HH_REF", 1),
+    ("GRAIN_K_AH_REF", 1),
+    ("GRAIN_HALO", 1),
+    ("GRAIN_HALO_R", 1),
+    ("GRAIN_HALO_S", 1),
+    ("GRAIN_HALO_INV_S", 1),
+    ("GRAIN_HALO_MEAN", 1),
+    ("GRAIN_TILT", 1),
     ("GRAIN_WF", 1),
     ("GRAIN_WN", 1),
     ("GRAIN_COLOR", 1),
@@ -309,6 +321,18 @@ fn particle_grain(p: &mut Block, g: &GrainParams) {
     p.f("GRAIN_SUB_REACH", g.sub_reach);
     p.f("GRAIN_CELL", g.cell);
     p.f("GRAIN_KAPPA", g.kappa);
+    p.f("GRAIN_K_HH", g.k_hh);
+    p.f("GRAIN_K_AH", g.k_ah);
+    p.f("GRAIN_AREA_REF", g.area_ref);
+    p.f("GRAIN_KAPPA_REF", g.kappa_ref);
+    p.f("GRAIN_K_HH_REF", g.k_hh_ref);
+    p.f("GRAIN_K_AH_REF", g.k_ah_ref);
+    p.f("GRAIN_HALO", g.halo);
+    p.f("GRAIN_HALO_R", g.halo_r);
+    p.f("GRAIN_HALO_S", g.halo_s);
+    p.f("GRAIN_HALO_INV_S", g.halo_inv_s);
+    p.f("GRAIN_HALO_MEAN", g.halo_mean);
+    p.f("GRAIN_TILT", g.tilt);
     p.f("GRAIN_WF", g.w_field);
     p.f("GRAIN_WN", g.w_noise);
     p.f("GRAIN_COLOR", g.color);

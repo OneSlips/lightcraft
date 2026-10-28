@@ -277,9 +277,9 @@ fn constants() -> String {
         s += &format!("const GRAIN_VH{i}: u32 = {h}u;\n");
     }
     {
-        use lightcraft_pipeline::grain::{CHANNEL_SALT, MAX_PER_CELL, MAX_REACH, MAX_SUB, P_MAX, P_MIN, TONE_FLOOR};
+        use lightcraft_pipeline::grain::{CHANNEL_SALT, MAX_PER_CELL, MAX_REACH, MAX_SUB, P_MAX, P_MIN};
         s += &format!(
-            "const GRAIN_P_MIN: f32 = {P_MIN:?};\nconst GRAIN_P_MAX: f32 = {P_MAX:?};\nconst GRAIN_MAX_PER_CELL: u32 = {MAX_PER_CELL}u;\nconst GRAIN_MAX_SUB: u32 = {MAX_SUB}u;\nconst GRAIN_TONE_FLOOR: f32 = {TONE_FLOOR:?};\nconst GRAIN_MAX_REACH: i32 = {MAX_REACH};\n"
+            "const GRAIN_P_MIN: f32 = {P_MIN:?};\nconst GRAIN_P_MAX: f32 = {P_MAX:?};\nconst GRAIN_MAX_PER_CELL: u32 = {MAX_PER_CELL}u;\nconst GRAIN_MAX_SUB: u32 = {MAX_SUB}u;\nconst GRAIN_MAX_REACH: i32 = {MAX_REACH};\n"
         );
         let phases: Vec<String> = lightcraft_pipeline::grain::PHASES.iter().map(|p| format!("vec2<f32>({:?}, {:?})", p[0], p[1])).collect();
         // a private array: indexed at run time (a const array may not be, on every backend)
@@ -778,6 +778,20 @@ pub fn groups1(n: usize) -> [u32; 3] {
 
 #[cfg(test)]
 mod tests {
+    /// Every WGSL module, with its constants filled in, parses and validates (no adapter needed,
+    /// so it runs where the GPU tests skip).
+    #[test]
+    fn shaders_parse_and_validate() {
+        let consts = super::constants();
+        for m in super::MODULES {
+            let src = super::module_source(m, &consts);
+            let module = wgpu::naga::front::wgsl::parse_str(&src).unwrap_or_else(|e| panic!("{}", e.emit_to_string(&src)));
+            wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::all())
+                .validate(&module)
+                .unwrap_or_else(|e| panic!("{e:?}"));
+        }
+    }
+
     #[test]
     fn limits_override_parses() {
         assert_eq!(super::parse_limits("webgpu"), Some((128 << 20, 256 << 20)));

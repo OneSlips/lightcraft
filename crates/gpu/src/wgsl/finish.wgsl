@@ -270,16 +270,23 @@ fn gunit4(v: u32) -> f32 {
     return (f32(v & 15u) + 0.5) * (1.0 / 16.0);
 }
 
+// `coverage_std_at`: the standard deviation of the field (coverage less halo) at coverage `p`
+fn grain_std_at(p: f32, area: f32, kappa: f32, k_hh: f32, k_ah: f32) -> f32 {
+    let c = pf(F_GRAIN_CELL);
+    let q = 1.0 - p;
+    let t = -log(q) / area * c * c;
+    let fw = min(t, 1.0);
+    let mu = -log(q) * (1.0 - fw / (6.0 * max(t, 1e-12)));
+    return sqrt(max(q * q * (exp(kappa * mu) - 1.0 + mu * (k_hh - 2.0 * k_ah)), 0.0));
+}
+
 fn grain_per_cell(p: f32) -> f32 {
     let c = pf(F_GRAIN_CELL);
     return -log(1.0 - p) / pf(F_GRAIN_AREA) * c * c;
 }
 
 fn grain_std(p: f32) -> f32 {
-    let t = grain_per_cell(p);
-    let fw = min(t, 1.0);
-    let mu = -log(1.0 - p) * (1.0 - fw / (6.0 * max(t, 1e-12)));
-    return (1.0 - p) * sqrt(max(exp(pf(F_GRAIN_KAPPA) * mu) - 1.0, 0.0));
+    return grain_std_at(p, pf(F_GRAIN_AREA), pf(F_GRAIN_KAPPA), pf(F_GRAIN_K_HH), pf(F_GRAIN_K_AH));
 }
 
 fn grain_sub_count(h: u32) -> u32 {
@@ -297,10 +304,10 @@ fn grain_sub_offset(hj: u32) -> vec2<f32> {
     return vec2<f32>(d * (gunit8(o) + gunit8(o >> 8u) - 1.0), d * (gunit8(o >> 16u) + gunit8(o >> 24u) - 1.0));
 }
 
-// coverage of grain `hj` at offset (dx, dy) from its centre: radius, density, elongation,
-// orientation, lobed outline, soft edge (0 beyond its reach)
-fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
-    let s = pf(F_GRAIN_S);
+// coverage and halo of grain `hj` at offset (dx, dy) from its centre: radius, density,
+// elongation, orientation, lobed outline, soft edge (0 beyond its reach)
+fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> vec2<f32> {
+    let s = max(pf(F_GRAIN_S), pf(F_GRAIN_HALO_S));
     let lump = pf(F_GRAIN_LUMP);
     let rad = gpcg(hj ^ GRAIN_H3);
     let z = 2.0 * (gunit8(rad) + gunit8(rad >> 8u) + gunit8(rad >> 16u)) - 3.0;
@@ -317,10 +324,10 @@ fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
         uy = b / n;
     }
     let asp = 1.0 + pf(F_GRAIN_ASPECT) * gunit4(shp >> 16u);
-    let rr = r0 * sqrt(asp) * (1.0 + lump);
+    let rr = r0 * sqrt(asp) * (1.0 + lump) * pf(F_GRAIN_HALO_R);
     let reach = sqrt(rr * rr + s * s) + s;
     if (d2 >= reach * reach) {
-        return 0.0;
+        return vec2<f32>(0.0, 0.0);
     }
     let d = sqrt(d2);
     var r = r0;
@@ -344,8 +351,21 @@ fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
             r = r * (1.0 + lump * (0.6 * m * (p2.x * c2 + p2.y * s2) + 0.4 * m * (p3.x * c3 + p3.y * s3)));
         }
     }
+    let core = grain_profile(d, r, pf(F_GRAIN_S), pf(F_GRAIN_INV_S));
+    let halo = pf(F_GRAIN_HALO);
+    if (halo > 0.0) {
+        // the development halo: a ring of lower density out to `halo_r` radii
+        let sh = pf(F_GRAIN_HALO_S);
+        let ish = pf(F_GRAIN_HALO_INV_S);
+        return vec2<f32>(o * core, o * halo * (grain_profile(d, pf(F_GRAIN_HALO_R) * r, sh, ish) - grain_profile(d, r, sh, ish)));
+    }
+    return vec2<f32>(o * core, 0.0);
+}
+
+// a disc of radius `r` softened by the edge width `s`, at distance `d` from its centre
+fn grain_profile(d: f32, r: f32, s: f32, inv_s: f32) -> f32 {
     let rho2 = r * r + s * s;
-    let tau = (d - sqrt(rho2)) * pf(F_GRAIN_INV_S);
+    let tau = (d - sqrt(rho2)) * inv_s;
     if (tau >= 1.0) {
         return 0.0;
     }
@@ -353,14 +373,16 @@ fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
     if (tau > -1.0) {
         prof = (1.0 - tau) * (1.0 - tau) * (2.0 + tau) * 0.25;
     }
-    return o * r * r / (rho2 + s * s * 0.2) * prof;
+    return r * r / (rho2 + s * s * 0.2) * prof;
 }
 
-// coverage of clump `h` at offset (dx, dy) from its centre: the union of its grains
-fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> f32 {
+// coverage (the union of its grains) and halo (their sum) of clump `h` at offset (dx, dy) from
+// its centre
+fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> vec2<f32> {
     let sr = pf(F_GRAIN_SUB_REACH);
     let count = grain_sub_count(h);
     var t = 1.0;
+    var hs = 0.0;
     for (var j = 0u; j < count; j++) {
         let hj = gsub_hash(h, j);
         let off = grain_sub_offset(hj);
@@ -370,9 +392,11 @@ fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> f32 {
         if (d2 >= sr * sr) {
             continue;
         }
-        t *= 1.0 - grain_sub_cover(hj, ex, ey, d2);
+        let ah = grain_sub_cover(hj, ex, ey, d2);
+        t *= 1.0 - ah.x;
+        hs += ah.y;
     }
-    return 1.0 - t;
+    return vec2<f32>(1.0 - t, hs);
 }
 
 fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
@@ -392,6 +416,7 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
     let e_full = exp(fw - end);
     let salt = gpcg(seed);
     var keep = 1.0;
+    var hs = 0.0;
     for (var dj = 0u; dj <= nj; dj++) {
         let j = j0 + i32(dj);
         let dy = y - clamp(y, f32(j) * c, (f32(j) + 1.0) * c);
@@ -417,19 +442,25 @@ fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
                 if (ex * ex + ey * ey >= r * r) {
                     continue;
                 }
-                let a = grain_clump_cover(h, ex, ey);
-                if (a <= 0.0) {
+                let ah = grain_clump_cover(h, ex, ey);
+                if (ah.x == 0.0 && ah.y == 0.0) {
                     continue;
                 }
                 var f = 1.0;
                 if (prod < e_full) {
                     f = clamp((end + log(prod)) / fw, 0.0, 1.0);
                 }
-                keep *= 1.0 - f * a;
+                keep *= 1.0 - f * ah.x;
+                hs += f * ah.y;
             }
         }
     }
-    return 1.0 - keep;
+    // less the halo's deviation from its mean, on the light the grains let through
+    var halo_mean = 0.0;
+    if (pf(F_GRAIN_HALO) > 0.0) {
+        halo_mean = -log(1.0 - p) * pf(F_GRAIN_HALO_MEAN);
+    }
+    return 1.0 - keep - (1.0 - p) * (hs - halo_mean);
 }
 
 fn grain_gauss(ix: i32, iy: i32, seed: u32) -> f32 {
@@ -462,8 +493,14 @@ fn grain_apply(gx: f32, gy: f32, lum: f32) -> vec3<f32> {
     }
     let p = GRAIN_P_MIN + (GRAIN_P_MAX - GRAIN_P_MIN) * shade;
     let seed = pu(F_GRAIN_SEED);
-    let tm = 1.0 - shade;
-    let amp = pf(F_GRAIN_AMP) * (GRAIN_TONE_FLOOR + (1.0 - GRAIN_TONE_FLOOR) * 4.0 * tm * (1.0 - tm));
+    // equally strong at every tone (at the reference resolution), tilted by the response
+    let tilt = pf(F_GRAIN_TILT);
+    var tw = 1.0;
+    if (tilt != 0.0) {
+        tw = exp(tilt * (l - 0.5));
+    }
+    let sd_ref = grain_std_at(p, pf(F_GRAIN_AREA_REF), pf(F_GRAIN_KAPPA_REF), pf(F_GRAIN_K_HH_REF), pf(F_GRAIN_K_AH_REF));
+    let amp = pf(F_GRAIN_AMP) * tw / max(sd_ref, 1e-4);
     let color = pf(F_GRAIN_COLOR);
     if (color <= 0.0) {
         let lv = amp * grain_layer(gx, gy, p, seed);

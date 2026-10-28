@@ -33,16 +33,27 @@ implementation.
   `λ·E[∫a_clump] = −ln(1 − p)`.
 - **Each pixel shows the coverage averaged over its footprint.** Every grain is softened by an edge
   width `s` that combines a constant film softness (0.4 radii) with one output pixel. The union is
-  evaluated exactly as `1 − Π(1 − aᵢ)`. The Poisson generating functional then gives the mean (`p`
-  at any scale) and the variance `(1 − p)²·(exp(λ·E[∫a_clump²]) − 1)`. The two clump integrals
-  are measured for each setting by rasterising 128 sample clumps drawn by the renderer's own
-  generator (`clump_moments`, cached, so a drag of Amount, Color or Response measures nothing).
+  evaluated exactly as `1 − Π(1 − aᵢ)`.
+- **Development halo.** Fine or smooth grain (below Roughness 50, or finer than Size 25) gets a
+  ring of lower density around each grain, out to `H` = 3.2–3.5 radii, whose integral is `η`
+  times the grain's (as if the developer were exhausted around a grain). It makes the grain
+  regular: its autocorrelation dips below zero one to three pixels out, as measured in Lightroom
+  Classic. The halo is additive: the field is `1 − T − (1 − p)·(Hs − E[Hs])`, where
+  `T = Π(1 − aᵢ)` and `Hs` sums the clumps' rings.
+- **Exact statistics.** The Poisson generating functional gives the mean (`p` at any scale) and
+  the variance `(1 − p)²·(exp(λ·E[∫a²]) − 1 + λ·(E[∫h²] − 2·E[∫a·h]))`. The clump integrals are
+  measured for each setting by rasterising 512 sample clumps drawn by the renderer's own generator,
+  in parallel and summed in a fixed order (`clump_moments`; cached, so a drag of Amount, Color or
+  Response measures nothing).
 - **Particles fade in with tone.** Within a cell, clumps arrive in mark order and fade in over the
   last clump's worth of the mark range. The field therefore changes continuously as the tone
   changes: no particle pops in or out between neighbouring pixels or slider steps.
-- **Output:** each channel gets `amp · w(l) · (p − coverage)` in display-encoded space, before the
-  profile LUT. `w(l)` is 1 in the midtones and 0.35 at black and white, and the Response slider
-  moves its peak.
+- **Output:** each channel gets `amp · w(l) · (p − field)` in display-encoded space, before the
+  profile LUT. `w(l)` divides by the field's standard deviation at the reference resolution, so
+  the grain is **equally strong at every tone**, as in Lightroom Classic (measured flat within 1 %
+  from 63 to 179 of 255). Response tilts it: `w` is multiplied by `exp(t·(l − ½))` with
+  `t = ln 4 · Response/100`, so at ±100 the grain is 4× stronger at one end than the other (and
+  the particle density shifts with tone, as before).
 - **Colour:** with Color `c`, each channel gets `√(1 − c)·shared + √c·dye`, where `shared` is the
   one grain layer and `dye` the channel's own independent layer. Colour 0 is monochrome grain,
   100 independent dye clouds, and the strength stays the same in between.
@@ -58,26 +69,91 @@ a small render shows what the export shows downscaled:
   clumps much smaller than a pixel (grid thumbnails, fit previews of fine grain).
 - **Between the two**, the explicit and Gaussian parts cross-fade with variance-preserving weights.
 - **Calibration:** the pixel softness, 0.44 px without clumps rising to 0.5 px at Clumping 100, gives
-  a small render the grain strength of the export box-downscaled to its size.
+  a small render the grain strength of the export box-downscaled to its size for grain without a
+  halo. With a halo (band-pass grain, whose strength a box removes very differently from a soft
+  footprint), below 6000 px the amplitude is set from the reference render's own covariance:
+  `ref_covariance` measures it at lags up to 16 (pitch ≥ 1 reference pixel) from 128 sample clumps,
+  and its box-averaged variance gives the strength a render 6000/k px wide must have.
 - **Tests:** `small_render_matches_a_downscaled_full_size_render` (grain level) and
   `small_pipeline_render_matches_downscaled_full_render` (whole pipeline).
-- **Measured:** a quarter-size render is within 4 % of the downscaled export's grain strength
-  across sizes and clumping.
+- **Measured:** renders at 1/2 to 1/8 size are within about 10 % of the downscaled export's grain
+  strength across sizes, roughness and clumping (`downscale_report`, ignored: run it with
+  `--ignored --nocapture`).
 
-Amount is calibrated at a 6000 px long edge (a 24 MP export). Amount 100 gives a standard deviation
-of about 0.06 (15 levels of 255) in mid-grey there, a little more for coarse grain.
+Amount is calibrated at a 6000 px long edge (a 24 MP export); grain strength is linear in Amount.
+Amount 100 gives 17 levels of 255 at the defaults there (Size 25, Roughness 50), 46 at Size 0 and
+12 at Size 100: finer grain is stronger, as in Lightroom Classic.
+
+## Mapping (`GrainLook::new`)
+
+Size `S` and Roughness `ρ = Roughness/100` set the look. The curves were fitted to the seven
+Lightroom Classic exports below; between those points they are smooth guesses.
+
+| Quantity | Formula | Size 0 / 25 / 100 (Roughness 50) |
+|---|---|---|
+| mean radius (px at 6000) | `(0.3 + 2.7·(S/100)^1.17) · (0.9 − 0.15ρ + 0.7ρ²)` | 0.30 / 0.83 / 3.0 |
+| shape (elongation, lobes) | `ρ` | |
+| halo integral `η` | `0.8·(1 − 2ρ)⁺ + 1.1·((1 − S/25)⁺)²` | 1.1 / 0 / 0 |
+| halo radius `H` (grain radii) | `3.2 + 0.3·(1 − 2ρ)⁺` | 3.2 |
+| levels at Amount 100 | `exp(2.447 + 1.386·exp(−S/19.88)) · (1 − 0.084d + 1.6384d²)`, `d = ρ − ½` | 46.2 / 17.1 / 11.7 |
+
+Roughness 0 is finer (0.9× the radius), regular (halo 0.8) and 1.45× stronger than Roughness 50;
+Roughness 100 is coarser (1.45× the radius), irregular and 1.37× stronger.
+
+## Calibration against Lightroom Classic
+
+Seven settings exported from Lightroom Classic 15.1.1 (process version 15.4) as full-size JPEGs of
+a 6000 × 4000 chart of flat grey steps (39, 63, 118, 179, 231 of 255), measured on the luminance of
+each step (900 × 3400 px): the standard deviation in 8-bit levels, and the lag (px) at which the
+autocorrelation (mean of horizontal and vertical) falls to ½. "Ours" is `lightcraft-cli render` of
+the same chart (CPU), measured the same way; "before" is the grain before this calibration.
+
+| Amount / Size / Roughness | Lightroom Classic: sd at 39 · 63 · 118 · 179 · 231; width | Ours | Before |
+|---|---|---|---|
+| 25 / 25 / 50 | 4.29 · 4.29 · 4.29 · 4.29 · 4.29; 1.13 | 4.24 · 4.22 · 4.24 · 4.14 · 4.23; 1.24 | 1.78 · 2.24 · 2.83 · 2.52 · 1.43; 1.14 |
+| 50 / 25 / 50 | 8.55 · 8.56 · 8.55 · 8.55 · 8.52; 1.13 | 8.65 · 8.65 · 8.60 · 8.59 · 8.58; 1.17 | 3.43 · 4.39 · 5.61 · 4.97 · 3.05; 1.16 |
+| 100 / 25 / 50 | 16.81 · 17.03 · 17.01 · 17.01 · 15.71; 1.14 | 17.39 · 17.37 · 17.31 · 17.28 · 17.25; 1.13 | 6.79 · 8.81 · 11.19 · 10.06 · 6.02; 1.16 |
+| 50 / 0 / 50 | 22.12 · 23.01 · 23.08 · 23.06 · 20.00; 0.43 | 22.94 · 23.27 · 23.22 · 23.19 · 21.09; 0.43 | 3.01 · 3.91 · 4.98 · 4.50 · 2.74; 1.02 |
+| 50 / 100 / 50 | 5.82 · 5.84 · 5.83 · 5.85 · 5.83; 3.38 | 5.87 · 5.81 · 5.80 · 5.89 · 5.84; 3.45 | 4.61 · 5.91 · 7.52 · 6.73 · 3.82; 3.47 |
+| 50 / 25 / 0 | 12.41 · 12.42 · 12.42 · 12.41 · 12.05; 0.86 | 12.63 · 12.60 · 12.56 · 12.52 · 12.48; 0.82 | 3.42 · 4.39 · 5.62 · 4.96 · 3.04; 1.20 |
+| 50 / 25 / 100 | 11.68 · 11.68 · 11.68 · 11.68 · 11.42; 1.54 | 11.87 · 11.87 · 11.84 · 11.75 · 11.66; 1.48 | 3.43 · 4.40 · 5.60 · 4.97 · 3.04; 1.09 |
+
+Autocorrelation at lags 1, 2, 3 px in mid grey: Size 0 is −0.17, 0.02, 0.00 in Lightroom Classic
+(ours −0.15, 0.04, 0.00); Roughness 0 is 0.42, −0.15, −0.12 (ours 0.39, −0.14, −0.09).
+
+Box-downscaled by 2, 4, 8 and 16, the mid-grey step keeps (levels):
+
+| Amount / Size / Roughness | Lightroom Classic | Ours |
+|---|---|---|
+| 50 / 25 / 50 | 6.65 · 3.94 · 2.14 · 1.13 | 6.78 · 4.36 · 2.42 · 1.28 |
+| 50 / 0 / 50 | 9.00 · 3.90 · 1.80 · 0.87 | 8.86 · 4.07 · 1.99 · 0.98 |
+| 50 / 100 / 50 | 5.67 · 5.09 · 3.74 · 2.27 | 5.60 · 5.02 · 3.85 · 2.39 |
+| 50 / 25 / 0 | 8.63 · 3.39 · 1.15 · 0.41 | 8.55 · 3.56 · 1.47 · 0.66 |
+| 50 / 25 / 100 | 10.12 · 7.10 · 4.10 · 2.21 | 9.97 · 7.25 · 4.35 · 2.37 |
+
+The grain's large-scale content is within about 15 %, except at Roughness 0: its regular grain
+keeps 1.3–1.6× as much as Lightroom Classic's at 8–16 px. Lightroom Classic's strong grain (Amount
+100, or Size 0) is weaker at 231 of 255; ours stays flat there. Not measured: Size between 25 and
+100, Size and Roughness together away from these points, export sizes other than 6000 px, and
+anything about Lightroom Classic's own grain model (Size Variation, Clumping, Color and Response
+have no Lightroom Classic counterpart to compare).
+
+`grain_matches_lightroom_classic_exports` renders the seven settings on a procedural flat-grey
+chart at 6000 px and asserts these numbers (strength and width within 10 %, flat from 63 to 179
+within 6 %, the negative lobes of Size 0 and Roughness 0). `lrc_fit_report` (ignored) prints the
+full table for a candidate mapping.
 
 ## Controls
 
 | Control | Range | Meaning |
 |---|---|---|
 | `grain.amount` | 0–100 | strength (XMP `crs:GrainAmount`) |
-| `grain.size` | 0–100 | mean grain radius on a 6000 px export: 0.7 px (0), 0.8 (25), 1.2 (50), 1.9 (75), 3 px (100); 4.3–18 µm on a 35 mm frame (XMP `crs:GrainSize`) |
+| `grain.size` | 0–100 | mean grain radius on a 6000 px export at Roughness 50: 0.3 px (0), 0.83 (25), 1.5 (50), 2.2 (75), 3 px (100); 1.8–18 µm on a 35 mm frame. Finer grain is stronger (XMP `crs:GrainSize`) |
 | `grain.sizeVariation` | 0–100 | spread of grain sizes: 0 = all the mean size; 100 = from 0.35× to 2.9× |
-| `grain.roughness` (Shape) | 0–100 | grain shape: 0 = round, even beads; 100 = elongated (up to 4:1), lobed, irregular grains (XMP `crs:GrainFrequency`) |
+| `grain.roughness` (Shape) | 0–100 | 0 = fine, round, regular grain (with a development halo); 100 = coarser, elongated (up to 4:1), lobed, irregular grains; both ends are stronger than 50 (XMP `crs:GrainFrequency`) |
 | `grain.clumping` | 0–100 | 0 = single grains; 100 = clusters of six grains on average (up to eleven) |
 | `grain.color` | 0–100 | monochrome grain (0) to independent dye clouds per channel (100) |
-| `grain.response` | −100–100 | where grain is strongest: shadows (−) … midtones (0) … highlights (+) |
+| `grain.response` | −100–100 | where grain is strongest: equally strong at every tone (0); up to 4× stronger in the shadows (−100) or the highlights (+100) than at the other end |
 | `grain.seed` | 0–99,999 | the particle pattern: every value is a different one (drag to try patterns, or type one) |
 
 Settings saved before Size Variation and Clumping existed load with their defaults (40 and 30);
@@ -88,11 +164,22 @@ own settings; Camera Raw has no equivalents.
 
 - **GPU:** the per-pixel kernel evaluates the clumps within reach of each pixel. On the 24 MP test
   export the finish pass takes ≈ 200 ms with default grain (≈ 80–270 ms without; ≈ 650 ms with
-  Color: four layers). A 1500 px preview takes ≈ 15 ms.
+  Color: four layers). A 1500 px preview takes ≈ 15 ms. These were measured before the Lightroom
+  Classic calibration and not since (no GPU on the calibration machine); the halo makes fine and
+  smooth grain dearer.
 - **CPU:** works on bands of 8 output rows. Each clump is generated once per band and its grains
   are splatted onto the pixels they reach (`band_matches_per_pixel` checks the result equals the
-  per-pixel evaluation). On 32 threads a 24 MP export's finish stage goes from ≈ 110 ms to ≈ 0.9 s
-  at the defaults (≈ 4 s with Color); a 1500 px render takes ≈ 30 ms.
+  per-pixel evaluation). A whole `lightcraft-cli render` of a 24 MP TIFF to JPEG on 32 threads
+  (no grain: ≈ 0.9 s):
+
+  | Amount / Size / Roughness | 50 / 25 / 50 | 50 / 0 / 50 | 50 / 25 / 0 | 50 / 100 / 50 |
+  |---|---|---|---|---|
+  | whole render, CPU | 2.4 s | 10.5 s | 3.8 s | 1.6 s |
+
+  The halo widens each grain's reach about 3×, so fine and smooth grain cost the most.
+- **Parameters:** a new Size, Roughness, Size Variation or Clumping measures the clump moments
+  (512 sample clumps) and, below 6000 px with a halo, the reference covariance: a few ms on 32
+  threads, cached per setting.
 
 CPU-only exports with grain are over the 1 s budget: real particles cost more than a noise
 texture. Interactive renders and exports use the GPU path when an adapter exists.
