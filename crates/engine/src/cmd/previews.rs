@@ -113,15 +113,16 @@ pub(crate) fn jobs_for(s: &mut Session, id: lightcraft_catalog::PhotoId, edge: O
 
 /// The previews the build of one photo would make are all there already, big enough: its view
 /// render at least as large as asked for (`view_cache` of the view job) and its grid thumbnail
-/// (`cache` of the thumbnail job). Only file headers are read.
+/// (`cache` of the thumbnail job), on disk when the cache has one: a render the loupe kept only in
+/// memory (its deferred disk write skipped) is built again, and written. Only file headers are read.
 pub(crate) fn already_built(jobs: &[RenderJob]) -> bool {
     !jobs.is_empty()
         && jobs.iter().all(|j| {
             if let Some((cache, key)) = &j.view_cache {
                 let want = j.request.max_w.max(j.request.max_h) as f64;
-                cache.dims(*key).is_some_and(|(w, h)| w.max(h) as f64 >= want * 0.99)
+                cache.stored_dims(*key).is_some_and(|(w, h)| w.max(h) as f64 >= want * 0.99)
             } else if let Some((cache, key)) = &j.cache {
-                cache.dims(*key).is_some()
+                cache.stored_dims(*key).is_some()
             } else {
                 false
             }
@@ -189,10 +190,14 @@ fn run_photo_cancellable(jobs: Vec<RenderJob>, cancel: Option<&AtomicBool>) -> O
         // not left to the cache's writer (which skips writes when it falls behind): a built
         // preview is on disk, for this session and the next. (Taken out of the job: it would only
         // queue the write, and would serve a smaller cached view.)
+        // A write that fails (a full or unwritable cache folder) fails the photo: it is not built.
         let keep = j.view_cache.take().map(|v| (v, j.cache_generation));
         let r = j.run();
-        if let (Some(((cache, key), generation)), Ok(img)) = (keep, r.rendered.as_ref()) {
-            cache.put_at(generation, key, Arc::new(img.image.clone()));
+        if let (Some(((cache, key), generation)), Ok(img)) = (keep, r.rendered.as_ref())
+            && !cache.put_at(generation, key, Arc::new(img.image.clone()))
+        {
+            log::warn!("building previews: the view preview could not be written to the cache folder");
+            ok = false;
         }
         ok &= r.rendered.is_ok();
         if decoded.is_none() {

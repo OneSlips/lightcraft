@@ -1249,8 +1249,39 @@ fn raw_loupe(n: u64) -> (crate::LightcraftApp, egui::Context) {
     (app, ctx)
 }
 
+/// The look-ahead with every photo allowed (the default preparation settings).
+const ALL: crate::panels::detail::Prepare = crate::panels::detail::Prepare::Photos(lightcraft_engine::prep::Scope::All);
+
 fn quick(app: &mut crate::LightcraftApp, id: u64, edge: usize) -> QuickJob {
     app.session.quick_view_job(PhotoId(id), edge, true).unwrap()
+}
+
+/// The loupe's stand-ins ahead follow Settings ▸ Performance: none when the mode prepares only the photo on
+/// screen (or none ahead), and the ones still queued are dropped then; only marked photos in the marked scope
+/// (CodeRabbit on #3077).
+#[test]
+fn the_look_ahead_prepares_only_what_the_preparation_settings_allow() {
+    use crate::panels::detail::{Prepare, look_ahead};
+    use lightcraft_engine::prep::Scope;
+    let (mut app, _ctx) = raw_loupe(4);
+    app.session.sort.key = lightcraft_catalog::SortKey::FileName;
+    app.session.sort.ascending = true;
+    // (asked for: queued, running or made)
+    let ahead = |r: &Renderer| r.quick_tried.keys().filter(|s| matches!(s, Slot::QuickAhead(_))).count();
+    look_ahead(&mut app, PhotoId(1), 64, true, Prepare::of(5, Scope::All));
+    assert_eq!(ahead(&app.renderer), 3, "photos 2 to 4 are made ahead");
+    // the photo on screen only: nothing ahead, and what was queued goes
+    look_ahead(&mut app, PhotoId(1), 64, true, Prepare::of(0, Scope::OnScreen));
+    assert_eq!(ahead(&app.renderer), 0, "nothing is made ahead for the photo on screen only");
+    look_ahead(&mut app, PhotoId(1), 64, true, Prepare::of(0, Scope::All));
+    assert_eq!(ahead(&app.renderer), 0, "nor with no photos ahead");
+    // picks, rated and labelled: only those
+    app.session.execute("library.select", &serde_json::json!({"ids": [3]})).unwrap();
+    app.session.execute("photo.rate", &serde_json::json!({"rating": 2})).unwrap();
+    look_ahead(&mut app, PhotoId(1), 64, true, Prepare::of(5, Scope::Marked));
+    let k3 = quick(&mut app, 3, 64).key;
+    let queued: Vec<u64> = app.renderer.quick_tried.iter().filter(|(s, _)| matches!(s, Slot::QuickAhead(_))).map(|(_, k)| *k).collect();
+    assert_eq!(queued, vec![k3], "only the rated photo is made ahead");
 }
 
 /// A stand-in still queued ahead whose photo moves up in the order (the user stepped) is
@@ -1478,10 +1509,10 @@ fn a_thumbnail_replacing_its_stand_in_is_not_counted_again() {
 fn the_look_ahead_asks_again_when_only_the_crop_changes() {
     let (mut app, _ctx) = raw_loupe(3);
     let ahead_keys = |r: &Renderer| r.quick_tried.iter().filter(|(s, _)| matches!(s, Slot::QuickAhead(_))).map(|(_, k)| *k).collect::<Vec<u64>>();
-    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, true);
+    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, true, ALL);
     let cropped = app.session.quick_view_job(PhotoId(2), 64, true).unwrap().key;
     assert!(ahead_keys(&app.renderer).contains(&cropped));
-    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, false);
+    crate::panels::detail::look_ahead(&mut app, PhotoId(1), 64, false, ALL);
     let uncropped = app.session.quick_view_job(PhotoId(2), 64, false).unwrap().key;
     assert_ne!(cropped, uncropped);
     assert!(ahead_keys(&app.renderer).contains(&uncropped), "the stand-ins are made again without the crop");
@@ -1495,11 +1526,11 @@ fn the_look_ahead_follows_a_new_order_around_the_same_photo() {
     let ahead_keys = |r: &Renderer| r.quick_tried.iter().filter(|(s, _)| matches!(s, Slot::QuickAhead(_))).map(|(_, k)| *k).collect::<Vec<u64>>();
     app.session.sort.key = lightcraft_catalog::SortKey::FileName;
     app.session.sort.ascending = true;
-    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true);
+    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true, ALL);
     let one = quick(&mut app, 1, 64).key;
     assert!(!ahead_keys(&app.renderer).contains(&one), "r1 is two behind: not prepared");
     // reversed: r1 is two ahead now
     app.session.sort.ascending = false;
-    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true);
+    crate::panels::detail::look_ahead(&mut app, PhotoId(3), 64, true, ALL);
     assert!(ahead_keys(&app.renderer).contains(&one), "the new neighbours are prepared");
 }

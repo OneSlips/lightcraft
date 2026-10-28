@@ -370,3 +370,42 @@ fn build_previews_with_one_photo_open_builds_the_view() {
     let r = s.execute("library.buildPreviews", &json!({"edge": 256, "wait": true})).unwrap();
     assert_eq!(r["total"], 2, "a choice of photos is built alone {r}");
 }
+
+/// A view the loupe kept only in memory (its deferred disk write skipped when the writer fell behind) is not
+/// counted as built: the build renders it and writes it to disk (CodeRabbit on #3077).
+#[test]
+fn a_preview_kept_only_in_memory_is_built_and_written() {
+    let (mut s, root, ids) = library("memonly", 1);
+    let jobs = crate::cmd::previews::jobs_for(&mut s, ids[0], Some(300));
+    assert!(!jobs.is_empty());
+    for j in &jobs {
+        let img = std::sync::Arc::new(lightcraft_raster::Rgba8::new(300, 200));
+        if let Some((cache, key)) = &j.view_cache {
+            cache.put_memory(*key, img);
+        } else if let Some((cache, key)) = &j.cache {
+            cache.put_memory(*key, img);
+        }
+    }
+    assert!(!crate::cmd::previews::already_built(&jobs), "a copy only in memory is not a built preview");
+    let r = s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "wait": true})).unwrap();
+    assert_eq!((r["skipped"].as_u64(), r["failed"].as_u64()), (Some(0), Some(0)), "{r}");
+    let p = s.catalog.photo(ids[0]).unwrap().clone();
+    let key = s.view_key(&p, true);
+    assert!(s.media.rendered.disk().and_then(|d| d.dims(key)).is_some(), "the view preview is on disk");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A view preview the cache folder can't take (full, or not writable) fails the photo instead of counting it
+/// as built (CodeRabbit on #3077).
+#[test]
+fn a_preview_that_cannot_be_written_fails_the_build() {
+    let (mut s, root, ids) = library("unwritable", 2);
+    let dir = s.media.rendered.disk().expect("a library has a disk cache").dir().to_path_buf();
+    let _ = std::fs::remove_dir_all(&dir);
+    // a file where the cache folder goes: nothing can be written under it
+    std::fs::write(&dir, b"not a folder").unwrap();
+    let r = s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "wait": true})).unwrap();
+    assert_eq!(r["failed"].as_u64(), Some(2), "{r}");
+    let _ = std::fs::remove_file(&dir);
+    let _ = std::fs::remove_dir_all(root);
+}

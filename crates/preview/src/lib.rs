@@ -120,6 +120,17 @@ impl PreviewCache {
         self.disk.as_ref()?.dims(key)
     }
 
+    /// The size of the image kept under `key` where it lasts: on disk when the cache has a disk (a copy only
+    /// in memory, whose deferred write may have been skipped, doesn't count), else in memory. Nothing is
+    /// loaded or changed.
+    pub fn stored_dims(&self, key: Hash128) -> Option<(usize, usize)> {
+        match &self.disk {
+            Some(d) if self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_some() => d.dims(key),
+            Some(_) => None,
+            None => self.dims(key),
+        }
+    }
+
     /// The memory LRU's copy of `key`, without looking on disk.
     pub fn get_memory(&self, key: Hash128) -> Option<Arc<Rgba8>> {
         if self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_none() {
@@ -139,19 +150,20 @@ impl PreviewCache {
     }
 
     pub fn put(&self, key: Hash128, img: Arc<Rgba8>) {
-        self.put_at(self.generation(), key, img);
+        let _ = self.put_at(self.generation(), key, img);
     }
 
-    pub fn put_at(&self, generation: u64, key: Hash128, img: Arc<Rgba8>) {
+    /// [`Self::put`] for a job of `generation` (nothing is kept when the cache was cleared since). Returns
+    /// `false` only when the disk cache could not write the file (the image is kept in memory all the same).
+    pub fn put_at(&self, generation: u64, key: Hash128, img: Arc<Rgba8>) -> bool {
         let current = self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         if *current != Some(generation) {
-            return;
+            return true;
         }
-        if let Some(d) = &self.disk {
-            d.put(key, &img);
-        }
+        let written = self.disk.as_ref().is_none_or(|d| d.put(key, &img));
         let c = cost(&img);
         self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img, c);
+        written
     }
 
     /// Like [`Self::put`], but the disk write (a JPEG encode) happens on a background thread, so
