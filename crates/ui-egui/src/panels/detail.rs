@@ -3900,13 +3900,18 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             app.gesture = None;
             let _ = app.run("develop.endInteraction", json!({}));
         }
-        let r = (app.ui.brush_size as f64 * long) as f32;
+        // Lightroom's brush (notes 18/22): Size is the solid core, Feather adds a halo outside it
+        let r0 = (app.ui.brush_size as f64 * long) as f32;
+        let r = r0 * lightcraft_develop::brush_model::outer_ratio(app.ui.brush_feather as f64) as f32;
         // the stroke goes into the selected mask (or a new one): in its coordinates
         let map = &map.for_mask_id(d, active);
         if let Some(h) = resp.hover_pos() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-            p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
-            p.circle_stroke(h, r * (1.0 - app.ui.brush_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(120)));
+            // as Lightroom draws it: a bold circle round the core, a thin one where the halo ends
+            p.circle_stroke(h, r0, Stroke::new(2.0, Color32::WHITE));
+            if r > r0 + 0.5 {
+                p.circle_stroke(h, r, Stroke::new(1.0, Color32::from_white_alpha(150)));
+            }
             // the centre, where Auto Mask samples the colour and texture to follow: a minus while a
             // stroke would erase (Erase on, or ⌥ / Alt held to switch modes), as the stroke will
             let erasing = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
@@ -3980,7 +3985,11 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 clip,
                 scale: ui.ctx().pixels_per_point(),
                 r,
-                hard: r * (1.0 - (app.ui.brush_feather / 100.0).clamp(0.0, 1.0)),
+                hard: 0.0,
+                lrc: Some({
+                    let (a, pw) = lightcraft_develop::brush_model::profile(app.ui.brush_feather as f64);
+                    (a as f32 * r0, pw as f32)
+                }),
                 flow: (app.ui.brush_flow / 100.0).clamp(0.0, 1.0),
                 density: 1.0,
                 color: app.ui.mask_overlay_color,

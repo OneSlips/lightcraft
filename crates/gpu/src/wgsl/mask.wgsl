@@ -77,15 +77,19 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
         }
         v = 1.0 - sstep(tol * 0.5, tol, best);
     } else if (kind == 4u) {
-        // stroke record (16 words): dab offset, dab count, r, hard, flow, density, erase,
-        // bbox x0 y0 x1 y1, auto, tile table offset, tiles across, tiles down, tile size. A tile's
-        // entry (start, count) lists the dabs that reach it, in stroke order.
+        // stroke record (20 words): dab offset, dab count, r, hard, flow, density, erase,
+        // bbox x0 y0 x1 y1, auto, tile table offset, tiles across, tiles down, tile size,
+        // Lightroom model, its profile's a and p, unused. A tile's entry (start, count) lists the
+        // dabs that reach it, in stroke order.
         let px = f32(g.x) + 0.5;
         let py = f32(g.y) + 0.5;
         let lp = log_l[i];
         let chp = chroma_at(i);
         for (var k = 0u; k < pu(10u); k++) {
-            let o = 16u * k;
+            let o = 20u * k;
+            let lrc = aux[o + 16u] != 0.0;
+            let pa = aux[o + 17u];
+            let pp = aux[o + 18u];
             let auto_mask = aux[o + 11u] != 0.0;
             if (px < aux[o + 7u] || py < aux[o + 8u] || px > aux[o + 9u] || py > aux[o + 10u]) {
                 continue;
@@ -116,7 +120,10 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
                     continue;
                 }
                 var a = 1.0;
-                if (dd > hard) {
+                if (lrc) {
+                    // `masks::lrc_dab_alpha`: exp(−(dd/a)^p) up to r
+                    a = exp(-pow(max(dd / pa, 1e-20), pp));
+                } else if (dd > hard) {
                     a = 1.0 - sstep(hard, r, dd);
                 }
                 if (auto_mask) {
@@ -128,8 +135,11 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
                 keep *= 1.0 - a * flow;
             }
             let sa = min(1.0 - keep, density);
+            // `masks::combine_stroke`
             if (aux[o + 6u] != 0.0) {
                 v = v * (1.0 - sa);
+            } else if (lrc) {
+                v = max(v, min(v + sa - v * sa, density));
             } else {
                 v = max(v, sa);
             }
@@ -141,7 +151,8 @@ fn shape(@builtin(global_invocation_id) g: vec3<u32>) {
     c[i] = v;
 }
 
-// Combine `c` into mask plane P[2]: P[3] = 0 copy, 1 add (max), 2 subtract, 3 intersect.
+// Combine `c` into mask plane P[2]: P[3] = 0 copy, 1 add (max), 2 subtract, 3 intersect, 4 add up
+// to the density P[1] (a Lightroom-model brush stroke, `masks::combine_stroke`).
 @compute @workgroup_size(256)
 fn combine(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups) nw: vec3<u32>) {
     let i = lin_index(g, nw);
@@ -159,6 +170,8 @@ fn combine(@builtin(global_invocation_id) g: vec3<u32>, @builtin(num_workgroups)
         alpha[j] = max(a, v);
     } else if (op == 2u) {
         alpha[j] = a * (1.0 - v);
+    } else if (op == 4u) {
+        alpha[j] = max(a, min(a + v - a * v, pf(1u)));
     } else {
         alpha[j] = a * v;
     }

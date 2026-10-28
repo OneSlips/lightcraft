@@ -1,6 +1,8 @@
 //! Masking and Remove (spot) commands on the active photo.
 
-use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode};
+use lightcraft_develop::{
+    BRUSH_MODEL_LEGACY, BRUSH_MODEL_LRC, BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode,
+};
 use lightcraft_geom::Point;
 use serde_json::{Value, json};
 
@@ -607,7 +609,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, so the stroke shows live), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: the solid core's radius, fraction of long edge (0.03), feather?: 0..100, the soft halo outside the core, flow?, density?, erase?: bool, model?: 1 Lightroom's brush (default) | 0 the brush of strokes saved before it (size = the whole dab, feather inward), autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, so the stroke shows live), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
             has_active,
             |s, p| {
                 let pts: Vec<Point> = p
@@ -628,6 +630,8 @@ pub fn specs() -> Vec<CommandSpec> {
                     erase: bool_or(p, "erase", false),
                     auto_mask: bool_or(p, "autoMask", false),
                     pressure: pressure_list(p.get("pressure"), pts_len)?,
+                    // new strokes paint with Lightroom's brush (notes 18/22)
+                    model: if p.get("model").and_then(Value::as_u64) == Some(0) { BRUSH_MODEL_LEGACY } else { BRUSH_MODEL_LRC },
                 };
                 let connect = bool_or(p, "connect", false);
                 let mut connected = false;
