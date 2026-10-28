@@ -166,3 +166,31 @@ fn a_tool_restored_from_saved_state_closes_to_edit() {
     ui.note_right();
     assert_eq!(ui.leave_tool(), RightPanel::Edit);
 }
+
+/// F8 hiding a tool and F8 showing it again keeps what the tool closes to: Info → Crop → F8 → F8 → Done = Info, not a
+/// hidden column (CodeRabbit on #3031).
+#[test]
+fn a_tool_hidden_and_shown_by_f8_still_closes_to_the_panel_before_it() {
+    let mut h = detail();
+    for close in ["tool.done", "panel.crop"] {
+        exec(&mut h, "panel.close");
+        exec(&mut h, "panel.info");
+        assert_eq!(h.app.ui.right, RightPanel::Info);
+        exec(&mut h, "panel.crop");
+        assert_eq!(h.app.ui.right, RightPanel::Crop);
+        exec(&mut h, "view.rightPanel");
+        assert_eq!(h.app.ui.right, RightPanel::None, "F8 hides Crop");
+        exec(&mut h, "view.rightPanel");
+        assert_eq!(h.app.ui.right, RightPanel::Crop, "F8 shows Crop again");
+        exec(&mut h, close);
+        assert_eq!(h.app.ui.right, RightPanel::Info, "{close}: Info → Crop → F8 → F8 → closed = Info");
+    }
+    // a panel picked while the tool was hidden is not undone: Crop → F8 → Masking → closed = closed, as before
+    exec(&mut h, "panel.close");
+    exec(&mut h, "panel.crop");
+    exec(&mut h, "view.rightPanel");
+    exec(&mut h, "panel.info");
+    exec(&mut h, "panel.masking");
+    exec(&mut h, "panel.masking");
+    assert_eq!(h.app.ui.right, RightPanel::Info, "a panel picked after F8 is what comes back");
+}

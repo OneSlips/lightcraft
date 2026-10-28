@@ -377,10 +377,14 @@ impl UiState {
             self.toggle_return = None;
         }
         if self.right.is_tool() {
-            if !self.right_seen.is_tool() {
+            // F8 showing a tool it hid: the panel before that tool still holds (`None` is F8's hidden column, not
+            // what the tool came from)
+            let back_from_f8 = self.right_seen == RightPanel::None && self.tool_return.is_some();
+            if !self.right_seen.is_tool() && !back_from_f8 {
                 self.tool_return = Some(self.right_seen);
             }
-        } else {
+        } else if !(self.right == RightPanel::None && self.right_seen.is_tool() && self.right_hidden == self.right_seen) {
+            // any panel but F8 hiding the tool on show forgets it
             self.tool_return = None;
         }
         self.right_seen = self.right;
