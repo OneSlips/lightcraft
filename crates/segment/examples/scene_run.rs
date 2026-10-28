@@ -20,7 +20,8 @@ fn sample(g: &[f32], gw: usize, gh: usize, x: usize, y: usize, w: usize, h: usiz
     (at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx) * (1.0 - ty) + (at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx) * ty
 }
 
-fn tint(rgb: &[u8], w: usize, h: usize, g: &[f32], gw: usize, gh: usize, color: [f32; 3], out: &Path) {
+/// `rgb` (`w × h`) tinted `color` where the class map `g` (`gw × gh`) is.
+fn tint(rgb: &[u8], w: usize, h: usize, (g, gw, gh): (&[f32], usize, usize), color: [f32; 3], out: &Path) {
     let mut o = rgb.to_vec();
     for y in 0..h {
         for x in 0..w {
@@ -67,8 +68,8 @@ fn main() {
         let people = s.instances.iter().filter(|i| i.class == 0).count();
         let labels: Vec<String> = s.instances.iter().map(|i| format!("{} {:.2}", scene::COCO_PANOPTIC_LABELS[i.class], i.score)).collect();
         println!("{stem}: scene {ts:?} ({}x{}), depth {td:?} ({}x{}), {people} people; {labels:?}", s.width, s.height, d.width, d.height);
-        tint(&rgb, w, h, &s.class_probability(&sky), s.width, s.height, [40.0, 120.0, 255.0], &out.join(format!("{stem}_sky.jpg")));
-        tint(&rgb, w, h, &s.class_probability(&person), s.width, s.height, [255.0, 40.0, 40.0], &out.join(format!("{stem}_person.jpg")));
+        tint(&rgb, w, h, (&s.class_probability(&sky), s.width, s.height), [40.0, 120.0, 255.0], &out.join(format!("{stem}_sky.jpg")));
+        tint(&rgb, w, h, (&s.class_probability(&person), s.width, s.height), [255.0, 40.0, 40.0], &out.join(format!("{stem}_person.jpg")));
         // each person instance in its own colour
         let mut o = rgb.clone();
         let colors = [[255.0, 40.0, 40.0], [40.0, 220.0, 40.0], [40.0, 120.0, 255.0], [255.0, 200.0, 0.0], [220.0, 0.0, 220.0], [0.0, 220.0, 220.0]];

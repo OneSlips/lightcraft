@@ -387,6 +387,41 @@ pub fn garment_mask(logits: &[f32], lside: usize, rgb: &[u8], w: usize, h: usize
     Some(MaskGrid { side, logits: mediapipe::coverage_to_logits(&cov), rect: None, faces_without_features: 0 })
 }
 
+/// The part of a `w × h` image a mask of face parts covers: the chosen faces' boxes with a margin, in image
+/// proportions. `None`: no such face, or nothing of it inside the image.
+fn face_parts_rect(chosen: &[usize], faces: &[Face], w: usize, h: usize) -> Option<[f64; 4]> {
+    let boxes: Vec<&Detection> = chosen.iter().filter_map(|i| faces.get(*i)).map(|f| &f.detection).collect();
+    if boxes.is_empty() {
+        return None;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for b in boxes {
+        let m = 0.3 * b.width().max(b.height());
+        (x0, y0, x1, y1) = (x0.min(b.x0 - m), y0.min(b.y0 - m), x1.max(b.x1 + m), y1.max(b.y1 + m));
+    }
+    let r = [
+        f64::from((x0 / w as f32).clamp(0.0, 1.0)),
+        f64::from((y0 / h as f32).clamp(0.0, 1.0)),
+        f64::from((x1 / w as f32).clamp(0.0, 1.0)),
+        f64::from((y1 / h as f32).clamp(0.0, 1.0)),
+    ];
+    (r[2] > r[0] && r[3] > r[1]).then_some(r)
+}
+
+/// The features of every face (eyes, brows, mouth, facial hair) on `grid`, softened, to cut out of skin, and how many
+/// faces had no landmarks to find them by.
+fn feature_holes(grid: &Grid, faces: &[Face], rgb: &[u8]) -> (Vec<f32>, usize) {
+    let mut holes = vec![0f32; grid.side * grid.side];
+    let mut without = 0;
+    for f in faces {
+        match &f.landmarks {
+            Some(lm) => mediapipe::feature_holes(grid, &mut holes, lm, rgb),
+            None => without += 1,
+        }
+    }
+    (mediapipe::soften(&holes, grid.side), without)
+}
+
 /// The People selection `req` on an 8-bit RGB image (`w × h`), from the Selfie Multiclass map and
 /// the faces (left to right) its parts need. `None`: nothing of it is there (no such person, no
 /// face for face parts).
@@ -424,42 +459,14 @@ pub fn people_mask(req: &PeopleRequest, rgb: &[u8], w: usize, h: usize, map: Opt
         side = 1024;
     } else {
         // only face parts: a grid over the chosen faces
-        let boxes: Vec<&Detection> = chosen.iter().filter_map(|i| faces.get(*i)).map(|f| &f.detection).collect();
-        if boxes.is_empty() {
-            return None;
-        }
-        let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-        for b in boxes {
-            let m = 0.3 * b.width().max(b.height());
-            (x0, y0, x1, y1) = (x0.min(b.x0 - m), y0.min(b.y0 - m), x1.max(b.x1 + m), y1.max(b.y1 + m));
-        }
-        let r = [
-            f64::from((x0 / w as f32).clamp(0.0, 1.0)),
-            f64::from((y0 / h as f32).clamp(0.0, 1.0)),
-            f64::from((x1 / w as f32).clamp(0.0, 1.0)),
-            f64::from((y1 / h as f32).clamp(0.0, 1.0)),
-        ];
-        if !(r[2] > r[0] && r[3] > r[1]) {
-            return None;
-        }
-        rect = Some(r);
+        rect = Some(face_parts_rect(&chosen, faces, w, h)?);
         side = 768;
     }
     let grid = Grid { side, rect: rect.unwrap_or([0.0, 0.0, 1.0, 1.0]), w, h };
     let mut cov = vec![0f32; side * side];
     // skin never includes the face's features: eyes, brows, mouth, facial hair (of every face,
     // whoever the mask is for)
-    let mut holes = vec![0f32; if skin { side * side } else { 0 }];
-    let mut faces_without_features = 0;
-    if skin {
-        for f in faces {
-            match &f.landmarks {
-                Some(lm) => mediapipe::feature_holes(&grid, &mut holes, lm, rgb),
-                None => faces_without_features += 1,
-            }
-        }
-        holes = mediapipe::soften(&holes, side);
-    }
+    let (holes, faces_without_features) = if skin { feature_holes(&grid, faces, rgb) } else { (Vec::new(), 0) };
     let (skin_classes, other_classes): (Vec<usize>, Vec<usize>) = req.classes.iter().partition(|c| SKIN.contains(c));
     // skin and the other classes apart: the skin is refined on its own, then the features are cut
     // out of it (refining after the cut filled the eye and brow holes back in)
