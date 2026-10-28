@@ -106,7 +106,7 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     app.session.source = lightcraft_engine::LibrarySource::Folder;
     // the photos the library already knows from this folder show at once: keep or pick the active one
     app.session.keep_active_in_view();
-    let (input, _) = ScanInput::new(&mut app.session, std::slice::from_ref(&dir_s));
+    let (mut input, _) = ScanInput::new(&mut app.session, std::slice::from_ref(&dir_s));
     let progress = std::sync::Arc::new(ScanProgress::default());
     let (tx, rx) = std::sync::mpsc::channel();
     let p = progress.clone();
@@ -124,7 +124,10 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
         };
         // Nothing is read here: the import that follows reads the files and adds them batch by
         // batch, first screen first, so the view fills while the rest is read (PERF-CULL-1).
-        let queue = lightcraft_engine::import::browse_queue(&input, files.clone(), &sort);
+        // Another folder chosen meanwhile (`p.cancel`) stops the ordering, and nothing is sent.
+        let Some(queue) = lightcraft_engine::import::browse_queue_until(&input, files.clone(), &sort, &p.cancel) else {
+            return;
+        };
         p.total.store(queue.len(), Ordering::Relaxed);
         p.done.store(queue.len(), Ordering::Relaxed);
         // the files the library knows come too, marked as such: the folder bookkeeping (browse
@@ -135,7 +138,8 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
             known.into_iter().map(|path| lightcraft_engine::import::ImportCandidate { path, duplicate: Some("path".into()), ..Default::default() });
         let candidates =
             queue.iter().cloned().map(|path| lightcraft_engine::import::ImportCandidate { path, ..Default::default() }).chain(known).collect();
-        let _ = tx.send(lightcraft_engine::import::ScanOutput { candidates, probes: Default::default() });
+        // the probes of earlier scans go back to the session with the result, for the import that follows
+        let _ = tx.send(lightcraft_engine::import::ScanOutput { candidates, probes: input.take_probes() });
     };
     #[cfg(not(target_arch = "wasm32"))]
     std::thread::spawn(job);
