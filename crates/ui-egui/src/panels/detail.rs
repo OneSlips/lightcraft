@@ -718,8 +718,18 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // the crop tool's renders show the whole photo: remembered, so that after Done they are drawn
     // cropped until the cropped render replaces them
     if crop_tool {
+        // (only pictures of the whole photo: the cropped render still on screen as Crop opens again
+        // is not one, or leaving Crop cuts it to the crop a second time: test notes 2026-10-28 note 13)
+        let whole = app.session.placement_of(id, false);
+        let of_whole = |t: &crate::render::Tex| match (t.placement, whole) {
+            (Some(have), Some(want)) => {
+                lightcraft_engine::placement::stand_in_uv(&have, &want).is_some_and(|uv| lightcraft_engine::placement::is_identity(&uv, 1e-3))
+            }
+            _ => true,
+        };
         for slot in [Slot::Main, Slot::Preview] {
             if let Some(t) = app.renderer.textures.get(&slot).filter(|t| t.photo == id)
+                && of_whole(t)
                 && !app.crop_tool_renders.contains(&(id, t.key))
             {
                 app.crop_tool_renders.push((id, t.key));
@@ -918,7 +928,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // (not while an edit is in progress, even paused: the neighbours' decodes would hold up its drafts)
     // (nor while a cell on screen waits for its first picture: those come before anything bigger)
     if !drag_open
+        && !app.paint_hold
         && !app.renderer.is_pending(Slot::Main)
+        && !app.renderer.is_pending(Slot::Region)
         && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id)
         && !app.pictures_busy(app.renderer.frame())
         // (nor while the user's own work runs, an export above all: note 30 of 2026-10-24)
@@ -979,7 +991,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     {
         app.renderer.request_quick(Slot::Preview, q, 110);
     }
-    if !interacting {
+    if !interacting && !app.paint_hold {
         look_ahead(app, id, want.max(8), !crop_tool);
     }
     let show_before = app.ui.before_after == BeforeAfter::Original || ui.input(|i| i.key_down(egui::Key::Backslash));
@@ -1101,7 +1113,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if !own && !have.look.close_to(&want.look) {
                 return None;
             }
-            let uv = lightcraft_engine::placement::stand_in_uv(&have, &want)?;
+            // the view's own render made before a lens or geometry change (an Optics or Transform slider
+            // dragged): its warp is not the view's, so it can't be cut to it, but it is drawn as it is until
+            // the next one arrives rather than leaving the view black (test notes 2026-10-28 note 14)
+            let Some(uv) = lightcraft_engine::placement::stand_in_uv(&have, &want) else { return own.then_some(None) };
             if lightcraft_engine::placement::is_identity(&uv, 1e-3) {
                 return Some(None);
             }
@@ -1121,7 +1136,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             drawn.set(Some(LoupeDrawn { quad, rect: view, placed: true, known: true }));
             return if uncropped(tex) { "cropping" } else { what };
         }
-        if uncropped(tex) {
+        // (a picture that says where it lies and got here is exactly the view: never cut again)
+        let exact = tex.placement.is_some_and(|_| placed(tex) && crop_turn == 0.0) && view_place.is_some();
+        if uncropped(tex) && !exact {
             // the crop tool's whole-photo render, just after Done: its crop, at once
             let Some(uv) = uncropped_uv else { return "none" };
             p.with_clip_rect(clip).add(cropped_stand_in_mesh(tex.id(), r, &uv));
@@ -4234,6 +4251,10 @@ fn brush_yields(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, grips
     let own = app.ui.brush_on.map(|(_, mid, k)| (mid, k));
     at.is_some_and(|q| grips.iter().any(|g| g.2 == 0 && Some((g.0, g.1)) != own && g.3.distance(q) < 9.0))
 }
+
+/// How long (s) after a brush stroke the photographer still counts as painting
+/// ([`crate::LightcraftApp::paint_hold_until`]): long enough for the next stroke to start.
+pub(crate) const PAINT_HOLD_SECS: f64 = 1.0;
 
 /// How often (seconds) a stroke being painted with Auto Mask goes to the photo.
 const LIVE_AUTO_MASK_EVERY: f64 = 0.12;

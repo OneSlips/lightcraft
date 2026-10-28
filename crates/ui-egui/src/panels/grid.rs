@@ -804,6 +804,12 @@ pub fn request_thumb(app: &mut LightcraftApp, id: PhotoId, size: usize, priority
             return;
         }
     }
+    // painting on the loupe: the other photos a stroke reached (Auto Sync) keep the thumbnail they
+    // have until the strokes pause, so their renders don't take the workers from the photo on screen
+    // (test notes 2026-10-28 note 29); one without any thumbnail still gets one
+    if app.paint_hold && app.session.active() != Some(id) && app.renderer.thumb(id).is_some() {
+        return;
+    }
     let bucket = lightcraft_engine::media::thumb_bucket(size);
     if let Some(photo) = app.session.catalog.photo(id)
         && app.renderer.thumb_current(photo, bucket, priority)

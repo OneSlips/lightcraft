@@ -296,6 +296,10 @@ pub(crate) fn shown_value(spec: &ControlSpec, v: f64) -> String {
 /// scrub rather than a click that types a value.
 const SCRUB_START: f32 = 3.0;
 
+/// How far (points) the pointer moves after a press on a slider's track before the press drags it: any
+/// move, so the handle follows from the first frame (test notes 2026-10-28 note 15).
+const DRAG_START: f32 = 1.0;
+
 /// The radius of a slider's handle, and while it is hovered or dragged.
 pub(crate) const HANDLE_R: f32 = 4.5;
 pub(crate) const HANDLE_R_HOT: f32 = 5.5;
@@ -617,12 +621,26 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
         out.value = Some(spec.default);
         v = spec.default;
     } else {
-        if resp.drag_started() {
+        // The drag starts with the pointer's first move after the press, not once it has gone past
+        // egui's click distance: a slow, careful drag moved nothing for a second or two (test notes
+        // 2026-10-28 note 15). A drag that started on the handle moves it by the pointer's travel (no
+        // jump to where in the handle it was grabbed); one elsewhere puts it under the pointer.
+        let drag_id = id.with("drag-from");
+        let pressed = enabled && resp.is_pointer_button_down_on();
+        let mut from: Option<f64> = ui.data(|m| m.get_temp(drag_id));
+        let pos_at = |x: f32| f64::from((x - track_rect.left()) / track_w);
+        if from.is_none()
+            && (pressed || resp.drag_started())
+            && let (Some(origin), Some(p)) = ui.input(|i| (i.pointer.press_origin(), i.pointer.interact_pos()))
+            && ((p - origin).length() >= DRAG_START || resp.drag_started())
+        {
+            let off = if on_thumb(origin) { spec.position(value) - pos_at(origin.x) } else { 0.0 };
+            from = Some(if off.is_finite() { off } else { 0.0 });
             out.drag_started = true;
         }
-        if (resp.dragged() || resp.drag_started())
-            && let Some(p) = resp.interact_pointer_pos()
-        {
+        let dragging = from.is_some() && (pressed || resp.dragged());
+        let ended = from.is_some() && !dragging;
+        if dragging && let (Some(off), Some(p)) = (from, ui.input(|i| i.pointer.interact_pos())) {
             let fine = ui.input(|i| i.modifiers.shift);
             let step = spec.step.max(1e-9);
             let nv = if fine {
@@ -635,14 +653,15 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
                 ui.data_mut(|m| m.insert_temp(fine_id, pos));
                 spec.value_at(pos)
             } else {
-                from_x(p.x)
+                spec.value_at((pos_at(p.x) + off).clamp(0.0, 1.0))
             };
             let nv = ((nv / step).round() * step).clamp(spec.min, spec.max);
             if (nv - value).abs() > 1e-12 {
                 out.value = Some(nv);
                 v = nv;
             }
-        } else if resp.clicked()
+        } else if !ended
+            && resp.clicked()
             && let Some(p) = resp.interact_pointer_pos()
             // a click on the thumb leaves it there, so the first click of a double-click on it isn't a
             // history step of its own before the reset
@@ -655,8 +674,13 @@ pub fn slider(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, label_
             out.drag_started = true;
             out.drag_stopped = true;
         }
-        if resp.drag_stopped() {
+        if ended || (from.is_none() && resp.drag_stopped()) {
             out.drag_stopped = true;
+        }
+        if dragging {
+            ui.data_mut(|m| m.insert_temp(drag_id, from.unwrap_or(0.0)));
+        } else {
+            ui.data_mut(|m| m.remove::<f64>(drag_id));
         }
         // a screen reader's increment / decrement (VoiceOver: Ctrl-Option-Up / Down)
         let (inc, dec) = ui.input(|i| {

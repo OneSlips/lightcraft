@@ -576,3 +576,38 @@ fn auto_straighten_says_when_it_finds_nothing() {
     assert_eq!(angle(&h), 0.0);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+/// Test notes 2026-10-28 note 13: C, crop, C, C, C (back into Crop while the first exit's picture
+/// is still the cropped render, and out again) never crops the photo twice. The cropped render on
+/// screen when Crop opens again is not one of the crop tool's whole-photo renders, so leaving Crop
+/// draws it as it is, not cut to the crop once more.
+#[test]
+fn crop_left_entered_and_left_again_shows_the_crop_once() {
+    let mut h = crop_tool();
+    let r = h.request("engine.execute", json!({"command": "crop.aspect", "params": {"aspect": "1x1"}}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    for round in 0..2 {
+        let r = h.request("ui.key", json!({"key": "c"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.right, crate::state::RightPanel::Edit, "round {round}: C leaves Crop");
+        assert_eq!(h.app.loupe_shown.map(|l| l.1), Some("render"), "round {round}: the cropped render, drawn as it is");
+        let cropped = h.app.renderer.textures.get(&crate::render::Slot::Main).map(|t| t.key).expect("the cropped render");
+        // back into Crop: the first frame still has the cropped render on screen
+        let r = h.request("ui.key", json!({"key": "c"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(h.app.ui.right, crate::state::RightPanel::Crop, "round {round}: C opens Crop");
+        h.step();
+        assert!(!h.app.crop_tool_renders.iter().any(|(_, k)| *k == cropped), "round {round}: the cropped render isn't taken for a whole-photo one");
+        h.settle(SETTLE);
+    }
+    let r = h.request("ui.key", json!({"key": "c"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    assert_eq!(h.app.loupe_shown.map(|l| l.1), Some("render"));
+    let img = h.app.image_rect.expect("the photo on screen");
+    assert!((img.width() / img.height() - 1.0).abs() < 0.02, "the view has the crop's shape: {img:?}");
+    let drawn = h.app.loupe_drawn.expect("how the loupe drew");
+    assert!(!drawn.placed, "the cropped render is drawn whole, not cut again: {drawn:?}");
+}

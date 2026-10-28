@@ -291,6 +291,8 @@ mod tests_upright_note;
 #[cfg(test)]
 mod tests_view_cost;
 #[cfg(test)]
+mod tests_viewperf;
+#[cfg(test)]
 mod tests_wb_selector;
 #[cfg(test)]
 mod tests_zoom;
@@ -605,6 +607,13 @@ pub struct LightcraftApp {
     /// the tool closes they stay on screen until the cropped render arrives, drawn cropped
     /// (client note 3b: Done showed the uncropped photo for seconds). The last few only.
     pub(crate) crop_tool_renders: Vec<(lightcraft_catalog::PhotoId, u64)>,
+    /// Until when (frame time, s) the photographer counts as painting on the loupe: a brush stroke
+    /// in progress and a short while after it, as strokes follow one another. Meanwhile only the
+    /// photo on screen renders; the other photos a stroke reached (Auto Sync) wait with their
+    /// thumbnails and preparation (test notes 2026-10-28 note 29).
+    pub(crate) paint_hold_until: f64,
+    /// [`Self::paint_hold_until`] not reached in this frame.
+    pub(crate) paint_hold: bool,
     /// When each photo stepped to in the loupe first showed (`ui.inspect` → `perf.loupeSteps`).
     pub loupe_timing: loupe_timing::LoupeTiming,
     /// The eye focus strip's results and its eye finder (`view.eyeFocus`).
@@ -788,6 +797,8 @@ impl LightcraftApp {
             loupe_shown: None,
             loupe_drawn: None,
             crop_tool_renders: Vec::new(),
+            paint_hold_until: f64::NEG_INFINITY,
+            paint_hold: false,
             loupe_timing: Default::default(),
             eye_strip: Default::default(),
             thumb_first: Default::default(),
@@ -1588,6 +1599,17 @@ impl LightcraftApp {
     pub fn logic(&mut self, ctx: &egui::Context) {
         i18n::set_language(self.ui.language);
         self.frame_log.clear();
+        // painting on the loupe (note 29 of 2026-10-28): a brush stroke in progress and a moment after it
+        let now = ctx.input(|i| i.time);
+        let painting = matches!(self.gesture, Some(panels::detail::Gesture::Brush { .. }));
+        if painting {
+            self.paint_hold_until = now + panels::detail::PAINT_HOLD_SECS;
+        }
+        // (a clock that went back never holds for longer than the hold)
+        self.paint_hold = painting || (now < self.paint_hold_until && self.paint_hold_until - now <= 2.0 * panels::detail::PAINT_HOLD_SECS);
+        if self.paint_hold {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64((self.paint_hold_until - now).max(0.0)));
+        }
         let t0 = now_ms();
         panels::library_problem::logic(self, ctx);
         let mut t = t0;
