@@ -568,6 +568,11 @@ impl Session {
     /// Run a command by id. THE entry point for every frontend.
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value> {
         let spec = find_command(id).ok_or_else(|| EngineError::UnknownCommand(id.to_string()))?;
+        // Select All keeps up with photos that joined its view since it was last looked at (an import still
+        // running): the command, its enablement and its targets see them selected
+        if self.all_selected.is_some() {
+            self.visible();
+        }
         // a command that validates the photos a call names isn't held back by the selection
         if !(spec.explicit_targets && cmd::names_photos(params)) {
             (spec.enabled)(self).map_err(|why| EngineError::Disabled(id.to_string(), why))?;

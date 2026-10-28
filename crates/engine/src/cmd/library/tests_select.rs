@@ -164,3 +164,22 @@ fn select_all_ends_when_an_arrow_key_moves_the_selection() -> Result<()> {
     assert_eq!(s.selection.ids, vec![PhotoId(2)], "photo 1 is not selected again");
     Ok(())
 }
+
+/// Photos that joined the view after Select All are selected before the next command acts, with no view refresh
+/// between: a command acts on them too, and a Shift-click on a selected photo changes nothing, so Select All goes on
+/// (CodeRabbit on #3030).
+#[test]
+fn select_all_takes_in_new_photos_before_the_next_command() -> Result<()> {
+    let mut s = session(3)?;
+    s.execute("library.selectAll", &json!({}))?;
+    add(&mut s, 4)?;
+    s.execute("photo.rate", &json!({"rating": 2}))?;
+    assert_eq!(s.catalog.photo(PhotoId(4)).map(|p| p.rating), Some(2), "the new photo is rated with the others");
+    add(&mut s, 5)?;
+    s.execute("library.select", &json!({"ids": [2], "mode": "range"}))?;
+    assert_eq!(s.selection.ids.len(), 5);
+    add(&mut s, 6)?;
+    assert_eq!(s.visible().len(), 6);
+    assert_eq!(s.selection.ids.len(), 6, "Select All goes on after a Shift-click that changed nothing");
+    Ok(())
+}
