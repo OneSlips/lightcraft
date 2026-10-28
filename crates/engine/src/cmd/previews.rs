@@ -155,20 +155,30 @@ impl Building {
     /// built when it made the previews, else rendered here. With whether it had to wait; `None` when `cancel`
     /// was asked for meanwhile. (On the web, with one thread, a photo held is not waited for: `Some((None, true))`.)
     fn wait(id: u64, jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
-        let mut waited = false;
+        if let Some(b) = Self::take(id, jobs) {
+            return Some((Some(b), false));
+        }
+        Self::wait_held(id, jobs, cancel)
+    }
+
+    /// [`Self::wait`] for a photo another build holds.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_held(id: u64, jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
         loop {
-            if let Some(b) = Self::take(id, jobs) {
-                return Some((Some(b), waited));
-            }
             if cancel.load(Ordering::Relaxed) {
                 return None;
             }
-            waited = true;
-            #[cfg(not(target_arch = "wasm32"))]
             std::thread::sleep(std::time::Duration::from_millis(10));
-            #[cfg(target_arch = "wasm32")]
-            return Some((None, true));
+            if let Some(b) = Self::take(id, jobs) {
+                return Some((Some(b), true));
+            }
         }
+    }
+
+    /// [`Self::wait`] for a photo another build holds: on the web, with one thread, it is not waited for.
+    #[cfg(target_arch = "wasm32")]
+    fn wait_held(_id: u64, _jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
+        (!cancel.load(Ordering::Relaxed)).then_some((None, true))
     }
 }
 

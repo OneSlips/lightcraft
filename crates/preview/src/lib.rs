@@ -142,11 +142,14 @@ impl PreviewCache {
     /// Keep `img` in memory only (it is never written to disk): for pictures that are cheap
     /// enough to make again, such as a raw's decoded camera JPEG, but worth keeping for a revisit.
     pub fn put_memory(&self, key: Hash128, img: Arc<Rgba8>) {
-        if self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner).is_none() {
+        // (the guard is held through the insertion: a clear can't come between the look and the insertion)
+        let current = self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if current.is_none() {
             return;
         }
         let c = cost(&img);
         self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img, c);
+        drop(current);
     }
 
     pub fn put(&self, key: Hash128, img: Arc<Rgba8>) {
