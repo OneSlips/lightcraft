@@ -163,8 +163,7 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
 /// Whether `root` is `lib` or a folder inside it, as written or once both are resolved (a symlink
 /// to the library, or a path through `..`, names the same folder), as the recursive walk tells.
 fn inside(root: &Path, lib: &Path) -> bool {
-    root.starts_with(lib)
-        || std::fs::canonicalize(lib).is_ok_and(|lib| std::fs::canonicalize(root).is_ok_and(|root| root.starts_with(lib)))
+    root.starts_with(lib) || std::fs::canonicalize(lib).is_ok_and(|lib| std::fs::canonicalize(root).is_ok_and(|root| root.starts_with(lib)))
 }
 
 /// Order `files` the way a view sorted by `sort` will show them, as far as the file system can
