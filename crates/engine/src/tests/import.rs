@@ -262,6 +262,15 @@ fn browsing_with_subfolders_skips_the_librarys_own_folder() {
         assert!(crate::import::browse_files(&input, &alias, false).unwrap().is_empty(), "{alias}");
         assert!(crate::import::browse_files(&input, &alias, true).unwrap().is_empty(), "{alias}");
     }
+    // a folder next to the library named through it is outside it: browsed (CodeRabbit on #3077)
+    std::fs::create_dir_all(dir.join("outside")).unwrap();
+    write_png(&dir.join("outside").join("next.png"), 3);
+    let next = dir.join("lib").join("..").join("outside").to_string_lossy().to_string();
+    assert_eq!(names(crate::import::browse_files(&input, &next, false).unwrap()), ["next.png"], "{next}");
+    assert_eq!(names(crate::import::browse_files(&input, &next, true).unwrap()), ["next.png"], "{next}");
+    // a folder inside the library that isn't there is an error too, not an empty folder
+    let gone = dir.join("lib").join("not-there").to_string_lossy().to_string();
+    assert!(crate::import::browse_files(&input, &gone, false).is_err(), "{gone}");
     // a folder that can't be listed is an error, not an empty folder (its photos aren't "gone")
     let missing = dir.join("not-there").to_string_lossy().to_string();
     assert!(crate::import::browse_files(&input, &missing, false).is_err());
