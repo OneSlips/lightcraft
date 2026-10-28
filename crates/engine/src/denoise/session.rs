@@ -202,6 +202,12 @@ impl Session {
     /// Queue photos that should all be made (an import's): what doesn't fit in the queue waits in
     /// the backlog and is queued as the queue drains.
     pub(crate) fn denoise_enqueue_all(&mut self, ids: &[PhotoId]) {
+        // nothing can be made (no model, or a library only in memory): nothing waits either, as with the queue, else
+        // the backlog would keep the activity row up for good
+        self.denoise_refresh_active(false);
+        if self.denoise.active.is_none() || self.denoise_products_dir().is_none() {
+            return;
+        }
         let room = self.denoise.queue_cap.saturating_sub(self.denoise.queue.len());
         let (now, later) = ids.split_at(room.min(ids.len()));
         self.denoise_enqueue(now, false, false);

@@ -1056,6 +1056,51 @@ fn an_import_larger_than_the_queue_makes_every_picture() {
     let _ = std::fs::remove_dir_all(x.dir);
 }
 
+/// Three raws of a test library (besides the setup's ramp).
+fn three_raws(x: &mut Setup, tag: &str) -> Vec<u64> {
+    let folder = x.dir.join(tag);
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut paths = Vec::new();
+    for i in 0..3u16 {
+        let data: Vec<u16> = (0..192 * 160).map(|j| 600 + (j % 192) as u16 * 30 + i * 7).collect();
+        let path = folder.join(format!("{tag}-{i}.dng"));
+        std::fs::write(&path, synthetic_dng_of(192, 160, "RGGB", data, None, lightcraft_meta::Metadata::default())).unwrap();
+        paths.push(path.to_string_lossy().into_owned());
+    }
+    x.s.execute("library.import", &json!({"paths": paths})).unwrap();
+    x.s.catalog.photos().filter(|p| p.file_name.starts_with(tag)).map(|p| p.id.0).collect()
+}
+
+/// The switch on for more photos than the queue holds loses none: the rest wait in the backlog (CodeRabbit, #2932).
+#[test]
+fn the_switch_on_more_photos_than_the_queue_holds_makes_every_picture() {
+    let mut x = setup("togglebacklog", true);
+    let ids = three_raws(&mut x, "many");
+    x.s.denoise.queue_cap = 1;
+    x.s.execute("denoise.toggle", &json!({"ids": ids, "enabled": true})).unwrap();
+    assert_eq!(x.s.denoise_in_flight(true).len(), 3, "one queued, two waiting");
+    pump_until_ready(&mut x.s, 3);
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// With nowhere to keep the pictures (a library that isn't on disk), nothing waits in the backlog either: the
+/// activity row would stay up for good (CodeRabbit, #2932).
+#[test]
+fn nothing_waits_when_there_is_nowhere_to_keep_the_pictures() {
+    let mut x = setup("backlognodir", true);
+    let ids: Vec<lightcraft_catalog::PhotoId> = three_raws(&mut x, "nodir").into_iter().map(lightcraft_catalog::PhotoId).collect();
+    x.s.denoise.queue_cap = 1;
+    if let Some(l) = x.s.library.as_mut() {
+        l.on_disk = false;
+    }
+    x.s.denoise_enqueue_all(&ids);
+    assert!(x.s.denoise_in_flight(true).is_empty());
+    assert!(!x.s.denoise_busy());
+    drop(x.s);
+    let _ = std::fs::remove_dir_all(x.dir);
+}
+
 /// "AI Denoise from ISO N" at import switches it on for new raw photos shot at that ISO or above (part of
 /// the look they start from), and leaves the others alone.
 #[test]

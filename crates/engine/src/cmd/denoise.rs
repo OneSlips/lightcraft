@@ -620,10 +620,11 @@ fn toggle(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if on {
         s.denoise_release(&raws);
-        // the photo being looked at first, the others behind it in the order given
+        // the photo being looked at first, the others behind it in the order given (those the queue can't hold wait in
+        // the backlog: thousands of photos switched on at once are all made)
         let (front, rest): (Vec<PhotoId>, Vec<PhotoId>) = raws.iter().copied().partition(|id| *id == raws[0]);
-        s.denoise_enqueue(&rest, false, false);
         s.denoise_enqueue(&front, true, false);
+        s.denoise_enqueue_all(&rest);
     } else {
         for id in &raws {
             s.denoise_cancel(Some(*id), false);
