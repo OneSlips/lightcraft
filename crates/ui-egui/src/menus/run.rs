@@ -1011,11 +1011,18 @@ fn ui_commands_8(app: &mut LightcraftApp, _ctx: &egui::Context, id: &str, p: &Va
         }),
         s if s.starts_with("tool.") => {
             let tool = &s["tool.".len()..];
-            // a live Brush stroke ends before another tool takes over: its undo step closes, so a new mask
-            // isn't folded into the "Brush" step
-            if tool != "brush" && matches!(app.gesture, Some(crate::panels::detail::Gesture::Brush { live: Some(_), .. })) {
+            // a Brush stroke ends before another tool takes over (its release would go unseen: the next
+            // stroke would carry on from it); a live one closes its undo step, so a new mask isn't folded
+            // into the "Brush" step
+            if tool != "brush"
+                && let Some(crate::panels::detail::Gesture::Brush { live, .. }) = &app.gesture
+            {
+                let went_live = live.is_some();
                 app.gesture = None;
-                let _ = app.run("develop.endInteraction", json!({}));
+                app.brush_live = None;
+                if went_live {
+                    let _ = app.run("develop.endInteraction", json!({}));
+                }
             }
             match tool {
                 "none" => app.ui.tool.clear(),

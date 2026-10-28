@@ -2160,3 +2160,29 @@ fn a_gradient_chosen_mid_stroke_is_its_own_undo_step() {
     pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.7}]));
     h.settle(SETTLE);
 }
+
+/// A stroke that never went live (its mask has no settings) still ends when another tool is chosen
+/// mid-stroke: back on the brush, the next stroke starts afresh instead of carrying on from it
+/// (CodeRabbit on #2920).
+#[test]
+fn a_tool_chosen_mid_stroke_drops_a_stroke_that_was_not_live() {
+    let mut h = detail("panel.masking");
+    h.settle(SETTLE);
+    exec(&mut h, "tool.brush", json!({"new": true}));
+    h.app.ui.brush_auto_mask = false;
+    pointer(&mut h, json!([{"kind": "down", "x": 0.2, "y": 0.5}, {"kind": "drag", "x": 0.25, "y": 0.5}, {"kind": "drag", "x": 0.3, "y": 0.5}]));
+    assert!(matches!(h.app.gesture, Some(crate::panels::detail::Gesture::Brush { live: None, .. })), "a stroke, not live");
+    exec(&mut h, "tool.linear", json!({}));
+    assert!(h.app.gesture.is_none(), "the stroke is dropped");
+    assert!(h.app.brush_live.is_none());
+    pointer(&mut h, json!([{"kind": "up", "x": 0.3, "y": 0.5}]));
+    exec(&mut h, "tool.brush", json!({}));
+    pointer(&mut h, json!([{"kind": "down", "x": 0.6, "y": 0.4}, {"kind": "drag", "x": 0.65, "y": 0.4}]));
+    let first = match &h.app.gesture {
+        Some(crate::panels::detail::Gesture::Brush { points, .. }) => points.first().map(|p| p.x),
+        _ => None,
+    };
+    assert!(first.is_some_and(|x| x > 0.5), "the next stroke starts where it was painted: {first:?}");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.65, "y": 0.4}]));
+    h.settle(SETTLE);
+}
