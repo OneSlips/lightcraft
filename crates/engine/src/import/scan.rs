@@ -137,7 +137,7 @@ pub fn browse_queue_until(
 /// read, as the import's scan does.)
 pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io::Result<Vec<String>> {
     // the library's folder itself, or a folder inside it: nothing to browse
-    if input.skip.as_deref().is_some_and(|lib| Path::new(root).starts_with(lib)) {
+    if input.skip.as_deref().is_some_and(|lib| inside(Path::new(root), lib)) {
         return Ok(Vec::new());
     }
     if subfolders {
@@ -158,6 +158,13 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
     }
     v.sort();
     Ok(v)
+}
+
+/// Whether `root` is `lib` or a folder inside it, as written or once both are resolved (a symlink
+/// to the library, or a path through `..`, names the same folder), as the recursive walk tells.
+fn inside(root: &Path, lib: &Path) -> bool {
+    root.starts_with(lib)
+        || std::fs::canonicalize(lib).is_ok_and(|lib| std::fs::canonicalize(root).is_ok_and(|root| root.starts_with(lib)))
 }
 
 /// Order `files` the way a view sorted by `sort` will show them, as far as the file system can

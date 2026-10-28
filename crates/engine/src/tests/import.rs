@@ -249,6 +249,19 @@ fn browsing_with_subfolders_skips_the_librarys_own_folder() {
     let lib = dir.join("lib").to_string_lossy().to_string();
     assert!(crate::import::browse_files(&input, &lib, false).unwrap().is_empty());
     assert!(crate::import::browse_files(&input, &lib, true).unwrap().is_empty());
+    // the library's folder by another name: through `..`, or a symlink to it
+    std::fs::create_dir_all(dir.join("other")).unwrap();
+    let around = dir.join("other").join("..").join("lib").to_string_lossy().to_string();
+    assert!(crate::import::browse_files(&input, &around, false).unwrap().is_empty(), "{around}");
+    assert!(crate::import::browse_files(&input, &around, true).unwrap().is_empty(), "{around}");
+    #[cfg(unix)]
+    {
+        let alias = dir.join("alias");
+        std::os::unix::fs::symlink(dir.join("lib"), &alias).unwrap();
+        let alias = alias.to_string_lossy().to_string();
+        assert!(crate::import::browse_files(&input, &alias, false).unwrap().is_empty(), "{alias}");
+        assert!(crate::import::browse_files(&input, &alias, true).unwrap().is_empty(), "{alias}");
+    }
     // a folder that can't be listed is an error, not an empty folder (its photos aren't "gone")
     let missing = dir.join("not-there").to_string_lossy().to_string();
     assert!(crate::import::browse_files(&input, &missing, false).is_err());
