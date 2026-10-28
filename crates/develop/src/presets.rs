@@ -594,12 +594,17 @@ impl Preset {
             m.preset = None;
         }
         let mut next = s.masks.iter().chain(&out.masks).map(|m| m.id).max().unwrap_or(0);
-        // named after the preset: "Sun Kissed", or "Dress + Portrait - Clothes" for one of several
+        // named after the preset: "Sun Kissed", or "Dress + Portrait - Clothes" for one of several,
+        // unless the photographer named the mask in their preset
         let short = crate::recipe::short_preset_name(&self.name);
         let several = masks.len() > 1;
         for mut m in masks {
-            let own = if crate::recipe::generic_name(&m.name) { crate::recipe::content_name(&m) } else { m.name.trim().to_string() };
-            m.name = match (short.is_empty(), several) {
+            let generic = crate::recipe::generic_name(&m.name);
+            let own = if generic { crate::recipe::content_name(&m) } else { m.name.trim().to_string() };
+            // a name the photographer gave the mask in their own preset ("Warmth") stays as it is
+            // (test notes 2026-10-28 #12); built-in presets name theirs after the preset
+            let custom = !self.builtin && !generic && own != crate::recipe::content_name(&m);
+            m.name = match (custom || short.is_empty(), several) {
                 (true, _) => own,
                 (false, true) => format!("{short} - {own}"),
                 (false, false) => short.clone(),

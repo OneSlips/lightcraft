@@ -1,9 +1,13 @@
-//! Linked masks (test notes 2026-10-28 #12): the copies of a mask applied to several photos in one
-//! go (Auto Sync, a preset on a selection, Paste, Sync Settings) stay one group, and an edit of
-//! one of them goes to the others, whatever is selected and whether Auto Sync is on.
+//! Linked masks (test notes 2026-10-28 #12, with the user's corrections of 29 Oct): the copies of
+//! a mask applied to several photos in one go (Auto Sync, a preset on a selection, Paste, Sync
+//! Settings) share a link. The link acts only through Auto Sync: with it on, an edit of one copy
+//! reaches the copies on the other *selected* photos; a copy on a photo that isn't selected is never
+//! changed, and with Auto Sync off an edit stays on its own photo. AI parts keep what was found on
+//! each photo (their settings follow, never their shape); hand-made parts (gradients, brush) follow
+//! exactly. There is no unlink.
 
 use lightcraft_catalog::PhotoId;
-use lightcraft_develop::{Mask, MaskShape};
+use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape, SegMask};
 use lightcraft_geom::Point;
 use serde_json::json;
 
@@ -13,10 +17,20 @@ fn masks(s: &Session, id: PhotoId) -> Vec<Mask> {
     s.develop_of(id).unwrap().masks.clone()
 }
 
-fn three() -> (Session, [PhotoId; 3]) {
+fn photos<const N: usize>() -> (Session, [PhotoId; N]) {
     let mut s = Session::with_demo();
-    let ids: Vec<u64> = s.visible_cloned().iter().take(3).map(|p| p.0).collect();
-    (s, [0, 1, 2].map(|i| PhotoId(ids[i])))
+    let ids: Vec<u64> = s.visible_cloned().iter().take(N).map(|p| p.0).collect();
+    assert_eq!(ids.len(), N, "enough demo photos");
+    (s, std::array::from_fn(|i| PhotoId(ids[i])))
+}
+
+fn select(s: &mut Session, ids: &[PhotoId], active: PhotoId) {
+    let ids: Vec<u64> = ids.iter().map(|x| x.0).collect();
+    s.execute("library.select", &json!({"ids": ids, "active": active.0})).unwrap();
+}
+
+fn seg() -> SegMask {
+    SegMask::from_logits(4, &[2.0; 16])
 }
 
 /// The gradient drag the photo does: an interaction, `mask.update`s, its end.
@@ -29,128 +43,286 @@ fn drag(s: &mut Session, mask: u32, comp: usize, start: [f64; 2], end: [f64; 2])
     s.execute("develop.endInteraction", &json!({})).unwrap();
 }
 
-/// The failing case of note 12: a smart mask (an AI selection minus a Linear gradient anchored to
-/// the people box) applied with Auto Sync on to a selection. Dragging the gradient on one photo
-/// puts it in exactly the same place (start, end) on every linked photo, not relative to each
-/// photo's own people box, and from then on the gradient is placed by hand, not through the box.
-/// The copies keep their own AI selection. It works with Auto Sync off and only one photo selected
-/// too: the link is stored with the masks.
-#[test]
-fn a_gradient_dragged_on_one_linked_photo_goes_to_the_same_place_on_all() {
-    let (mut s, [a, b, c]) = three();
-    s.execute("library.select", &json!({"ids": [a.0, b.0, c.0], "active": a.0})).unwrap();
+fn linear(m: &Mask, comp: usize) -> (Point, Point) {
+    match &m.components[comp].shape {
+        MaskShape::Linear { start, end } => (*start, *end),
+        o => panic!("{o:?}"),
+    }
+}
+
+/// Put mask `m` (the same link) on every photo of `ids` as it is, without an undo step.
+fn put(s: &mut Session, ids: &[PhotoId], m: &Mask) {
+    for id in ids {
+        let mut d = (*s.develop_of(*id).unwrap()).clone();
+        d.masks = vec![m.clone()];
+        s.amend_develop(*id, d);
+    }
+}
+
+/// A plain Radial mask with Auto Sync, made with `ids` selected: linked on all of them.
+fn radial_on(s: &mut Session, ids: &[PhotoId]) -> String {
+    select(s, ids, ids[0]);
     s.execute("develop.autoSync", &json!({"on": true})).unwrap();
-    s.execute("mask.add", &json!({"kind": "background", "seg": lightcraft_develop::SegMask::from_logits(4, &[2.0; 16]), "name": "Sun Kissed"}))
-        .unwrap();
+    s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
+    let link = masks(s, ids[0])[0].link.clone();
+    assert!(!link.is_empty());
+    for id in ids {
+        assert_eq!(masks(s, *id).len(), 1);
+        assert_eq!(masks(s, *id)[0].link, link, "one linked group");
+    }
+    link
+}
+
+/// The failing case of note 12: a smart mask (an AI selection minus a Linear gradient anchored to
+/// the people box) applied with Auto Sync on to a selection. With Auto Sync on, dragging the
+/// gradient on one photo puts it in exactly the same place (start, end) on every *selected*
+/// linked photo, not relative to each photo's own people box, and from then on it is placed by
+/// hand. A linked copy on a photo that isn't selected stays as it was; the copies keep their own AI
+/// selection; one undo step takes the drag back.
+#[test]
+fn a_gradient_drag_reaches_the_selected_linked_copies_only() {
+    let (mut s, [a, b, c, d]) = photos::<4>();
+    select(&mut s, &[a, b, c, d], a);
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    s.execute("mask.add", &json!({"kind": "background", "seg": seg(), "name": "Sun Kissed"})).unwrap();
     let mid = masks(&s, a)[0].id;
     s.execute("mask.select", &json!({"id": mid})).unwrap();
     s.execute("mask.addComponent", &json!({"kind": "linear", "op": "subtract", "start": [0.5, 1.0], "end": [0.5, 0.55], "anchor": "people"}))
         .unwrap();
     let link = masks(&s, a)[0].link.clone();
     assert!(!link.is_empty(), "a mask Auto Sync carries is linked");
-    for id in [b, c] {
+    for id in [b, c, d] {
         let m = masks(&s, id);
         assert_eq!(m.len(), 1, "one copy each: {m:#?}");
         assert_eq!(m[0].link, link, "the copies share the link");
         assert_eq!(m[0].components.len(), 2);
     }
     // each photo found its own people box: its anchored gradient sits differently
-    for (id, bx) in [(a, [0.1, 0.1, 0.5, 0.9]), (b, [0.4, 0.2, 0.9, 0.8]), (c, [0.0, 0.5, 0.3, 1.0])] {
-        let mut d = (*s.develop_of(id).unwrap()).clone();
-        let comp = &mut d.masks[0].components[1];
+    for (id, bx) in [(a, [0.1, 0.1, 0.5, 0.9]), (b, [0.4, 0.2, 0.9, 0.8]), (c, [0.0, 0.5, 0.3, 1.0]), (d, [0.2, 0.2, 0.6, 0.6])] {
+        let mut dev = (*s.develop_of(id).unwrap()).clone();
+        let comp = &mut dev.masks[0].components[1];
         let anchor = comp.anchor.as_mut().expect("anchored");
         anchor.bounds = Some(bx);
         comp.shape = anchor.placed(1.5).unwrap();
-        s.amend_develop(id, d);
+        s.amend_develop(id, dev);
     }
+    let d_before = masks(&s, d);
 
-    // with Auto Sync on (the user's case): the drag reaches every selected photo exactly
+    // a, b and c selected, Auto Sync on (the user's case): the drag reaches them exactly
+    select(&mut s, &[a, b, c], a);
     drag(&mut s, mid, 1, [0.552, 0.549], [0.261, 0.259]);
     let want = (Point::new(0.552, 0.549), Point::new(0.261, 0.259));
     for id in [a, b, c] {
         let m = &masks(&s, id)[0];
-        let comp = &m.components[1];
-        assert_eq!(
-            match &comp.shape {
-                MaskShape::Linear { start, end } => (*start, *end),
-                o => panic!("{o:?}"),
-            },
-            want,
-            "the master's exact place on every photo"
-        );
-        assert!(comp.anchor.is_none(), "placed by hand: no longer through the people box");
+        assert_eq!(linear(m, 1), want, "the master's exact place on every selected photo");
+        assert!(m.components[1].anchor.is_none(), "placed by hand: no longer through the people box");
         assert!(m.components[0].shape.is_ai(), "the AI part stays");
     }
     assert!(masks(&s, a)[0].components[0].shape.has_seg(), "a keeps its own selection");
+    assert_eq!(masks(&s, d), d_before, "d is linked but not selected: never changed");
 
-    // Auto Sync off, only b selected: an edit of b's copy still reaches a and c
-    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
-    s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
-    let bid = masks(&s, b)[0].id;
-    s.execute("mask.select", &json!({"id": bid})).unwrap();
-    drag(&mut s, bid, 1, [0.3, 0.9], [0.7, 0.2]);
-    s.execute("mask.adjust", &json!({"id": bid, "values": {"exposure": 0.8}})).unwrap();
-    for id in [a, b, c] {
-        let m = &masks(&s, id)[0];
-        let MaskShape::Linear { start, end } = m.components[1].shape else { panic!() };
-        assert_eq!((start, end), (Point::new(0.3, 0.9), Point::new(0.7, 0.2)), "linked without Auto Sync");
-        assert!((m.adjust.exposure - 0.8).abs() < 1e-9, "sliders too: {:?}", m.adjust);
-    }
-    // one undo step takes the edit back on all of them
+    // one undo step takes the drag back on every photo it reached
     s.execute("edit.undo", &json!({})).unwrap();
     for id in [a, b, c] {
-        assert!(masks(&s, id)[0].adjust.exposure.abs() < 1e-9, "undone on every photo");
+        assert_ne!(linear(&masks(&s, id)[0], 1), want, "undone on every photo");
     }
 }
 
-/// How a link breaks: Unlink on one photo takes its copy out of the group (edits stop travelling
-/// both ways); deleting a copy without Auto Sync deletes only that one, and the rest stay linked;
-/// a mask of a photo that was never in the group is never touched.
+/// With Auto Sync off an edit of a linked copy stays on its own photo, whatever is selected:
+/// sliders, a gradient drag, a rename. Deleting a copy then deletes only that copy.
 #[test]
-fn unlink_and_delete_break_the_link_for_one_copy_only() {
-    let (mut s, [a, b, c]) = three();
-    let d = s.visible_cloned().get(3).copied().expect("a fourth demo photo");
-    // d has a mask of its own with the same id and name
-    s.execute("library.select", &json!({"ids": [d.0]})).unwrap();
-    s.execute("mask.add", &json!({"kind": "radial", "name": "Mask 1"})).unwrap();
-    let d_own = masks(&s, d);
-    s.execute("library.select", &json!({"ids": [a.0, b.0, c.0], "active": a.0})).unwrap();
-    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
-    s.execute("mask.add", &json!({"kind": "radial", "name": "Mask 1"})).unwrap();
+fn with_auto_sync_off_an_edit_stays_on_its_photo() {
+    let (mut s, [a, b, c]) = photos::<3>();
+    radial_on(&mut s, &[a, b, c]);
     s.execute("develop.autoSync", &json!({"on": false})).unwrap();
-    s.execute("library.select", &json!({"ids": [a.0]})).unwrap();
-    let mid = masks(&s, a)[0].id;
-    s.execute("mask.adjust", &json!({"id": mid, "values": {"exposure": 0.5}})).unwrap();
-    for id in [b, c] {
-        assert!((masks(&s, id)[0].adjust.exposure - 0.5).abs() < 1e-9);
+    select(&mut s, &[a, b, c], b);
+    let bid = masks(&s, b)[0].id;
+    let before = [masks(&s, a), masks(&s, c)];
+    s.execute("mask.adjust", &json!({"id": bid, "values": {"exposure": 0.8}})).unwrap();
+    s.execute("mask.rename", &json!({"id": bid, "name": "Only Here"})).unwrap();
+    assert!((masks(&s, b)[0].adjust.exposure - 0.8).abs() < 1e-9);
+    assert_eq!(masks(&s, b)[0].name, "Only Here");
+    assert_eq!([masks(&s, a), masks(&s, c)], before, "Auto Sync off: the other copies stay as they are");
+
+    s.execute("mask.delete", &json!({"id": bid})).unwrap();
+    assert!(masks(&s, b).is_empty());
+    assert_eq!([masks(&s, a), masks(&s, c)], before, "deleting one copy deletes only it");
+}
+
+/// AI masks: settings sync, shape never. A linked mask of People + Object + Linear, where photo
+/// b's AI parts are its own (another person picked, its own clicks and selections). An Edge change
+/// of the Object and a slider on a reach b's copy, but b keeps its person, its clicks and its
+/// selections; a Linear drag on a then moves b's gradient and still leaves b's AI parts alone.
+#[test]
+fn ai_parts_keep_their_own_shape_while_their_settings_sync() {
+    let (mut s, [a, b]) = photos::<2>();
+    let people = |person| MaskComponent {
+        name: None,
+        anchor: None,
+        op: MaskOp::Add,
+        invert: false,
+        shape: MaskShape::People { person, parts: vec![], who: None, seg: Some(seg()) },
+    };
+    let object = |x: f64| MaskComponent {
+        name: None,
+        anchor: None,
+        op: MaskOp::Add,
+        invert: false,
+        shape: MaskShape::Object { hint: vec![Point::new(x, 0.5)], exclude: vec![], seg: Some(seg()), detail: vec![], edge: 0.0 },
+    };
+    let lin = MaskComponent {
+        name: None,
+        anchor: None,
+        op: MaskOp::Subtract,
+        invert: false,
+        shape: MaskShape::Linear { start: Point::new(0.5, 1.0), end: Point::new(0.5, 0.6) },
+    };
+    let base = Mask { id: 1, name: "Couple".into(), link: "linkai".into(), components: vec![people(1), object(0.2), lin.clone()], ..Mask::default() };
+    put(&mut s, &[a], &base);
+    let mine = Mask { components: vec![people(2), object(0.7), lin], ..base.clone() };
+    put(&mut s, &[b], &mine);
+
+    select(&mut s, &[a, b], a);
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let mut edged = object(0.2).shape;
+    if let MaskShape::Object { edge, .. } = &mut edged {
+        *edge = 30.0;
     }
-    assert_eq!(masks(&s, d), d_own, "never in the group: untouched");
+    s.execute("mask.update", &json!({"id": 1, "component": 1, "shape": edged})).unwrap();
+    s.execute("mask.adjust", &json!({"id": 1, "values": {"exposure": 0.6}})).unwrap();
+    let m = &masks(&s, b)[0];
+    assert!((m.adjust.exposure - 0.6).abs() < 1e-9, "the slider syncs");
+    match &m.components[1].shape {
+        MaskShape::Object { hint, seg, edge, .. } => {
+            assert_eq!(hint, &vec![Point::new(0.7, 0.5)], "b keeps its own clicks");
+            assert!(seg.is_some(), "and what was found on it");
+            assert_eq!(*edge, 30.0, "the Edge setting syncs");
+        }
+        o => panic!("{o:?}"),
+    }
+    assert_eq!(m.components[0], mine.components[0], "b keeps its own person and selection");
 
-    // c leaves the group
-    s.execute("library.select", &json!({"ids": [c.0]})).unwrap();
-    let r = s.execute("mask.unlink", &json!({"id": masks(&s, c)[0].id})).unwrap();
-    assert_eq!(r["unlinked"], json!(true));
-    assert!(masks(&s, c)[0].link.is_empty());
-    s.execute("mask.adjust", &json!({"id": masks(&s, c)[0].id, "values": {"contrast": 30}})).unwrap();
-    assert_eq!(masks(&s, a)[0].adjust.contrast, 0.0, "an unlinked copy's edit stays on its photo");
-    s.execute("library.select", &json!({"ids": [a.0]})).unwrap();
-    s.execute("mask.adjust", &json!({"id": mid, "values": {"exposure": 1.0}})).unwrap();
-    assert!((masks(&s, b)[0].adjust.exposure - 1.0).abs() < 1e-9, "b is still linked");
-    assert!((masks(&s, c)[0].adjust.exposure - 0.5).abs() < 1e-9, "c no longer follows");
+    drag(&mut s, 1, 2, [0.3, 0.9], [0.7, 0.2]);
+    let m = &masks(&s, b)[0];
+    assert_eq!(linear(m, 2), (Point::new(0.3, 0.9), Point::new(0.7, 0.2)), "the hand-made gradient follows exactly");
+    assert_eq!(m.components[0], mine.components[0], "a gradient drag leaves b's People alone");
+    assert!(matches!(&m.components[1].shape, MaskShape::Object { hint, seg: Some(_), .. } if hint == &vec![Point::new(0.7, 0.5)]));
+}
 
-    // deleting a's copy deletes only a's
-    s.execute("mask.delete", &json!({"id": mid})).unwrap();
+/// Adding to or subtracting from a linked mask syncs: a component added on one photo (a hand-made
+/// one exactly, an AI one as a recipe found on each photo) and one removed reach the selected linked
+/// copies, never a linked copy on a photo that isn't selected.
+#[test]
+fn an_added_or_removed_component_reaches_the_selected_linked_copies_only() {
+    let (mut s, [a, b, c]) = photos::<3>();
+    radial_on(&mut s, &[a, b, c]);
+    let c_before = masks(&s, c);
+    select(&mut s, &[a, b], a);
+    let mid = masks(&s, a)[0].id;
+    s.execute("mask.select", &json!({"id": mid})).unwrap();
+    s.execute("mask.addComponent", &json!({"kind": "linear", "op": "subtract", "start": [0.1, 0.9], "end": [0.4, 0.3]})).unwrap();
+    s.execute("mask.addComponent", &json!({"kind": "background", "op": "intersect", "seg": seg()})).unwrap();
+    let m = &masks(&s, b)[0];
+    assert_eq!(m.components.len(), 3, "{m:#?}");
+    assert_eq!(linear(m, 1), (Point::new(0.1, 0.9), Point::new(0.4, 0.3)), "the subtracted gradient at the same place");
+    assert_eq!(m.components[1].op, MaskOp::Subtract);
+    assert!(m.components[2].shape.is_ai(), "the added AI part, found on b");
+    assert_eq!(m.components[2].op, MaskOp::Intersect);
+    assert_eq!(masks(&s, c), c_before, "c isn't selected: untouched");
+
+    s.execute("mask.component", &json!({"id": mid, "component": 1, "action": "delete"})).unwrap();
+    let m = &masks(&s, b)[0];
+    assert_eq!(m.components.len(), 2, "removed on b too");
+    assert!(m.components.iter().all(|x| !matches!(x.shape, MaskShape::Linear { .. })));
+    assert!(m.components[1].shape.is_ai());
+    assert_eq!(masks(&s, c), c_before, "c still untouched");
+}
+
+/// Auto Sync copies a mask, and the copies are linked (rule 5): the photos have no mask; one of
+/// them gets one; selecting the group with it active, Auto Sync on, one slider change gives all
+/// of them the mask, linked with the original; a second change reaches all of them. Once one
+/// photo leaves the selection, a change no longer reaches it.
+#[test]
+fn auto_sync_copies_a_mask_to_the_selected_photos_and_links_them() {
+    let (mut s, [a, b, c]) = photos::<3>();
+    for id in [a, b, c] {
+        assert!(masks(&s, id).is_empty());
+    }
+    select(&mut s, &[a], a);
+    s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
+    let mid = masks(&s, a)[0].id;
+    assert!(masks(&s, a)[0].link.is_empty(), "one photo: nothing to link yet");
+
+    select(&mut s, &[a, b, c], a);
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    s.execute("mask.adjust", &json!({"id": mid, "values": {"exposure": 0.3}})).unwrap();
+    let link = masks(&s, a)[0].link.clone();
+    assert!(!link.is_empty(), "the original joins the group");
+    for id in [b, c] {
+        let m = masks(&s, id);
+        assert_eq!(m.len(), 1, "the mask was copied: {m:#?}");
+        assert_eq!(m[0].link, link, "linked with the original");
+        assert!((m[0].adjust.exposure - 0.3).abs() < 1e-9);
+        assert_eq!(m[0].components, masks(&s, a)[0].components);
+    }
+
+    s.execute("mask.adjust", &json!({"id": mid, "values": {"contrast": 20}})).unwrap();
+    for id in [a, b, c] {
+        assert_eq!(masks(&s, id)[0].adjust.contrast, 20.0, "the second change reaches all of them");
+    }
+
+    select(&mut s, &[a, b], a);
+    s.execute("mask.adjust", &json!({"id": mid, "values": {"shadows": 10}})).unwrap();
+    assert_eq!(masks(&s, b)[0].adjust.shadows, 10.0);
+    assert_eq!(masks(&s, c)[0].adjust.shadows, 0.0, "c is linked but not selected: unchanged");
+}
+
+/// Renaming a linked mask names its copies on the selected photos the same (Auto Sync on), in one
+/// undo step; a copy on a photo that isn't selected keeps its name.
+#[test]
+fn a_rename_reaches_the_selected_linked_copies_in_one_step() {
+    let (mut s, [a, b, c]) = photos::<3>();
+    radial_on(&mut s, &[a, b, c]);
+    let was = masks(&s, a)[0].name.clone();
+    select(&mut s, &[a, b], a);
+    let mid = masks(&s, a)[0].id;
+    s.execute("mask.rename", &json!({"id": mid, "name": "Warmth"})).unwrap();
+    assert_eq!(masks(&s, a)[0].name, "Warmth");
+    assert_eq!(masks(&s, b)[0].name, "Warmth", "the selected copy takes the name");
+    assert_eq!(masks(&s, c)[0].name, was, "an unselected copy keeps its own");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(masks(&s, a)[0].name, was);
+    assert_eq!(masks(&s, b)[0].name, was, "one undo step for both");
+}
+
+/// Deleting with Auto Sync on and the photos selected removes the mask on all of them, but not a
+/// linked copy on a photo that isn't selected.
+#[test]
+fn delete_with_auto_sync_removes_the_selected_copies() {
+    let (mut s, [a, b, c]) = photos::<3>();
+    radial_on(&mut s, &[a, b, c]);
+    select(&mut s, &[a, b], a);
+    s.execute("mask.delete", &json!({"id": masks(&s, a)[0].id})).unwrap();
     assert!(masks(&s, a).is_empty());
-    assert_eq!(masks(&s, b).len(), 1, "b keeps its copy");
-    assert_eq!(masks(&s, c).len(), 1);
+    assert!(masks(&s, b).is_empty(), "the selected copy goes too");
+    assert_eq!(masks(&s, c).len(), 1, "c isn't selected: it keeps its copy");
+}
+
+/// There is no unlink (the user's rule): the command is gone.
+#[test]
+fn there_is_no_unlink() {
+    let (mut s, [a, b]) = photos::<2>();
+    radial_on(&mut s, &[a, b]);
+    assert!(s.execute("mask.unlink", &json!({"id": masks(&s, a)[0].id})).is_err());
+    assert!(s.commands().iter().all(|c| c.id != "mask.unlink"), "not in the command list");
 }
 
 /// A preset on a selection, Paste onto a selection, Sync Settings and Paste from Previous link
 /// the masks they copy (with the source photo's original for Paste and Sync); a preset on one
-/// photo links nothing.
+/// photo links nothing. A pasted copy's later edit reaches the original only through Auto Sync.
 #[test]
 fn presets_paste_and_sync_link_the_masks_they_copy() {
-    let (mut s, [a, b, c]) = three();
+    let (mut s, [a, b, c]) = photos::<3>();
     let settings = json!({"masks": [{"id": 1, "name": "Glow", "components": [{"shape": {"kind": "radial", "center": {"x": 0.5, "y": 0.5}, "rx": 0.2, "ry": 0.2, "angle": 0.0, "feather": 50.0, "invert": false}}], "adjust": {"exposure": 0.3}}]});
     s.presets.push(lightcraft_develop::Preset {
         id: "glow".into(),
@@ -184,14 +356,67 @@ fn presets_paste_and_sync_link_the_masks_they_copy() {
     let link = masks(&s, a)[0].link.clone();
     assert!(!link.is_empty(), "the original joins the group");
     assert!([b, c].iter().all(|id| masks(&s, *id)[0].link == link));
+    // an edit of c's copy alone stays on c; with a and c selected and Auto Sync on it reaches a
     s.execute("library.select", &json!({"ids": [c.0]})).unwrap();
     s.execute("mask.adjust", &json!({"id": masks(&s, c)[0].id, "values": {"shadows": 40}})).unwrap();
-    assert_eq!(masks(&s, a)[0].adjust.shadows, 40.0, "a pasted copy's edit reaches the original");
+    assert_eq!(masks(&s, a)[0].adjust.shadows, 0.0, "one photo selected: stays on c");
+    select(&mut s, &[c, a], c);
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    s.execute("mask.adjust", &json!({"id": masks(&s, c)[0].id, "values": {"shadows": 50}})).unwrap();
+    assert_eq!(masks(&s, a)[0].adjust.shadows, 50.0, "a pasted copy's edit reaches the selected original");
+    assert_eq!(masks(&s, b)[0].adjust.shadows, 0.0, "b isn't selected");
+    s.execute("develop.autoSync", &json!({"on": false})).unwrap();
 
     // Sync Settings from b to c (b's mask already linked: c's copy joins that group)
     s.execute("library.select", &json!({"ids": [b.0, c.0], "active": b.0})).unwrap();
     s.execute("develop.sync", &json!({"groups": ["masks"]})).unwrap();
     assert_eq!(masks(&s, c)[0].link, link);
+}
+
+/// A mask the photographer renamed keeps its name in their preset: saved from a photo, applied to
+/// three photos it gives each a linked mask called "Warmth", and the name survives the Lightroom
+/// XMP preset export and import (with LightCraft's own settings in it, and from the Lightroom
+/// fields alone). A mask still under its automatic name is named after the preset, as before.
+#[test]
+fn a_renamed_mask_keeps_its_name_through_a_preset() {
+    let (mut s, [a, b, c, d]) = photos::<4>();
+    select(&mut s, &[d], d);
+    s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
+    let mid = masks(&s, d)[0].id;
+    s.execute("mask.rename", &json!({"id": mid, "name": "Warmth"})).unwrap();
+    s.execute("mask.add", &json!({"kind": "linear", "start": [0.5, 0.0], "end": [0.5, 0.5]})).unwrap();
+    let pid = s.execute("preset.create", &json!({"name": "Golden Hour", "groups": ["masks"]})).unwrap()["id"].as_str().unwrap().to_string();
+
+    select(&mut s, &[a, b, c], a);
+    s.execute("preset.apply", &json!({"id": pid})).unwrap();
+    let link = masks(&s, a)[0].link.clone();
+    assert!(!link.is_empty());
+    for id in [a, b, c] {
+        let m = masks(&s, id);
+        assert_eq!(m.len(), 2, "{m:#?}");
+        assert_eq!(m[0].name, "Warmth", "the photographer's name stays");
+        assert_eq!(m[0].link, link, "linked across the three");
+        assert_eq!(m[1].name, "Golden Hour - Linear Gradient", "an automatic name goes after the preset");
+    }
+
+    // the Lightroom XMP preset round trip
+    let dir = std::env::temp_dir().join(format!("lc-masklink-xmp-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let r = s.execute("preset.exportXmp", &json!({"id": pid, "folder": dir.to_string_lossy()})).unwrap();
+    let path = r["written"][0]["path"].as_str().unwrap().to_string();
+    let xmp = std::fs::read_to_string(&path).unwrap();
+    assert!(xmp.contains("crs:CorrectionName=\"Warmth\""), "Lightroom sees the name");
+    let back = crate::preset_import::read_presets(&path, xmp.as_bytes(), None).unwrap().remove(0).preset;
+    let applied = back.apply(&Default::default(), 1.0, 1.5);
+    assert_eq!(applied.masks[0].name, "Warmth", "with LightCraft's own settings");
+    // what Lightroom writes back holds only its own fields
+    let at = xmp.find(&format!("{}=\"", crate::preset_xmp::LC_SETTINGS)).unwrap();
+    let end = at + xmp[at..].find("\" ").or_else(|| xmp[at..].find("\">")).unwrap() + 1;
+    let lr_only = format!("{}{}", &xmp[..at], &xmp[end..]);
+    let back = crate::preset_import::read_presets(&path, lr_only.as_bytes(), None).unwrap().remove(0).preset;
+    let applied = back.apply(&Default::default(), 1.0, 1.5);
+    assert!(applied.masks.iter().any(|m| m.name == "Warmth"), "from the Lightroom fields alone: {:?}", applied.masks);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Masks saved before links existed read as unlinked, and a link survives a save.
@@ -210,7 +435,7 @@ fn old_masks_read_unlinked() {
 /// and on a photo without it none.
 #[test]
 fn the_selected_mask_follows_the_active_photo_to_its_linked_copy() {
-    let (mut s, [a, b, c]) = three();
+    let (mut s, [a, b, c]) = photos::<3>();
     s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
     s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
     s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
