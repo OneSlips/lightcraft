@@ -6,6 +6,9 @@
 - **A new mask gets exactly what the sliders show**, as in Lightroom Classic: the settings you dial in while no
   mask exists yet (nothing selected, or a tool picked and not yet used) go to the next mask, whatever its tool,
   and stay for the masks after it. Editing a mask, or applying an effect to it, changes only that mask.
+- **The selected mask stays selected** when you Shift-click a range or Ctrl-click photos in the filmstrip, and when
+  you move to a photo that has the same mask (applied with Auto Sync, a preset, Paste or Sync), that photo's copy
+  is selected, with the same component. A photo without it shows no mask selected.
 
 ## 2026-10-24
 

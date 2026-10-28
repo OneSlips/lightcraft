@@ -955,6 +955,11 @@ pub struct UiState {
     /// The photo on show and whether Masks was open, last frame: a change is "entering Masks".
     #[serde(skip)]
     pub mask_seen: Option<(Option<u64>, bool)>,
+    /// What was selected in Masks last frame: (photo, mask, its component edited on the photo, the
+    /// brush armed on it). On another photo the matching mask and component stay selected (test
+    /// notes 2026-10-28 #26).
+    #[serde(skip)]
+    pub mask_held: Option<(u64, u32, Option<usize>, bool)>,
     /// The mask selected when a new-mask tool was armed (photo, mask), deselected meanwhile:
     /// putting the tool away without making a mask selects it again (test notes 2026-10-25 note 9).
     #[serde(skip)]
@@ -1932,6 +1937,7 @@ impl Default for UiState {
             mask_memory: Default::default(),
             mask_last: None,
             mask_seen: None,
+            mask_held: None,
             mask_before_arm: None,
             mask_component: None,
             brush_on: None,

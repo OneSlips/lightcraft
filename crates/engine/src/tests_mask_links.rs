@@ -204,3 +204,31 @@ fn old_masks_read_unlinked() {
     let back: Mask = serde_json::from_value(serde_json::to_value(&linked).unwrap()).unwrap();
     assert_eq!(back.link, "00ff");
 }
+
+/// Test notes 2026-10-28 #26: a ⇧-click range or ⌘-click that keeps the active photo keeps the
+/// selected mask; a click that moves the active photo selects the linked copy there (another id),
+/// and on a photo without it none.
+#[test]
+fn the_selected_mask_follows_the_active_photo_to_its_linked_copy() {
+    let (mut s, [a, b, c]) = three();
+    s.execute("library.select", &json!({"ids": [b.0]})).unwrap();
+    s.execute("mask.add", &json!({"kind": "radial"})).unwrap();
+    s.execute("library.select", &json!({"ids": [a.0, b.0], "active": a.0})).unwrap();
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    s.execute("mask.add", &json!({"kind": "linear"})).unwrap();
+    let on_a = s.active_mask.expect("selected");
+    let link = masks(&s, a)[0].link.clone();
+    let on_b = masks(&s, b).iter().find(|m| m.link == link).map(|m| m.id).expect("b's copy");
+    assert_ne!(on_a, on_b);
+    s.execute("library.select", &json!({"ids": [a.0]})).unwrap();
+    assert_eq!(s.active_mask, Some(on_a), "the same active photo keeps its mask");
+    s.execute("library.select", &json!({"ids": [c.0], "mode": "range"})).unwrap();
+    assert_eq!(s.active_mask, Some(on_a), "a range keeps it");
+    s.execute("library.select", &json!({"ids": [c.0], "mode": "toggle"})).unwrap();
+    assert_eq!(s.active_mask, Some(on_a), "a ⌘-click keeps it");
+    s.execute("library.select", &json!({"ids": [b.0], "mode": "click"})).unwrap();
+    assert_eq!(s.active(), Some(b));
+    assert_eq!(s.active_mask, Some(on_b), "the linked copy on the new active photo");
+    s.execute("library.select", &json!({"ids": [c.0], "mode": "click"})).unwrap();
+    assert_eq!(s.active_mask, None, "a photo without it: none");
+}

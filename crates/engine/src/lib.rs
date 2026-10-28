@@ -1391,6 +1391,26 @@ impl Session {
         std::iter::once(active).chain(self.selection.ids.iter().copied().filter(|x| *x != active)).collect()
     }
 
+    /// The mask that stays selected when the active photo goes from `from` (with mask `mask`
+    /// selected) to `to` (test notes 2026-10-28 #26): the same mask when the active photo stays;
+    /// else its copy on `to`: the one linked with it ([`lightcraft_develop::Mask::link`]), or for
+    /// an unlinked mask the same mask by [`lightcraft_develop::recipe::same_mask`]. `None` when
+    /// `to` has no such mask.
+    pub fn carried_mask(&self, from: Option<PhotoId>, mask: Option<u32>, to: Option<PhotoId>) -> Option<u32> {
+        let (mask, to) = (mask?, to?);
+        let there = self.develop_of(to)?;
+        if from == Some(to) {
+            return there.masks.iter().any(|m| m.id == mask).then_some(mask);
+        }
+        let here = self.develop_of(from?)?;
+        let i = here.masks.iter().position(|m| m.id == mask)?;
+        let m = here.masks.get(i)?;
+        if !m.link.is_empty() {
+            return there.masks.iter().find(|t| t.link == m.link).map(|t| t.id);
+        }
+        lightcraft_develop::recipe::same_mask(m, i, here.masks.len(), &there.masks).and_then(|k| there.masks.get(k)).map(|t| t.id)
+    }
+
     /// The other photos Auto Sync carries an edit of photo `id` to: with Auto Sync on and at least
     /// two photos selected, the selected photos other than `id` when `id` is the active one (none for
     /// History and snapshot restores).
