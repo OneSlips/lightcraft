@@ -4220,9 +4220,8 @@ fn stroke_into(params: &mut serde_json::Value, target: Option<(u32, usize)>) {
 }
 
 /// Whether the armed brush leaves this frame's pointer to the pins: a pin (or the pan) being
-/// dragged, or, with no stroke under way, the pointer pressed on or over another mask's pin (a
-/// click selects that mask). The brush's own pin never takes a stroke away: it sits where the
-/// strokes are; the mask selected as a whole moves it.
+/// dragged, or, with no stroke under way, the pointer pressed on or over a pin: another mask's (a
+/// click selects that mask) or the armed Brush's own (a drag moves its strokes).
 fn brush_yields(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, grips: &[(u32, usize, u8, Pos2)]) -> bool {
     match app.gesture {
         Some(Gesture::MaskHandle { .. } | Gesture::Pan { .. }) => return true,
@@ -4231,8 +4230,9 @@ fn brush_yields(app: &LightcraftApp, ui: &egui::Ui, resp: &egui::Response, grips
     }
     let at =
         if resp.drag_started() || resp.clicked() { ui.input(|i| i.pointer.press_origin()).or(resp.interact_pointer_pos()) } else { resp.hover_pos() };
-    let own = app.ui.brush_on.map(|(_, mid, k)| (mid, k));
-    at.is_some_and(|q| grips.iter().any(|g| g.2 == 0 && Some((g.0, g.1)) != own && g.3.distance(q) < 9.0))
+    // every pin, the armed Brush's own too: it stays draggable (it moves the strokes) while the
+    // brush is armed on it (decision, test notes 2026-10-28 #28)
+    at.is_some_and(|q| grips.iter().any(|g| g.2 == 0 && g.3.distance(q) < 9.0))
 }
 
 /// How often (seconds) a stroke being painted with Auto Mask goes to the photo.

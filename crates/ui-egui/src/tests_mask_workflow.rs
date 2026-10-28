@@ -112,6 +112,31 @@ fn settings_set_before_drawing_go_to_the_next_mask() {
     assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None);
 }
 
+/// Test notes 2026-10-28 #21 (Lightroom Classic's way): with the Brush armed and nothing painted
+/// yet, a slider sets the next mask's settings; the first stroke's mask gets them, and so does the
+/// next new mask; editing that mask afterwards never changes what the panel shows for the next one.
+#[test]
+fn settings_dialed_with_a_tool_armed_go_to_its_mask_and_the_next() {
+    let mut h = masking();
+    click(&mut h, "maskNew:brush");
+    assert!(h.app.session.active_mask.is_none());
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 0.6}}));
+    drag(&mut h, (0.3, 0.3), (0.4, 0.3));
+    let d = develop(&h);
+    assert_eq!(d.masks.len(), 1);
+    assert_eq!(d.masks[0].adjust.exposure, 0.6, "the first stroke's mask has what was dialed in before it");
+    // edit the brush mask: the next mask's settings stay as dialed
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": -1.0}}));
+    assert_eq!(h.app.session.mask_next.exposure, 0.6);
+    exec(&mut h, "mask.select", json!({"id": null}));
+    assert!(has(&h, "maskNextSettings"));
+    click(&mut h, "maskNew:radial");
+    drag(&mut h, (0.6, 0.6), (0.7, 0.7));
+    let d = develop(&h);
+    assert_eq!(d.masks.len(), 2);
+    assert_eq!(d.masks[1].adjust.exposure, 0.6, "the next new mask gets them too");
+}
+
 /// One press of a tool = one mask: after one radial the tool is put away; a drag or a click
 /// elsewhere makes no other mask (a drag on the mask moves it); pressing the tool again draws the
 /// next one, where it is dragged. The same for Linear; Brush strokes paint the one mask its tile
@@ -193,9 +218,10 @@ fn one_press_of_a_tool_makes_one_mask() {
     assert_eq!(h.app.ui.tool, "", "{}", h.app.ui.tool);
 }
 
-/// Carried-over settings vs Reset Settings on New Mask; effect presets before and after a mask.
+/// The next mask's settings (test notes 2026-10-28 #21) vs Reset Settings on New Mask; effect
+/// presets before and after a mask.
 #[test]
-fn new_masks_carry_the_last_settings_unless_reset_is_on() {
+fn new_masks_get_the_next_mask_settings_and_reset_zeroes_them() {
     let mut h = masking();
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.3, 0.3), (0.4, 0.4));
@@ -203,20 +229,21 @@ fn new_masks_carry_the_last_settings_unless_reset_is_on() {
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.75, 0.7), (0.82, 0.76));
     let a = selected_adjust(&h);
-    assert_eq!((a.exposure, a.clarity), (1.2, 30.0), "the next mask starts with the last mask's settings");
-    // Reset settings on new mask: the next one starts at zero (and it is remembered)
+    assert_eq!((a.exposure, a.clarity), (0.0, 0.0), "an existing mask's settings never carry to the next");
+    // Reset settings on new mask (remembered): settings dialed in with no mask go to the next mask,
+    // then back to zero
     click(&mut h, "check:maskResetNew");
     assert!(h.app.ui.mask_reset_new && h.app.session.mask_reset_new);
-    click(&mut h, "maskNew:radial");
-    drag(&mut h, (0.15, 0.75), (0.22, 0.8));
-    assert_eq!(selected_adjust(&h), lightcraft_develop::LocalAdjustments::default());
-    // …except for settings set on purpose with no mask selected
     exec(&mut h, "mask.select", json!({"id": null}));
     h.step();
     exec(&mut h, "mask.adjust", json!({"values": {"shadows": 40}}));
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.5, 0.15), (0.55, 0.2));
     assert_eq!(selected_adjust(&h).shadows, 40.0);
+    assert_eq!(h.app.session.mask_next, lightcraft_develop::LocalAdjustments::default());
+    click(&mut h, "maskNew:radial");
+    drag(&mut h, (0.15, 0.75), (0.22, 0.8));
+    assert_eq!(selected_adjust(&h), lightcraft_develop::LocalAdjustments::default());
     // effect presets: one saved, applied with no mask (for the next one), then to a mask
     exec(&mut h, "mask.adjust", json!({"values": {"temp": 25}}));
     exec(&mut h, "mask.saveEffect", json!({"name": "Warm"}));
@@ -299,7 +326,10 @@ fn the_overlay_shows_by_itself_only_for_a_mask_without_settings() {
     assert!(matches!(view_overlay(&h.app, &develop(&h)), Overlay::Mask { .. }), "fresh: shown");
     exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1}}));
     assert_eq!(view_overlay(&h.app, &develop(&h)), Overlay::None, "adjusted: the effect shows");
-    // the next one starts with those settings: no overlay by itself, even with its tool in use
+    // the next one starts with settings dialed in for it: no overlay by itself, even with its tool
+    // in use
+    exec(&mut h, "mask.select", json!({"id": null}));
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1}}));
     click(&mut h, "maskNew:radial");
     drag(&mut h, (0.7, 0.7), (0.8, 0.78));
     assert_eq!(develop(&h).masks.len(), 2);

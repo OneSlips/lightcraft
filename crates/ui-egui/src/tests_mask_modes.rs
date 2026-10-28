@@ -208,20 +208,22 @@ fn one_component_is_edited_at_a_time_and_a_brush_component_takes_new_strokes() {
     drag(&mut h, (0.1, 0.9), (0.2, 0.9));
     assert_eq!(strokes(&h, mid), vec![-1, 3, 1]);
     assert_eq!(develop(&h).masks[0].components[2].op, MaskOp::Subtract);
-    // a brush-only mask: selected (the brush put away), then its Brush row arms the brush on it
+    // a brush-only mask: its row arms the brush on it (its top component, note 2026-10-28 #28)
     click(&mut h, "maskNew:brush");
     drag(&mut h, (0.3, 0.1), (0.4, 0.1));
     let only = h.app.session.active_mask.expect("the brush-only mask");
     click(&mut h, &format!("mask:{mid}"));
+    assert!(h.app.ui.tool.is_empty(), "a gradient on top arms nothing");
     click(&mut h, &format!("mask:{only}"));
-    assert!(h.app.ui.tool.is_empty(), "selecting the mask row arms nothing");
-    click(&mut h, "component:0");
-    assert_eq!(h.app.ui.tool, "brush");
+    assert_eq!(h.app.ui.tool, "brush", "the brush mask's row arms its Brush");
     drag(&mut h, (0.6, 0.1), (0.7, 0.1));
     assert_eq!(strokes(&h, only), vec![2], "the brush-only mask took the stroke");
     assert_eq!(develop(&h).masks.len(), 2);
     // the B key (tool.brush) on a selected brush mask arms its Brush too
-    click(&mut h, &format!("mask:{only}"));
+    exec(&mut h, "mask.select", json!({"id": only}));
+    h.app.ui.tool.clear();
+    h.app.ui.brush_on = None;
+    h.step();
     assert!(h.app.ui.tool.is_empty());
     exec(&mut h, "tool.brush", json!({}));
     assert_eq!(h.app.ui.brush_on.map(|b| (b.1, b.2)), Some((only, 0)));

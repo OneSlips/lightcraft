@@ -332,6 +332,13 @@ pub(crate) fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, nam
     let d = photo.and_then(|p| app.session.develop_of(p));
     let ai = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| m.uses_ai());
     let any_ai = d.as_ref().is_some_and(|d| d.masks.iter().any(|m| m.uses_ai()));
+    // a mask applied to several photos in one go is linked with its copies there (test notes
+    // 2026-10-28 #12): this takes it out of that group
+    let linked = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| !m.link.is_empty());
+    if ui.add_enabled(linked, egui::Button::new(menu_label("Unlink from Other Photos"))).clicked() {
+        let _ = app.run("mask.unlink", json!({"id": id}));
+        ui.close();
+    }
     if ui.add_enabled(ai, egui::Button::new(menu_label("Update AI Mask"))).clicked() {
         if let Err(e) = app.run("mask.recompute", json!({"id": id})) {
             app.ai_error(ui.ctx(), e, None);
@@ -750,14 +757,48 @@ pub(crate) fn keep_selection(app: &mut LightcraftApp) {
     }
     let seen = (photo.map(|p| p.0), in_masks);
     let entered = in_masks && app.ui.mask_seen != Some(seen);
+    // another photo while in Masks with a mask selected: the engine kept its match selected (or
+    // none, when the photo has no such mask: never another one; note 2026-10-28 #26)
+    let held = app.ui.mask_held.take();
+    let moved_with_mask = in_masks && app.ui.mask_seen.is_some_and(|(q, open)| open && q != seen.0) && held.is_some_and(|(q, ..)| Some(q) != seen.0);
     app.ui.mask_seen = Some(seen);
     let Some(p) = photo.map(|p| p.0).filter(|_| in_masks) else { return };
-    if entered && !armed && !app.session.active_mask.is_some_and(has) {
+    if moved_with_mask && let (Some((_, _, Some(k), brush)), Some(mid)) = (held, app.session.active_mask.filter(|id| has(*id))) {
+        carry_component(app, &d, p, mid, k, brush);
+    } else if entered && !moved_with_mask && !armed && !app.session.active_mask.is_some_and(has) {
         app.session.active_mask = landing_mask(app, p, &d.masks);
     }
     if let Some(id) = app.session.active_mask.filter(|id| has(*id)) {
         app.ui.mask_memory.insert(p, id);
         app.ui.mask_last = Some((p, id));
+        let comp = match app.ui.mask_component {
+            Some((q, m, k)) if q == p && m == id => Some(k),
+            _ => None,
+        };
+        let brush = app.ui.brush_on.is_some_and(|(q, m, k)| q == p && m == id && Some(k) == comp);
+        app.ui.mask_held = Some((p, id, comp, brush));
+    }
+}
+
+/// On photo `p`, mask `mid` (the match of the one selected on the photo before): the component at
+/// `k` stays the one edited when it is the same kind, with the brush armed on it again if it was
+/// (note 2026-10-28 #26).
+fn carry_component(app: &mut LightcraftApp, d: &lightcraft_develop::DevelopSettings, p: u64, mid: u32, k: usize, brush: bool) {
+    let Some(m) = d.masks.iter().find(|m| m.id == mid) else { return };
+    let Some(c) = m.components.get(k) else { return };
+    let kind = |m: &lightcraft_develop::Mask| {
+        m.components.get(k).and_then(|c| serde_json::to_value(&c.shape).ok()).and_then(|v| v.get("kind").and_then(|x| x.as_str()).map(str::to_string))
+    };
+    let before =
+        app.ui.mask_last.and_then(|(q, id)| app.session.develop_of(PhotoId(q)).and_then(|o| o.masks.iter().find(|x| x.id == id).and_then(kind)));
+    if before.is_some() && before != kind(m) {
+        return;
+    }
+    app.ui.mask_component = Some((p, mid, k));
+    if brush && matches!(c.shape, MaskShape::Brush { .. }) {
+        app.ui.right = crate::state::RightPanel::Masking;
+        app.ui.tool = "brush".into();
+        app.ui.brush_on = Some((p, mid, k));
     }
 }
 

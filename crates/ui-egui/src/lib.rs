@@ -191,6 +191,8 @@ mod tests_mask_modes;
 #[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
+mod tests_mask_select;
+#[cfg(test)]
 mod tests_mask_tools;
 #[cfg(test)]
 mod tests_mask_workflow;

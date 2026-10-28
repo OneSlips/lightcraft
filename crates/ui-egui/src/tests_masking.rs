@@ -102,9 +102,10 @@ fn subtract_brush_removes_sky_coverage_and_add_restores_it() {
     assert!(mask_coverage(&h, 0, 25, 50) < 0.01);
     assert_eq!(develop(&h).masks[0].components.len(), 2);
 
-    // Erase removes paint from the subtract component, restoring the underlying sky.
+    // Erase removes paint from the subtract component, restoring the underlying sky (a little off
+    // the component's pin, which a press on it would drag: note 2026-10-28 #28).
     h.app.ui.brush_erase = true;
-    brush_at(&mut h, 0.5, 0.5);
+    brush_at(&mut h, 0.5, 0.53);
     assert!(mask_coverage(&h, 0, 50, 50) > 0.99);
     click(&mut h, "button:maskAddComp");
     click(&mut h, "maskComp:add:brush");
@@ -137,7 +138,8 @@ fn new_brush_starts_a_separate_mask_in_paint_mode() {
     assert!(crate::panels::detail::overlay_shown(&h.app, &d.masks[1]), "painting shows the overlay");
     assert!(mask_coverage(&h, 1, 50, 50) > 0.99);
     h.app.ui.brush_erase = true;
-    brush_at(&mut h, 0.5, 0.5);
+    // (off the pin, which a press on would drag)
+    brush_at(&mut h, 0.5, 0.53);
     assert!(mask_coverage(&h, 1, 50, 50) < 0.01);
     exec(&mut h, "edit.undo", json!({}));
     assert!(mask_coverage(&h, 1, 50, 50) > 0.99);

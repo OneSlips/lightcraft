@@ -1245,6 +1245,14 @@ pub struct Mask {
     /// mask) is `true`, and an edit converts an old one (`lightcraft_pipeline::masks::attach`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub on_photo: bool,
+    /// The linked group it belongs to (test notes 2026-10-28 #12): the copies of one mask applied
+    /// to several photos in one go (Auto Sync, a preset on a selection, Paste, Sync Settings, Paste
+    /// from Previous) share it, and an edit of one of them goes to the others
+    /// ([`crate::recipe::sync_linked`]). Empty: not linked (every mask from before links existed).
+    /// The link breaks for one copy when it is unlinked (`mask.unlink`); deleting a copy deletes
+    /// only that copy.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub link: String,
 }
 
 fn is_zero(v: &f64) -> bool {
@@ -1269,6 +1277,7 @@ impl Default for Mask {
             curve: ToneCurve::default(),
             point_colors: Vec::new(),
             on_photo: true,
+            link: String::new(),
         }
     }
 }
