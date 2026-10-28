@@ -711,6 +711,12 @@ pub fn specs() -> Vec<CommandSpec> {
             masks_edit(s, "mask.update", "Edit Mask", |masks, _| {
                 let i = find(masks, mid, "mask.update")?;
                 let c = masks[i].components.get_mut(comp).ok_or_else(|| bad("mask.update", "no such component"))?;
+                // a gradient placed by hand stays where it was put: no longer placed through its
+                // anchor's box (recomputing would move it), and its linked copies get exactly this
+                // place (test notes 2026-10-28 #12)
+                if c.shape != shape {
+                    c.anchor = None;
+                }
                 c.shape = shape;
                 Ok(())
             })
@@ -1242,6 +1248,27 @@ pub fn specs() -> Vec<CommandSpec> {
             s.active_mask = optional_mask_id(p, "mask.select")?;
             ok()
         }),
+        cmd!(
+            "mask.unlink",
+            "Unlink Mask",
+            [],
+            None,
+            "{id?} — the mask (default: the selected one) leaves its linked group (the copies applied with it to other photos by Auto Sync, a preset, Paste or Sync): its edits stay on this photo and the other copies' edits no longer reach it → {unlinked: bool}",
+            has_active,
+            |s, p| {
+                let c = "mask.unlink";
+                let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
+                let mid = mask_id(p, s.active_mask, c)?;
+                let mut d = (*s.develop_of(id).unwrap_or_default()).clone();
+                let i = find(&mut d.masks, mid, c)?;
+                let Some(m) = d.masks.get_mut(i).filter(|m| !m.link.is_empty()) else { return Ok(json!({"unlinked": false})) };
+                m.link.clear();
+                // only this photo: Auto Sync must not link it again (nor carry the unlink)
+                let op = s.develop_op(id, d, "Unlink Mask").ok_or_else(|| bad(c, "no active photo"))?;
+                s.commit("Unlink Mask", op)?;
+                Ok(json!({"unlinked": true}))
+            }
+        ),
         cmd!("mask.delete", "Delete Mask", [], None, "{id?}", has_active, |s, p| {
             let mid = mask_id(p, s.active_mask, "mask.delete")?;
             masks_edit(s, "mask.delete", "Delete Mask", |masks, active| {

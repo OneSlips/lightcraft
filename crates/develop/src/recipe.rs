@@ -268,6 +268,7 @@ impl Mask {
             let mut m = m.clone();
             m.id = 0;
             m.preset = None;
+            m.link.clear();
             m.strip_ai(1.5);
             m
         };
@@ -316,24 +317,29 @@ fn component_key(c: &crate::MaskComponent) -> crate::MaskComponent {
     c
 }
 
-/// The other photo's counterpart of mask `m` among `masks`: the same id with the same selection
-/// or name, else one with the same selection and name (a mask Auto Sync carried over earlier).
+/// The mask among `masks` linked with `m` (the same [`Mask::link`]), whatever its id, name or
+/// selection.
+fn linked(m: &Mask, masks: &[Mask]) -> Option<usize> {
+    (!m.link.is_empty()).then(|| masks.iter().position(|t| t.link == m.link)).flatten()
+}
+
+/// The other photo's counterpart of mask `m` among `masks`: the mask linked with it, else the same
+/// id with the same selection or name, else one with the same selection and name (a mask Auto Sync
+/// carried over earlier; Auto Sync then links it too).
 fn counterpart(m: &Mask, masks: &[Mask]) -> Option<usize> {
-    masks
-        .iter()
-        .position(|t| t.id == m.id && (t.same_selection(m) || t.name == m.name))
+    linked(m, masks)
+        .or_else(|| masks.iter().position(|t| t.id == m.id && (t.same_selection(m) || t.name == m.name)))
         .or_else(|| masks.iter().position(|t| t.same_selection(m) && t.name == m.name))
 }
 
 /// Where mask `m` (at `index` in a list of `count` masks on another photo) is among `masks`: the
-/// same synced mask (the same selection, i.e. source and recipe, with the same id or name, else
+/// mask linked with it, else the same synced mask (the same selection, i.e. source and recipe, with the same id or name, else
 /// alone), else its Auto Sync counterpart by id and name, else the same name, else the same place
 /// in a list as long. Entering Masks on another photo selects it, so the
 /// photographer keeps working on that mask from photo to photo (test notes 2026-10-25 note 8).
 pub fn same_mask(m: &Mask, index: usize, count: usize, masks: &[Mask]) -> Option<usize> {
-    masks
-        .iter()
-        .position(|t| t.id == m.id && t.same_selection(m))
+    linked(m, masks)
+        .or_else(|| masks.iter().position(|t| t.id == m.id && t.same_selection(m)))
         .or_else(|| masks.iter().position(|t| t.same_selection(m) && t.name == m.name))
         .or_else(|| masks.iter().position(|t| t.same_selection(m)))
         .or_else(|| counterpart(m, masks))
@@ -373,6 +379,9 @@ fn carry_fields<T: Serialize + serde::de::DeserializeOwned + Clone>(old: &T, new
 /// - a mask deleted deletes its counterpart;
 /// - the other photo's own masks stay.
 ///
+/// A mask's link goes with it: a mask added or changed here is linked with its counterpart there
+/// ([`Mask::link`]); counterparts are found by link first.
+///
 /// Returns the merged masks and whether any component now needs computing on that photo.
 pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (Vec<Mask>, bool) {
     let mut out = target.to_vec();
@@ -401,6 +410,10 @@ pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (
         };
         let Some(t) = out.get_mut(k) else { continue };
         let mut m = t.clone();
+        // carried by Auto Sync: one linked group from now on
+        if !n.link.is_empty() {
+            m.link = n.link.clone();
+        }
         if o.name != n.name {
             m.name = n.name.clone();
         }
@@ -450,6 +463,28 @@ pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (
         *t = m;
     }
     (out, compute)
+}
+
+/// An edit on one photo (`old` → `new`) carried to the copies linked with its masks among another
+/// photo's `target` masks (test notes 2026-10-28 #12): as Auto Sync carries it
+/// ([`sync_masks`]), the same absolute settings and the master's own components (a gradient goes to
+/// exactly where it is on the master), but only for masks linked there. Masks added or deleted on
+/// the master don't travel (a deleted copy leaves the others as they are). `None` when no linked
+/// mask of `target` changed.
+pub fn sync_linked(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> Option<(Vec<Mask>, bool)> {
+    let changed = |n: &Mask| !n.link.is_empty() && target.iter().any(|t| t.link == n.link) && old.iter().any(|o| o.id == n.id && o != n);
+    let new_l: Vec<Mask> = new.iter().filter(|n| changed(n)).cloned().collect();
+    if new_l.is_empty() {
+        return None;
+    }
+    let old_l: Vec<Mask> = old.iter().filter(|o| new_l.iter().any(|n| n.id == o.id)).cloned().collect();
+    let (out, compute) = sync_masks(&old_l, &new_l, target, aspect);
+    (out != target).then_some((out, compute))
+}
+
+/// The links of `masks` (not empty ones).
+pub fn links(masks: &[Mask]) -> impl Iterator<Item = &str> {
+    masks.iter().map(|m| m.link.as_str()).filter(|l| !l.is_empty())
 }
 
 #[cfg(test)]

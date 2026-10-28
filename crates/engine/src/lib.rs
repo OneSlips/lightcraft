@@ -403,6 +403,9 @@ pub struct Session {
     pub(crate) focus_scan: focus_scan::FocusScan,
     /// Copied develop settings (partial JSON) for Paste.
     pub clipboard: Option<Value>,
+    /// The photo [`Session::clipboard`] was copied from: Paste links its masks with the pasted
+    /// copies (test notes 2026-10-28 #12).
+    pub clipboard_from: Option<PhotoId>,
     /// The folder on disk the [`LibrarySource::Folder`] view browses.
     pub browse: Option<Browse>,
     /// The folder the [`LibrarySource::LibraryFolder`] view shows: the library's photos imported
@@ -666,6 +669,7 @@ impl Session {
             #[cfg(not(target_arch = "wasm32"))]
             focus_scan: Default::default(),
             clipboard: None,
+            clipboard_from: None,
             meta_clipboard: None,
             browse: None,
             library_folder: None,
@@ -1295,11 +1299,26 @@ impl Session {
         if let Some(before) = self.develop_of(id) {
             lightcraft_develop::presets::settle_provisional(&before, &mut settings);
         }
+        // masks Auto Sync carries to the other selected photos are linked with their copies there
+        let mut requested = requested;
+        let synced_to = self.auto_sync_targets(id, label);
+        if !synced_to.is_empty() {
+            let links = self.link_edited_masks(id, &mut requested);
+            for m in &mut settings.masks {
+                if let Some((_, l)) = links.iter().find(|(mid, _)| *mid == m.id) {
+                    m.link = l.clone();
+                }
+            }
+        }
         let settings = Arc::new(settings);
         let own = self.own_modes(id, &requested, label);
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
-        let (synced, compute) = self.auto_sync_ops(id, &requested, label, &own);
+        let (synced, mut compute) = self.auto_sync_ops(id, &requested, label, &own);
         ops.extend(synced);
+        // and an edit of a linked mask goes to its copies on the other photos (note 2026-10-28 #12)
+        let (linked, linked_compute) = self.linked_mask_ops(id, &requested, label, &synced_to);
+        ops.extend(linked);
+        compute.extend(linked_compute);
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
         self.commit(label, op)?;
         // AI masks Auto Sync carried over are computed on each photo from its own pixels
@@ -1372,6 +1391,73 @@ impl Session {
         std::iter::once(active).chain(self.selection.ids.iter().copied().filter(|x| *x != active)).collect()
     }
 
+    /// The other photos Auto Sync carries an edit of photo `id` to: with Auto Sync on and at least
+    /// two photos selected, the selected photos other than `id` when `id` is the active one (none for
+    /// History and snapshot restores).
+    pub fn auto_sync_targets(&self, id: PhotoId, label: &str) -> Vec<PhotoId> {
+        if !self.auto_sync
+            || self.active() != Some(id)
+            || self.selection.ids.len() < 2
+            || label.starts_with("History:")
+            || label.starts_with("Restore ")
+        {
+            return Vec::new();
+        }
+        self.selection.ids.iter().copied().filter(|x| *x != id).collect()
+    }
+
+    /// Give the masks of `new` that differ from photo `id`'s (added or edited) and aren't linked yet
+    /// a fresh link ([`lightcraft_develop::Mask::link`]); returns `(mask id, link)` of those.
+    fn link_edited_masks(&self, id: PhotoId, new: &mut DevelopSettings) -> Vec<(u32, String)> {
+        let Some(old) = self.develop_of(id) else { return Vec::new() };
+        let mut out = Vec::new();
+        for m in &mut new.masks {
+            if m.link.is_empty() && old.masks.iter().find(|o| o.id == m.id) != Some(&*m) {
+                m.link = new_mask_link(u64::from(m.id) ^ id.0);
+                out.push((m.id, m.link.clone()));
+            }
+        }
+        out
+    }
+
+    /// The ops that carry an edit of photo `id`'s linked masks (to `new`) to their copies on every
+    /// other photo of the library that has one, but `skip` (the photos Auto Sync already carried it
+    /// to): [`lightcraft_develop::recipe::sync_linked`]. Also returns the photos whose AI masks now
+    /// need computing. None for History and snapshot restores.
+    fn linked_mask_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str, skip: &[PhotoId]) -> (Vec<Op>, Vec<PhotoId>) {
+        if label.starts_with("History:") || label.starts_with("Restore ") {
+            return (Vec::new(), Vec::new());
+        }
+        let Some(old) = self.develop_of(id) else { return (Vec::new(), Vec::new()) };
+        if old.masks == new.masks || lightcraft_develop::recipe::links(&new.masks).next().is_none() {
+            return (Vec::new(), Vec::new());
+        }
+        let mut ops = Vec::new();
+        let mut compute = Vec::new();
+        let mut targets: Vec<&Arc<lightcraft_catalog::Photo>> = self
+            .catalog
+            .photos()
+            .filter(|p| p.id != id && !p.deleted && !skip.contains(&p.id))
+            .filter(|p| p.develop.masks.iter().any(|t| !t.link.is_empty() && new.masks.iter().any(|n| n.link == t.link)))
+            .collect();
+        targets.sort_by_key(|p| p.id);
+        for p in targets {
+            let Some((masks, needs)) = lightcraft_develop::recipe::sync_linked(&old.masks, &new.masks, &p.develop.masks, self.photo_aspect(p.id))
+            else {
+                continue;
+            };
+            let mut d = (*p.develop).clone();
+            d.masks = masks;
+            if needs {
+                compute.push(p.id);
+            }
+            if let Some(op) = self.develop_op(p.id, d, label) {
+                ops.push(op);
+            }
+        }
+        (ops, compute)
+    }
+
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`, as asked,
     /// before its crop is fitted) over to the other selected photos: only the settings that changed;
     /// never spot removal or red eye (they belong to one photo's pixels), nor the rendering process
@@ -1386,12 +1472,7 @@ impl Session {
     /// Auto / a light preset: its own), Upright analysed on each photo (`own`), a crop fitted to
     /// each photo's frame.
     fn auto_sync_ops(&self, id: PhotoId, new: &DevelopSettings, label: &str, own: &sync_same::OwnModes) -> (Vec<Op>, Vec<PhotoId>) {
-        if !self.auto_sync
-            || self.active() != Some(id)
-            || self.selection.ids.len() < 2
-            || label.starts_with("History:")
-            || label.starts_with("Restore ")
-        {
+        if self.auto_sync_targets(id, label).is_empty() {
             return (Vec::new(), Vec::new());
         }
         let Some(old) = self.develop_of(id) else { return (Vec::new(), Vec::new()) };
@@ -1555,7 +1636,9 @@ impl Session {
     fn end_multi_interaction(&mut self, i: Interaction) -> Result<()> {
         let mut all = vec![(i.photo, i.original.clone())];
         all.extend(i.others.iter().cloned());
+        let along: Vec<PhotoId> = all.iter().map(|(id, _)| *id).collect();
         let mut ops = Vec::new();
+        let mut main = None;
         for (id, original) in all {
             let Some(cur) = self.develop_of(id) else { continue };
             if *cur == *original {
@@ -1564,15 +1647,29 @@ impl Session {
             self.apply_silent(Op::SetDevelop { id, settings: original.clone(), label: i.label.clone(), edited: None })?;
             let mut settings = (*cur).clone();
             lightcraft_develop::presets::settle_provisional(&original, &mut settings);
+            if id == i.photo {
+                main = Some(settings.clone());
+            }
             if let Some(op) = self.develop_op(id, settings, &i.label) {
                 ops.push(op);
             }
         }
-        match ops.len() {
-            0 => Ok(()),
-            1 => self.commit(&i.label, ops.remove(0)),
-            _ => self.commit(&i.label, Op::Batch { ops }),
+        // the active photo's linked masks take their copies elsewhere along (note 2026-10-28 #12)
+        let mut compute = Vec::new();
+        if let Some(main) = main {
+            let (linked, c) = self.linked_mask_ops(i.photo, &main, &i.label, &along);
+            ops.extend(linked);
+            compute = c;
         }
+        match ops.len() {
+            0 => return Ok(()),
+            1 => self.commit(&i.label, ops.remove(0))?,
+            _ => self.commit(&i.label, Op::Batch { ops })?,
+        }
+        if !compute.is_empty() {
+            let _ = self.compute_masks(&compute, false);
+        }
+        Ok(())
     }
 
     /// The photos a running interaction edits along with the active one.
@@ -1931,6 +2028,12 @@ impl Session {
 /// Automatic versions kept per photo.
 pub const AUTO_VERSIONS: usize = 20;
 
+/// A new mask link ([`lightcraft_develop::Mask::link`]): 16 hex digits from the time, the process,
+/// a counter and `salt`.
+pub fn new_mask_link(salt: u64) -> String {
+    genfill::new_id(salt)
+}
+
 /// The parts of `new` that differ from `old` (objects recurse; anything else is taken whole).
 pub fn json_delta(old: &Value, new: &Value) -> Option<Value> {
     match (old, new) {
@@ -2032,6 +2135,8 @@ mod tests_lightroom_folder;
 mod tests_mask_effects;
 #[cfg(test)]
 mod tests_mask_geometry;
+#[cfg(test)]
+mod tests_mask_links;
 #[cfg(test)]
 mod tests_mask_local;
 #[cfg(test)]

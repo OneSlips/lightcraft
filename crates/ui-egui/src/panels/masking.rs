@@ -332,6 +332,13 @@ pub(crate) fn mask_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: u32, nam
     let d = photo.and_then(|p| app.session.develop_of(p));
     let ai = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| m.uses_ai());
     let any_ai = d.as_ref().is_some_and(|d| d.masks.iter().any(|m| m.uses_ai()));
+    // a mask applied to several photos in one go is linked with its copies there (test notes
+    // 2026-10-28 #12): this takes it out of that group
+    let linked = d.as_ref().and_then(|d| d.masks.iter().find(|m| m.id == id)).is_some_and(|m| !m.link.is_empty());
+    if ui.add_enabled(linked, egui::Button::new(menu_label("Unlink from Other Photos"))).clicked() {
+        let _ = app.run("mask.unlink", json!({"id": id}));
+        ui.close();
+    }
     if ui.add_enabled(ai, egui::Button::new(menu_label("Update AI Mask"))).clicked() {
         if let Err(e) = app.run("mask.recompute", json!({"id": id})) {
             app.ai_error(ui.ctx(), e, None);

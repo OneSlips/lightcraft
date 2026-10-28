@@ -1044,6 +1044,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut clip = s.dialogs.copy.extract(&d);
                 lightcraft_develop::presets::to_recipes(&mut clip);
                 s.clipboard = Some(clip);
+                s.clipboard_from = Some(id);
                 Ok(json!({"groups": s.dialogs.copy.groups, "settings": s.dialogs.copy.settings}))
             }
         ),
@@ -1062,12 +1063,14 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut partial = pick.extract(&s.develop_of(prev).unwrap_or_default());
                 lightcraft_develop::presets::to_recipes(&mut partial);
                 let ids: Vec<PhotoId> = s.targets(p)?.into_iter().filter(|id| *id != prev).collect();
+                let link_source = link_copied_masks(s, &mut partial, Some(prev), &ids, "Paste from Previous");
                 let ops = ids
                     .iter()
                     .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
                     .filter_map(|(id, d)| s.develop_op(id, lightcraft_develop::apply_partial(&d, &partial, 1.0), "Paste from Previous"))
                     .collect::<Vec<_>>();
                 let n = ops.len();
+                let ops = ops.into_iter().chain(link_source).collect();
                 s.commit("Paste from Previous", Op::Batch { ops })?;
                 let masks = if partial.get("masks").is_some() { s.compute_masks(&ids, false) } else { Value::Null };
                 Ok(json!({"changed": n, "from": prev.0, "masks": masks}))
@@ -1098,12 +1101,15 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 lightcraft_develop::presets::to_recipes(&mut clip);
                 let ids = s.targets(p)?;
+                let from = s.clipboard_from;
+                let link_source = link_copied_masks(s, &mut clip, from, &ids, "Paste Settings");
                 let ops = ids
                     .iter()
                     .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
                     .filter_map(|(id, d)| s.develop_op(id, lightcraft_develop::apply_partial(&d, &clip, 1.0), "Paste Settings"))
                     .collect::<Vec<_>>();
                 let n = ops.len();
+                let ops = ops.into_iter().chain(link_source).collect();
                 s.commit("Paste Settings", Op::Batch { ops })?;
                 let masks = if clip.get("masks").is_some() { s.compute_masks(&ids, false) } else { Value::Null };
                 Ok(json!({"changed": n, "masks": masks}))
@@ -1129,12 +1135,14 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut partial = s.dialogs.sync.extract(&d);
                 lightcraft_develop::presets::to_recipes(&mut partial);
                 let targets: Vec<PhotoId> = s.selection.ids.iter().copied().filter(|x| *x != id).collect();
+                let link_source = link_copied_masks(s, &mut partial, Some(id), &targets, "Sync Settings");
                 let ops = targets
                     .iter()
                     .filter_map(|x| s.develop_of(*x).map(|d| (*x, d)))
                     .filter_map(|(x, dd)| s.develop_op(x, lightcraft_develop::apply_partial(&dd, &partial, 1.0), "Sync Settings"))
                     .collect::<Vec<_>>();
                 let n = ops.len();
+                let ops = ops.into_iter().chain(link_source).collect();
                 s.commit("Sync Settings", Op::Batch { ops })?;
                 let masks = if partial.get("masks").is_some() { s.compute_masks(&targets, false) } else { Value::Null };
                 Ok(json!({"changed": n, "masks": masks}))
@@ -1282,10 +1290,24 @@ pub fn specs() -> Vec<CommandSpec> {
                     s.targets(&json!({"ids": p.get("ids")}))?
                 };
                 let label = format!("Preset: {}", preset.name);
+                // its masks applied to several photos in one go are linked: one link per mask of the preset
+                let links: Vec<String> = if ids.len() > 1 {
+                    let n = preset.settings.get("masks").and_then(Value::as_array).map_or(0, Vec::len);
+                    (0..n).map(|k| crate::new_mask_link(k as u64)).collect()
+                } else {
+                    Vec::new()
+                };
                 let ops = ids
                     .iter()
                     .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                    .filter_map(|(id, d)| s.develop_op(id, preset.apply(&d, amount, s.photo_aspect(id)), &label))
+                    .filter_map(|(id, d)| {
+                        let mut out = preset.apply(&d, amount, s.photo_aspect(id));
+                        let own = |m: &&mut lightcraft_develop::Mask| m.preset.as_deref() == Some(preset.id.as_str());
+                        for (m, l) in out.masks.iter_mut().filter(own).zip(&links) {
+                            m.link = l.clone();
+                        }
+                        s.develop_op(id, out, &label)
+                    })
                     .collect::<Vec<_>>();
                 let n = ops.len();
                 s.commit(&label, Op::Batch { ops })?;
@@ -1634,4 +1656,38 @@ pub(crate) fn wb_sample(img: &lightcraft_raster::Rgb32f, x: f64, y: f64, size: f
         return WbSample::TooDark;
     }
     WbSample::Neutral(mean)
+}
+
+/// Link the masks Paste, Sync Settings or Paste from Previous copy from photo `source` onto
+/// `targets` in one go (test notes 2026-10-28 #12): each mask of `partial` gets the link its
+/// original on `source` has, else a fresh one, written on `source` too (the returned op, part of
+/// the same undo step). Nothing is linked when the copies land on fewer than two photos in all.
+fn link_copied_masks(s: &Session, partial: &mut Value, source: Option<PhotoId>, targets: &[PhotoId], label: &str) -> Option<Op> {
+    let others = targets.iter().filter(|t| Some(**t) != source).count();
+    if others + usize::from(source.is_some_and(|id| s.catalog.photo(id).is_some())) < 2 {
+        return None;
+    }
+    let masks = partial.get_mut("masks").and_then(Value::as_array_mut)?;
+    let mut src = source.and_then(|id| s.develop_of(id)).map(|d| (*d).clone());
+    let mut src_changed = false;
+    for m in masks.iter_mut() {
+        let Some(o) = m.as_object_mut() else { continue };
+        if o.get("link").and_then(Value::as_str).is_some_and(|l| !l.is_empty()) {
+            continue;
+        }
+        let mid = o.get("id").and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+        let original = src.as_mut().and_then(|d| mid.and_then(|mid| d.masks.iter_mut().find(|x| x.id == mid)));
+        let link = match original {
+            Some(orig) if !orig.link.is_empty() => orig.link.clone(),
+            Some(orig) => {
+                orig.link = crate::new_mask_link(u64::from(orig.id));
+                src_changed = true;
+                orig.link.clone()
+            }
+            None => crate::new_mask_link(mid.map_or(0, u64::from)),
+        };
+        o.insert("link".into(), Value::String(link));
+    }
+    let (Some(id), Some(d), true) = (source, src, src_changed) else { return None };
+    s.develop_op(id, d, label)
 }
