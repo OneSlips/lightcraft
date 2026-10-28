@@ -22,9 +22,14 @@ pub enum Gesture {
         /// Pen pressure (0..1) at each point; empty when no pen pressure was reported (a mouse) or the
         /// brush's Pen Pressure switch is off.
         pressure: Vec<f32>,
+        /// Whether each point was painted erasing (Erase picked, or ⌥ / Alt held to switch modes): the
+        /// stroke goes to the photo as runs of one mode each (note 19, [`brush_runs`]).
+        erase: Vec<bool>,
         /// Auto Mask's live stroke: when (app time) the stroke last went to the photo and how many
         /// points it had then; `None` until it first does (its undo step is open meanwhile).
         live: Option<(f64, usize)>,
+        /// How many strokes (runs) the live stroke sent last time: the next update replaces them.
+        sent: usize,
     },
     Spot {
         points: Vec<Point>,
@@ -3900,16 +3905,26 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             app.gesture = None;
             let _ = app.run("develop.endInteraction", json!({}));
         }
-        let r = (app.ui.brush_size as f64 * long) as f32;
+        // ⌥ / Alt switches between painting and erasing, read every frame (note 19); the panel and
+        // the [ / ] keys follow it to the eraser's own settings (note 23)
+        app.ui.brush_alt = ui.input(|i| i.modifiers.alt);
+        let erasing = app.ui.brush_erasing();
+        // Lightroom's brush (notes 18/22): Size is the solid core, Feather adds a halo outside it,
+        // and Size is a size on the screen, the same at every zoom (note 27)
+        let set = app.ui.brush_set(erasing);
+        let r0 = crate::state::brush_core_points(set.size);
+        let r = r0 * lightcraft_develop::brush_model::outer_ratio(set.feather as f64) as f32;
         // the stroke goes into the selected mask (or a new one): in its coordinates
         let map = &map.for_mask_id(d, active);
         if let Some(h) = resp.hover_pos() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::None);
-            p.circle_stroke(h, r, Stroke::new(1.0, Color32::WHITE));
-            p.circle_stroke(h, r * (1.0 - app.ui.brush_feather / 100.0).max(0.05), Stroke::new(1.0, Color32::from_white_alpha(120)));
+            // as Lightroom draws it: a bold circle round the core, a thin one where the halo ends
+            p.circle_stroke(h, r0, Stroke::new(2.0, Color32::WHITE));
+            if r > r0 + 0.5 {
+                p.circle_stroke(h, r, Stroke::new(1.0, Color32::from_white_alpha(150)));
+            }
             // the centre, where Auto Mask samples the colour and texture to follow: a minus while a
             // stroke would erase (Erase on, or ⌥ / Alt held to switch modes), as the stroke will
-            let erasing = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
             if erasing {
                 brush_minus(p, h);
             } else {
@@ -3923,16 +3938,18 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let n = map.norm(q);
             let force = if app.ui.brush_pressure { ui.input(pen_force) } else { None };
             match &mut app.gesture {
-                // a held, unmoving pointer records nothing: coverage builds by passes, not time (#518)
+                // a held, unmoving pointer records nothing: coverage builds by passes, not time (#518);
+                // ⌥ / Alt changing there takes effect from the next point painted (note 19)
                 Some(Gesture::Brush { points, .. }) if points.last() == Some(&n) => {}
-                Some(Gesture::Brush { points, pressure, .. }) => {
+                Some(Gesture::Brush { points, pressure, erase, .. }) => {
                     record_pressure(pressure, points.len(), force);
                     points.push(n);
+                    erase.push(erasing);
                 }
                 _ => {
                     let mut pressure = Vec::new();
                     record_pressure(&mut pressure, 0, force);
-                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure, live: None });
+                    app.gesture = Some(Gesture::Brush { points: vec![n], pressure, erase: vec![erasing], live: None, sent: 0 });
                 }
             }
         }
@@ -3951,38 +3968,48 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         let live_stroke = app.ui.brush_auto_mask || !red;
         let now = ui.input(|i| i.time);
         if live_stroke
-            && let Some(Gesture::Brush { points, pressure, live }) = &app.gesture
+            && let Some(Gesture::Brush { points, pressure, erase, live, sent }) = &app.gesture
             && live_due(*live, points.len(), now)
         {
-            let (pts, pressure, first) = (points.iter().map(|q| [q.x, q.y]).collect::<Vec<_>>(), pressure.clone(), live.is_none());
+            let (first, prev) = (live.is_none(), *sent);
+            let (len, runs) = (points.len(), brush_runs_params(app, points, pressure, erase, long));
+            let n = runs.len();
             if first {
                 let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
             }
-            let erase = app.ui.brush_erase != ui.input(|i| i.modifiers.alt);
-            let mut params = json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                   "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": !first});
+            // the gesture so far, as runs of one mode each; it replaces what it sent last time
+            let mut params = json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "continue": !first, "replace": prev});
             stroke_into(&mut params, target);
             let _ = app.run("mask.brushStroke", params);
-            if let Some(Gesture::Brush { live, .. }) = &mut app.gesture {
-                *live = Some((now, pts.len()));
+            if let Some(Gesture::Brush { live, sent, .. }) = &mut app.gesture {
+                *live = Some((now, len));
+                *sent = n;
             }
             ui.ctx().request_repaint_after(std::time::Duration::from_secs_f64(LIVE_AUTO_MASK_EVERY));
         }
         // the stroke being painted (the render shows it once it's committed), with the committed
         // stroke's dab spacing, feather and flow (issue #517); with Auto Mask live the render shows
         // the real, edge-aware stroke instead
-        if let Some(Gesture::Brush { points, pressure, live: None }) = &app.gesture
+        if let Some(Gesture::Brush { points, pressure, erase, live: None, .. }) = &app.gesture
             && !live_stroke
         {
             let screen: Vec<Pos2> = points.iter().map(|q| map.screen(*q)).collect();
+            // (shown with the settings the stroke started with)
+            let set = app.ui.brush_set(erase.first().copied().unwrap_or(erasing));
+            let r0 = crate::state::brush_core_points(set.size);
+            let r = r0 * lightcraft_develop::brush_model::outer_ratio(set.feather as f64) as f32;
             let opacity = if app.ui.mask_overlay && app.ui.mask_overlay_opacity > 0.0 { app.ui.mask_overlay_opacity / 100.0 } else { 110.0 / 255.0 };
             let params = crate::brush_live::LiveParams {
                 clip,
                 scale: ui.ctx().pixels_per_point(),
                 r,
-                hard: r * (1.0 - (app.ui.brush_feather / 100.0).clamp(0.0, 1.0)),
-                flow: (app.ui.brush_flow / 100.0).clamp(0.0, 1.0),
-                density: 1.0,
+                hard: 0.0,
+                lrc: Some({
+                    let (a, pw) = lightcraft_develop::brush_model::profile(set.feather as f64);
+                    (a as f32 * r0, pw as f32)
+                }),
+                flow: (set.flow / 100.0).clamp(0.0, 1.0),
+                density: (set.density / 100.0).clamp(0.0, 1.0),
                 color: app.ui.mask_overlay_color,
                 opacity: opacity.clamp(0.0, 1.0),
             };
@@ -3991,17 +4018,17 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             app.brush_live = None;
         }
         if (resp.drag_stopped() || resp.clicked())
-            && let Some(Gesture::Brush { points, pressure, live }) = app.gesture.take()
+            && let Some(Gesture::Brush { points, pressure, erase, live, sent }) = app.gesture.take()
         {
             app.brush_live = None;
-            let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
-            // holding ⌥ (Alt) paints with the other mode: Erase while adding, Add while erasing
-            let (alt, shift) = resp.ctx.input(|i| (i.modifiers.alt, i.modifiers.shift));
-            let erase = app.ui.brush_erase != alt;
+            // each part keeps the mode ⌥ / Alt had while it was painted: letting go of the key before the button
+            // changes nothing (note 19), so the release adds no mode of its own
+            let runs = brush_runs_params(app, &points, &pressure, &erase, long);
+            let shift = resp.ctx.input(|i| i.modifiers.shift);
             // a ⇧-click draws a straight line from where the last stroke ended, as in Lightroom
-            let connect = shift && resp.clicked() && pts.len() == 1;
-            let mut params = json!({"points": pts, "size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow,
-                   "erase": erase, "autoMask": app.ui.brush_auto_mask, "pressure": pressure, "continue": live.is_some(), "connect": connect});
+            let connect = shift && resp.clicked() && points.len() == 1;
+            let mut params =
+                json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "continue": live.is_some(), "replace": sent, "connect": connect});
             stroke_into(&mut params, target);
             let _ = app.run("mask.brushStroke", params);
             if live.is_some() {
@@ -4117,6 +4144,74 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
 }
 
 /// The Brush component a stroke goes into (mask, component), when the brush is armed on one.
+/// One run of a brush gesture: consecutive points painted in one mode (note 19).
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BrushRun {
+    pub points: Vec<Point>,
+    /// Pen pressure per point; empty without pressure data.
+    pub pressure: Vec<f32>,
+    pub erase: bool,
+}
+
+/// A brush gesture's points (with their pen pressure and whether each was painted erasing) cut into runs of
+/// one mode each (note 19): each change of mode ends a run, and the next one starts from the last point of the
+/// one before, so the stroke has no gap. A point without a recorded mode takes the one before it.
+pub(crate) fn brush_runs(points: &[Point], pressure: &[f32], erase: &[bool]) -> Vec<BrushRun> {
+    let mode = |i: usize| erase.get(i).or(erase.last()).copied().unwrap_or(false);
+    let press = |i: usize| pressure.get(i).or(pressure.last()).copied().unwrap_or(1.0);
+    let mut runs: Vec<BrushRun> = Vec::new();
+    for (i, q) in points.iter().enumerate() {
+        let m = mode(i);
+        match runs.last_mut() {
+            Some(run) if run.erase == m => {
+                run.points.push(*q);
+                if !pressure.is_empty() {
+                    run.pressure.push(press(i));
+                }
+            }
+            last => {
+                // the new run picks up where the last one ended
+                let from = last.and_then(|r| r.points.last().copied().zip(Some(r.pressure.last().copied().unwrap_or(1.0))));
+                let mut run = BrushRun { points: Vec::new(), pressure: Vec::new(), erase: m };
+                if let Some((p, pr)) = from {
+                    run.points.push(p);
+                    if !pressure.is_empty() {
+                        run.pressure.push(pr);
+                    }
+                }
+                run.points.push(*q);
+                if !pressure.is_empty() {
+                    run.pressure.push(press(i));
+                }
+                runs.push(run);
+            }
+        }
+    }
+    runs
+}
+
+/// The runs of a brush gesture ([`brush_runs`]) as `mask.brushStroke`'s `runs`: each with the settings of its
+/// mode (note 23: the eraser keeps its own), its Size turned from screen points into the photo's units at the
+/// zoom it was painted at (note 27: radius / the photo's on-screen long side `long`).
+fn brush_runs_params(app: &LightcraftApp, points: &[Point], pressure: &[f32], erase: &[bool], long: f64) -> Vec<serde_json::Value> {
+    brush_runs(points, pressure, erase)
+        .into_iter()
+        .map(|run| {
+            let s = app.ui.brush_set(run.erase);
+            let size = f64::from(crate::state::brush_core_points(s.size)) / long.max(1.0);
+            json!({
+                "points": run.points.iter().map(|q| [q.x, q.y]).collect::<Vec<_>>(),
+                "pressure": run.pressure,
+                "erase": run.erase,
+                "size": size,
+                "feather": s.feather,
+                "flow": s.flow,
+                "density": s.density,
+            })
+        })
+        .collect()
+}
+
 fn stroke_into(params: &mut serde_json::Value, target: Option<(u32, usize)>) {
     if let (Some((mid, k)), Some(o)) = (target, params.as_object_mut()) {
         o.insert("id".into(), json!(mid));

@@ -434,9 +434,12 @@ fn adjust_brush(app: &mut LightcraftApp, k: f32, df: f32) -> Value {
         }
         json!({"size": app.ui.remove_size, "feather": app.ui.remove_feather})
     } else {
-        app.ui.brush_size = (app.ui.brush_size * k).clamp(0.002, 0.5);
-        app.ui.brush_feather = (app.ui.brush_feather + df).clamp(0.0, 100.0);
-        json!({"size": app.ui.brush_size, "feather": app.ui.brush_feather})
+        // the set in use: the eraser's while erasing (note 23); Size is a screen size (note 27)
+        let erase = app.ui.brush_erasing();
+        let s = app.ui.brush_set(erase);
+        app.ui.set_brush_set(erase, crate::state::BrushSet { size: s.size * k, feather: s.feather + df, ..s });
+        let s = app.ui.brush_set(erase);
+        json!({"size": s.size, "feather": s.feather, "erase": erase})
     }
 }
 

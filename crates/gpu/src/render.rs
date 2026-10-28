@@ -1379,12 +1379,13 @@ const MAX_DABS: usize = 65_536;
 /// `f32`, exact below 2²⁴.
 const MAX_BRUSH_WORDS: usize = 8 << 20;
 /// Words per stroke record in [`brush_aux`].
-const STROKE_WORDS: usize = 16;
+const STROKE_WORDS: usize = 20;
 
 /// The `shape` kernel's brush data for `dabs` in a `w × h` output, or `None` when it would be too
 /// big (the CPU rasterizes the brush then): stroke records ([`STROKE_WORDS`] words: dab offset, dab
 /// count, r, hard, flow, density, erase, bbox x0 y0 x1 y1, auto, tile table offset, tiles across,
-/// tiles down, tile size), then each stroke's dab centres, tile table and tile lists.
+/// tiles down, tile size, Lightroom model (1/0), its dab profile's a and p, unused), then each
+/// stroke's dab centres, tile table and tile lists.
 ///
 /// Each stroke's dabs are binned into square tiles (about a quarter radius across): a pixel looks
 /// only at the dabs that reach its tile, in stroke order, instead of every dab of the stroke. A
@@ -1442,6 +1443,8 @@ fn brush_aux(dabs: &[&lightcraft_pipeline::masks::BrushDabs], erase: bool, w: us
         head.extend([x0, y0, x1, y1].map(|v| v as f32));
         head.push(d.auto as u8 as f32);
         head.extend([table as f32, tx as f32, ty as f32, ts as f32]);
+        let (a, p) = d.lrc.unwrap_or((0.0, 0.0));
+        head.extend([d.lrc.is_some() as u8 as f32, a as f32, p as f32, 0.0]);
     }
     head.extend(tail);
     Some(head)
@@ -1591,14 +1594,22 @@ fn mask_alpha(cx: &mut Cx<'_>, lin: &Buf, prep: &Prep, plan: &Plan<'_>, host: &m
                             q.push(1);
                             let aux = cx.gpu.upload(&aux);
                             cx.run("shape", &q, &[Some(lin), Some(&prep.log_l), Some(&aux), Some(&stroke), Some(&brush)], groups2(w, h, [16, 16]));
-                            let refined = d.auto.then(|| {
+                            // (a Lightroom-model stroke keeps its pixel-sharp cut, note 24)
+                            let refined = (d.auto && d.lrc.is_none()).then(|| {
                                 let (sigma, eps) = lightcraft_pipeline::masks::auto_refine(d.r);
                                 guided_cross(cx, &prep.log_l, &stroke, w, h, sigma, eps, Combine::Max)
                             });
-                            let op = if d.erase { 2 } else { 1 };
+                            // a Lightroom-model stroke adds up with the ones before it (`masks::combine_stroke`)
+                            let op = if d.erase {
+                                2
+                            } else if d.lrc.is_some() {
+                                4
+                            } else {
+                                1
+                            };
                             cx.run(
                                 "combine",
-                                &[n as u32, 0, 0, op],
+                                &[n as u32, d.density.to_bits(), 0, op],
                                 &[None, None, None, Some(refined.as_ref().unwrap_or(&stroke)), Some(&brush)],
                                 groups1(n),
                             );

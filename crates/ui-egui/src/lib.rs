@@ -83,6 +83,8 @@ mod tests_before_after;
 #[cfg(test)]
 mod tests_browse_active;
 #[cfg(test)]
+mod tests_brush_notes;
+#[cfg(test)]
 mod tests_button;
 #[cfg(test)]
 mod tests_canvas_keys;

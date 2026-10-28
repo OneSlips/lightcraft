@@ -1,6 +1,8 @@
 //! Masking and Remove (spot) commands on the active photo.
 
-use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode};
+use lightcraft_develop::{
+    BRUSH_MODEL_LEGACY, BRUSH_MODEL_LRC, BrushStroke, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, RedEye, Spot, SpotMode,
+};
 use lightcraft_geom::Point;
 use serde_json::{Value, json};
 
@@ -607,29 +609,19 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: fraction of long edge (0.03), feather?, flow?, density?, erase?: bool, autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, so the stroke shows live), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: the solid core's radius, fraction of long edge (0.03), feather?: 0..100, the soft halo outside the core, flow?, density?, erase?: bool, model?: 1 Lightroom's brush (default) | 0 the brush of strokes saved before it (size = the whole dab, feather inward), autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, or its last `replace` strokes, so the stroke shows live), runs?: [{points, erase?, size?, feather?, flow?, density?, pressure?}, …] (one gesture in parts painted with different modes, e.g. ⌥ / Alt pressed and let go during it: each run is a stroke, the values left out taken from the top level; instead of `points`), replace?: n (with `continue`: how many strokes the gesture sent last time, 1), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
             has_active,
             |s, p| {
-                let pts: Vec<Point> = p
-                    .get("points")
-                    .and_then(Value::as_array)
-                    .ok_or_else(|| bad("mask.brushStroke", "missing points"))?
-                    .iter()
-                    .filter_map(|q| Some(Point::new(q.get(0)?.as_f64()?, q.get(1)?.as_f64()?)))
-                    .collect();
-                let pts_len = pts.len();
-                let d = BrushStroke::default();
-                let stroke = BrushStroke {
-                    points: pts,
-                    size: f64_or(p, "size", d.size),
-                    feather: f64_or(p, "feather", d.feather),
-                    flow: f64_or(p, "flow", d.flow),
-                    density: f64_or(p, "density", d.density),
-                    erase: bool_or(p, "erase", false),
-                    auto_mask: bool_or(p, "autoMask", false),
-                    pressure: pressure_list(p.get("pressure"), pts_len)?,
+                // one stroke, or one per run of a gesture painted in parts (note 19)
+                let mut new: Vec<BrushStroke> = match p.get("runs") {
+                    Some(Value::Array(runs)) if !runs.is_empty() => runs.iter().map(|r| brush_stroke_of(r, p)).collect::<Result<_>>()?,
+                    Some(Value::Array(_)) => return Err(bad("mask.brushStroke", "`runs` is empty")),
+                    Some(_) => return Err(bad("mask.brushStroke", "`runs` must be a list of strokes")),
+                    None => vec![brush_stroke_of(p, p)?],
                 };
-                let connect = bool_or(p, "connect", false);
+                let replace = p.get("replace").and_then(Value::as_u64).map_or(1, |n| usize::try_from(n).unwrap_or(usize::MAX)).max(1);
+                // a ⇧-click line goes on from one click, not a gesture in parts
+                let connect = bool_or(p, "connect", false) && new.len() == 1;
                 let mut connected = false;
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let want = optional_mask_id(p, "mask.brushStroke")?.or(s.active_mask);
@@ -677,13 +669,18 @@ pub fn specs() -> Vec<CommandSpec> {
                                 },
                             ))
                         });
-                        match (anchor, strokes.last_mut()) {
-                            (_, Some(last)) if again => *last = stroke,
-                            (Some((from, last)), _) => {
+                        match anchor {
+                            // the gesture so far, sent again: it replaces what it sent last time
+                            _ if again && !strokes.is_empty() => {
+                                strokes.truncate(strokes.len().saturating_sub(replace));
+                                strokes.append(&mut new);
+                            }
+                            Some((from, last)) if new.len() == 1 => {
+                                let stroke = new.remove(0);
                                 strokes.extend(connected_strokes(from, &last, stroke));
                                 connected = true;
                             }
-                            _ => strokes.push(stroke),
+                            _ => strokes.append(&mut new),
                         }
                     } else {
                         m.components.push(MaskComponent {
@@ -691,7 +688,7 @@ pub fn specs() -> Vec<CommandSpec> {
                             name: None,
                             op: MaskOp::Add,
                             invert: false,
-                            shape: MaskShape::Brush { strokes: vec![stroke] },
+                            shape: MaskShape::Brush { strokes: std::mem::take(&mut new) },
                         });
                     }
                     Ok(())
@@ -1688,6 +1685,35 @@ pub(crate) fn clamp_local(mut a: LocalAdjustments) -> LocalAdjustments {
     c(&mut a.color_sat, 0.0, 100.0);
     c(&mut a.amount, 0.0, 200.0);
     a
+}
+
+/// One stroke of `mask.brushStroke` from `r` (the command's parameters, or one of its `runs`), the values `r`
+/// leaves out taken from `top` (the command's parameters) or the defaults. New strokes paint with Lightroom's
+/// brush (notes 18/22) unless `model: 0` asks for the legacy one.
+fn brush_stroke_of(r: &Value, top: &Value) -> Result<BrushStroke> {
+    let pts: Vec<Point> = r
+        .get("points")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad("mask.brushStroke", "missing points"))?
+        .iter()
+        .filter_map(|q| Some(Point::new(q.get(0)?.as_f64()?, q.get(1)?.as_f64()?)))
+        .collect();
+    let d = BrushStroke::default();
+    let num = |k: &str, dflt: f64| r.get(k).and_then(Value::as_f64).filter(|v| v.is_finite()).unwrap_or_else(|| f64_or(top, k, dflt));
+    let flag = |k: &str| r.get(k).and_then(Value::as_bool).unwrap_or_else(|| bool_or(top, k, false));
+    let pressure = pressure_list(r.get("pressure"), pts.len())?;
+    let model = r.get("model").or_else(|| top.get("model")).and_then(Value::as_u64);
+    Ok(BrushStroke {
+        size: num("size", d.size),
+        feather: num("feather", d.feather),
+        flow: num("flow", d.flow),
+        density: num("density", d.density),
+        erase: flag("erase"),
+        auto_mask: flag("autoMask"),
+        pressure,
+        model: if model == Some(0) { BRUSH_MODEL_LEGACY } else { BRUSH_MODEL_LRC },
+        points: pts,
+    })
 }
 
 /// `mask.brushStroke`'s `pressure`: one number 0..1 per point (clamped), at most one per point; absent or `null`

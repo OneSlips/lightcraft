@@ -77,15 +77,21 @@ pub fn apply(app: &mut LightcraftApp, ctx: &egui::Context, name: &str, params: V
 fn take_brush(app: &mut LightcraftApp, b: &Value) {
     let Some(b) = b.as_object() else { return };
     let f = |k: &str| b.get(k).and_then(Value::as_f64).filter(|v| v.is_finite());
-    if let Some(v) = f("size") {
-        app.ui.brush_size = (v as f32).clamp(0.002, 0.5);
+    let mut s = app.ui.brush_set(false);
+    // (a size saved as a fraction of the photo, before Size was a screen size, is left as it is)
+    if let Some(v) = f("size").filter(|v| *v >= f64::from(crate::state::BRUSH_SIZE_MIN)) {
+        s.size = v as f32;
     }
     if let Some(v) = f("feather") {
-        app.ui.brush_feather = (v as f32).clamp(0.0, 100.0);
+        s.feather = v as f32;
     }
     if let Some(v) = f("flow") {
-        app.ui.brush_flow = (v as f32).clamp(1.0, 100.0);
+        s.flow = v as f32;
     }
+    if let Some(v) = f("density") {
+        s.density = v as f32;
+    }
+    app.ui.set_brush_set(false, s);
     if let Some(v) = b.get("auto_mask").and_then(Value::as_bool) {
         app.ui.brush_auto_mask = v;
     }
@@ -93,7 +99,7 @@ fn take_brush(app: &mut LightcraftApp, b: &Value) {
 
 /// The brush settings in use, as an effect carries them.
 fn brush_now(app: &LightcraftApp) -> Value {
-    json!({"size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow, "auto_mask": app.ui.brush_auto_mask})
+    json!({"size": app.ui.brush_size, "feather": app.ui.brush_feather, "flow": app.ui.brush_flow, "density": app.ui.brush_density, "auto_mask": app.ui.brush_auto_mask})
 }
 
 /// Open the New Effect Preset dialog for the selected mask.

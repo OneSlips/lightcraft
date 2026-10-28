@@ -79,7 +79,11 @@ fn mask_coverage(h: &Headless, mask: usize, x: usize, y: usize) -> f32 {
 fn subtract_brush_removes_sky_coverage_and_add_restores_it() {
     let mut h = detail("panel.masking");
     exec(&mut h, "mask.add", json!({"kind": "sky"}));
-    let r = h.request("ui.set", json!({"brushSize": 0.15, "brushFeather": 0.0, "brushFlow": 100.0}), T);
+    let r = h.request(
+        "ui.set",
+        json!({"brushSize": size_for(&h, 0.15), "brushFeather": 0.0, "brushFlow": 100.0, "eraseSize": size_for(&h, 0.15), "eraseFeather": 0.0}),
+        T,
+    );
     assert_eq!(r["ok"], true, "{r}");
     click(&mut h, "button:maskSubComp");
     click(&mut h, "maskComp:subtract:brush");
@@ -121,7 +125,11 @@ fn new_brush_starts_a_separate_mask_in_paint_mode() {
     // armed: nothing is made until the photo is painted
     assert_eq!(develop(&h).masks.len(), 1);
     assert!(!h.app.ui.brush_erase);
-    let r = h.request("ui.set", json!({"brushSize": 0.15, "brushFeather": 0.0, "brushFlow": 100.0}), T);
+    let r = h.request(
+        "ui.set",
+        json!({"brushSize": size_for(&h, 0.15), "brushFeather": 0.0, "brushFlow": 100.0, "eraseSize": size_for(&h, 0.15), "eraseFeather": 0.0}),
+        T,
+    );
     assert_eq!(r["ok"], true, "{r}");
     brush_at(&mut h, 0.5, 0.5);
     assert_eq!(h.app.session.active_mask, Some(2));
@@ -433,7 +441,7 @@ fn all_masks_overlay_paints_the_outline_of_an_unselected_mask() {
 #[test]
 fn holding_the_brush_still_does_not_harden_the_spot() {
     let mut h = detail("panel.masking");
-    let r = h.request("ui.set", json!({"brushSize": 0.1, "brushFeather": 80.0, "brushFlow": 100.0}), T);
+    let r = h.request("ui.set", json!({"brushSize": size_for(&h, 0.1), "brushFeather": 80.0, "brushFlow": 100.0}), T);
     assert_eq!(r["ok"], true, "{r}");
     exec(&mut h, "tool.brush", json!({"new": true}));
     // a quick press at the left, a long stationary hold (120 frames, ~2 s) at the right
@@ -1845,7 +1853,7 @@ fn a_fast_brush_stroke_shows_without_gaps_before_the_button_is_released() {
     let mut h = detail("panel.masking");
     h.settle(SETTLE);
     exec(&mut h, "tool.brush", json!({"new": true}));
-    let r = h.request("ui.set", json!({"brushSize": 0.03, "brushFeather": 50.0, "brushFlow": 100.0}), T);
+    let r = h.request("ui.set", json!({"brushSize": size_for(&h, 0.03), "brushFeather": 50.0, "brushFlow": 100.0}), T);
     assert_eq!(r["ok"], true, "{r}");
     // the photo before painting, and where a normalized image point is on screen
     pointer(&mut h, json!([{"kind": "move", "x": 0.02, "y": 0.02}]));
@@ -1869,10 +1877,10 @@ fn a_fast_brush_stroke_shows_without_gaps_before_the_button_is_released() {
     let held = h.paint();
     let [r0, g0, b0] = h.app.ui.mask_overlay_color.map(|v| v as f32);
     let op = h.app.ui.mask_overlay_opacity / 100.0;
-    // along the centreline between the samples (away from the cursor ring at the last one), the
-    // overlay colour at full coverage over the photo
+    // along the centreline between the samples (away from the cursor's rings at the last one: the
+    // halo's reaches 1.7 × Size out at Feather 50), the overlay colour at full coverage over the photo
     let mut gaps = vec![];
-    for i in 1..=74 {
+    for i in 1..=70 {
         let x = a.0 + (c.0 - a.0) * i as f32 / 80.0;
         let p = px(&photo, x, a.1);
         let want = [p[0] + (r0 - p[0]) * op, p[1] + (g0 - p[1]) * op, p[2] + (b0 - p[2]) * op];
@@ -1881,7 +1889,7 @@ fn a_fast_brush_stroke_shows_without_gaps_before_the_button_is_released() {
             gaps.push((x, got, want));
         }
     }
-    assert!(gaps.is_empty(), "the live stroke has gaps: {} of 74 points, first {:?}", gaps.len(), gaps.first());
+    assert!(gaps.is_empty(), "the live stroke has gaps: {} of 70 points, first {:?}", gaps.len(), gaps.first());
     pointer(&mut h, json!([{"kind": "up", "x": c.0, "y": c.1}]));
     let d = develop(&h);
     let MaskShape::Brush { strokes } = &d.masks[0].components[0].shape else { panic!("brush") };
@@ -2059,4 +2067,14 @@ fn the_overlay_menu_picks_a_tool_overlay_without_closing() {
     assert!(open(&h), "the menu stays open after the click");
     click(&mut h, "toolOverlay:always");
     assert_eq!(h.app.ui.tool_overlay, crate::state::ToolOverlay::Always);
+}
+
+/// The brush Size (Lightroom's slider, a size on the screen: note 27) whose solid core is `f` of the photo's
+/// on-screen long side, as the size these tests were written with.
+fn size_for(h: &Headless, f: f64) -> f64 {
+    let r = h.app.image_rect.expect("a photo on screen");
+    let c = f * f64::from(r.width().max(r.height())) / 1000.0;
+    // 1000 × (0.002322 s + 0.0000218 s²) = the core in points
+    let (a, b) = (0.0000218, 0.002322);
+    ((b * b + 4.0 * a * c).sqrt() - b) / (2.0 * a)
 }

@@ -211,7 +211,7 @@ clamped into range on reading.
 - **Targets**: develop control ids (`develop.controls` lists them; indexed ones such as `pointColor.0.hueShift` too);
   `mask.<field>` for the selected mask (`exposure`, `contrast`, `highlights`, `shadows`, `whites`, `blacks`, `temp`,
   `tint`, `texture`, `clarity`, `dehaze`, `hue`, `saturation`, `sharpness`, `noise`, `moire`, `defringe`, `amount`);
-  `ui.brushSize`, `ui.brushFeather`, `ui.brushFlow`, `ui.removeSize`, `ui.removeFeather`, `ui.removeOpacity`,
+  `ui.brushSize` (Lightroom's 1–100, a size on the screen), `ui.brushFeather`, `ui.brushFlow` (the eraser's own while erasing), `ui.removeSize`, `ui.removeFeather`, `ui.removeOpacity`,
   `ui.zoom` (tool and view values, no undo step).
 - **Pages**: `groups` empty = keys and dials; `auto: true` = a tool page, shown only by its context (paging by hand
   skips it).
