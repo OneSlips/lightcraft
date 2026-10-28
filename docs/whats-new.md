@@ -3,6 +3,11 @@
 ## 2026-10-29
 
 ### Mask tools
+- **Masks applied to several photos stay linked**: a mask applied with Auto Sync, a preset on a selection, Paste,
+  Sync Settings or Paste from Previous is one linked group. Editing it on any of those photos changes it on all of
+  them, with Auto Sync on or off: the same slider values, and a moved gradient goes to exactly the same place on
+  every photo. Right-click a mask and choose **Unlink from Other Photos** to edit one copy on its own; deleting a
+  copy deletes only that one.
 - **A new mask gets exactly what the sliders show**, as in Lightroom Classic: the settings you dial in while no
   mask exists yet (nothing selected, or a tool picked and not yet used) go to the next mask, whatever its tool,
   and stay for the masks after it. Editing a mask, or applying an effect to it, changes only that mask.
