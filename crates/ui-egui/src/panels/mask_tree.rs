@@ -140,10 +140,15 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         }
         let resp = if elided { resp.on_hover_text(&shown) } else { resp };
         if resp.clicked() {
-            // the mask as a whole: any tool is put away (note 9: one mode at a time)
+            // the mask row: any new-mask tool is put away (note 9) and the mask's top component is
+            // the one edited (decision, test notes 2026-10-28 #28): a Brush arms the brush on it
+            // (paint adds strokes, ⌥ erases), a gradient shows its handles
             super::masking::disarm(app);
             app.ui.mask_before_arm = None;
-            let _ = app.run("mask.select", json!({"id": m.id}));
+            let top = if m.components.is_empty() { None } else { app.run("mask.editComponent", json!({"id": m.id, "component": 0})).ok() };
+            if top.is_none() {
+                let _ = app.run("mask.select", json!({"id": m.id}));
+            }
         }
         if resp.double_clicked() {
             app.ui.renaming_mask = Some((m.id, m.name.clone()));

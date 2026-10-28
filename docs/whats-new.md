@@ -9,6 +9,9 @@
 - **The selected mask stays selected** when you Shift-click a range or Ctrl-click photos in the filmstrip, and when
   you move to a photo that has the same mask (applied with Auto Sync, a preset, Paste or Sync), that photo's copy
   is selected, with the same component. A photo without it shows no mask selected.
+- **Clicking a mask in the list makes its top component active**: a Brush mask arms the brush on it (paint adds
+  strokes, Alt erases), a gradient shows its handles. The small component rows still switch components, and
+  pins stay draggable while the brush is armed.
 
 ## 2026-10-24
 
