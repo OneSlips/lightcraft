@@ -229,6 +229,8 @@ impl DiskCache {
         drop(total);
         if over {
             self.prune();
+            // (a picture bigger than the room pruning leaves goes too: it was not kept)
+            return p.is_file();
         }
         true
     }

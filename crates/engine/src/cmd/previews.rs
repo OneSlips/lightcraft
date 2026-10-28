@@ -149,6 +149,43 @@ impl Building {
         b.push(id);
         Some(Building(id))
     }
+
+    /// [`Self::take`], waiting while another build renders the photo (a build asked for replacing the
+    /// background one may meet it on the same photo): the photo is not counted until that render is over, as
+    /// built when it made the previews, else rendered here. With whether it had to wait; `None` when `cancel`
+    /// was asked for meanwhile. (On the web, with one thread, a photo held is not waited for: `Some((None, true))`.)
+    fn wait(id: u64, jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
+        if let Some(b) = Self::take(id, jobs) {
+            return Some((Some(b), false));
+        }
+        Self::wait_held(id, jobs, cancel)
+    }
+
+    /// [`Self::wait`] for a photo another build holds.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_held(id: u64, jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            if let Some(b) = Self::take(id, jobs) {
+                return Some((Some(b), true));
+            }
+        }
+    }
+
+    /// [`Self::wait`] for a photo another build holds: on the web, with one thread, it is not waited for.
+    #[cfg(target_arch = "wasm32")]
+    fn wait_held(_id: u64, _jobs: &[RenderJob], cancel: &AtomicBool) -> Option<(Option<Building>, bool)> {
+        (!cancel.load(Ordering::Relaxed)).then_some((None, true))
+    }
+}
+
+/// Tests: hold `id` of `jobs` as a build rendering it would, until the returned value is dropped.
+#[cfg(test)]
+pub(crate) fn hold_building(id: u64, jobs: &[RenderJob]) -> Option<Box<dyn std::any::Any>> {
+    Building::take(id, jobs).map(|b| Box::new(b) as Box<dyn std::any::Any>)
 }
 
 impl Drop for Building {
@@ -362,7 +399,16 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
             }
             if !force && already_built(&photo_jobs) {
                 state.skipped.fetch_add(1, Ordering::Relaxed);
-            } else if let Some(_held) = Building::take(id, &photo_jobs) {
+            } else if let Some((held, shared)) = Building::wait(id, &photo_jobs, &state.cancel) {
+                // another build was rendering this photo: what it made counts, if it made it
+                if shared && (held.is_none() || already_built(&photo_jobs)) {
+                    state.shared.fetch_add(1, Ordering::Relaxed);
+                    let done = state.done.fetch_add(1, Ordering::Relaxed).saturating_add(1);
+                    if let Some(task) = task {
+                        task.progress(done as u64, total as u64);
+                    }
+                    continue;
+                }
                 #[cfg(test)]
                 if let Some(gate) = &state.gate {
                     gate.enter();
@@ -377,7 +423,8 @@ fn run_all(jobs: Vec<PhotoJobs>, state: &PreviewBuild, task: Option<&TaskGuard>,
                     state.failed.fetch_add(1, Ordering::Relaxed);
                 }
             } else {
-                state.shared.fetch_add(1, Ordering::Relaxed);
+                // cancelled while another build was rendering it: not counted
+                break;
             }
             let done = state.done.fetch_add(1, Ordering::Relaxed).saturating_add(1);
             if let Some(task) = task {
