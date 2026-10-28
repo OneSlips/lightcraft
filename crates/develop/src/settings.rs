@@ -1247,10 +1247,10 @@ pub struct Mask {
     pub on_photo: bool,
     /// The linked group it belongs to (test notes 2026-10-28 #12): the copies of one mask applied
     /// to several photos in one go (Auto Sync, a preset on a selection, Paste, Sync Settings, Paste
-    /// from Previous) share it, and an edit of one of them goes to the others
-    /// ([`crate::recipe::sync_linked`]). Empty: not linked (every mask from before links existed).
-    /// The link breaks for one copy when it is unlinked (`mask.unlink`); deleting a copy deletes
-    /// only that copy.
+    /// from Previous) share it. With Auto Sync on, an edit of one of them goes to its copies on the
+    /// other selected photos ([`crate::recipe::sync_masks`]); a copy on a photo that isn't selected,
+    /// or any edit with Auto Sync off, stays as it is. Empty: not linked (every mask from before
+    /// links existed). There is no unlink, and no sign of the link in the UI (the user's rule).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub link: String,
 }

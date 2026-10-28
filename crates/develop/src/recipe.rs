@@ -373,14 +373,17 @@ fn carry_fields<T: Serialize + serde::de::DeserializeOwned + Clone>(old: &T, new
 ///
 /// - a mask added is added (its AI parts as recipes, computed on that photo; an Object without
 ///   clicks, picked again there);
-/// - a mask changed changes its counterpart there: only the settings that changed, and only the
-///   components whose recipe changed are replaced (as recipes), so the other photo keeps its own
-///   computed selections; a change of computed parts only (an AI mask recomputed) carries nothing;
+/// - a mask changed changes its counterpart there: only the settings that changed (its name too),
+///   and its components as [`sync_components`] says: hand-made shapes exactly as on this photo, AI
+///   selections never (each photo keeps what was found in it; only their settings follow), a
+///   component added or removed added or removed there; a change of computed parts only (an AI
+///   mask recomputed) carries nothing;
 /// - a mask deleted deletes its counterpart;
 /// - the other photo's own masks stay.
 ///
 /// A mask's link goes with it: a mask added or changed here is linked with its counterpart there
-/// ([`Mask::link`]); counterparts are found by link first.
+/// ([`Mask::link`]); counterparts are found by link first. Only Auto Sync calls this, so a link
+/// acts only on the selected photos with Auto Sync on (test notes 2026-10-28 #12, corrected 29 Oct).
 ///
 /// Returns the merged masks and whether any component now needs computing on that photo.
 pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (Vec<Mask>, bool) {
@@ -441,50 +444,143 @@ pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (
         let keys_old: Vec<_> = o.components.iter().map(component_key).collect();
         let keys_new: Vec<_> = n.components.iter().map(component_key).collect();
         if keys_old != keys_new {
-            // each component the other photo already has (the same recipe) keeps its own
-            // computed selection; the rest come over as recipes
-            let mut own: Vec<Option<crate::MaskComponent>> = t.components.iter().cloned().map(Some).collect();
-            m.components = n
-                .components
-                .iter()
-                .zip(&keys_new)
-                .map(|(c, key)| {
-                    let reuse = own.iter_mut().find(|x| x.as_ref().is_some_and(|x| component_key(x) == *key)).and_then(Option::take);
-                    reuse.unwrap_or_else(|| {
-                        let mut one = Mask { components: vec![c.clone()], ..Mask::default() };
-                        one.for_other_photo(aspect);
-                        let c = one.components.into_iter().next().unwrap_or_else(|| c.clone());
-                        compute |= (c.shape.is_ai() && !c.shape.has_seg()) || c.anchor.as_ref().is_some_and(|a| a.bounds.is_none());
-                        c
-                    })
-                })
-                .collect();
+            m.components = sync_components(&o.components, &n.components, &t.components, aspect, &mut compute);
         }
         *t = m;
     }
     (out, compute)
 }
 
-/// An edit on one photo (`old` → `new`) carried to the copies linked with its masks among another
-/// photo's `target` masks (test notes 2026-10-28 #12): as Auto Sync carries it
-/// ([`sync_masks`]), the same absolute settings and the master's own components (a gradient goes to
-/// exactly where it is on the master), but only for masks linked there. Masks added or deleted on
-/// the master don't travel (a deleted copy leaves the others as they are). `None` when no linked
-/// mask of `target` changed.
-pub fn sync_linked(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> Option<(Vec<Mask>, bool)> {
-    let changed = |n: &Mask| !n.link.is_empty() && target.iter().any(|t| t.link == n.link) && old.iter().any(|o| o.id == n.id && o != n);
-    let new_l: Vec<Mask> = new.iter().filter(|n| changed(n)).cloned().collect();
-    if new_l.is_empty() {
-        return None;
+/// What a component selects, without the settings that don't change its shape (its op, inversion,
+/// name and an AI selection's Edge): two components with the same core cover the same pixels
+/// before those settings apply.
+fn component_core(c: &crate::MaskComponent) -> crate::MaskComponent {
+    let mut c = component_key(c);
+    c.op = crate::MaskOp::default();
+    c.invert = false;
+    c.name = None;
+    if let MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } = &mut c.shape {
+        *edge = 0.0;
     }
-    let old_l: Vec<Mask> = old.iter().filter(|o| new_l.iter().any(|n| n.id == o.id)).cloned().collect();
-    let (out, compute) = sync_masks(&old_l, &new_l, target, aspect);
-    (out != target).then_some((out, compute))
+    c
 }
 
-/// The links of `masks` (not empty ones).
-pub fn links(masks: &[Mask]) -> impl Iterator<Item = &str> {
-    masks.iter().map(|m| m.link.as_str()).filter(|l| !l.is_empty())
+/// An AI selection's Edge (`None` for the shapes without one).
+fn edge_of(s: &MaskShape) -> Option<f64> {
+    match s {
+        MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } => Some(*edge),
+        _ => None,
+    }
+}
+
+/// Which of `old`'s components each of `new`'s is (the same one, maybe edited), `None` for one
+/// added: one by one when as many (an edit in place), else by recipe, the rest in order.
+fn align_components(old: &[crate::MaskComponent], new: &[crate::MaskComponent]) -> Vec<Option<usize>> {
+    if old.len() == new.len() {
+        return (0..new.len()).map(Some).collect();
+    }
+    let mut used = vec![false; old.len()];
+    let mut out = Vec::with_capacity(new.len());
+    for c in new {
+        let key = component_key(c);
+        let i = (0..old.len()).find(|i| used.get(*i) == Some(&false) && old.get(*i).is_some_and(|o| component_key(o) == key));
+        if let Some(u) = i.and_then(|i| used.get_mut(i)) {
+            *u = true;
+        }
+        out.push(i);
+    }
+    // what is left over on both sides was edited as well as added or removed: paired in order
+    let mut rest = (0..old.len()).filter(|i| used.get(*i) == Some(&false));
+    for x in out.iter_mut().filter(|x| x.is_none()) {
+        let Some(i) = rest.next() else { break };
+        *x = Some(i);
+    }
+    out
+}
+
+/// The components of a linked copy (`target`) after the edit `old` → `new` of its master's
+/// (test notes 2026-10-28 #12, corrected 29 Oct):
+///
+/// - one unchanged on the master stays as it is here;
+/// - a hand-made one (Brush, Linear, Radial, a range) the master changed comes over exactly, at the
+///   master's place (a dragged gradient lands where it is there);
+/// - an AI one (or a gradient placed through an AI box) keeps what was found on this photo: only
+///   its settings (op, invert, name, Edge) follow; when what it selects changed it comes as a
+///   recipe, computed here (`compute`);
+/// - one added comes over (AI parts as recipes computed here), one removed goes;
+/// - this photo's own extra components stay.
+fn sync_components(
+    old: &[crate::MaskComponent],
+    new: &[crate::MaskComponent],
+    target: &[crate::MaskComponent],
+    aspect: f64,
+    compute: &mut bool,
+) -> Vec<crate::MaskComponent> {
+    // which of the target's components is each of old's: the same place in a list as long (a
+    // linked copy), else the same recipe
+    let mut taken = vec![false; target.len()];
+    let mut corr: Vec<Option<usize>> = Vec::with_capacity(old.len());
+    for (i, o) in old.iter().enumerate() {
+        let j = if target.len() == old.len() {
+            Some(i)
+        } else {
+            let key = component_key(o);
+            (0..target.len()).find(|j| taken.get(*j) == Some(&false) && target.get(*j).is_some_and(|t| component_key(t) == key))
+        };
+        if let Some(t) = j.and_then(|j| taken.get_mut(j)) {
+            *t = true;
+        }
+        corr.push(j);
+    }
+    let as_recipe = |c: &crate::MaskComponent, compute: &mut bool| {
+        let mut one = Mask { components: vec![c.clone()], ..Mask::default() };
+        one.for_other_photo(aspect);
+        let c = one.components.into_iter().next().unwrap_or_else(|| c.clone());
+        *compute |= (c.shape.is_ai() && !c.shape.has_seg()) || c.anchor.as_ref().is_some_and(|a| a.bounds.is_none());
+        c
+    };
+    let mut out: Vec<crate::MaskComponent> = align_components(old, new)
+        .into_iter()
+        .zip(new)
+        .map(|(i, n)| {
+            let pair = i.and_then(|i| Some((old.get(i)?, target.get((*corr.get(i)?)?)?)));
+            let Some((o, t)) = pair else {
+                // added on the master
+                return if n.shape.is_ai() || n.anchor.is_some() { as_recipe(n, compute) } else { n.clone() };
+            };
+            if component_key(o) == component_key(n) {
+                return t.clone();
+            }
+            if component_core(o) == component_core(n) && std::mem::discriminant(&t.shape) == std::mem::discriminant(&n.shape) {
+                // only its settings changed: this photo keeps its own shape
+                let mut c = t.clone();
+                if o.op != n.op {
+                    c.op = n.op;
+                }
+                if o.invert != n.invert {
+                    c.invert = n.invert;
+                }
+                if o.name != n.name {
+                    c.name = n.name.clone();
+                }
+                if let (Some(e), true) = (edge_of(&n.shape), edge_of(&o.shape) != edge_of(&n.shape))
+                    && let MaskShape::Object { edge, .. } | MaskShape::Prompt { edge, .. } = &mut c.shape
+                {
+                    *edge = e;
+                }
+                return c;
+            }
+            if n.shape.is_ai() || n.anchor.is_some() {
+                // what an AI part selects changed: found again on this photo
+                as_recipe(n, compute)
+            } else {
+                // drawn by hand: exactly the master's
+                n.clone()
+            }
+        })
+        .collect();
+    out.extend(target.iter().zip(&taken).filter(|(_, t)| !**t).map(|(c, _)| c.clone()));
+    out
 }
 
 #[cfg(test)]
