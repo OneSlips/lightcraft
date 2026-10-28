@@ -409,3 +409,16 @@ fn a_preview_that_cannot_be_written_fails_the_build() {
     let _ = std::fs::remove_file(&dir);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// A photo whose preview cache is discarded while it renders is not counted as built: its preview isn't kept
+/// (CodeRabbit on #3077).
+#[test]
+fn a_preview_rendered_for_a_discarded_cache_fails_the_photo() {
+    let (mut s, root, ids) = library("discarded", 1);
+    let jobs = crate::cmd::previews::jobs_for(&mut s, ids[0], Some(300));
+    s.execute("library.clearPreviews", &json!({})).unwrap();
+    assert!(!crate::cmd::previews::run_photo(jobs), "nothing was kept: the photo is not built");
+    let jobs = crate::cmd::previews::jobs_for(&mut s, ids[0], Some(300));
+    assert!(crate::cmd::previews::run_photo(jobs), "built for the cache as it is now");
+    let _ = std::fs::remove_dir_all(root);
+}

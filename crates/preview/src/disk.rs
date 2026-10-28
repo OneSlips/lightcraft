@@ -181,10 +181,21 @@ impl DiskCache {
         if !p.parent().is_some_and(is_real_dir) {
             return None;
         }
-        let f = std::fs::File::open(&p).or_else(|_| std::fs::File::open(self.named(key, OLD_EXT))).ok()?;
-        let mut head = Vec::with_capacity(HEADER_BYTES as usize);
-        f.take(HEADER_BYTES).read_to_end(&mut head).ok()?;
-        jpeg_dims(&head)
+        let mut f = std::fs::File::open(&p).or_else(|_| std::fs::File::open(self.named(key, OLD_EXT))).ok()?;
+        // the size is normally in the first few KiB: more is read only when that is not enough
+        let mut head = Vec::new();
+        for limit in [FIRST_HEADER_BYTES, HEADER_BYTES] {
+            let more = limit.saturating_sub(head.len() as u64);
+            (&mut f).take(more).read_to_end(&mut head).ok()?;
+            if let Some(dims) = jpeg_dims(&head) {
+                return Some(dims);
+            }
+            if (head.len() as u64) < limit {
+                // the whole file was read
+                break;
+            }
+        }
+        None
     }
 
     /// Write `img` under `key`. Returns whether the file was written (a full or unwritable cache folder
@@ -449,6 +460,8 @@ pub fn encode_jpeg(img: &Rgba8) -> Option<Vec<u8>> {
 /// How much of a cached file [`DiskCache::dims`] reads: the JPEG headers this cache writes come
 /// first and are a few hundred bytes.
 const HEADER_BYTES: u64 = 64 << 10;
+/// What [`DiskCache::dims`] reads first, which holds the size of the JPEGs this cache writes.
+const FIRST_HEADER_BYTES: u64 = 4 << 10;
 
 /// A JPEG's (width, height) from its headers (`None`: not a JPEG, or cut short before its frame header).
 pub fn jpeg_dims(bytes: &[u8]) -> Option<(usize, usize)> {

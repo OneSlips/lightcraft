@@ -153,12 +153,13 @@ impl PreviewCache {
         let _ = self.put_at(self.generation(), key, img);
     }
 
-    /// [`Self::put`] for a job of `generation` (nothing is kept when the cache was cleared since). Returns
-    /// `false` only when the disk cache could not write the file (the image is kept in memory all the same).
+    /// [`Self::put`] for a job of `generation`. Returns whether the image is kept where it lasts: `false` when
+    /// the cache was cleared or retired since the job was made (nothing is kept; see [`Self::generation`] to
+    /// tell), or when the disk cache could not write the file (the image is kept in memory all the same).
     pub fn put_at(&self, generation: u64, key: Hash128, img: Arc<Rgba8>) -> bool {
         let current = self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner);
         if *current != Some(generation) {
-            return true;
+            return false;
         }
         let written = self.disk.as_ref().is_none_or(|d| d.put(key, &img));
         let c = cost(&img);
