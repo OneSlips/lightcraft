@@ -99,6 +99,7 @@ impl LightcraftApp {
             merge: merge::MergeState::default(),
             import: None,
             scan: None,
+            scans_stopping: Vec::new(),
             sync: None,
             sync_owns_changes: false,
             sync_run: None,
