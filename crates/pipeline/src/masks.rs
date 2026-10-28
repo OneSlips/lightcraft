@@ -874,6 +874,22 @@ pub fn accumulate(v: f32, a: f32, flow: f32, density: f32) -> f32 {
 pub const AUTO_TOL_EV: f32 = 0.5;
 pub const AUTO_TOL_CHROMA: f32 = 0.25;
 
+/// Auto Mask of a Lightroom-model stroke, measured on Lightroom Classic (TEST-NOTES 2026-10-28 note 24): a
+/// pixel within 0.7 EV of the colour under the dab passes fully and one 0.8 EV away is blocked (a sharp cut),
+/// and at the same brightness the paint fades out with our chroma distance from 0.17 to 0.42.
+pub const AUTO_LRC_EV: (f32, f32) = (0.7, 0.8);
+pub const AUTO_LRC_CHROMA: (f32, f32) = (0.17, 0.42);
+
+/// Auto Mask of a Lightroom-model stroke ([`AUTO_LRC_EV`], [`AUTO_LRC_CHROMA`]): how much a pixel (log
+/// luminance `l`, chromaticity `ch`) takes the paint of a dab over a reference pixel. The cut is left
+/// pixel-sharp (no edge refinement afterwards), as Lightroom's is.
+#[inline]
+pub fn auto_similarity_lrc(l: f32, ch: [f32; 3], rl: f32, rch: [f32; 3]) -> f32 {
+    let dl = (l - rl).abs();
+    let dc = ((ch[0] - rch[0]).powi(2) + (ch[1] - rch[1]).powi(2) + (ch[2] - rch[2]).powi(2)).sqrt();
+    (1.0 - smooth(AUTO_LRC_EV.0, AUTO_LRC_EV.1, dl)) * (1.0 - smooth(AUTO_LRC_CHROMA.0, AUTO_LRC_CHROMA.1, dc))
+}
+
 /// Chromaticity `rgb / Y` (as colour noise reduction uses it).
 #[inline]
 pub fn chromaticity(c: [f32; 3]) -> [f32; 3] {
@@ -1022,7 +1038,7 @@ fn stamp_dabs_with(bd: &BrushDabs, w: usize, h: usize, log_l: &Plane, chroma: &[
                     if let Some((rl, rch)) = refc {
                         let i = y * w + x;
                         let (Some(l), Some(c)) = (log_l.data.get(i), chroma.get(i)) else { continue };
-                        a *= auto_similarity(*l, *c, rl, rch);
+                        a *= if bd.lrc.is_some() { auto_similarity_lrc(*l, *c, rl, rch) } else { auto_similarity(*l, *c, rl, rch) };
                     }
                     // flow accumulates within a stroke up to density
                     *v = accumulate(*v, a, flow, dens);
@@ -1047,7 +1063,8 @@ fn rasterize_brush(strokes: &[BrushStroke], frame: &Frame, w: usize, h: usize, i
         let auto = bd.auto;
         let mut stroke_alpha = Plane::new(w, h);
         stamp_dabs_with(&bd, w, h, log_l, &chroma, &mut stroke_alpha);
-        if auto {
+        // (a Lightroom-model stroke keeps its pixel-sharp cut, note 24)
+        if auto && bd.lrc.is_none() {
             let (sigma, eps) = auto_refine(bd.r);
             let q = guided_cross(log_l, &stroke_alpha, sigma, eps);
             // the refinement fills gaps along edges; it never takes paint away

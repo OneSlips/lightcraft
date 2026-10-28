@@ -333,8 +333,12 @@ fn constants() -> String {
     s += &format!("const POINT_WORDS: u32 = {}u;\n", lightcraft_pipeline::colorops::POINT_WORDS);
     s += &format!("const LOCAL_WORDS: u32 = {}u;\n", crate::params::LOCAL_WORDS);
     s += &format!("const EYE_WORDS: u32 = {}u;\n", lightcraft_pipeline::redeye::EYE_WORDS);
-    use lightcraft_pipeline::masks::{AUTO_TOL_CHROMA, AUTO_TOL_EV};
+    use lightcraft_pipeline::masks::{AUTO_LRC_CHROMA, AUTO_LRC_EV, AUTO_TOL_CHROMA, AUTO_TOL_EV};
     s += &format!("const AUTO_TOL_EV: f32 = {AUTO_TOL_EV:?};\nconst AUTO_TOL_CHROMA: f32 = {AUTO_TOL_CHROMA:?};\n");
+    s += &format!(
+        "const AUTO_LRC_EV0: f32 = {:?};\nconst AUTO_LRC_EV1: f32 = {:?};\nconst AUTO_LRC_CH0: f32 = {:?};\nconst AUTO_LRC_CH1: f32 = {:?};\n",
+        AUTO_LRC_EV.0, AUTO_LRC_EV.1, AUTO_LRC_CHROMA.0, AUTO_LRC_CHROMA.1
+    );
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     s += &format!("const GAMUT_WARN: f32 = {:?};\n", lightcraft_pipeline::finish::GAMUT_WARN);
     s += &format!("const NCAND: u32 = {}u;\n", lightcraft_pipeline::spots::candidates(1.0).len());
