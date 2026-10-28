@@ -196,7 +196,10 @@ fn a_build_asked_for_replaces_the_background_one() {
     let r = s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "wait": true})).unwrap();
     assert_eq!(r["done"], 3, "{r}");
     assert!(bg.cancel.load(Ordering::Relaxed), "the background build was stopped");
-    let _ = std::fs::remove_dir_all(root);
+    // its workers stop before their library is removed under them
+    assert!(wait_finished(&bg), "a cancelled build stops");
+    drop(s);
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 /// Note 48: the background preparation starts once the user steps through photos in the loupe
@@ -247,7 +250,10 @@ fn editing_builds_the_view_by_the_library_rows_scope() {
     let b = s.preview_build.clone().expect("the Library row asks for the view while editing");
     assert_eq!(b.total, 1, "only the marked photos, as the Library row says");
     b.cancel.store(true, Ordering::Relaxed);
-    let _ = std::fs::remove_dir_all(root);
+    // its workers stop before their library is removed under them
+    assert!(wait_finished(&b), "a cancelled build stops");
+    drop(s);
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 /// With "which photos" = marked, marking another photo changes what the view's build prepares: a
@@ -327,7 +333,12 @@ fn a_view_change_stops_the_background_build_for_the_old_view() {
     assert!(!std::sync::Arc::ptr_eq(&next, &b));
     assert_eq!(next.total, 5);
     next.cancel.store(true, Ordering::Relaxed);
-    let _ = std::fs::remove_dir_all(root);
+    // both builds' workers stop before their library is removed under them
+    for b in [&b, &next] {
+        assert!(wait_finished(b), "a cancelled build stops");
+    }
+    drop(s);
+    std::fs::remove_dir_all(&root).unwrap();
 }
 
 fn same_build(s: &Session, b: &std::sync::Arc<crate::cmd::previews::PreviewBuild>) -> bool {
