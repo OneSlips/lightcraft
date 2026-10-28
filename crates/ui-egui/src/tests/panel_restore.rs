@@ -251,3 +251,36 @@ fn nested_panel_toggles_come_back_one_at_a_time() {
     exec(&mut h, "panel.keywords");
     assert_eq!(h.app.ui.right, RightPanel::Info);
 }
+
+/// A tool opened by a command from another tool closes back to that tool, and the panels before it still come back
+/// in turn: Info → Crop → B → Done = Crop, Crop closed = Info, I = Edit (CodeRabbit on #3031).
+#[test]
+fn a_tool_opened_from_another_tool_closes_back_to_it() {
+    let mut h = detail();
+    exec(&mut h, "panel.info");
+    exec(&mut h, "panel.crop");
+    exec(&mut h, "tool.brush");
+    assert_eq!(h.app.ui.right, RightPanel::Masking);
+    exec(&mut h, "tool.done");
+    assert_eq!(h.app.ui.right, RightPanel::Crop, "Info → Crop → B → Done = Crop");
+    exec(&mut h, "tool.done");
+    assert_eq!(h.app.ui.right, RightPanel::Info, "then Crop closes to Info");
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Edit, "and I gives back Edit");
+    // a tool opened by a command from a panel closes to that panel
+    exec(&mut h, "tool.brush");
+    exec(&mut h, "tool.done");
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+}
+
+/// Commands run back to back with no frame between them (a batch of control requests) see F8's hide at once:
+/// Info → Crop → F8 → Brush → Done leaves the column hidden (CodeRabbit on #3031).
+#[test]
+fn f8_is_noted_before_the_next_command_of_the_same_frame() {
+    let mut h = detail();
+    exec(&mut h, "panel.close");
+    for command in ["panel.info", "panel.crop", "view.rightPanel", "tool.brush", "tool.done"] {
+        h.app.run(command, json!({})).unwrap_or_else(|e| panic!("{command}: {e}"));
+    }
+    assert_eq!(h.app.ui.right, RightPanel::None, "the brush was opened on the hidden column");
+}

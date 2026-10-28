@@ -603,6 +603,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if app.ui.right != RightPanel::None && crate::docking::exposed(app, crate::docking::Panel::Tools) {
                 app.ui.right_hidden = app.ui.right;
                 app.ui.right = RightPanel::None;
+                // noted now, not at the frame's end: a command after it in the same frame (a batch of control
+                // requests) opens a tool on the hidden column, not on the panel F8 hid
+                app.ui.note_right();
                 if app.ui.tool != "wbPicker" {
                     app.ui.tool.clear();
                 }
@@ -613,8 +616,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                     p => p,
                 };
                 app.ui.right = p;
-                // (a tool shown again this way still closes to the panel before it)
+                // (a tool shown again this way still closes to the panel before it; noted now, as for hiding)
                 app.ui.right_shown_by_f8 = Some(p);
+                app.ui.note_right();
                 if p.is_edit_tool() && !matches!(app.ui.view, ViewMode::Detail) {
                     app.ui.view = ViewMode::Detail;
                 }

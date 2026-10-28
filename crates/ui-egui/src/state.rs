@@ -383,15 +383,25 @@ impl UiState {
         if self.right == self.right_seen {
             return;
         }
+        // F8 showing a tool it hid: the panel before that tool still holds (`None` is F8's hidden column, not
+        // what the tool came from). A tool opened another way on the hidden column came from the hidden column.
+        let back_from_f8 = self.right_seen == RightPanel::None && shown_by_f8 == Some(self.right);
+        // A tool opened by a command, not a toggle (B, a mask tool from Crop…), is recorded like a toggle: closing
+        // it shows exactly what the column showed before (Info → Crop → B → Done = Crop), and the records below it
+        // stay (Crop closed = Info, I = Edit).
+        let opened_directly = self.right.is_tool() && !back_from_f8 && self.toggle_return.last().is_none_or(|&(opened, ..)| opened != self.right);
+        if opened_directly {
+            if self.toggle_return.len() >= TOGGLE_HISTORY {
+                self.toggle_return.remove(0);
+            }
+            self.toggle_return.push((self.right, self.right_seen, self.tool_return));
+        }
         // F8 hiding the panel a toggle opened keeps its record, for F8 showing it again
         let f8_hid = |opened: RightPanel| self.right == RightPanel::None && self.right_hidden == opened;
-        if self.toggle_return.last().is_some_and(|&(opened, ..)| opened != self.right && !f8_hid(opened)) {
+        if !opened_directly && self.toggle_return.last().is_some_and(|&(opened, ..)| opened != self.right && !f8_hid(opened)) {
             self.toggle_return.clear();
         }
         if self.right.is_tool() {
-            // F8 showing a tool it hid: the panel before that tool still holds (`None` is F8's hidden column, not
-            // what the tool came from). A tool opened another way on the hidden column came from the hidden column.
-            let back_from_f8 = self.right_seen == RightPanel::None && shown_by_f8 == Some(self.right);
             if !self.right_seen.is_tool() && !back_from_f8 {
                 self.tool_return = Some(self.right_seen);
             }
