@@ -160,10 +160,16 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
     Ok(v)
 }
 
-/// Whether `root` is `lib` or a folder inside it, as written or once both are resolved (a symlink
-/// to the library, or a path through `..`, names the same folder), as the recursive walk tells.
+/// Whether `root` is `lib` or a folder inside it once both are resolved (a symlink to the library,
+/// or a path through `..`, names the same folder; `lib/../outside` is outside), as the recursive
+/// walk tells. A root that doesn't resolve isn't inside: listing it reports why. A library folder
+/// that doesn't resolve is compared as written, without `..`.
 fn inside(root: &Path, lib: &Path) -> bool {
-    root.starts_with(lib) || std::fs::canonicalize(lib).is_ok_and(|lib| std::fs::canonicalize(root).is_ok_and(|root| root.starts_with(lib)))
+    let Ok(resolved) = std::fs::canonicalize(root) else { return false };
+    match std::fs::canonicalize(lib) {
+        Ok(lib) => resolved.starts_with(lib),
+        Err(_) => root.starts_with(lib) && !root.components().any(|c| c == std::path::Component::ParentDir),
+    }
 }
 
 /// Order `files` the way a view sorted by `sort` will show them, as far as the file system can

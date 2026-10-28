@@ -185,8 +185,9 @@ fn the_background_build_starts_where_the_user_is() {
 #[test]
 fn a_build_asked_for_replaces_the_background_one() {
     let (mut s, root, ids) = library("replace", 3);
-    // held back: the photo on screen is being made all along
-    crate::prep::foreground();
+    // held back: the photo on screen is being made all along (held until released below, not for a
+    // deadline a slow test machine could pass before the build asked for comes)
+    let hold = crate::prep::TestHold::new();
     s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "background": true})).unwrap();
     let bg = s.preview_build.clone().unwrap();
     assert!(bg.background && bg.running());
@@ -196,6 +197,7 @@ fn a_build_asked_for_replaces_the_background_one() {
     let r = s.execute("library.buildPreviews", &json!({"ids": ids_json(&ids), "edge": 300, "wait": true})).unwrap();
     assert_eq!(r["done"], 3, "{r}");
     assert!(bg.cancel.load(Ordering::Relaxed), "the background build was stopped");
+    drop(hold);
     // its workers stop before their library is removed under them
     assert!(wait_finished(&bg), "a cancelled build stops");
     drop(s);
