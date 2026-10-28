@@ -1,4 +1,7 @@
-use super::*;
+use super::{
+    LightcraftApp, docking, drop_overlay, export_task, focus_scan, import, lightroom_import, merge, model_setup, monotonic_ms, panels, pick, recheck,
+    shortcuts, slideshow_export, state, sync, tasks, theme, updates_ui, widgets,
+};
 
 impl LightcraftApp {
     /// Install/refresh fonts once and watch the device and availability caches. Setup, not input.
@@ -67,7 +70,7 @@ impl LightcraftApp {
         recheck::tick(self);
         tasks::poll(self, ctx);
         // after the poll: a lookup that just finished is cleared, so photos queued meanwhile are looked up now
-        lens_db::tick(self);
+        crate::lens_db::tick(self);
         updates_ui::tick(self, ctx);
         self.preview_build_status(ctx);
         self.save_status(ctx);
