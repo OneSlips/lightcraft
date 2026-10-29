@@ -131,7 +131,7 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
 /// running is replaced; the import review's scan is not.
 pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> Result<Value, String> {
     // one spelling for the view, the listing and the catalog's records: `a/lib/../outside` is `a/outside`
-    let dir = lightcraft_engine::import::lexical_path(&std::path::absolute(std::path::Path::new(path)).map_err(|e| e.to_string())?);
+    let dir = lightcraft_engine::import::browse_path(std::path::Path::new(path)).map_err(|e| e.to_string())?;
     if !dir.is_dir() {
         return Err(format!("{path}: not a folder"));
     }
