@@ -341,6 +341,13 @@ pub struct LightcraftApp {
     /// Say once, when the GPU device has been tried, that no graphics processor was found
     /// ([`panels::notices::gpu_notice`]). The desktop app sets it; headless sessions and tests don't.
     pub gpu_notice: bool,
+    /// Tell the user once per session when the drive holding the preview cache runs low
+    /// ([`panels::notices::disk_space_notice`]). The desktop app sets it; headless sessions and tests
+    /// don't (their drive is whatever the machine has).
+    pub disk_space_notice: bool,
+    /// The low-disk notice's text while it is queued in [`LightcraftApp::notices`]: it is shown with a
+    /// button to Settings ▸ Performance.
+    pub(crate) disk_notice: Option<String>,
     /// The memory budget setting last applied (MB, 0 = automatic).
     memory_applied: Option<u32>,
     /// The display profile setting last applied (`app.displayProfile`).

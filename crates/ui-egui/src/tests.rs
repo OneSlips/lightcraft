@@ -20,6 +20,7 @@ mod dialog_primary;
 mod dialog_settings;
 mod dialog_tab;
 mod dialogs;
+mod disk_space;
 mod docking_acceptance;
 mod drop_import;
 mod edit_layout;

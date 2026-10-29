@@ -1,0 +1,210 @@
+//! A once-per-session alert when the drive holding the library's preview cache runs low.
+//!
+//! The automatic preview cache budget grows with the library and has no ceiling
+//! ([`crate::media::default_disk_cache_bytes`]): a large library can fill its drive. Rather than cap
+//! it, the session looks at the drive's free space when the library opens and, at most every
+//! [`CHECK_EVERY`], while previews are built; when it is under [`LOW_FREE_PERCENT`] of the drive or
+//! under [`LOW_FREE_BYTES`], it hands out one [`LowDiskAlert`] ([`crate::Session::take_disk_space_alert`])
+//! that the UI shows with a way to Settings ▸ Performance, where the cache can be given a limit. It is
+//! not repeated until the next library open or app run. Reading the free space can fail (a network
+//! share that doesn't say, the web build): then there is no alert, only a log line.
+
+use std::path::Path;
+
+/// The drive is low when less than this share of it (percent) is free…
+pub const LOW_FREE_PERCENT: u64 = 10;
+/// …or when less than this is free (20 GB), whichever comes first.
+pub const LOW_FREE_BYTES: u64 = 20 << 30;
+/// While previews are built, the free space is read at most this often (statvfs on the cache's
+/// drive: cheap, but not something for every frame or every write).
+pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+
+/// Space on one drive, in bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiskSpace {
+    /// Free for this user (what can still be written).
+    pub available: u64,
+    /// The drive's size.
+    pub total: u64,
+}
+
+impl DiskSpace {
+    /// Under [`LOW_FREE_PERCENT`] of the drive free, or under [`LOW_FREE_BYTES`]. A drive that
+    /// reports no size isn't judged by its share.
+    pub fn is_low(&self) -> bool {
+        let under_share = self.total > 0 && u128::from(self.available) * 100 < u128::from(self.total) * u128::from(LOW_FREE_PERCENT);
+        under_share || self.available < LOW_FREE_BYTES
+    }
+}
+
+/// What the UI tells the user once: the drive's free space and size, and how big the preview
+/// cache is now.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LowDiskAlert {
+    pub space: DiskSpace,
+    /// Bytes the preview cache takes on that drive.
+    pub cache_bytes: u64,
+}
+
+/// The free space of the drive holding `dir` (or its parent when `dir` isn't there yet). `None`
+/// (logged) when it can't be read.
+pub fn read(dir: &Path) -> Option<DiskSpace> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let probe = if dir.exists() { dir } else { dir.parent().unwrap_or(dir) };
+        match fs4::statvfs(probe) {
+            Ok(s) => Some(DiskSpace { available: s.available_space(), total: s.total_space() }),
+            Err(e) => {
+                log::info!("disk space: can't read the free space of {}: {e}", probe.display());
+                None
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = dir;
+        None
+    }
+}
+
+/// The session's state of the alert (reset when a library opens).
+#[derive(Default)]
+pub(crate) struct DiskAlertState {
+    /// The alert was handed out (or is waiting to be) this session: never again until reset.
+    pub(crate) raised: bool,
+    /// The alert waiting for the UI.
+    pub(crate) pending: Option<LowDiskAlert>,
+    /// When the free space was last read.
+    pub(crate) checked_at: Option<web_time::Instant>,
+}
+
+impl crate::Session {
+    /// Read the free space of the drive holding the preview cache, at most every [`CHECK_EVERY`]
+    /// (`now`: whatever the last read, as when the library opens), and raise the alert if it is low
+    /// ([`Session::note_disk_space`](crate::Session::note_disk_space)). Nothing once the alert was
+    /// raised this session, without an on-disk library, or when the space can't be read.
+    pub fn check_disk_space(&mut self, now: bool) {
+        if self.disk_alert.raised {
+            return;
+        }
+        let Some(dir) = self.library.as_ref().filter(|l| l.on_disk).map(crate::library::Library::thumbs_dir) else { return };
+        let at = web_time::Instant::now();
+        if !now && self.disk_alert.checked_at.is_some_and(|t| at.saturating_duration_since(t) < CHECK_EVERY) {
+            return;
+        }
+        self.disk_alert.checked_at = Some(at);
+        if let Some(space) = read(&dir) {
+            self.note_disk_space(space);
+        }
+    }
+
+    /// Raise the low-disk alert for `space` when it is low and the alert wasn't raised this session
+    /// yet (the numbers come from [`read`], or from a test). Returns whether it was raised now.
+    pub fn note_disk_space(&mut self, space: DiskSpace) -> bool {
+        if self.disk_alert.raised || !space.is_low() {
+            return false;
+        }
+        let cache_bytes = self.media.rendered.disk().map_or(0, |d| d.size());
+        log::warn!("disk space: {} of {} bytes free; the preview cache takes {cache_bytes} bytes", space.available, space.total);
+        self.disk_alert.raised = true;
+        self.disk_alert.pending = Some(LowDiskAlert { space, cache_bytes });
+        true
+    }
+
+    /// The low-disk alert not shown yet, if any (handed out once per session).
+    pub fn take_disk_space_alert(&mut self) -> Option<LowDiskAlert> {
+        self.disk_alert.pending.take()
+    }
+
+    /// Whether the low-disk alert was raised since the library opened (`library.info` →
+    /// `lowDiskSpace`).
+    pub fn disk_space_alert_raised(&self) -> bool {
+        self.disk_alert.raised
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiskSpace, LOW_FREE_BYTES};
+    use crate::Session;
+
+    const GB: u64 = 1 << 30;
+
+    #[test]
+    fn plenty_of_room_on_both_counts_raises_no_alert() {
+        let mut s = Session::new();
+        assert!(!s.note_disk_space(DiskSpace { available: 200 * GB, total: 1000 * GB }), "20 % and 200 GB free");
+        assert!(!s.note_disk_space(DiskSpace { available: 25 * GB, total: 100 * GB }), "25 % and 25 GB free");
+        assert!(s.take_disk_space_alert().is_none());
+        assert!(!s.disk_space_alert_raised());
+    }
+
+    #[test]
+    fn under_ten_percent_free_raises_the_alert() {
+        let mut s = Session::new();
+        // 300 GB is far above 20 GB, but only 7.5 % of a 4 TB drive
+        let space = DiskSpace { available: 300 * GB, total: 4000 * GB };
+        assert!(s.note_disk_space(space));
+        let alert = s.take_disk_space_alert().expect("the alert is handed out");
+        assert_eq!(alert.space, space);
+        assert!(s.disk_space_alert_raised());
+    }
+
+    #[test]
+    fn under_twenty_gb_free_raises_the_alert() {
+        let mut s = Session::new();
+        // 15 % of a 100 GB drive is free, but that is under 20 GB
+        let space = DiskSpace { available: 15 * GB, total: 100 * GB };
+        assert!(space.available < LOW_FREE_BYTES);
+        assert!(s.note_disk_space(space));
+        assert_eq!(s.take_disk_space_alert().map(|a| a.space), Some(space));
+    }
+
+    #[test]
+    fn the_alert_is_raised_once_per_session() {
+        let mut s = Session::new();
+        let low = DiskSpace { available: GB, total: 500 * GB };
+        assert!(s.note_disk_space(low));
+        assert!(s.take_disk_space_alert().is_some());
+        assert!(s.take_disk_space_alert().is_none(), "handed out once");
+        assert!(!s.note_disk_space(DiskSpace { available: GB / 2, ..low }), "lower still: not again this session");
+        assert!(s.take_disk_space_alert().is_none());
+        s.check_disk_space(true);
+        assert!(s.take_disk_space_alert().is_none(), "a check after the alert reads nothing");
+    }
+
+    #[test]
+    fn opening_a_library_starts_a_new_session_for_the_alert() {
+        let dir = std::env::temp_dir().join(format!("lc-disk-alert-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut s = Session::new().with_fs();
+        s.open_library(&dir, false).unwrap();
+        // whatever this machine's drive holds, raise it by hand
+        let _ = s.take_disk_space_alert();
+        let low = DiskSpace { available: GB, total: 500 * GB };
+        if !s.disk_space_alert_raised() {
+            assert!(s.note_disk_space(low));
+        }
+        assert!(!s.note_disk_space(low), "once per session");
+        s.close_library().unwrap();
+        s.open_library(&dir, false).unwrap();
+        let _ = s.take_disk_space_alert();
+        let raised_by_open = s.disk_space_alert_raised();
+        assert!(raised_by_open || s.note_disk_space(low), "a new library open may warn again");
+        s.close_library().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_free_space_of_a_real_drive_is_read() {
+        let space = super::read(&std::env::temp_dir().join("lc-disk-alert-not-there")).expect("the temp folder's drive says its size");
+        assert!(space.total > 0 && space.available <= space.total, "{space:?}");
+    }
+
+    #[test]
+    fn a_drive_that_reports_no_size_is_judged_by_its_free_bytes() {
+        assert!(!DiskSpace { available: 50 * GB, total: 0 }.is_low());
+        assert!(DiskSpace { available: 5 * GB, total: 0 }.is_low());
+    }
+}
