@@ -930,6 +930,22 @@ impl GrainParams {
         1.0 - keep - (1.0 - p) * (hs - self.halo_at(p))
     }
 
+    /// Per-pixel thresholds as in [`GrainParams::field`], for expected coverages `ps`: `(end, fade
+    /// width, e^−end, e^(fw − end))` each, and the smallest `e^−end`.
+    fn pixel_ends(&self, ps: &[f32]) -> (Vec<(f32, f32, f32, f32)>, f32) {
+        let mut ends = Vec::with_capacity(ps.len());
+        let mut e_min = 1.0f32;
+        for &p in ps {
+            let t = self.per_cell(p);
+            let fw = t.clamp(1e-6, 1.0);
+            let end = t + 0.5 * fw;
+            let e_end = (-end).exp();
+            e_min = e_min.min(e_end);
+            ends.push((end, fw, e_end, (fw - end).exp()));
+        }
+        (ends, e_min)
+    }
+
     /// [`GrainParams::field`] for a band of output rows: `xs`, `ys` are the grain-unit positions of
     /// `rows × cols` pixels, row-major, on an affine grid (as an output window is), `ps` their
     /// expected coverages; the coverage goes to `out`. Visits every cell near the band once and
@@ -960,17 +976,7 @@ impl GrainParams {
         let (dx, dy) = ((x10 - x00) / (rows - 1).max(1) as f32, (y10 - y00) / (rows - 1).max(1) as f32);
         let bb = bx * bx + by * by;
         let inv_b = if bb > 1e-24 { 1.0 / bb.sqrt() } else { 0.0 };
-        // per-pixel thresholds as in `field`
-        let mut ends = Vec::with_capacity(n);
-        let mut e_min = 1.0f32;
-        for &p in &ps[..n] {
-            let t = self.per_cell(p);
-            let fw = t.clamp(1e-6, 1.0);
-            let end = t + 0.5 * fw;
-            let e_end = (-end).exp();
-            e_min = e_min.min(e_end);
-            ends.push((end, fw, e_end, (fw - end).exp()));
-        }
+        let (ends, e_min) = self.pixel_ends(&ps[..n]);
         let keep = &mut out[..n];
         keep.fill(1.0);
         // per pixel, the clump being splatted: Π(1 − aⱼ) over its grains, and the pixels it touched
@@ -1017,30 +1023,9 @@ impl GrainParams {
             // the parallelogram's Y extent within this column of cells (grown by the support):
             // the extremes lie on its edges clipped to the column
             let (cx0, cx1) = (i as f32 * c - r, (i as f32 + 1.0) * c + r);
-            let (mut y_lo, mut y_hi) = (f32::INFINITY, f32::NEG_INFINITY);
-            for e in 0..4 {
-                let ((ax, ay), (bx2, by2)) = (quad[e], quad[(e + 1) % 4]);
-                let ex = bx2 - ax;
-                let (t0, t1) = if ex.abs() > 1e-12 {
-                    let (u, v) = ((cx0 - ax) / ex, (cx1 - ax) / ex);
-                    (u.min(v).max(0.0), u.max(v).min(1.0))
-                } else if ax >= cx0 && ax <= cx1 {
-                    (0.0, 1.0)
-                } else {
-                    continue;
-                };
-                if t0 > t1 {
-                    continue;
-                }
-                for t in [t0, t1] {
-                    let yt = ay + t * (by2 - ay);
-                    y_lo = y_lo.min(yt);
-                    y_hi = y_hi.max(yt);
-                }
-            }
-            if y_lo.is_nan() || y_hi.is_nan() || y_lo > y_hi {
+            let Some((y_lo, y_hi)) = column_y_extent(&quad, cx0, cx1) else {
                 continue;
-            }
+            };
             let (j0, j1) = (((y_lo - r) / c).floor() as i32, ((y_hi + r) / c).floor() as i32);
             for j in j0..=j1 {
                 let base = cell_hash(i, j, salt);
@@ -1241,6 +1226,33 @@ impl GrainParams {
             }
         }
     }
+}
+
+/// The Y extent of the parallelogram `quad` within the column `cx0..=cx1`: its extremes lie on the
+/// edges clipped to the column. `None` when no edge crosses the column.
+fn column_y_extent(quad: &[(f32, f32); 4], cx0: f32, cx1: f32) -> Option<(f32, f32)> {
+    let (mut y_lo, mut y_hi) = (f32::INFINITY, f32::NEG_INFINITY);
+    for e in 0..4 {
+        let ((ax, ay), (bx, by)) = (quad[e], quad[(e + 1) % 4]);
+        let ex = bx - ax;
+        let (t0, t1) = if ex.abs() > 1e-12 {
+            let (u, v) = ((cx0 - ax) / ex, (cx1 - ax) / ex);
+            (u.min(v).max(0.0), u.max(v).min(1.0))
+        } else if ax >= cx0 && ax <= cx1 {
+            (0.0, 1.0)
+        } else {
+            continue;
+        };
+        if t0 > t1 {
+            continue;
+        }
+        for t in [t0, t1] {
+            let yt = ay + t * (by - ay);
+            y_lo = y_lo.min(yt);
+            y_hi = y_hi.max(yt);
+        }
+    }
+    (!(y_lo.is_nan() || y_hi.is_nan() || y_lo > y_hi)).then_some((y_lo, y_hi))
 }
 
 /// How many cells after `start` (floor of the low edge) reach up to `hi` (in cells): at most

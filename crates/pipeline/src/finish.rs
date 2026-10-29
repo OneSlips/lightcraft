@@ -73,6 +73,32 @@ fn vignette(s: &DevelopSettings) -> Option<Vig> {
     })
 }
 
+/// The vignette on display-linear colour `d` at frame position (`u`, `v`) in −1..1 of the whole
+/// output frame (`aspect` = its width / height).
+fn vignette_pixel(v: &Vig, d: [f32; 3], u: f32, vv: f32, aspect: f32, hdr: bool) -> [f32; 3] {
+    let sx = 1.0 + (aspect - 1.0) * v.aspect_mix;
+    let sy = 1.0 + (1.0 / aspect - 1.0) * v.aspect_mix;
+    let (ax, ay) = ((u * sx.max(1.0) / sx.max(sy)).abs(), (vv * sy.max(1.0) / sx.max(sy)).abs());
+    let dist = (ax.powf(v.power) + ay.powf(v.power)).powf(1.0 / v.power);
+    let t = smooth(v.start, v.start + v.width, dist);
+    if t <= 0.0 {
+        return d;
+    }
+    if v.amount >= 0.0 {
+        // lighten towards SDR white; in HDR never pull highlights down to it
+        return if hdr { d.map(|c| c + (1.0 - c).max(0.0) * v.amount * t * 0.85) } else { d.map(|c| c + (1.0 - c) * v.amount * t * 0.85) };
+    }
+    if v.style == VignetteStyle::PaintOverlay {
+        return d.map(|c| c * (1.0 - (-v.amount) * t) + 0.0);
+    }
+    let mut f = 1.0 + v.amount * t;
+    if v.style == VignetteStyle::HighlightPriority {
+        let lum = luminance_2020(d).clamp(0.0, 1.0);
+        f += (1.0 - f) * v.highlights * smooth(0.4, 1.0, lum);
+    }
+    d.map(|c| c * f)
+}
+
 pub use crate::grain::GRAIN_HASH;
 
 /// Hash constants of [`value_grain_noise`], the grain of processes V1 and V2 (shared with the GPU
@@ -467,30 +493,7 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
             if let Some(v) = vig {
                 let u = (vx + x as f32 + 0.5) / vw * 2.0 - 1.0;
                 let vv = (vy + y as f32 + 0.5) / vh * 2.0 - 1.0;
-                let sx = 1.0 + (aspect - 1.0) * v.aspect_mix;
-                let sy = 1.0 + (1.0 / aspect - 1.0) * v.aspect_mix;
-                let (ax, ay) = ((u * sx.max(1.0) / sx.max(sy)).abs(), (vv * sy.max(1.0) / sx.max(sy)).abs());
-                let dist = (ax.powf(v.power) + ay.powf(v.power)).powf(1.0 / v.power);
-                let t = smooth(v.start, v.start + v.width, dist);
-                if t > 0.0 {
-                    let lum = luminance_2020(d).clamp(0.0, 1.0);
-                    if v.amount < 0.0 {
-                        let mut f = 1.0 + v.amount * t;
-                        if v.style == VignetteStyle::HighlightPriority {
-                            f += (1.0 - f) * v.highlights * smooth(0.4, 1.0, lum);
-                        }
-                        if v.style == VignetteStyle::PaintOverlay {
-                            d = d.map(|c| c * (1.0 - (-v.amount) * t) + 0.0);
-                        } else {
-                            d = d.map(|c| c * f);
-                        }
-                    } else if hdr {
-                        // lighten towards SDR white; never pull HDR highlights down to it
-                        d = d.map(|c| c + (1.0 - c).max(0.0) * v.amount * t * 0.85);
-                    } else {
-                        d = d.map(|c| c + (1.0 - c) * v.amount * t * 0.85);
-                    }
-                }
+                d = vignette_pixel(v, d, u, vv, aspect, hdr);
             }
 
             // --- gamut map to the output space (desaturate towards luminance until in range);
