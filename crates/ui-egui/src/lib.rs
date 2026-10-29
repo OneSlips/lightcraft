@@ -340,8 +340,9 @@ pub struct LightcraftApp {
     /// don't (their drive is whatever the machine has).
     pub disk_space_notice: bool,
     /// The low-disk notice's text while it is queued in [`LightcraftApp::notices`]: it is shown with a
-    /// button to Settings ▸ Performance.
-    pub(crate) disk_notice: Option<String>,
+    /// button to Settings ▸ Performance. With the library it was raised for
+    /// ([`lightcraft_engine::Session::library_generation`]): another library open drops it.
+    pub(crate) disk_notice: Option<(u64, String)>,
     /// The memory budget setting last applied (MB, 0 = automatic).
     memory_applied: Option<u32>,
     /// The display profile setting last applied (`app.displayProfile`).

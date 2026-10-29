@@ -52,3 +52,26 @@ fn without_the_desktop_flag_no_notice_is_shown() {
     h.step();
     assert!(h.app.notices.is_empty(), "headless sessions and tests don't show it");
 }
+
+/// A notice still queued when another library opens belongs to the library before: it goes, and
+/// the new library's drive is judged on its own.
+#[test]
+fn a_queued_notice_goes_when_another_library_opens() {
+    let dir = std::env::temp_dir().join(format!("lc-disk-notice-switch-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo().with_fs(), Services::default());
+    app.disk_space_notice = true;
+    let mut h = Headless::new(app, [1300.0, 900.0], 1.0);
+    h.step();
+    assert!(h.app.session.note_disk_space(DiskSpace { available: GB, total: 500 * GB }));
+    h.step();
+    assert_eq!(h.app.notices.len(), 1, "{:?}", h.app.notices);
+    // another library opens before the notice was answered
+    h.app.session.open_library(&dir, false).unwrap();
+    h.step();
+    h.step();
+    assert!(h.app.notices.iter().all(|n| !n.contains("1.0 GB free of 500 GB")), "the previous library's notice is gone: {:?}", h.app.notices);
+    let _ = h.app.session.close_library();
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -14,6 +14,14 @@ use crate::{LightcraftApp, QuitPrompt};
 pub fn logic(app: &mut LightcraftApp) {
     let new = app.session.take_library_warnings();
     app.notices.extend(new);
+    // a low-disk notice still queued from the library that was open before is not this one's
+    if let Some((generation, text)) = app.disk_notice.as_ref()
+        && *generation != app.session.library_generation()
+    {
+        let text = text.clone();
+        app.notices.retain(|n| *n != text);
+        app.disk_notice = None;
+    }
     if app.disk_space_notice {
         // while previews are built the cache grows: the engine reads the free space at most every
         // few minutes (this is a clock check otherwise)
@@ -22,7 +30,7 @@ pub fn logic(app: &mut LightcraftApp) {
         }
         if let Some(alert) = app.session.take_disk_space_alert() {
             let text = disk_space_notice(&alert);
-            app.disk_notice = Some(text.clone());
+            app.disk_notice = Some((app.session.library_generation(), text.clone()));
             app.notices.push(text);
         }
     }
@@ -617,7 +625,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         return;
     }
     if let Some(text) = app.notices.first().cloned() {
-        if app.disk_notice.as_ref() == Some(&text) {
+        if app.disk_notice.as_ref().is_some_and(|(_, t)| *t == text) {
             let buttons = [("noticeSettings", "Open Performance Settings", Choice::Settings), ("noticeOk", "OK", Choice::Ok)];
             let Some(i) = window(ctx, "settings-notice", "Drive almost full", &text, &buttons, &mut app.notice_input) else { return };
             app.notices.remove(0);

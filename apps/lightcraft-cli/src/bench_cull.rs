@@ -93,12 +93,34 @@ fn sample_after<T>(v: &[T], skip: usize, take: usize) -> &[T] {
     rest.get(..take.min(rest.len())).unwrap_or_default()
 }
 
-/// Whether `json` names a file in `folder` (the source folder, which a run only reads): its
-/// folder, resolved, is `folder` or inside it.
-fn inside_source(json: &Path, folder: &Path) -> bool {
+/// Whether `path` names a file in `folder` (the source folder, which a run only reads): its
+/// nearest folder that exists (a `--work` folder may not be there yet), resolved, is `folder` or
+/// inside it.
+fn inside_source(path: &Path, folder: &Path) -> bool {
     let Ok(folder) = std::fs::canonicalize(folder) else { return false };
-    let parent = json.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    std::fs::canonicalize(parent).is_ok_and(|p| p.starts_with(&folder))
+    let mut p = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    loop {
+        if let Ok(c) = std::fs::canonicalize(p) {
+            return c.starts_with(&folder);
+        }
+        match p.parent() {
+            Some(up) if !up.as_os_str().is_empty() => p = up,
+            Some(_) => p = Path::new("."),
+            None => return false,
+        }
+    }
+}
+
+/// Refuse `--json` or `--work` in the folder being measured: nothing is written next to the photos,
+/// the results and the run's libraries included. Checked before anything is made.
+fn check_outputs(folder: &Path, json: Option<&Path>, work: &Path) -> Result<(), String> {
+    if let Some(j) = json.filter(|j| inside_source(j, folder)) {
+        return Err(format!("{}: --json must not be in the folder being measured", j.display()));
+    }
+    if inside_source(&work.join("run"), folder) {
+        return Err(format!("{}: --work must not be in the folder being measured", work.display()));
+    }
+    Ok(())
 }
 
 fn library(dir: &Path) -> Result<Session, String> {
@@ -153,11 +175,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     if !folder.is_dir() {
         return Err(format!("{}: not a folder", folder.display()));
     }
-    // nothing is written next to the photos, the results included
-    if let Some(j) = json_out.as_deref().filter(|j| inside_source(j, &folder)) {
-        return Err(format!("{}: --json must not be in the folder being measured", j.display()));
-    }
     let work = work.unwrap_or_else(|| std::env::temp_dir().join(format!("lightcraft-bench-cull-{}", std::process::id())));
+    check_outputs(&folder, json_out.as_deref(), &work)?;
     let work = run_dir(&work)?;
     let mut out = json!({"folder": folder.display().to_string(), "threads": render_threads()});
 
@@ -363,6 +382,22 @@ mod tests {
         assert!(inside_source(&sub.join("x.json"), &src));
         assert!(inside_source(&src.join("sub").join("..").join("a.png"), &src));
         assert!(!inside_source(&work.join("out.json"), &src));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// `--work` in the source folder is refused before anything is made there, also when it doesn't
+    /// exist yet (CodeRabbit on #3077); elsewhere it is fine.
+    #[test]
+    fn the_work_folder_never_goes_in_the_source_folder() {
+        let work = run_dir(&std::env::temp_dir()).unwrap();
+        let src = fresh_dir(&work, "src").unwrap();
+        let inside = src.join("out").join("deeper");
+        let e = check_outputs(&src, None, &inside).unwrap_err();
+        assert!(e.contains("--work"), "{e}");
+        assert!(check_outputs(&src, None, &src).is_err(), "the source folder itself");
+        assert!(!src.join("out").exists(), "nothing was made in the source folder");
+        assert!(check_outputs(&src, None, &work.join("elsewhere")).is_ok());
+        assert!(check_outputs(&src, Some(&src.join("r.json")), &work.join("elsewhere")).is_err());
         let _ = std::fs::remove_dir_all(&work);
     }
 }

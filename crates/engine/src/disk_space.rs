@@ -8,6 +8,8 @@
 //! that the UI shows with a way to Settings ▸ Performance, where the cache can be given a limit. It is
 //! not repeated until the next library open or app run. Reading the free space can fail (a network
 //! share that doesn't say, the web build): then there is no alert, only a log line.
+//! Natively the read runs on a worker thread and its answer is taken on a later call, so a slow
+//! network share never holds up the UI thread that asks.
 
 use std::path::Path;
 
@@ -67,6 +69,9 @@ pub fn read(dir: &Path) -> Option<DiskSpace> {
     }
 }
 
+/// Reads the free space of a drive ([`read`]; a test can put a slow one in its place).
+pub(crate) type Reader = std::sync::Arc<dyn Fn(&Path) -> Option<DiskSpace> + Send + Sync>;
+
 /// The session's state of the alert (reset when a library opens).
 #[derive(Default)]
 pub(crate) struct DiskAlertState {
@@ -76,6 +81,18 @@ pub(crate) struct DiskAlertState {
     pub(crate) pending: Option<LowDiskAlert>,
     /// When the free space was last read.
     pub(crate) checked_at: Option<web_time::Instant>,
+    /// The read running on a worker (natively): a network share can take its time to answer, and
+    /// the check runs on the UI thread. Dropped (and its answer ignored) when a library opens.
+    probe: Option<std::sync::mpsc::Receiver<Option<DiskSpace>>>,
+    /// In place of [`read`] (tests).
+    pub(crate) reader: Option<Reader>,
+}
+
+impl DiskAlertState {
+    /// A fresh state for a newly opened library (the reader stays).
+    pub(crate) fn reset(&mut self) {
+        *self = DiskAlertState { reader: self.reader.take(), ..Default::default() };
+    }
 }
 
 impl crate::Session {
@@ -83,8 +100,11 @@ impl crate::Session {
     /// (`now`: whatever the last read, as when the library opens), and raise the alert if it is low
     /// ([`Session::note_disk_space`](crate::Session::note_disk_space)). Nothing once the alert was
     /// raised this session, without an on-disk library, or when the space can't be read.
+    /// The read itself runs on a worker (natively) and its answer is taken by a later call or
+    /// [`Session::poll_disk_space`]: a slow drive never holds up the caller.
     pub fn check_disk_space(&mut self, now: bool) {
-        if self.disk_alert.raised {
+        self.poll_disk_space();
+        if self.disk_alert.raised || self.disk_alert.probe.is_some() {
             return;
         }
         let Some(dir) = self.library.as_ref().filter(|l| l.on_disk).map(crate::library::Library::thumbs_dir) else { return };
@@ -93,8 +113,42 @@ impl crate::Session {
             return;
         }
         self.disk_alert.checked_at = Some(at);
-        if let Some(space) = read(&dir) {
+        let reader = self.disk_alert.reader.clone();
+        let read_now = move || match reader {
+            Some(r) => r(&dir),
+            None => read(&dir),
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let started = std::thread::Builder::new().name("disk-space".into()).spawn(move || {
+                let _ = tx.send(read_now());
+            });
+            match started {
+                Ok(_) => self.disk_alert.probe = Some(rx),
+                Err(e) => log::info!("disk space: can't start the free-space read: {e}"),
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if let Some(space) = read_now() {
             self.note_disk_space(space);
+        }
+    }
+
+    /// Take the answer of the free-space read running on a worker, if it has come, and raise the
+    /// alert when the drive is low. Called by [`Session::check_disk_space`],
+    /// [`Session::take_disk_space_alert`] and `library.info`.
+    pub fn poll_disk_space(&mut self) {
+        let Some(rx) = self.disk_alert.probe.as_ref() else { return };
+        match rx.try_recv() {
+            Ok(space) => {
+                self.disk_alert.probe = None;
+                if let Some(space) = space {
+                    self.note_disk_space(space);
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.disk_alert.probe = None,
         }
     }
 
@@ -113,6 +167,7 @@ impl crate::Session {
 
     /// The low-disk alert not shown yet, if any (handed out once per session).
     pub fn take_disk_space_alert(&mut self) -> Option<LowDiskAlert> {
+        self.poll_disk_space();
         self.disk_alert.pending.take()
     }
 
@@ -196,6 +251,42 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A drive that takes its time to answer (a network share) doesn't hold up the library open
+    /// or the checks on the UI thread: the read runs on a worker and its answer is taken later.
+    #[test]
+    fn a_slow_drive_does_not_hold_up_the_check() {
+        use std::sync::{Arc, Mutex, mpsc};
+        let dir = std::env::temp_dir().join(format!("lc-disk-alert-slow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let (release, wait) = mpsc::channel::<()>();
+        let wait = Mutex::new(wait);
+        let mut s = Session::new().with_fs();
+        s.disk_alert.reader = Some(Arc::new(move |_: &std::path::Path| {
+            // answers once the test lets it (or after 10 s, so a broken test can't hang)
+            let _ = wait.lock().unwrap().recv_timeout(std::time::Duration::from_secs(10));
+            Some(DiskSpace { available: GB, total: 500 * GB })
+        }));
+        s.open_library(&dir, false).unwrap();
+        assert!(s.take_disk_space_alert().is_none(), "the open didn't wait for the drive's answer");
+        s.check_disk_space(true);
+        assert!(s.take_disk_space_alert().is_none(), "nor does a check while the read runs");
+        release.send(()).unwrap();
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let alert = loop {
+            if let Some(a) = s.take_disk_space_alert() {
+                break a;
+            }
+            assert!(std::time::Instant::now() < until, "the drive's answer was never taken");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        };
+        assert_eq!(alert.space.available, GB);
+        assert!(s.disk_space_alert_raised());
+        s.close_library().unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn the_free_space_of_a_real_drive_is_read() {
         let space = super::read(&std::env::temp_dir().join("lc-disk-alert-not-there")).expect("the temp folder's drive says its size");
