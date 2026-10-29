@@ -268,6 +268,12 @@ fn browsing_with_subfolders_skips_the_librarys_own_folder() {
     let next = dir.join("lib").join("..").join("outside").to_string_lossy().to_string();
     assert_eq!(names(crate::import::browse_files(&input, &next, false).unwrap()), ["next.png"], "{next}");
     assert_eq!(names(crate::import::browse_files(&input, &next, true).unwrap()), ["next.png"], "{next}");
+    // under the folder's one spelling: the paths match the folder's own, so the catalog's records are found
+    // (CodeRabbit on #3055)
+    let direct = dir.join("outside").to_string_lossy().to_string();
+    for sub in [false, true] {
+        assert_eq!(crate::import::browse_files(&input, &next, sub).unwrap(), crate::import::browse_files(&input, &direct, sub).unwrap());
+    }
     // a folder inside the library that isn't there is an error too, not an empty folder
     let gone = dir.join("lib").join("not-there").to_string_lossy().to_string();
     assert!(crate::import::browse_files(&input, &gone, false).is_err(), "{gone}");
@@ -2466,4 +2472,16 @@ fn a_file_arriving_beside_its_raws_stem_reads_its_own_sidecar() {
     assert_eq!(r["sidecars"], 0, "{r}");
     assert_eq!(read(&s, "IMG_3.TIF"), 0, "the catalogued raw owns IMG_3.xmp");
     let _ = std::fs::remove_dir_all(&src);
+}
+
+/// A folder's one spelling: `.` and `..` taken out by name, never above the root (CodeRabbit on #3055).
+#[test]
+fn a_browsed_folder_has_one_spelling() {
+    use crate::import::lexical_path;
+    let root = std::env::temp_dir();
+    assert_eq!(lexical_path(&root.join("lib").join("..").join("outside")), root.join("outside"));
+    assert_eq!(lexical_path(&root.join(".").join("a").join(".").join("b")), root.join("a").join("b"));
+    let top: PathBuf = root.ancestors().last().map(Path::to_path_buf).unwrap_or_default();
+    assert_eq!(lexical_path(&top.join("..").join("x")), top.join("x"), "never above the root");
+    assert_eq!(lexical_path(Path::new("../a/../b")), Path::new("../b"));
 }
