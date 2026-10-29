@@ -5049,6 +5049,59 @@ fn a_shown_loupe_render_does_not_hold_background_preparation() {
     assert_eq!(signals(), shown, "no hold while the render is on screen");
 }
 
+/// A loupe render that failed, with nothing on the way, doesn't hold background preparation back
+/// for as long as the photo stays on screen (CodeRabbit on #3080; a retry on its way still does:
+/// `detail::tests::a_render_on_its_way_holds_background_preparation_even_after_a_failure`).
+#[test]
+fn a_failed_loupe_render_does_not_hold_background_preparation() {
+    use crate::render::Slot;
+    let dir = std::env::temp_dir().join(format!("lc-ui-failed-loupe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("files")).unwrap();
+    let img = lightcraft_raster::Rgba8::from_fn(64, 48, |x, y| [(x * 3) as u8, (y * 5) as u8, 90, 255]);
+    let o = lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() };
+    let file = dir.join("files/one.png");
+    std::fs::write(&file, lightcraft_engine::export::encode_image(&img, &o).unwrap()).unwrap();
+    let mut session = lightcraft_engine::Session::new().with_fs();
+    session.open_library(dir.join("lib"), false).unwrap();
+    let r = session.execute("library.import", &json!({"paths": [file.to_string_lossy()]})).unwrap();
+    let id = lightcraft_catalog::PhotoId(r["imported"][0].as_u64().unwrap());
+    // the file is damaged after the import: its render fails
+    std::fs::write(&file, b"not a png any more").unwrap();
+    session.media.clear_sources();
+    let mut h = Headless::new(LightcraftApp::new(session, crate::Services { png: None, ..Default::default() }), [1000.0, 700.0], 1.0);
+    let t = Duration::from_secs(10);
+    h.request("engine.execute", json!({"command": "library.select", "params": {"ids": [id.0], "active": id.0}}), t);
+    h.request("ui.set", json!({"view": "detail", "right": "none"}), t);
+    assert!(
+        h.step_until(SETTLE, |h| h.app.renderer.failure_of(Slot::Main, id).is_some() && !h.app.renderer.is_pending(Slot::Main)),
+        "the loupe render fails"
+    );
+    let signals = || crate::panels::detail::FOREGROUND_SIGNALS.with(std::cell::Cell::get);
+    h.step();
+    let after = signals();
+    for _ in 0..10 {
+        h.step();
+    }
+    assert_eq!(signals(), after, "no hold while the failed render is all there is");
+    drop(h);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `ui.set` with `settings.backgroundPrep` reaches the session and stays (CodeRabbit on #3080:
+/// the next frame's sync put the session's older settings back).
+#[test]
+fn ui_set_background_prep_reaches_the_session() {
+    let mut h = demo([1000.0, 700.0]);
+    let t = Duration::from_secs(10);
+    h.step();
+    h.request("ui.set", json!({"settings": {"backgroundPrep": {"library": {"ahead": 7}}}}), t);
+    h.step();
+    h.step();
+    assert_eq!(h.app.session.prep.app.library.ahead, 7, "the session has it");
+    assert_eq!(h.app.ui.settings.background_prep.library.ahead, 7, "and the app settings keep it");
+}
+
 /// The app-wide background preparation settings are kept with the app settings (`ui.json`):
 /// the saved ones reach the session at launch, and a change made through the command is saved.
 #[test]

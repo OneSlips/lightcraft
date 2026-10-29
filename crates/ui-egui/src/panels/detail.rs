@@ -923,8 +923,13 @@ fn request_main(app: &mut LightcraftApp, ui: &egui::Ui, a: &LoupeAsk, [rw, rh]: 
         let job = job.with_hidden_grading(app.ui.grading_hidden_for(id));
         app.renderer.request(Slot::Main, job, 100);
         // the photo on screen comes first: background preparation waits while it is being made
-        // (not once it is there: asking every frame held the background build back for good)
-        if app.renderer.is_pending(Slot::Main) || app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id) {
+        // (not once it is there: asking every frame held the background build back for good; nor
+        // once its render failed and nothing is on the way, which would hold it back as long as
+        // the photo stays on screen)
+        let pending = app.renderer.is_pending(Slot::Main);
+        let failed = app.renderer.failure_of(Slot::Main, id).is_some();
+        let shown = app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id);
+        if holds_foreground(pending, failed, shown) {
             signal_foreground();
         }
         // a drag's draft that renders in a few ms (GPU) is drawn in this frame, not the next (zoomed
@@ -937,6 +942,12 @@ fn request_main(app: &mut LightcraftApp, ui: &egui::Ui, a: &LoupeAsk, [rw, rh]: 
             app.renderer.wait_for_draft(ui.ctx(), &mut app.session, budget);
         }
     }
+}
+
+/// Whether the loupe holds background preparation back: while its render is on its way (also a
+/// retry after a failure), or while the photo isn't shown yet and its render hasn't failed.
+fn holds_foreground(pending: bool, failed: bool, shown: bool) -> bool {
+    pending || (!failed && !shown)
 }
 
 /// Tell background preparation the loupe is waiting for its render ([`lightcraft_engine::prep::foreground`]).
@@ -1273,6 +1284,20 @@ fn general_interaction(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::
 
 #[cfg(test)]
 mod tests {
+    /// The loupe's hold on background preparation (CodeRabbit on #3080): on while its render is on
+    /// its way, a retry after a failure included; off once the photo is shown, and off once its
+    /// render failed with nothing on the way (it held the build back as long as the photo stayed).
+    #[test]
+    fn a_render_on_its_way_holds_background_preparation_even_after_a_failure() {
+        use super::holds_foreground;
+        assert!(holds_foreground(true, false, false), "the first render on its way");
+        assert!(holds_foreground(true, true, false), "a retry on its way after a failure");
+        assert!(holds_foreground(true, false, true), "a newer render on its way over the shown photo");
+        assert!(holds_foreground(false, false, false), "not shown yet, nothing failed");
+        assert!(!holds_foreground(false, false, true), "shown");
+        assert!(!holds_foreground(false, true, false), "failed, nothing on the way");
+    }
+
     /// The rotation pointer's arc bulges away from the side of the crop box it is on, and follows
     /// a box that is itself rotated.
     #[test]

@@ -525,6 +525,8 @@ impl Session {
         self.recent_keywords = prefs.recent_keywords;
         self.import_defaults = prefs.import;
         self.cache_mb = prefs.cache_mb;
+        // the old library's preparation is not this one's: its build stops, its views are forgotten
+        self.prep.library_opened();
         self.prep.library = prefs.prep.map(crate::prep::PrepSettings::sanitized);
         self.slideshow = prefs.slideshow.sanitized();
         self.slide_layout = prefs.slide_layout.sanitized();

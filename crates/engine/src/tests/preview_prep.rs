@@ -343,6 +343,54 @@ fn a_view_change_stops_the_background_build_for_the_old_view() {
     std::fs::remove_dir_all(&root).unwrap();
 }
 
+/// Opening another library stops the build the preparation started for the old one and forgets
+/// its views, even when the new library's view has the same signature (same photo ids and count:
+/// CodeRabbit on #3080); the new library is prepared once the user steps through it.
+#[test]
+fn opening_another_library_stops_the_old_librarys_preparation() {
+    let (mut s, root, ids) = library("prep-reopen", 4);
+    let mode = crate::prep::Mode::Library;
+    // the build's lanes wait at their foreground check until released below
+    let hold = crate::prep::TestHold::new();
+    for id in &ids[..3] {
+        s.prep_tick(mode, Some(*id), false);
+    }
+    let old = s.preview_build.clone().expect("the view is prepared");
+    assert!(old.running());
+    let paths: Vec<String> = (0..4)
+        .map(|i| {
+            let p = root.join("other-shoot").join(format!("q{i:02}.png"));
+            png(&p, (i * 30) as u8);
+            p.to_string_lossy().to_string()
+        })
+        .collect();
+    s.close_library().unwrap();
+    s.open_library(root.join("other-lib"), false).unwrap();
+    let stopped = old.cancel.load(Ordering::Relaxed);
+    drop(hold);
+    assert!(stopped, "the old library's build is stopped when another library opens");
+    s.execute("library.import", &json!({"paths": paths})).unwrap();
+    let mut other: Vec<(String, PhotoId)> = s.catalog.photos().map(|p| (p.file_name.clone(), p.id)).collect();
+    other.sort();
+    let other: Vec<PhotoId> = other.into_iter().map(|(_, id)| id).collect();
+    for k in 0..600 {
+        s.prep_tick(mode, Some(other[k % 3]), false);
+        if s.preview_build.as_ref().is_some_and(|p| !std::sync::Arc::ptr_eq(p, &old)) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let next = s.preview_build.clone().expect("the new library is prepared");
+    assert!(!std::sync::Arc::ptr_eq(&next, &old), "a build of its own");
+    assert_eq!(next.total, 4);
+    next.cancel.store(true, Ordering::Relaxed);
+    for b in [&old, &next] {
+        assert!(wait_finished(b), "a cancelled build stops");
+    }
+    drop(s);
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 fn same_build(s: &Session, b: &std::sync::Arc<crate::cmd::previews::PreviewBuild>) -> bool {
     s.preview_build.as_ref().is_some_and(|p| std::sync::Arc::ptr_eq(p, b))
 }

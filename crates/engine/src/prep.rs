@@ -224,6 +224,17 @@ pub struct PrepState {
     sig_cache: Option<((u64, u64, Scope), u64)>,
 }
 
+impl PrepState {
+    /// Another library opened: stop the build this preparation started and forget the views it
+    /// counted or prepared (two libraries can show views with the same signature). The settings stay.
+    pub(crate) fn library_opened(&mut self) {
+        if let Some(b) = self.build.take() {
+            b.cancel.store(true, Ordering::Relaxed);
+        }
+        *self = PrepState { app: self.app, library: self.library, ..Default::default() };
+    }
+}
+
 impl std::fmt::Debug for PrepState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PrepState").field("app", &self.app).field("library", &self.library).field("steps", &self.steps).finish()
