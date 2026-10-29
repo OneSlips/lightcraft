@@ -282,7 +282,8 @@ impl TestHold {
 #[cfg(test)]
 impl Drop for TestHold {
     fn drop(&mut self) {
-        let _ = TEST_HOLD.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1));
+        // (one release per hold made: never below 0)
+        TEST_HOLD.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
