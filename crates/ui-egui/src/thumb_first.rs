@@ -1,6 +1,6 @@
 //! How long grid and filmstrip cells on screen wait for their first pixels. Each cell drawn on
 //! screen says whether it had a picture; a cell first seen without one is timed until it has one,
-//! while it stays on screen. `ui.inspect` → `perf.thumbFirst`, and `examples/cull_bench.rs`
+//! while it stays on screen. `ui.inspect` → `thumbFirst`, and `examples/cull_bench.rs`
 //! measures a folder with it.
 
 use std::collections::HashMap;
