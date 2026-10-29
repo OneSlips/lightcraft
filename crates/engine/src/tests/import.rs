@@ -2486,6 +2486,10 @@ fn a_browsed_folder_has_one_spelling() {
     assert_eq!(browse_path(&top.join("..").join("x")).unwrap(), top.join("x"), "never above the root");
     assert_eq!(browse_path(Path::new(".")).unwrap(), std::env::current_dir().unwrap(), "`.` is the current folder");
     assert_eq!(browse_path(Path::new("a/..")).unwrap(), std::env::current_dir().unwrap());
+    // the UI's spelling, without the disk: the same where no link comes before a `..`
+    let by_name = crate::import::browse_spelling(&root.join("lib").join("..").join("outside")).unwrap();
+    assert_eq!(by_name, root.join("outside"));
+    assert_eq!(crate::import::browse_spelling(Path::new(".")).unwrap(), std::env::current_dir().unwrap());
 }
 
 /// `link/..` is the folder the system reads (POSIX: above where the link points; Windows: the
