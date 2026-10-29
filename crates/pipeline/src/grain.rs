@@ -59,8 +59,8 @@ pub const MAX_REACH: i32 = 12;
 /// Edge softness of the film itself (grain units), on top of the pixel's footprint.
 const FILM_SOFT: f64 = 0.4;
 
-/// The development halo at most (its ring's integral as a fraction of the grain's), and its outer
-/// radius at most (grain radii).
+/// The development halo at most (its ring's integral as a fraction of the clump's grains'), and
+/// its outer radius at most (clump sizes).
 const HALO_MAX: f64 = 3.0;
 const HALO_R_MAX: f64 = 6.0;
 
@@ -115,10 +115,12 @@ const HALO_PIXEL_SOFTNESS: f64 = 0.44;
 /// 6000 px long edge (a 24 MP export).
 const REF_PX_PER_LONG: f64 = 6000.0;
 
-/// Explicit particles while the softening is below this many clump radii, Gaussian noise above
-/// the second bound, cross-faded between.
-const EXPLICIT_UPTO: f64 = 0.6;
-const GAUSSIAN_FROM: f64 = 1.1;
+/// Explicit particles while one output pixel's softening (the softness less the film's) is below
+/// this many clump radii, Gaussian noise above the second bound, cross-faded between. Fine grain
+/// on a 24 MP export (Size below about 10) is noise: particles a third of a pixel wide cost many
+/// times the grain they add, and the noise is correlated as the particles are.
+const EXPLICIT_UPTO: f64 = 0.35;
+const GAUSSIAN_FROM: f64 = 0.8;
 
 /// One grain of a clump: offset from the clump's centre, radius, density, elongation and
 /// orientation, outline harmonics (amplitude × phase), and how far it reaches.
@@ -147,9 +149,10 @@ pub struct GrainParams {
     pub s: f32,
     /// `1 / s`.
     pub inv_s: f32,
-    /// Edge softness of the halo (grain units) and its inverse.
-    pub halo_s: f32,
-    pub halo_inv_s: f32,
+    /// The halo's inner and outer radius around a clump's centre (grain units, softened by the
+    /// halo's pixel footprint), as `1 / R²` (0 without a halo).
+    pub halo_in: f32,
+    pub halo_out: f32,
     /// Log-radius spread of the grains (Size Variation).
     pub spread: f32,
     /// Extra elongation at most (a grain's aspect ratio is `1 + aspect·u`; Shape).
@@ -181,17 +184,23 @@ pub struct GrainParams {
     pub kappa_ref: f32,
     pub k_hh_ref: f32,
     pub k_ah_ref: f32,
-    /// Development halo `k`: a grain of radius `r` and density `o` lightens its surroundings by
-    /// `k·o·(disc(halo_r·r) − disc(r))`, a ring of lower density whose integral is `halo` times
-    /// the grain's ([`GrainParams::sub_cover`]); 0 = none.
+    /// Development halo `k`: a clump whose grains have densities `oᵢ` and radii `rᵢ` lightens its
+    /// surroundings by `k·W·(P(d²/R_out²) − P(d²/R_in²))`, `W = Σ oᵢ·rᵢ²`, `P(u) = (1 − u)²`
+    /// below 1: a ring of lower density around the clump whose integral is the look's `halo`
+    /// times `π·W` ([`GrainParams::clump_halo`]); 0 = none.
     pub halo: f32,
-    /// The halo's outer radius, in grain radii (1 without a halo).
+    /// The halo's outer radius relative to the clump's (1 without a halo).
     pub halo_r: f32,
     /// Response: the amplitude is multiplied by `exp(tilt·(l − ½))` at luminance `l`.
     pub tilt: f32,
     /// Cross-fade weights of the explicit field and of the Gaussian noise (`cos² + sin² = 1`).
     pub w_field: f32,
     pub w_noise: f32,
+    /// The noise's neighbour weight and normalisation: each pixel's noise is
+    /// `(n(x) − e·Σ n(4 neighbours))·norm`, so that its correlation with the next pixel is that
+    /// of the reference render box-averaged to this render's pixels ([`GrainParams::noise`]).
+    pub noise_e: f32,
+    pub noise_n: f32,
     /// Colour grain, 0..1: from one grain layer for all channels to independent dye layers.
     pub color: f32,
     /// Tone response exponent: > 1 moves grain into the shadows, < 1 into the highlights.
@@ -213,9 +222,9 @@ pub struct GrainLook {
     pub radius: f64,
     /// Grain shape, 0..1: round, even beads (0) to elongated, lobed grains (1).
     pub shape: f64,
-    /// Development halo: the ring's integral as a fraction of the grain's (0 = none).
+    /// Development halo: the ring's integral as a fraction of its clump's grains' (0 = none).
     pub halo: f64,
-    /// The halo's outer radius, in grain radii.
+    /// The halo's outer radius, in clump sizes.
     pub halo_r: f64,
     /// Standard deviation of the grain at Amount 100 at the reference resolution (display-encoded
     /// units: 1 = 255 levels), the same at every tone.
@@ -225,25 +234,26 @@ pub struct GrainLook {
 impl GrainLook {
     /// The look of Size `size` and Roughness `roughness` (both 0..100), fitted to Lightroom
     /// Classic exports at a 6000 px long edge (`docs/grain.md`, checked by
-    /// `grain_matches_lightroom_classic_exports`): the grain's strength and its autocorrelation at Size 0, 25 and 100 (Roughness 50) and at Roughness 0
-    /// and 100 (Size 25). Between those points the curves are smooth guesses.
+    /// `grain_matches_lightroom_classic_exports`): the grain's strength and its autocorrelation
+    /// at Size 0, 25 and 100 (Roughness 50) and at Roughness 0 and 100 (Size 25). Between those
+    /// points the curves are smooth guesses.
     pub fn new(size: f64, roughness: f64) -> GrainLook {
         let size = finite(size, 0.0, 100.0, 25.0);
         let rough = finite(roughness, 0.0, 100.0, 50.0) / 100.0;
         // mean radius at 6000 px: 0.3 px at Size 0 (grain finer than a pixel), 0.83 at 25, 3 at
         // 100; Roughness 0 is finer, 100 coarser
-        let r_px = (0.3 + 2.7 * (size / 100.0).powf(1.17)) * (0.9 - 0.15 * rough + 0.7 * rough * rough);
+        let r_px = (0.3 + 2.7 * (size / 100.0).powf(1.17)) * (0.96 - 0.33 * rough + 0.82 * rough * rough);
         // a development halo makes the grain regular (negative autocorrelation one to three
         // pixels out): below Roughness 50, and for grain finer than Size 25
         let smooth = (1.0 - 2.0 * rough).max(0.0);
         let fine = (1.0 - size / 25.0).max(0.0);
-        let halo = 0.8 * smooth + 1.1 * fine * fine;
+        let halo = smooth + 1.1 * fine * fine;
         // strength at Amount 100 (8-bit levels at every tone): Size 0 46.2, 25 17.1, 100 11.7;
         // Roughness 0 and 100 are 1.45× and 1.37× Roughness 50
         let levels = (2.447 + 1.386 * (-size / 19.88).exp()).exp();
         let d = rough - 0.5;
         let rough_gain = 1.0 - 0.084 * d + 1.6384 * d * d;
-        GrainLook { radius: r_px / REF_PX_PER_LONG, shape: rough, halo, halo_r: 3.2 + 0.3 * smooth, level: levels * rough_gain / 255.0 }
+        GrainLook { radius: r_px / REF_PX_PER_LONG, shape: rough, halo, halo_r: 3.2, level: levels * rough_gain / 255.0 }
     }
 }
 
@@ -283,7 +293,7 @@ fn moment_key(gp: &GrainParams) -> MomentKey {
         gp.s.to_bits(),
         gp.halo.to_bits(),
         gp.halo_r.to_bits(),
-        gp.halo_s.to_bits(),
+        gp.halo_in.to_bits(),
     ]
 }
 
@@ -315,6 +325,10 @@ fn clump_moments(gp: &GrainParams) -> Moments {
             *g = gp.sub_shape(hj, ox, oy);
             rb = rb.max((ox * ox + oy * oy).sqrt() + g.reach);
         }
+        let w = gp.clump_weight(h);
+        if w > 0.0 && gp.halo_out > 0.0 {
+            rb = rb.max(1.0 / gp.halo_out.sqrt());
+        }
         let Some(out) = out.first_mut() else { return };
         if !(rb > 0.0 && rb.is_finite()) {
             return;
@@ -324,16 +338,15 @@ fn clump_moments(gp: &GrainParams) -> Moments {
         for gy in 0..grid {
             for gx in 0..grid {
                 let (px, py) = (-rb + (gx as f32 + 0.5) * step, -rb + (gy as f32 + 0.5) * step);
-                let (mut t, mut hs) = (1.0f32, 0.0f32);
+                let mut t = 1.0f32;
                 for g in subs.iter().take(n as usize) {
                     let (dx, dy) = (px - g.x, py - g.y);
                     let d2 = dx * dx + dy * dy;
                     if d2 < g.reach * g.reach {
-                        let (a, h) = gp.sub_cover(g, dx, dy, d2);
-                        t *= 1.0 - a;
-                        hs += h;
+                        t *= 1.0 - gp.sub_cover(g, dx, dy, d2);
                     }
                 }
+                let hs = gp.clump_halo(w, px * px + py * py);
                 let (a, h) = ((1.0 - t) as f64, hs as f64);
                 acc.a1 += a;
                 acc.a2 += a * a;
@@ -402,6 +415,27 @@ impl RefCovariance {
         let c0 = self.at(0, 0);
         (c0 > 0.0).then(|| (v / (kp * kp) / c0).max(0.0))
     }
+
+    /// The correlation of neighbouring pixels (horizontal and vertical alike) of the reference
+    /// render box-averaged over blocks of `k × k` pixels (`None` below one lattice pitch).
+    fn block_correlation(&self, k: f64) -> Option<f64> {
+        let kp = k / self.pitch;
+        if !(kp >= 1.0 && kp.is_finite()) {
+            return None;
+        }
+        let l = self.lags as i64;
+        let tri = |v: f64| (1.0 - v.abs() / kp).max(0.0);
+        let (mut c0, mut c1) = (0.0, 0.0);
+        for lx in -l..=l {
+            for ly in -l..=l {
+                let c = self.at(lx, ly);
+                let wy = tri(ly as f64);
+                c0 += c * tri(lx as f64) * wy;
+                c1 += c * tri(lx as f64 - kp) * wy;
+            }
+        }
+        (c0 > 0.0).then(|| c1 / c0)
+    }
 }
 
 /// Cached [`ref_covariance`].
@@ -437,6 +471,10 @@ fn ref_covariance(gp: &GrainParams, px: f64, m: &Moments) -> RefCovariance {
             *g = gp.sub_shape(hj, ox, oy);
             rb = rb.max((ox * ox + oy * oy).sqrt() + g.reach);
         }
+        let w = gp.clump_weight(h);
+        if w > 0.0 && gp.halo_out > 0.0 {
+            rb = rb.max(1.0 / gp.halo_out.sqrt());
+        }
         if !(rb > 0.0 && rb.is_finite()) {
             return;
         }
@@ -450,16 +488,15 @@ fn ref_covariance(gp: &GrainParams, px: f64, m: &Moments) -> RefCovariance {
         for gy in 0..g_n {
             for gx in 0..g_n {
                 let (ux, uy) = (fx + (i0 + gx as i64) as f32 * p, fy + (i0 + gy as i64) as f32 * p);
-                let (mut t, mut hs) = (1.0f32, 0.0f32);
+                let mut t = 1.0f32;
                 for g in subs.iter().take(n as usize) {
                     let (dx, dy) = (ux - g.x, uy - g.y);
                     let d2 = dx * dx + dy * dy;
                     if d2 < g.reach * g.reach {
-                        let (ca, ch) = gp.sub_cover(g, dx, dy, d2);
-                        t *= 1.0 - ca;
-                        hs += ch;
+                        t *= 1.0 - gp.sub_cover(g, dx, dy, d2);
                     }
                 }
+                let hs = gp.clump_halo(w, ux * ux + uy * uy);
                 if let (Some(av), Some(hh)) = (a.get_mut(gy * g_n + gx), hv.get_mut(gy * g_n + gx)) {
                     (*av, *hh) = ((1.0 - t) as f64, hs as f64);
                 }
@@ -533,8 +570,6 @@ impl GrainParams {
         let r_norm = finite(look.radius, 1e-6, 0.01, 0.000_14);
         let halo = finite(look.halo, 0.0, HALO_MAX, 0.0);
         let halo_r = if halo > 0.0 { finite(look.halo_r, 1.05, HALO_R_MAX, 2.0) } else { 1.0 };
-        // the halo's ring, scaled so that its integral is `halo` times the grain's
-        let halo_k = if halo > 0.0 { halo / (halo_r * halo_r - 1.0) } else { 0.0 };
         // the softness, quantized so that nearby render sizes share their cached moments
         let pixel_soft = PIXEL_SOFTNESS[0] + (PIXEL_SOFTNESS[1] - PIXEL_SOFTNESS[0]) * clumping;
         let soft_at = |ppl: f64, pixel_soft: f64| {
@@ -544,13 +579,15 @@ impl GrainParams {
         let (spread, aspect, lump) = (SPREAD_MAX * variation, ASPECT_MAX * shape, LUMP_MAX * shape);
         let clump_extra = CLUMP_EXTRA_MAX * clumping;
         let clump_d = CLUMP_SPREAD_MIN + (CLUMP_SPREAD_MAX - CLUMP_SPREAD_MIN) * clumping;
+        // a clump's scale (grain radii): one grain, or a cluster
+        let clump_size = 1.0 + 0.7 * clump_d * clump_extra.min(1.0);
         let mut gp = GrainParams {
             amp: 0.0,
             inv_r: (1.0 / r_norm) as f32,
             s: 0.0,
             inv_s: 0.0,
-            halo_s: 0.0,
-            halo_inv_s: 0.0,
+            halo_in: 0.0,
+            halo_out: 0.0,
             spread: spread as f32,
             aspect: aspect as f32,
             lump: lump as f32,
@@ -568,11 +605,13 @@ impl GrainParams {
             kappa_ref: 1.0,
             k_hh_ref: 0.0,
             k_ah_ref: 0.0,
-            halo: halo_k as f32,
+            halo: 0.0,
             halo_r: halo_r as f32,
             tilt: (finite(g.response, -100.0, 100.0, 0.0) / 100.0 * RESPONSE_TILT) as f32,
             w_field: 1.0,
             w_noise: 0.0,
+            noise_e: 0.0,
+            noise_n: 1.0,
             color: (finite(g.color, 0.0, 100.0, 0.0) / 100.0) as f32,
             gamma: 2f64.powf(-finite(g.response, -100.0, 100.0, 0.0) / 50.0) as f32,
             seed: g.seed,
@@ -582,11 +621,19 @@ impl GrainParams {
             let s = soft_at(ppl, pixel_soft);
             let sh = soft_at(ppl, HALO_PIXEL_SOFTNESS);
             (gp.s, gp.inv_s) = (s as f32, (1.0 / s) as f32);
-            (gp.halo_s, gp.halo_inv_s) = (sh as f32, (1.0 / sh) as f32);
-            let s = s.max(sh);
-            let r_max = (3.0 * spread).exp() * (1.0 + aspect).sqrt() * (1.0 + lump) * halo_r;
+            let r_max = (3.0 * spread).exp() * (1.0 + aspect).sqrt() * (1.0 + lump);
             gp.sub_reach = ((r_max * r_max + s * s).sqrt() + s) as f32;
-            gp.support = (clump_d * std::f64::consts::SQRT_2 + gp.sub_reach as f64).min(CELL as f64 * MAX_REACH as f64 * 0.5 - 0.01) as f32;
+            let mut support = clump_d * std::f64::consts::SQRT_2 + gp.sub_reach as f64;
+            if halo > 0.0 {
+                // the ring around the clump, from its own size out to `halo_r` times it, scaled so
+                // that its integral is `halo` times the grains' (`P` integrates to `πR²/3`)
+                let ri2 = clump_size * clump_size + sh * sh;
+                let ro2 = (halo_r * clump_size).powi(2) + sh * sh;
+                (gp.halo_in, gp.halo_out) = ((1.0 / ri2) as f32, (1.0 / ro2) as f32);
+                gp.halo = (3.0 * halo / (ro2 - ri2)) as f32;
+                support = support.max(ro2.sqrt());
+            }
+            gp.support = support.min(CELL as f64 * MAX_REACH as f64 * 0.5 - 0.01) as f32;
         };
         // the grain's standard deviation at the reference resolution is `look.level` per unit of
         // Amount at every tone (`tone_weight` divides by the coverage's own deviation there)
@@ -601,12 +648,10 @@ impl GrainParams {
         };
         let m_ref = clump_moments(&gp);
         (gp.area_ref, gp.kappa_ref, _, gp.k_hh_ref, gp.k_ah_ref) = ratios(&m_ref);
+        let ref_px = 1.0 / (r_norm * REF_PX_PER_LONG);
+        let ref_gp = gp;
         // below the reference resolution, the grain is the reference render box-averaged
-        let ref_block = if ppl < REF_PX_PER_LONG {
-            ref_covariance(&gp, 1.0 / (r_norm * REF_PX_PER_LONG), &m_ref).block_variance(REF_PX_PER_LONG / ppl)
-        } else {
-            None
-        };
+        let ref_block = if ppl < REF_PX_PER_LONG { ref_covariance(&ref_gp, ref_px, &m_ref).block_variance(REF_PX_PER_LONG / ppl) } else { None };
         set_soft(&mut gp, ppl);
         let s = gp.s as f64;
         (gp.area, gp.kappa, gp.halo_mean, gp.k_hh, gp.k_ah) = ratios(&clump_moments(&gp));
@@ -619,9 +664,9 @@ impl GrainParams {
                 gp.amp *= (v.sqrt() * at_ref / own).clamp(0.25, 4.0) as f32;
             }
         }
-        // a clump's scale: one grain, or a cluster, and its halo
-        let scale = (1.0 + 0.7 * clump_d * clump_extra.min(1.0)) * (1.0 + (halo_r - 1.0) * halo.min(1.0));
-        let t = ((s / scale - EXPLICIT_UPTO) / (GAUSSIAN_FROM - EXPLICIT_UPTO)).clamp(0.0, 1.0);
+        // the pixel's footprint (the softness less the film's) relative to a clump
+        let px_soft = (s * s - FILM_SOFT * FILM_SOFT).max(0.0).sqrt();
+        let t = ((px_soft / clump_size - EXPLICIT_UPTO) / (GAUSSIAN_FROM - EXPLICIT_UPTO)).clamp(0.0, 1.0);
         (gp.w_field, gp.w_noise) = if t <= 0.0 {
             (1.0, 0.0)
         } else if t >= 1.0 {
@@ -630,6 +675,14 @@ impl GrainParams {
             let a = t * std::f64::consts::FRAC_PI_2;
             (a.cos() as f32, a.sin() as f32)
         };
+        if gp.w_noise > 0.0 {
+            // the noise correlated with its neighbours as the reference render's pixels are, box-
+            // averaged to this render's: `−2e / (1 + 4e²)` is the correlation of the next pixel
+            let k = (REF_PX_PER_LONG / ppl).max(1.0);
+            let rho = ref_covariance(&ref_gp, ref_px, &m_ref).block_correlation(k).unwrap_or(0.0).clamp(-0.45, 0.45);
+            let e = if rho.abs() > 1e-6 { (-1.0 + (1.0 - 4.0 * rho * rho).sqrt()) / (4.0 * rho) } else { 0.0 };
+            (gp.noise_e, gp.noise_n) = (e as f32, (1.0 / (1.0 + 4.0 * e * e).sqrt()) as f32);
+        }
         Some(gp)
     }
 
@@ -695,10 +748,7 @@ impl GrainParams {
     /// outline.
     #[inline]
     fn sub_shape(&self, hj: u32, ox: f32, oy: f32) -> Sub {
-        let rad = pcg(hj ^ GRAIN_HASH[3]);
-        let z = 2.0 * (unit8(rad) + unit8(rad >> 8) + unit8(rad >> 16)) - 3.0;
-        let r = (self.spread * z).exp();
-        let o = 0.25 + 0.75 * unit8(rad >> 24);
+        let (r, o) = self.sub_size(hj);
         let shp = pcg(hj ^ GRAIN_HASH[1]);
         let (a, b) = (2.0 * unit8(shp) - 1.0, 2.0 * unit8(shp >> 8) - 1.0);
         let n = (a * a + b * b).sqrt();
@@ -707,7 +757,7 @@ impl GrainParams {
         let m = 0.5 + ((shp >> 28) & 15) as f32 * (1.0 / 30.0);
         let p2 = PHASES.get(((shp >> 20) & 15) as usize).copied().unwrap_or([1.0, 0.0]);
         let p3 = PHASES.get(((shp >> 24) & 15) as usize).copied().unwrap_or([1.0, 0.0]);
-        let rr = r * asp.sqrt() * (1.0 + self.lump) * self.halo_r;
+        let rr = r * asp.sqrt() * (1.0 + self.lump);
         Sub {
             x: ox,
             y: oy,
@@ -718,17 +768,49 @@ impl GrainParams {
             ux,
             uy,
             h: [0.6 * m * p2[0], 0.6 * m * p2[1], 0.4 * m * p3[0], 0.4 * m * p3[1]],
-            reach: {
-                let s = self.s.max(self.halo_s);
-                (rr * rr + s * s).sqrt() + s
-            },
+            reach: (rr * rr + self.s * self.s).sqrt() + self.s,
         }
     }
 
-    /// Coverage (density × softened profile) and halo of grain `g` at offset (dx, dy) from its
-    /// centre, `d2 = dx² + dy²`.
+    /// Radius and density of the grain with hash `hj`.
     #[inline]
-    fn sub_cover(&self, g: &Sub, dx: f32, dy: f32, d2: f32) -> (f32, f32) {
+    fn sub_size(&self, hj: u32) -> (f32, f32) {
+        let rad = pcg(hj ^ GRAIN_HASH[3]);
+        let z = 2.0 * (unit8(rad) + unit8(rad >> 8) + unit8(rad >> 16)) - 3.0;
+        ((self.spread * z).exp(), 0.25 + 0.75 * unit8(rad >> 24))
+    }
+
+    /// The halo weight of the clump with hash `h`: `Σ oᵢ·rᵢ²` over its grains (0 without a halo).
+    #[inline]
+    fn clump_weight(&self, h: u32) -> f32 {
+        if self.halo <= 0.0 {
+            return 0.0;
+        }
+        (0..self.sub_count(h))
+            .map(|j| {
+                let (r, o) = self.sub_size(sub_hash(h, j));
+                o * r * r
+            })
+            .sum()
+    }
+
+    /// The halo of a clump of weight `w` at squared distance `d2` from its centre: a ring from the
+    /// clump's own size out to `halo_r` times it (no square root: a polynomial in `d2`).
+    #[inline]
+    fn clump_halo(&self, w: f32, d2: f32) -> f32 {
+        let u = d2 * self.halo_out;
+        if u >= 1.0 || w == 0.0 {
+            return 0.0;
+        }
+        let v = d2 * self.halo_in;
+        let inner = if v < 1.0 { (1.0 - v) * (1.0 - v) } else { 0.0 };
+        self.halo * w * ((1.0 - u) * (1.0 - u) - inner)
+    }
+
+    /// Coverage (density × softened profile) of grain `g` at offset (dx, dy) from its centre,
+    /// `d2 = dx² + dy²`.
+    #[inline]
+    fn sub_cover(&self, g: &Sub, dx: f32, dy: f32, d2: f32) -> f32 {
         let d = d2.sqrt();
         let mut r = g.r;
         if d > 1e-6 {
@@ -746,14 +828,7 @@ impl GrainParams {
                 r *= 1.0 + self.lump * (g.h[0] * c2 + g.h[1] * s2 + g.h[2] * c3 + g.h[3] * s3);
             }
         }
-        let core = Self::profile(d, r, self.s, self.inv_s);
-        if self.halo > 0.0 {
-            // the development halo: a ring of lower density out to `halo_r` radii
-            let (sh, ish) = (self.halo_s, self.halo_inv_s);
-            (g.o * core, g.o * self.halo * (Self::profile(d, self.halo_r * r, sh, ish) - Self::profile(d, r, sh, ish)))
-        } else {
-            (g.o * core, 0.0)
-        }
+        g.o * Self::profile(d, r, self.s, self.inv_s)
     }
 
     /// A disc of radius `r` softened by the edge width: its value at distance `d` from the centre
@@ -772,8 +847,9 @@ impl GrainParams {
     /// Coverage (the union of its grains) and halo (their sum) of the clump with hash `h` at
     /// offset (dx, dy) from its centre.
     fn clump_cover(&self, h: u32, dx: f32, dy: f32) -> (f32, f32) {
-        let (mut t, mut hs) = (1.0f32, 0.0f32);
+        let mut t = 1.0f32;
         let rr = self.sub_reach * self.sub_reach;
+        let hs = self.clump_halo(self.clump_weight(h), dx * dx + dy * dy);
         for j in 0..self.sub_count(h) {
             let hj = sub_hash(h, j);
             let (ox, oy) = self.sub_offset(hj);
@@ -786,9 +862,7 @@ impl GrainParams {
             if d2 >= g.reach * g.reach {
                 continue;
             }
-            let (a, ha) = self.sub_cover(&g, ex, ey, d2);
-            t *= 1.0 - a;
-            hs += ha;
+            t *= 1.0 - self.sub_cover(&g, ex, ey, d2);
         }
         (1.0 - t, hs)
     }
@@ -907,6 +981,7 @@ impl GrainParams {
         let mut touched: Vec<usize> = Vec::new();
         let salt = pcg(seed);
         let last = (cols - 1) as f32;
+        let halo_reach = if self.halo > 0.0 && self.halo_out > 0.0 { 1.0 / self.halo_out.sqrt() } else { 0.0 };
         // the pixels whose centres lie in a parameter interval along a row (a hair's margin for
         // rounding: each pixel is tested exactly below)
         let chord = |a: f32, b: f32| -> Option<(usize, usize)> {
@@ -981,6 +1056,7 @@ impl GrainParams {
                     let count = self.sub_count(h) as usize;
                     subs = [None; MAX_SUB as usize];
                     let mut offsets_known = false;
+                    let mut weight = None;
                     touched.clear();
                     for row in 0..rows {
                         if row_reach(row, cx, cy, r).is_none() {
@@ -1012,8 +1088,8 @@ impl GrainParams {
                                 if d2 >= g.reach * g.reach {
                                     continue;
                                 }
-                                let (a, ha) = self.sub_cover(&g, ex, ey, d2);
-                                if a == 0.0 && ha == 0.0 {
+                                let a = self.sub_cover(&g, ex, ey, d2);
+                                if a == 0.0 {
                                     continue;
                                 }
                                 if let (Some(t), Some(hq)) = (clump_t.get_mut(q), clump_h.get_mut(q)) {
@@ -1021,6 +1097,27 @@ impl GrainParams {
                                         touched.push(q);
                                     }
                                     *t *= 1.0 - a;
+                                }
+                            }
+                        }
+                        // the clump's halo, from its centre
+                        if halo_reach > 0.0 {
+                            let w = *weight.get_or_insert_with(|| self.clump_weight(h));
+                            let Some((pa, pb)) = row_reach(row, cx, cy, halo_reach) else { continue };
+                            for q in row * cols + pa..=row * cols + pb {
+                                let (Some(&(_, _, e_end, _)), Some(&x), Some(&y)) = (ends.get(q), xs.get(q), ys.get(q)) else { continue };
+                                if prod <= e_end {
+                                    continue;
+                                }
+                                let (ex, ey) = (x - cx, y - cy);
+                                let ha = self.clump_halo(w, ex * ex + ey * ey);
+                                if ha == 0.0 {
+                                    continue;
+                                }
+                                if let (Some(t), Some(hq)) = (clump_t.get_mut(q), clump_h.get_mut(q)) {
+                                    if *t == 1.0 && *hq == 0.0 {
+                                        touched.push(q);
+                                    }
                                     *hq += ha;
                                 }
                             }
@@ -1075,9 +1172,23 @@ impl GrainParams {
         }
         if self.w_noise > 0.0 {
             let (ix, iy) = ((gx * self.px_per_long).floor() as i32, (gy * self.px_per_long).floor() as i32);
-            d -= self.w_noise * self.coverage_std(p) * gauss(ix, iy, seed);
+            d -= self.w_noise * self.coverage_std(p) * self.noise(ix, iy, seed);
         }
         d
+    }
+
+    /// Unit-variance noise for pixel (ix, iy), correlated with its four neighbours by `noise_e`.
+    #[inline]
+    fn noise(&self, ix: i32, iy: i32, seed: u32) -> f32 {
+        let n = gauss(ix, iy, seed);
+        if self.noise_e == 0.0 {
+            return n;
+        }
+        let around = gauss(ix.wrapping_sub(1), iy, seed)
+            + gauss(ix.wrapping_add(1), iy, seed)
+            + gauss(ix, iy.wrapping_sub(1), seed)
+            + gauss(ix, iy.wrapping_add(1), seed);
+        (n - self.noise_e * around) * self.noise_n
     }
 
     /// What grain adds to each display-encoded channel at normalized position (gx, gy) (fractions
@@ -1122,7 +1233,7 @@ impl GrainParams {
                 }
                 if self.w_noise > 0.0 {
                     let (ix, iy) = ((x * self.px_per_long).floor() as i32, (y * self.px_per_long).floor() as i32);
-                    d -= self.w_noise * self.coverage_std(p) * gauss(ix, iy, seed);
+                    d -= self.w_noise * self.coverage_std(p) * self.noise(ix, iy, seed);
                 }
                 let d = amps[k] * d;
                 let c = &mut e[k];
