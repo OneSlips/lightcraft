@@ -87,13 +87,14 @@ const FIELDS: &[(&str, usize)] = &[
     ("GRAIN_K_HH_REF", 1),
     ("GRAIN_K_AH_REF", 1),
     ("GRAIN_HALO", 1),
-    ("GRAIN_HALO_R", 1),
-    ("GRAIN_HALO_S", 1),
-    ("GRAIN_HALO_INV_S", 1),
+    ("GRAIN_HALO_IN", 1),
+    ("GRAIN_HALO_OUT", 1),
     ("GRAIN_HALO_MEAN", 1),
     ("GRAIN_TILT", 1),
     ("GRAIN_WF", 1),
     ("GRAIN_WN", 1),
+    ("GRAIN_NOISE_E", 1),
+    ("GRAIN_NOISE_N", 1),
     ("GRAIN_COLOR", 1),
     ("GRAIN_GAMMA", 1),
     ("GRAIN_SEED", 1),
@@ -328,13 +329,14 @@ fn particle_grain(p: &mut Block, g: &GrainParams) {
     p.f("GRAIN_K_HH_REF", g.k_hh_ref);
     p.f("GRAIN_K_AH_REF", g.k_ah_ref);
     p.f("GRAIN_HALO", g.halo);
-    p.f("GRAIN_HALO_R", g.halo_r);
-    p.f("GRAIN_HALO_S", g.halo_s);
-    p.f("GRAIN_HALO_INV_S", g.halo_inv_s);
+    p.f("GRAIN_HALO_IN", g.halo_in);
+    p.f("GRAIN_HALO_OUT", g.halo_out);
     p.f("GRAIN_HALO_MEAN", g.halo_mean);
     p.f("GRAIN_TILT", g.tilt);
     p.f("GRAIN_WF", g.w_field);
     p.f("GRAIN_WN", g.w_noise);
+    p.f("GRAIN_NOISE_E", g.noise_e);
+    p.f("GRAIN_NOISE_N", g.noise_n);
     p.f("GRAIN_COLOR", g.color);
     p.f("GRAIN_GAMMA", g.gamma);
     p.u("GRAIN_SEED", g.seed);

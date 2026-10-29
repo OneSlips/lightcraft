@@ -304,15 +304,35 @@ fn grain_sub_offset(hj: u32) -> vec2<f32> {
     return vec2<f32>(d * (gunit8(o) + gunit8(o >> 8u) - 1.0), d * (gunit8(o >> 16u) + gunit8(o >> 24u) - 1.0));
 }
 
-// coverage and halo of grain `hj` at offset (dx, dy) from its centre: radius, density,
-// elongation, orientation, lobed outline, soft edge (0 beyond its reach)
-fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> vec2<f32> {
-    let s = max(pf(F_GRAIN_S), pf(F_GRAIN_HALO_S));
-    let lump = pf(F_GRAIN_LUMP);
+// radius and density of grain `hj`
+fn grain_sub_size(hj: u32) -> vec2<f32> {
     let rad = gpcg(hj ^ GRAIN_H3);
     let z = 2.0 * (gunit8(rad) + gunit8(rad >> 8u) + gunit8(rad >> 16u)) - 3.0;
-    let r0 = exp(pf(F_GRAIN_SPREAD) * z);
-    let o = 0.25 + 0.75 * gunit8(rad >> 24u);
+    return vec2<f32>(exp(pf(F_GRAIN_SPREAD) * z), 0.25 + 0.75 * gunit8(rad >> 24u));
+}
+
+// the halo of a clump of weight `w` at squared distance `d2` from its centre (`clump_halo`)
+fn grain_clump_halo(w: f32, d2: f32) -> f32 {
+    let u = d2 * pf(F_GRAIN_HALO_OUT);
+    if (u >= 1.0 || w == 0.0) {
+        return 0.0;
+    }
+    let v = d2 * pf(F_GRAIN_HALO_IN);
+    var inner = 0.0;
+    if (v < 1.0) {
+        inner = (1.0 - v) * (1.0 - v);
+    }
+    return pf(F_GRAIN_HALO) * w * ((1.0 - u) * (1.0 - u) - inner);
+}
+
+// coverage of grain `hj` at offset (dx, dy) from its centre: radius, density, elongation,
+// orientation, lobed outline, soft edge (0 beyond its reach)
+fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> f32 {
+    let s = pf(F_GRAIN_S);
+    let lump = pf(F_GRAIN_LUMP);
+    let ro = grain_sub_size(hj);
+    let r0 = ro.x;
+    let o = ro.y;
     let shp = gpcg(hj ^ GRAIN_H1);
     let a = 2.0 * gunit8(shp) - 1.0;
     let b = 2.0 * gunit8(shp >> 8u) - 1.0;
@@ -324,10 +344,10 @@ fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> vec2<f32> {
         uy = b / n;
     }
     let asp = 1.0 + pf(F_GRAIN_ASPECT) * gunit4(shp >> 16u);
-    let rr = r0 * sqrt(asp) * (1.0 + lump) * pf(F_GRAIN_HALO_R);
+    let rr = r0 * sqrt(asp) * (1.0 + lump);
     let reach = sqrt(rr * rr + s * s) + s;
     if (d2 >= reach * reach) {
-        return vec2<f32>(0.0, 0.0);
+        return 0.0;
     }
     let d = sqrt(d2);
     var r = r0;
@@ -351,15 +371,7 @@ fn grain_sub_cover(hj: u32, dx: f32, dy: f32, d2: f32) -> vec2<f32> {
             r = r * (1.0 + lump * (0.6 * m * (p2.x * c2 + p2.y * s2) + 0.4 * m * (p3.x * c3 + p3.y * s3)));
         }
     }
-    let core = grain_profile(d, r, pf(F_GRAIN_S), pf(F_GRAIN_INV_S));
-    let halo = pf(F_GRAIN_HALO);
-    if (halo > 0.0) {
-        // the development halo: a ring of lower density out to `halo_r` radii
-        let sh = pf(F_GRAIN_HALO_S);
-        let ish = pf(F_GRAIN_HALO_INV_S);
-        return vec2<f32>(o * core, o * halo * (grain_profile(d, pf(F_GRAIN_HALO_R) * r, sh, ish) - grain_profile(d, r, sh, ish)));
-    }
-    return vec2<f32>(o * core, 0.0);
+    return o * grain_profile(d, r, s, pf(F_GRAIN_INV_S));
 }
 
 // a disc of radius `r` softened by the edge width `s`, at distance `d` from its centre
@@ -376,15 +388,20 @@ fn grain_profile(d: f32, r: f32, s: f32, inv_s: f32) -> f32 {
     return r * r / (rho2 + s * s * 0.2) * prof;
 }
 
-// coverage (the union of its grains) and halo (their sum) of clump `h` at offset (dx, dy) from
-// its centre
+// coverage (the union of its grains) and halo (a ring around its centre) of clump `h` at offset
+// (dx, dy) from its centre
 fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> vec2<f32> {
     let sr = pf(F_GRAIN_SUB_REACH);
     let count = grain_sub_count(h);
     var t = 1.0;
-    var hs = 0.0;
+    var w = 0.0;
+    let has_halo = pf(F_GRAIN_HALO) > 0.0;
     for (var j = 0u; j < count; j++) {
         let hj = gsub_hash(h, j);
+        if (has_halo) {
+            let ro = grain_sub_size(hj);
+            w += ro.y * ro.x * ro.x;
+        }
         let off = grain_sub_offset(hj);
         let ex = dx - off.x;
         let ey = dy - off.y;
@@ -392,11 +409,9 @@ fn grain_clump_cover(h: u32, dx: f32, dy: f32) -> vec2<f32> {
         if (d2 >= sr * sr) {
             continue;
         }
-        let ah = grain_sub_cover(hj, ex, ey, d2);
-        t *= 1.0 - ah.x;
-        hs += ah.y;
+        t *= 1.0 - grain_sub_cover(hj, ex, ey, d2);
     }
-    return vec2<f32>(1.0 - t, hs);
+    return vec2<f32>(1.0 - t, grain_clump_halo(w, dx * dx + dy * dy));
 }
 
 fn grain_field(x: f32, y: f32, p: f32, seed: u32) -> f32 {
@@ -479,7 +494,16 @@ fn grain_layer(gx: f32, gy: f32, p: f32, seed: u32) -> f32 {
     }
     if (wn > 0.0) {
         let ppl = pf(F_GRAIN_PPL);
-        d -= wn * grain_std(p) * grain_gauss(i32(floor(gx * ppl)), i32(floor(gy * ppl)), seed);
+        let ix = i32(floor(gx * ppl));
+        let iy = i32(floor(gy * ppl));
+        var n = grain_gauss(ix, iy, seed);
+        let e = pf(F_GRAIN_NOISE_E);
+        if (e != 0.0) {
+            // correlated with its four neighbours (`GrainParams::noise`)
+            let around = grain_gauss(ix - 1, iy, seed) + grain_gauss(ix + 1, iy, seed) + grain_gauss(ix, iy - 1, seed) + grain_gauss(ix, iy + 1, seed);
+            n = (n - e * around) * pf(F_GRAIN_NOISE_N);
+        }
+        d -= wn * grain_std(p) * n;
     }
     return d;
 }
