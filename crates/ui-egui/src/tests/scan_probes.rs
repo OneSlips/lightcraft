@@ -93,13 +93,15 @@ fn a_browse_whose_folder_resolves_slowly_returns_at_once_and_waits() {
     let mut h = demo();
     let dir = std::env::temp_dir().join(format!("lc-ui-browse-held-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let given = lightcraft_engine::import::browse_spelling(&dir).unwrap().to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+    // (spelled with `sub/..`: the worker is handed the path as given, not the view's spelling of it)
+    let given = dir.join("sub").join("..").to_string_lossy().to_string();
+    let spelled = lightcraft_engine::import::browse_spelling(&dir).unwrap().to_string_lossy().trim_end_matches(['/', '\\']).to_string();
     crate::import::HELD_RESOLVES.lock().unwrap().push(given.clone());
     let start = std::time::Instant::now();
-    let r = crate::import::browse(&mut h.app, &dir.to_string_lossy(), None).unwrap();
+    let r = crate::import::browse(&mut h.app, &given, None).unwrap();
     assert!(start.elapsed() < Duration::from_secs(2), "returned after {:?}", start.elapsed());
     assert_eq!(r["scanning"], true, "{r}");
-    assert_eq!(h.app.session.browse.as_ref().map(|b| b.path.clone()), Some(given.clone()), "shown as given meanwhile");
+    assert_eq!(h.app.session.browse.as_ref().map(|b| b.path.clone()), Some(spelled), "shown as spelled meanwhile");
     for _ in 0..5 {
         h.step();
     }
@@ -119,4 +121,26 @@ fn a_browse_of_a_missing_folder_fails_on_its_worker() {
     assert!(crate::import::browse(&mut h.app, &gone.to_string_lossy(), None).is_ok());
     assert!(h.step_until(T, |h| h.app.scan.is_none()));
     assert!(failed_toast(&h), "the failure is reported: {:?}", h.app.ui.toast);
+}
+
+/// The worker resolves the path as given (CodeRabbit on #3055 / #3077 / #3080): on Unix `photos/link/../select`, with
+/// `link` pointing at `real/day`, is `real/select`, not the `photos/select` that taking `..` out by name would read.
+#[cfg(unix)]
+#[test]
+fn a_browse_through_a_link_and_dot_dot_reads_the_folder_the_system_names() {
+    let mut h = demo();
+    let base = std::env::temp_dir().join(format!("lc-ui-browse-link-{}", std::process::id()));
+    let (day, real_select, photos) = (base.join("real/day"), base.join("real/select"), base.join("photos"));
+    for d in [&day, &real_select, &photos.join("select")] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::os::unix::fs::symlink(&day, photos.join("link")).unwrap();
+    let given = photos.join("link").join("..").join("select");
+    crate::import::browse(&mut h.app, &given.to_string_lossy(), None).unwrap();
+    assert!(h.step_until(T, |h| h.app.scan.is_none()), "the browse ended");
+    assert!(!failed_toast(&h), "{:?}", h.app.ui.toast);
+    let want = std::fs::canonicalize(&real_select).unwrap();
+    let shown = h.app.session.browse.as_ref().map(|b| std::fs::canonicalize(&b.path).unwrap());
+    assert_eq!(shown, Some(want), "the folder the system names, not photos/select");
+    let _ = std::fs::remove_dir_all(&base);
 }

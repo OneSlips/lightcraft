@@ -59,6 +59,9 @@ impl StepTiming {
 pub struct LoupeTiming {
     current: Option<(f64, StepTiming)>,
     done: VecDeque<StepTiming>,
+    /// Steps finished since the app started (never lowered when old ones leave `done`): a driver's
+    /// cursor for the steps made after it looked.
+    total: u64,
 }
 
 /// Sources that show the photo at full size: the camera's JPEG, a cached or a fresh render.
@@ -125,13 +128,15 @@ impl LoupeTiming {
                 self.done.pop_front();
             }
             self.done.push_back(t);
+            self.total = self.total.saturating_add(1);
         }
     }
 
-    /// The finished steps, oldest first, and the photo on screen now.
+    /// The finished steps, oldest first (the latest [`KEEP`]), how many have finished in all, and the photo on screen now.
     pub fn to_json(&self) -> Value {
         json!({
             "steps": self.done.iter().map(|t| t.to_json()).collect::<Vec<_>>(),
+            "total": self.total,
             "current": self.current.as_ref().map(|(_, t)| t.to_json()),
         })
     }
@@ -193,6 +198,8 @@ mod tests {
         l.left(1000.0);
         let s = l.steps();
         assert_eq!(s.len(), KEEP);
+        // the count of steps goes on past the kept list: a driver's cursor (CodeRabbit on #3077)
+        assert_eq!(l.to_json()["total"], KEEP as u64 + 10);
         assert!(s.iter().all(|t| t.sharp_ms.is_none() && t.full_ms.is_none()));
         // a non-finite clock never poisons the record
         l.observe(PhotoId(9999), "render", f64::NAN);

@@ -159,7 +159,9 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     let progress = std::sync::Arc::new(ScanProgress::default());
     let (tx, rx) = std::sync::mpsc::channel();
     let p = progress.clone();
-    let given = dir_s.clone();
+    // the worker resolves the path as given: on Unix `link/..` is the folder above where the link points, which the
+    // spelling (`..` taken out by name) can't tell
+    let given = path.to_owned();
     let sort = app.session.sort;
     let (resolved_tx, resolved) = std::sync::mpsc::channel();
     let job = move || {
@@ -216,8 +218,8 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     Ok(json!({"path": dir_s, "subfolders": subfolders, "scanning": true}))
 }
 
-/// The browsed folder `given` (a [`lightcraft_engine::import::browse_spelling`]) as [`lightcraft_engine::import::browse_path`]
-/// resolves it, checked to be a folder: on the browse worker, as it reads the disk.
+/// The browsed folder `given` (the path as `browse` received it, not its [`lightcraft_engine::import::browse_spelling`])
+/// as [`lightcraft_engine::import::browse_path`] resolves it, checked to be a folder: on the browse worker, as it reads the disk.
 fn resolve_browse_root(given: &str) -> Result<String, String> {
     #[cfg(test)]
     held_resolve(given);

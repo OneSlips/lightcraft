@@ -908,7 +908,12 @@ fn camera_jpeg_shown(app: &LightcraftApp, photo: &lightcraft_catalog::Photo, sho
 /// Request the loupe's own render at `[rw, rh]` (drafts during drags).
 fn request_main(app: &mut LightcraftApp, ui: &egui::Ui, a: &LoupeAsk, [rw, rh]: [usize; 2], whole_draft: bool) {
     let (id, interacting, fit_px, overlay) = (a.id, a.interacting, a.fit_px, a.overlay);
-    if let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), a.with_crop) {
+    if let Some(mut job) = app.session.loupe_job(id, rw.max(8), rh.max(8), a.with_crop) {
+        // editing: the photo is rendered from its source, which stays decoded for the first slider
+        // draft (a cached view render would show at once but leave the source unread until then)
+        if prep_mode(app) == lightcraft_engine::prep::Mode::Develop {
+            job.view_cache = None;
+        }
         let job = if interacting { job.draft() } else { job };
         // at rest the render is shrunk to exactly the size it is drawn at with a Lanczos filter on
         // the worker, so the window draws it texel for texel instead of shrinking it with 2-tap
@@ -920,7 +925,7 @@ fn request_main(app: &mut LightcraftApp, ui: &egui::Ui, a: &LoupeAsk, [rw, rh]: 
         // the photo on screen comes first: background preparation waits while it is being made
         // (not once it is there: asking every frame held the background build back for good)
         if app.renderer.is_pending(Slot::Main) || app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id) {
-            lightcraft_engine::prep::foreground();
+            signal_foreground();
         }
         // a drag's draft that renders in a few ms (GPU) is drawn in this frame, not the next (zoomed
         // in, what changes on screen is the window's draft)
@@ -932,6 +937,19 @@ fn request_main(app: &mut LightcraftApp, ui: &egui::Ui, a: &LoupeAsk, [rw, rh]: 
             app.renderer.wait_for_draft(ui.ctx(), &mut app.session, budget);
         }
     }
+}
+
+/// Tell background preparation the loupe is waiting for its render ([`lightcraft_engine::prep::foreground`]).
+fn signal_foreground() {
+    #[cfg(test)]
+    FOREGROUND_SIGNALS.with(|n| n.set(n.get() + 1));
+    lightcraft_engine::prep::foreground();
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: how often this thread's loupe told background preparation to wait.
+    pub(crate) static FOREGROUND_SIGNALS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Hovering a preset or profile: the photo with that look, shown instead of the loupe render once
