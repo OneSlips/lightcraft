@@ -63,15 +63,28 @@ impl PointerRepair {
             return;
         }
         let modifiers = egui::Modifiers::NONE;
-        let mut out = Vec::with_capacity(raw.events.len() + 1);
-        for e in std::mem::take(&mut raw.events) {
+        let events = std::mem::take(&mut raw.events);
+        // for each event, the buttons released by a real event later in this batch
+        let mut released_later = vec![[false; BUTTONS]; events.len()];
+        let mut seen = [false; BUTTONS];
+        for (e, later) in events.iter().zip(released_later.iter_mut()).rev() {
+            *later = seen;
+            if let egui::Event::PointerButton { button: b, pressed: false, .. } = e
+                && let Some(s) = seen.get_mut(index(*b))
+            {
+                *s = true;
+            }
+        }
+        let mut out = Vec::with_capacity(events.len() + 1);
+        for (e, later) in events.into_iter().zip(released_later) {
             match e {
                 egui::Event::PointerMoved(p) => {
                     if let Some(at) = self.left_at.take() {
                         let inside = self.screen.is_none_or(|r| r.contains(p));
                         if inside {
-                            // back without a move outside: the button went up out there
-                            self.release_all(at, modifiers, &mut out);
+                            // back without a move outside: the button went up out there, unless its own
+                            // release is still to come in this batch
+                            self.release_all(at, modifiers, &later, &mut out);
                         }
                     }
                     self.last = Some(p);
@@ -109,12 +122,21 @@ impl PointerRepair {
         self.down.iter().any(|d| *d)
     }
 
-    fn release_all(&mut self, at: egui::Pos2, modifiers: egui::Modifiers, out: &mut Vec<egui::Event>) {
+    /// Releases, where the pointer left (`at`), every button still down but those released later in the batch
+    /// (`released_later`): those keep their real release. The pointer is moved there first only when a release
+    /// is missing.
+    fn release_all(&mut self, at: egui::Pos2, modifiers: egui::Modifiers, released_later: &[bool; BUTTONS], out: &mut Vec<egui::Event>) {
+        let missing = |(d, later): (&bool, &bool)| *d && !*later;
+        if !self.down.iter().zip(released_later).any(missing) {
+            return;
+        }
         out.push(egui::Event::PointerMoved(at));
-        for (i, d) in self.down.iter_mut().enumerate() {
-            if std::mem::take(d)
+        for (i, (d, later)) in self.down.iter_mut().zip(released_later).enumerate() {
+            if *d
+                && !*later
                 && let Some(b) = button(i)
             {
+                *d = false;
                 out.push(egui::Event::PointerButton { pos: at, button: b, pressed: false, modifiers });
             }
         }
@@ -138,6 +160,34 @@ mod tests {
 
     fn releases(events: &[Event]) -> usize {
         events.iter().filter(|e| matches!(e, Event::PointerButton { pressed: false, .. })).count()
+    }
+
+    /// A batch that comes back inside and then carries the button's real release: that release is kept, and no
+    /// release (nor move to where the pointer left) is made up before it. Another button still down with no
+    /// release to come is still released (CodeRabbit on #1060).
+    #[test]
+    fn a_real_release_later_in_the_batch_is_not_made_up_before_it() {
+        let mut r = PointerRepair::default();
+        frame(&mut r, vec![Event::PointerMoved(pos2(700.0, 590.0)), press(pos2(700.0, 590.0), true)]);
+        let back = frame(&mut r, vec![Event::PointerGone, Event::PointerMoved(pos2(300.0, 300.0)), press(pos2(300.0, 300.0), false)]);
+        assert_eq!(back, vec![Event::PointerGone, Event::PointerMoved(pos2(300.0, 300.0)), press(pos2(300.0, 300.0), false)]);
+        assert!(!r.any_down());
+        // two buttons down, only the secondary's release to come: the primary is released where it left
+        let secondary =
+            |pressed| Event::PointerButton { pos: pos2(700.0, 590.0), button: PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE };
+        frame(&mut r, vec![Event::PointerMoved(pos2(700.0, 590.0)), press(pos2(700.0, 590.0), true), secondary(true)]);
+        let back = frame(&mut r, vec![Event::PointerGone, Event::PointerMoved(pos2(300.0, 300.0)), secondary(false)]);
+        assert_eq!(
+            back,
+            vec![
+                Event::PointerGone,
+                Event::PointerMoved(pos2(700.0, 590.0)),
+                press(pos2(700.0, 590.0), false),
+                Event::PointerMoved(pos2(300.0, 300.0)),
+                secondary(false),
+            ]
+        );
+        assert!(!r.any_down());
     }
 
     /// The case egui-winit gets wrong: a drag that ends just past the window's edge.
