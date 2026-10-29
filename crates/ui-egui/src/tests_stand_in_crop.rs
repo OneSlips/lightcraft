@@ -212,10 +212,18 @@ fn leaving_a_constrained_straightened_crop_never_shows_empty_strips() {
     let mut h = raws(2, delay.clone());
     show(&mut h, 1);
     exec(&mut h, "panel.crop", json!({}));
+    // Constrain Crop first, then the crop: turned on in the same edit, it makes the crop again from
+    // the whole frame (`Session::fit_constrained_crop`), and a whole frame turned 3° (no warp for
+    // Constrain Crop to shrink it into) has corners off the photo: no picture of the photo fills
+    // them, and only a thumbnail made with that crop (drawn as it is) passed, when it came in time
     let mut d = (*h.app.session.catalog.photo(PhotoId(1)).unwrap().develop).clone();
     d.geometry.constrain_crop = true;
-    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.55, y0: 0.5, x1: 1.0, y1: 1.0 }, angle: 3.0 };
+    h.app.session.set_develop(PhotoId(1), d, "Constrain Crop").unwrap();
+    let mut d = (*h.app.session.catalog.photo(PhotoId(1)).unwrap().develop).clone();
+    // dragged into the bottom-right corner, as far as it goes turned 3° (all of it on the photo)
+    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.55, y0: 0.5, x1: 0.93, y1: 0.92 }, angle: 3.0 };
     h.app.session.set_develop(PhotoId(1), d, "Crop").unwrap();
+    assert_eq!(h.app.session.catalog.photo(PhotoId(1)).unwrap().develop.crop.geometry.rect.x1, 0.93, "the crop is kept as drawn");
     assert!(frames(&mut h, T, |_| {}, |h| rendered(h, PhotoId(1))), "the crop tool's render: {:?}", h.app.loupe_shown);
     delay.store(3000, Ordering::Relaxed);
     h.app.run("tool.done", json!({})).expect("done");
