@@ -64,9 +64,16 @@ def wait(pred, timeout=120, every=0.0):
         if every:
             time.sleep(every)
 
+def steps_total(s=None):
+    """A cursor for the steps finished so far: `total` keeps counting after the app drops its oldest
+    steps (it keeps the latest 256); the length of the list is the fallback for builds without it."""
+    s = s or inspect()["perf"]["loupeSteps"]
+    return s.get("total", len(s["steps"]))
+
 def steps_since(n0):
     s = inspect()["perf"]["loupeSteps"]
-    return s["steps"][n0:], s
+    new = steps_total(s) - n0
+    return (s["steps"][-new:] if new > 0 else []), s
 
 out = {"label": LABEL, "folder": FOLDER, "holdMs": HOLD_MS}
 SIZE = opt("--size", "")
@@ -125,14 +132,14 @@ if "--skip-browse" not in args:
 ex("library.selectAll")
 ids = inspect().get("selection") or []
 ex("library.select", {"ids": [ids[0]]})
-n0 = len(inspect()["perf"]["loupeSteps"]["steps"])
+n0 = steps_total()
 ex("view.detail")
 wait(lambda s: loupe(s).get("source") in ("render", "cached") and not loupe(s).get("pending"), 120)
 first_cur = inspect()["perf"]["loupeSteps"]["current"]
 out["loupe_first"] = first_cur
 
 # --- deliberate stepping: a step, then rest until it is sharp ---------------------------------------
-n0 = len(inspect()["perf"]["loupeSteps"]["steps"])
+n0 = steps_total()
 for i in range(10):
     ex("library.next")
     wait(lambda s: loupe(s).get("source") in ("render", "cached") and not loupe(s).get("pending"), 60)
@@ -150,7 +157,7 @@ out["step_rest"] = {
 
 # --- held arrow: a key every HOLD_MS ---------------------------------------------------------------
 wait(lambda s: loupe(s).get("source") in ("render", "cached") and not loupe(s).get("pending"), 60)
-n0 = len(inspect()["perf"]["loupeSteps"]["steps"])
+n0 = steps_total()
 conns = [Conn() for _ in range(4)]
 t0 = time.perf_counter() + 0.05
 def sender(k):
