@@ -293,7 +293,10 @@ fn main() -> eframe::Result {
                     written: serde_json::to_vec_pretty(&app.ui).unwrap_or_default(),
                     library: app.ui.settings.library_path.clone(),
                     keep_file: keep_prefs_file,
-                    start: Some(lightcraft_ui_egui::window_place::StartPlace::new(MAXIMIZE_LATER && opens_as.is_some_and(|w| w.zoomed))),
+                    start: Some(
+                        lightcraft_ui_egui::window_place::StartPlace::new(MAXIMIZE_LATER && opens_as.is_some_and(|w| w.zoomed))
+                            .remembered(opens_as.map(|w| w.size)),
+                    ),
                     ..Default::default()
                 };
                 // after the snapshot above, so the writer saves the switched-off preference

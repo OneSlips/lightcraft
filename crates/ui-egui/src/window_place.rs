@@ -350,12 +350,22 @@ pub struct StartPlace {
     shown: Option<f64>,
     first_step: Option<f64>,
     done: bool,
+    /// The size it was remembered at (system points), before the system or eframe fitted it to its screen.
+    remembered: Option<[f32; 2]>,
 }
 
 impl StartPlace {
     /// `maximize_after`: the window was built at its size and should be maximized once it shows.
     pub fn new(maximize_after: bool) -> StartPlace {
-        StartPlace { maximize: maximize_after, asked: None, retried: false, shown: None, first_step: None, done: false }
+        StartPlace { maximize: maximize_after, asked: None, retried: false, shown: None, first_step: None, done: false, remembered: None }
+    }
+
+    /// The size the window was remembered at and built with (`size`, system points): a window remembered larger
+    /// than its screen is fitted to it even when it was clamped to the whole screen before it was first seen
+    /// (eframe clamps a remembered 1600 × 1000 to a 1280 × 720 screen).
+    pub fn remembered(mut self, size: Option<[f32; 2]>) -> StartPlace {
+        self.remembered = size.filter(|s| s.iter().all(|v| v.is_finite()));
+        self
     }
 
     /// Whether there is nothing more to do.
@@ -384,7 +394,8 @@ impl StartPlace {
             self.done = true;
             // remembered larger than this screen: fitted to it, and never larger than it (a screen smaller than
             // the window's minimum lowers the minimum to the screen)
-            if !seen.zoomed && (size[0] > screen[0] + SAME_WITHIN || size[1] > screen[1] + SAME_WITHIN) {
+            let larger = |s: [f32; 2]| s[0] > screen[0] + SAME_WITHIN || s[1] > screen[1] + SAME_WITHIN;
+            if !seen.zoomed && (larger(size) || self.remembered.is_some_and(larger)) {
                 let side = |i: usize| (screen[i] * FIT_TO_SCREEN).max(MIN_SIZE[i]).min(screen[i]);
                 let fit = [side(0), side(1)];
                 // (`seen` is in the system's points, the commands in the interface's)

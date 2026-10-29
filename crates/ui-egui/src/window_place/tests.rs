@@ -657,3 +657,19 @@ fn a_window_on_a_screen_smaller_than_its_minimum_fits_within_the_screen() {
     let big = Seen { size: Some([3000.0, 2000.0]), screen: Some([1920.0, 1080.0]), ..Default::default() };
     assert_eq!(s.step(&big, 0.0, 1.0), vec![C::InnerSize(egui::vec2(1728.0, 972.0))]);
 }
+
+/// eframe clamps a remembered 1600 × 1000 window to a 1280 × 720 screen before it is first seen: the remembered
+/// size still has it fitted to 90 % of the screen, not left covering all of it (CodeRabbit on #2974).
+#[test]
+fn a_window_clamped_to_its_screen_before_it_shows_is_still_fitted() {
+    use egui::ViewportCommand as C;
+    let clamped = Seen { size: Some([1280.0, 720.0]), screen: Some([1280.0, 720.0]), ..Default::default() };
+    let mut s = StartPlace::new(false).remembered(Some([1600.0, 1000.0]));
+    assert_eq!(s.step(&clamped, 0.0, 1.0), vec![C::InnerSize(egui::vec2(1152.0, 648.0))]);
+    // remembered within the screen: left as it is
+    let mut s = StartPlace::new(false).remembered(Some([1200.0, 700.0]));
+    assert!(s.step(&clamped, 0.0, 1.0).is_empty() && s.done());
+    // nothing remembered: as before
+    let mut s = StartPlace::new(false);
+    assert!(s.step(&clamped, 0.0, 1.0).is_empty());
+}
