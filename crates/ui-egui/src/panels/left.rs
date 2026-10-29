@@ -846,15 +846,24 @@ fn missing_count(app: &mut LightcraftApp, ui: &mut egui::Ui) -> usize {
         job.running.store(true, Relaxed);
         job.at = now;
         job.rev = rev;
+        // counted with the file-system answers: the Missing Photos row comes and goes with it, and
+        // the rows below move (the headless driver waits for it before acting on their places)
+        let pending = fs_running_counter(ui.ctx());
+        pending.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
         let (n, running, ctx) = (job.n.clone(), job.running.clone(), ui.ctx().clone());
         let work = move || {
             let missing = if cfg!(target_arch = "wasm32") { 0 } else { paths.iter().filter(|p| !std::path::Path::new(p).exists()).count() };
             n.store(missing, Relaxed);
             running.store(false, Relaxed);
+            // after the count is stored: a frame that sees the work done also sees the count
+            pending.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(work);
+        if std::thread::Builder::new().name("lc-missing-count".into()).spawn(work).is_err() {
+            job.running.store(false, Relaxed);
+            fs_running_counter(ui.ctx()).fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        }
         #[cfg(target_arch = "wasm32")]
         work();
         ui.data_mut(|d| d.insert_temp(id, job.clone()));
@@ -2412,6 +2421,37 @@ mod tests {
         }
         let l = local_places(builtin(), &[], Some("/home/example/Pictures/Trip"), None, &["/home/example".into()]);
         assert_eq!((names(&l.places), l.owner), (vec!["Pictures"], Some(0)));
+    }
+
+    /// The Missing Photos count is worked out on a worker thread and its row comes when it lands,
+    /// moving every row below it: it counts as pending work, so the headless driver (`settle`)
+    /// waits for it before a test clicks a row by where it was drawn (a click landed on the row
+    /// beneath otherwise, on a busy machine).
+    #[test]
+    fn the_missing_photos_count_is_pending_work_until_it_lands() {
+        use crate::Services;
+        use crate::headless::HeadlessView;
+        use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+        let mut session = lightcraft_engine::Session::new();
+        let n = 20_000;
+        for i in 1..=n {
+            let path = format!("/lightcraft-test-missing/{i}.jpg");
+            let p = Photo::new(PhotoId(i), Source::File { path }, "x.jpg", "JPEG", 60, 40, "2026-01-01T10:00:00");
+            session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        }
+        let mut app = crate::LightcraftApp::new(session, Services::default());
+        let mut view = HeadlessView::new();
+        let mut count = 0;
+        let raw = HeadlessView::raw_input(egui::vec2(300.0, 200.0), 1.0, 0.0, vec![]);
+        view.run(raw, |ui| count = super::missing_count(&mut app, ui));
+        assert!(super::fs_cached_running(&view.ctx) > 0 || count == n as usize, "a count under way is pending work");
+        let t0 = std::time::Instant::now();
+        while super::fs_cached_running(&view.ctx) > 0 && t0.elapsed() < std::time::Duration::from_secs(120) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let raw = HeadlessView::raw_input(egui::vec2(300.0, 200.0), 1.0, 1.0 / 60.0, vec![]);
+        view.run(raw, |ui| count = super::missing_count(&mut app, ui));
+        assert_eq!(count, n as usize, "once nothing is pending, the count is there");
     }
 
     #[test]

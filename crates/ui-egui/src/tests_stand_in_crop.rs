@@ -212,10 +212,18 @@ fn leaving_a_constrained_straightened_crop_never_shows_empty_strips() {
     let mut h = raws(2, delay.clone());
     show(&mut h, 1);
     exec(&mut h, "panel.crop", json!({}));
+    // Constrain Crop first, then the crop: turned on in the same edit, it makes the crop again from
+    // the whole frame (`Session::fit_constrained_crop`), and a whole frame turned 3° (no warp for
+    // Constrain Crop to shrink it into) has corners off the photo: no picture of the photo fills
+    // them, and only a thumbnail made with that crop (drawn as it is) passed, when it came in time
     let mut d = (*h.app.session.catalog.photo(PhotoId(1)).unwrap().develop).clone();
     d.geometry.constrain_crop = true;
-    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.55, y0: 0.5, x1: 1.0, y1: 1.0 }, angle: 3.0 };
+    h.app.session.set_develop(PhotoId(1), d, "Constrain Crop").unwrap();
+    let mut d = (*h.app.session.catalog.photo(PhotoId(1)).unwrap().develop).clone();
+    // dragged into the bottom-right corner, as far as it goes turned 3° (all of it on the photo)
+    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.55, y0: 0.5, x1: 0.93, y1: 0.92 }, angle: 3.0 };
     h.app.session.set_develop(PhotoId(1), d, "Crop").unwrap();
+    assert_eq!(h.app.session.catalog.photo(PhotoId(1)).unwrap().develop.crop.geometry.rect.x1, 0.93, "the crop is kept as drawn");
     assert!(frames(&mut h, T, |_| {}, |h| rendered(h, PhotoId(1))), "the crop tool's render: {:?}", h.app.loupe_shown);
     delay.store(3000, Ordering::Relaxed);
     h.app.run("tool.done", json!({})).expect("done");
@@ -257,9 +265,21 @@ fn a_crop_made_while_renders_are_held_back_shows_in_its_own_shape() {
     frames(&mut h, Duration::from_millis(300), |_| {}, |_| false);
     let mut d = (*h.app.session.catalog.photo(PhotoId(1)).unwrap().develop).clone();
     d.geometry.constrain_crop = true;
-    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.5, y0: 0.45, x1: 1.0, y1: 1.0 }, angle: 3.0 };
+    // (all of it on the photo, turned 3°: a crop past the photo's edge has corners no picture of
+    // the photo fills; the render paints them a light neutral)
+    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect { x0: 0.5, y0: 0.45, x1: 0.95, y1: 0.93 }, angle: 3.0 };
     h.app.session.set_develop(PhotoId(1), d, "Crop").unwrap();
-    frames(&mut h, Duration::from_millis(300), |_| {}, |_| false);
+    // the picture on hand with the new crop is the filmstrip's thumbnail (the loupe's renders are
+    // held back): leaving Crop before it is made has nothing to show the new crop from, so wait for
+    // it rather than for a time a loaded machine may not make it in
+    let cropped = h.app.session.placement_of(PhotoId(1), true).expect("a placement");
+    let ok = frames(
+        &mut h,
+        T,
+        |_| {},
+        |h| h.app.renderer.thumb(PhotoId(1)).is_some_and(|t| t.quick.is_none() && t.placement.is_some_and(|p| p.uv_to_norm == cropped.uv_to_norm)),
+    );
+    assert!(ok, "the filmstrip's thumbnail of the new crop");
     h.app.run("tool.done", json!({})).expect("done");
     let want = h.app.session.placement_of(PhotoId(1), true).expect("a placement");
     let mut bad = Vec::new();

@@ -1315,10 +1315,19 @@ fn photos_side_by_side_overlap_on_one_gpu_turn() {
     };
     run(1); // warm up
     let one = run(1);
+    let start = std::time::Instant::now();
     let four = run(4);
+    let end = std::time::Instant::now();
     lightcraft_gpu::set_batch_limits(None, None);
     eprintln!("8 HDR exports: 1 lane {one:.2} s, 4 lanes {four:.2} s ({:.1}x)", one / four.max(1e-3));
-    assert!(four * 1.3 < one, "4 lanes {four:.2} s vs 1 lane {one:.2} s: lanes must overlap");
+    // Lanes overlap: a photo's decode or encode ran on its lane while another lane's photo held its
+    // turn at the GPU. (Checked on when the steps ran, not on how much faster the batch went: the
+    // speed-up shrinks to nothing on a machine busy with other work, the overlap does not.)
+    let spans: Vec<_> = crate::export::SPANS.lock().unwrap().iter().copied().filter(|(_, _, a, b)| *a >= start && *b <= end).collect();
+    let turns: Vec<_> = spans.iter().filter(|s| s.0).collect();
+    let overlapped = spans.iter().filter(|s| !s.0).any(|(_, lane, a, b)| turns.iter().any(|(_, other, ta, tb)| other != lane && a < tb && ta < b));
+    assert!(turns.len() >= batch.len(), "every photo's renders took a turn: {} of {}", turns.len(), batch.len());
+    assert!(overlapped, "4 lanes {four:.2} s vs 1 lane {one:.2} s: no decode or encode ran during another photo's turn");
 }
 
 /// Note 28: a cancelled export stayed "cancelling" for minutes and kept exporting. It returns

@@ -2016,19 +2016,40 @@ thread_local! {
 }
 
 /// Marks the renders of one photo (what may hold its turn at the GPU) on this thread.
-struct TurnMark;
+struct TurnMark {
+    #[cfg(test)]
+    since: std::time::Instant,
+}
 
 impl TurnMark {
     fn enter() -> Self {
         let _ = IN_RENDERS.try_with(|c| c.set(c.get().saturating_add(1)));
-        TurnMark
+        TurnMark {
+            #[cfg(test)]
+            since: std::time::Instant::now(),
+        }
     }
 }
 
 impl Drop for TurnMark {
     fn drop(&mut self) {
         let _ = IN_RENDERS.try_with(|c| c.set(c.get().saturating_sub(1)));
+        #[cfg(test)]
+        note_span(true, self.since);
     }
+}
+
+/// When each photo's steps ran (tests): `(in its renders, thread, start, end)`, for checking that
+/// one photo's decode or encode ran while another held its turn, whatever the machine's load.
+#[cfg(test)]
+pub(crate) static SPANS: std::sync::Mutex<Vec<(bool, std::thread::ThreadId, std::time::Instant, std::time::Instant)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Record a step of a photo's export that began at `since` and ends now (tests).
+#[cfg(test)]
+fn note_span(in_renders: bool, since: std::time::Instant) {
+    let span = (in_renders, std::thread::current().id(), since, std::time::Instant::now());
+    SPANS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(span);
 }
 
 /// Encodes that ran inside a photo's renders (tests: an encode must never hold the GPU turn).
@@ -2071,7 +2092,11 @@ impl PreparedExport {
                 // by side took turns at an idle card).
                 check()?;
                 if needs_source(&job) {
+                    #[cfg(test)]
+                    let since = std::time::Instant::now();
                     let src = job.source.load_source()?;
+                    #[cfg(test)]
+                    note_span(false, since);
                     if let Some(hj) = &mut hdr_job {
                         hj.source = crate::media::SourceRef::Loaded(Box::new(src.clone()));
                     }
@@ -2140,10 +2165,14 @@ impl PreparedExport {
                 lap("renders", &mut t);
                 check()?;
                 // 3. The encode, on this lane's thread after its turn (the next photo renders meanwhile)
+                #[cfg(test)]
+                let since = std::time::Instant::now();
                 let bytes = match &hdr {
                     Some(hdr) => encode_gain_map_jpeg(&r.image, hdr, &opts, meta.as_ref())?,
                     None => encode_rendered(&r, &opts, meta.as_ref())?,
                 };
+                #[cfg(test)]
+                note_span(false, since);
                 lap("encode", &mut t);
                 Ok(Exported { file_name, bytes, width: r.image.width, height: r.image.height, sidecars: Vec::new(), gpu_fallback })
             }
