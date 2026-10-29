@@ -2474,14 +2474,49 @@ fn a_file_arriving_beside_its_raws_stem_reads_its_own_sidecar() {
     let _ = std::fs::remove_dir_all(&src);
 }
 
-/// A folder's one spelling: `.` and `..` taken out by name, never above the root (CodeRabbit on #3055).
+/// A folder's one spelling: `.` is the current folder, `.` and `..` are taken out, never above the
+/// root (CodeRabbit on #3055 / #3080).
 #[test]
 fn a_browsed_folder_has_one_spelling() {
-    use crate::import::lexical_path;
+    use crate::import::browse_path;
     let root = std::env::temp_dir();
-    assert_eq!(lexical_path(&root.join("lib").join("..").join("outside")), root.join("outside"));
-    assert_eq!(lexical_path(&root.join(".").join("a").join(".").join("b")), root.join("a").join("b"));
+    assert_eq!(browse_path(&root.join("lib").join("..").join("outside")).unwrap(), root.join("outside"));
+    assert_eq!(browse_path(&root.join(".").join("a").join(".").join("b")).unwrap(), root.join("a").join("b"));
     let top: PathBuf = root.ancestors().last().map(Path::to_path_buf).unwrap_or_default();
-    assert_eq!(lexical_path(&top.join("..").join("x")), top.join("x"), "never above the root");
-    assert_eq!(lexical_path(Path::new("../a/../b")), Path::new("../b"));
+    assert_eq!(browse_path(&top.join("..").join("x")).unwrap(), top.join("x"), "never above the root");
+    assert_eq!(browse_path(Path::new(".")).unwrap(), std::env::current_dir().unwrap(), "`.` is the current folder");
+    assert_eq!(browse_path(Path::new("a/..")).unwrap(), std::env::current_dir().unwrap());
+}
+
+/// `link/..` is the folder the system reads (POSIX: above where the link points; Windows: the
+/// folder holding the link): browsing it lists what the system lists there (CodeRabbit on #3055 /
+/// #3077 / #3080).
+#[test]
+fn a_link_before_dotdot_names_the_folder_the_system_reads() {
+    let dir = temp_dir("browse-link-dotdot");
+    std::fs::create_dir_all(dir.join("real").join("sub")).unwrap();
+    write_png(&dir.join("real").join("in-real.png"), 1);
+    write_png(&dir.join("beside-link.png"), 2);
+    let link = dir.join("link");
+    #[cfg(unix)]
+    let made = std::os::unix::fs::symlink(dir.join("real").join("sub"), &link);
+    #[cfg(windows)]
+    let made = std::os::windows::fs::symlink_dir(dir.join("real").join("sub"), &link);
+    if let Err(e) = made {
+        lightcraft_testkit::skip!(System, "can't make a folder link here: {e}");
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+    let mut s = Session::new().with_fs();
+    let (input, _) = crate::import::ScanInput::new(&mut s, &[]);
+    let through = link.join("..");
+    let names = |v: Vec<String>| v.iter().map(|f| Path::new(f).file_name().unwrap().to_string_lossy().to_string()).collect::<Vec<_>>();
+    let listed = names(crate::import::browse_files(&input, &through.to_string_lossy(), false).unwrap());
+    let mut system: Vec<String> =
+        std::fs::read_dir(&through).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".png")).collect();
+    system.sort();
+    assert_eq!(listed, system, "{}", through.display());
+    #[cfg(unix)]
+    assert_eq!(listed, ["in-real.png"]);
+    let _ = std::fs::remove_dir_all(&dir);
 }

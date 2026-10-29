@@ -138,7 +138,7 @@ pub fn browse_queue_until(
 pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io::Result<Vec<String>> {
     // one spelling for the folder, and so for its files: `lib/../outside` lists `outside`'s files as
     // the catalog stores them, not as new photos under another name
-    let root_path = lexical_path(Path::new(root));
+    let root_path = browse_path(Path::new(root))?;
     let root = root_path.to_string_lossy().to_string();
     // the library's folder itself, or a folder inside it: nothing to browse
     if input.skip.as_deref().is_some_and(|lib| inside(&root_path, lib)) {
@@ -164,31 +164,42 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
     Ok(v)
 }
 
-/// `path` with its `.` and `..` taken out by name (`/a/lib/../outside` is `/a/outside`), as Windows
-/// reads them, without touching the disk: the folder's one spelling for the view, its listing and
-/// the catalog's records. A `..` above the root stays at the root.
-pub fn lexical_path(path: &Path) -> PathBuf {
+/// The folder `path` names, as one spelling for the view, its listing and the catalog's records:
+/// absolute (`.` is the current folder), with `.` and `..` taken out the way the system reads them.
+/// Windows takes `..` out by name; elsewhere `link/..` is the folder above where the link points,
+/// so a link before a `..` is resolved first. Everything else keeps its spelling (a mapped drive
+/// stays a drive letter, a link not followed by `..` stays the link), as the records were made.
+pub fn browse_path(path: &Path) -> std::io::Result<PathBuf> {
     use std::path::Component;
+    let path = std::path::absolute(path)?;
     let mut out = PathBuf::new();
     for c in path.components() {
         match c {
             Component::CurDir => {}
-            Component::ParentDir if matches!(out.components().next_back(), Some(Component::Normal(_))) => {
-                out.pop();
+            Component::ParentDir => {
+                #[cfg(not(windows))]
+                if std::fs::symlink_metadata(&out).is_ok_and(|m| m.file_type().is_symlink())
+                    && let Ok(real) = std::fs::canonicalize(&out)
+                {
+                    out = real;
+                }
+                // (above the root: still the root)
+                if matches!(out.components().next_back(), Some(Component::Normal(_))) {
+                    out.pop();
+                }
             }
-            Component::ParentDir if out.has_root() || out.components().next_back().is_some_and(|l| matches!(l, Component::Prefix(_))) => {}
             c => out.push(c.as_os_str()),
         }
     }
-    out
+    Ok(out)
 }
 
-/// Whether `root` (written without `..`) is `lib` or a folder inside it: as written, or once both
-/// are resolved (a symlink to the library names the same folder), as the recursive walk tells. A
-/// root that can't be resolved (gone, or a network share that won't say) is compared as written
-/// when it is there; one that isn't there is not inside, and listing it reports why.
+/// Whether `root` (a [`browse_path`]) is `lib` or a folder inside it: as written, or once both are
+/// resolved (a symlink to the library names the same folder), as the recursive walk tells. A root
+/// that can't be resolved (gone, or a network share that won't say) is compared as written when it
+/// is there; one that isn't there is not inside, and listing it reports why.
 fn inside(root: &Path, lib: &Path) -> bool {
-    let as_written = || root.starts_with(lexical_path(lib));
+    let as_written = || root.starts_with(browse_path(lib).unwrap_or_else(|_| lib.to_path_buf()));
     match std::fs::canonicalize(root) {
         Ok(resolved) => as_written() || std::fs::canonicalize(lib).is_ok_and(|lib| resolved.starts_with(lib)),
         Err(_) => root.exists() && as_written(),
