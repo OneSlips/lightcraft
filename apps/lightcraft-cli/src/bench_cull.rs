@@ -84,6 +84,23 @@ fn run_dir(work: &Path) -> Result<PathBuf, String> {
     Ok(d)
 }
 
+/// `take` items of `v` after the first `skip` (photos the stages before have read, so cold in the
+/// file cache), or, when `v` has no more than `skip`, its first `take`: a small folder is measured
+/// on photos already read rather than not at all.
+fn sample_after<T>(v: &[T], skip: usize, take: usize) -> &[T] {
+    let from = if v.len() > skip { skip } else { 0 };
+    let rest = v.get(from..).unwrap_or_default();
+    rest.get(..take.min(rest.len())).unwrap_or_default()
+}
+
+/// Whether `json` names a file in `folder` (the source folder, which a run only reads): its
+/// folder, resolved, is `folder` or inside it.
+fn inside_source(json: &Path, folder: &Path) -> bool {
+    let Ok(folder) = std::fs::canonicalize(folder) else { return false };
+    let parent = json.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    std::fs::canonicalize(parent).is_ok_and(|p| p.starts_with(&folder))
+}
+
 fn library(dir: &Path) -> Result<Session, String> {
     let mut s = Session::new().with_fs().with_system_clock();
     s.open_library(dir, false).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -135,6 +152,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let folder = folder.ok_or_else(|| USAGE.to_string())?;
     if !folder.is_dir() {
         return Err(format!("{}: not a folder", folder.display()));
+    }
+    // nothing is written next to the photos, the results included
+    if let Some(j) = json_out.as_deref().filter(|j| inside_source(j, &folder)) {
+        return Err(format!("{}: --json must not be in the folder being measured", j.display()));
     }
     let work = work.unwrap_or_else(|| std::env::temp_dir().join(format!("lightcraft-bench-cull-{}", std::process::id())));
     let work = run_dir(&work)?;
@@ -211,7 +232,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     out["thumbs"] = json!({"firstMs": round(first), "allMs": round(all), "count": per.len(), "each": each});
 
     // --- camera previews at loupe sizes, one at a time (what a step costs without look-ahead) -----
-    let sample: Vec<&String> = paths.iter().skip(48).take(20).collect();
+    let sample = sample_after(&paths, 48, 20);
     for edge in [1280usize, 2560, usize::MAX] {
         let ms: Vec<f64> = sample
             .iter()
@@ -228,10 +249,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 
     // --- LightCraft's loupe render (2560 px) from a cold source --------------------------------
-    let ms: Vec<f64> = ids
+    let ms: Vec<f64> = sample_after(&ids, 80, 5)
         .iter()
-        .skip(80)
-        .take(5)
         .filter_map(|id| {
             let job = s.loupe_job(*id, 2560, 1708, true)?;
             let a = Instant::now();
@@ -320,6 +339,30 @@ mod tests {
         fresh_dir(&a, "lib-browse").unwrap();
         assert!(fresh_dir(&a, "lib-browse").is_err(), "an existing folder is never reused");
         assert_eq!(std::fs::read(&keep).unwrap(), b"mine");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A folder too small for the disjoint samples is measured on the photos it has (CodeRabbit on #3077).
+    #[test]
+    fn a_small_folder_is_sampled_from_its_start() {
+        let v: Vec<u32> = (0..100).collect();
+        assert_eq!(sample_after(&v, 48, 20), &v[48..68]);
+        assert_eq!(sample_after(&v, 90, 20), &v[90..100]);
+        assert_eq!(sample_after(&v[..3], 48, 20), &v[..3]);
+        assert_eq!(sample_after(&v[..48], 48, 5), &v[..5]);
+        assert!(sample_after::<u32>(&[], 48, 20).is_empty());
+    }
+
+    /// `--json` naming a file in the source folder is refused (CodeRabbit on #3077); elsewhere it is fine.
+    #[test]
+    fn the_results_never_go_in_the_source_folder() {
+        let work = run_dir(&std::env::temp_dir()).unwrap();
+        let src = fresh_dir(&work, "src").unwrap();
+        let sub = fresh_dir(&src, "sub").unwrap();
+        assert!(inside_source(&src.join("a.png"), &src));
+        assert!(inside_source(&sub.join("x.json"), &src));
+        assert!(inside_source(&src.join("sub").join("..").join("a.png"), &src));
+        assert!(!inside_source(&work.join("out.json"), &src));
         let _ = std::fs::remove_dir_all(&work);
     }
 }
