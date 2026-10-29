@@ -290,7 +290,7 @@ pub fn wait_for_pictures(stop: &dyn Fn() -> bool, max: std::time::Duration) -> b
 /// Whether the photo on screen is being made now, or something on screen lacks its first picture.
 pub fn foreground_busy() -> bool {
     #[cfg(test)]
-    if TEST_HOLD.load(Ordering::Relaxed) {
+    if TEST_HOLD.load(Ordering::Relaxed) > 0 {
         return true;
     }
     let now = clock_ms();
@@ -298,18 +298,19 @@ pub fn foreground_busy() -> bool {
 }
 
 /// Tests: hold every background build at its foreground wait until released (a synchronization
-/// point that doesn't depend on the hold's 250 ms).
+/// point that doesn't depend on the hold's 250 ms). A count, not a switch: tests running side by
+/// side each hold until their own release, and one test's release doesn't free another's build.
 #[cfg(test)]
-static TEST_HOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static TEST_HOLD: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Holds background builds while it lives (also when the test fails).
+/// Holds background builds while it lives (also when the test fails), whatever other holds do.
 #[cfg(test)]
 pub(crate) struct TestHold;
 
 #[cfg(test)]
 impl TestHold {
     pub(crate) fn new() -> Self {
-        TEST_HOLD.store(true, Ordering::Relaxed);
+        TEST_HOLD.fetch_add(1, Ordering::Relaxed);
         TestHold
     }
 }
@@ -317,7 +318,8 @@ impl TestHold {
 #[cfg(test)]
 impl Drop for TestHold {
     fn drop(&mut self) {
-        TEST_HOLD.store(false, Ordering::Relaxed);
+        // (one release per hold made: never below 0)
+        TEST_HOLD.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -483,6 +485,16 @@ mod tests {
         assert_eq!(p.develop.scope, Scope::OnScreen);
         assert_eq!(p.ahead(Mode::Develop), 0);
         assert!(PrepSettings::default().patched(&json!({"culling": {"scope": "sometimes"}})).is_err());
+    }
+
+    /// Tests side by side: one test's release doesn't free the build another test holds (CodeRabbit on #3077).
+    #[test]
+    fn one_tests_release_does_not_free_another_tests_hold() {
+        let a = TestHold::new();
+        let b = TestHold::new();
+        drop(a);
+        assert!(TEST_HOLD.load(Ordering::Relaxed) > 0 && foreground_busy(), "the other hold still holds");
+        drop(b);
     }
 
     #[test]

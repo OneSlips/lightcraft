@@ -136,17 +136,21 @@ pub fn browse_queue_until(
 /// from it for files gone. (With `subfolders` the walk skips the folders below it that it can't
 /// read, as the import's scan does.)
 pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io::Result<Vec<String>> {
+    // one spelling for the folder, and so for its files: `lib/../outside` lists `outside`'s files as
+    // the catalog stores them, not as new photos under another name
+    let root_path = lexical_path(Path::new(root));
+    let root = root_path.to_string_lossy().to_string();
     // the library's folder itself, or a folder inside it: nothing to browse
-    if input.skip.as_deref().is_some_and(|lib| inside(Path::new(root), lib)) {
+    if input.skip.as_deref().is_some_and(|lib| inside(&root_path, lib)) {
         return Ok(Vec::new());
     }
     if subfolders {
         // (the root itself must be there to be walked)
-        std::fs::read_dir(root)?;
-        return Ok(expand(&[root.to_string()], input.skip.as_deref()));
+        std::fs::read_dir(&root)?;
+        return Ok(expand(&[root], input.skip.as_deref()));
     }
     let mut v = Vec::new();
-    for entry in std::fs::read_dir(root)? {
+    for entry in std::fs::read_dir(&root)? {
         let entry = entry?;
         if crate::walk::is_hidden_entry(&entry) {
             continue;
@@ -160,15 +164,34 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
     Ok(v)
 }
 
-/// Whether `root` is `lib` or a folder inside it once both are resolved (a symlink to the library,
-/// or a path through `..`, names the same folder; `lib/../outside` is outside), as the recursive
-/// walk tells. A root that doesn't resolve isn't inside: listing it reports why. A library folder
-/// that doesn't resolve is compared as written, without `..`.
+/// `path` with its `.` and `..` taken out by name (`/a/lib/../outside` is `/a/outside`), as Windows
+/// reads them, without touching the disk: the folder's one spelling for the view, its listing and
+/// the catalog's records. A `..` above the root stays at the root.
+pub fn lexical_path(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for c in path.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir if matches!(out.components().next_back(), Some(Component::Normal(_))) => {
+                out.pop();
+            }
+            Component::ParentDir if out.has_root() || out.components().next_back().is_some_and(|l| matches!(l, Component::Prefix(_))) => {}
+            c => out.push(c.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Whether `root` (written without `..`) is `lib` or a folder inside it: as written, or once both
+/// are resolved (a symlink to the library names the same folder), as the recursive walk tells. A
+/// root that can't be resolved (gone, or a network share that won't say) is compared as written
+/// when it is there; one that isn't there is not inside, and listing it reports why.
 fn inside(root: &Path, lib: &Path) -> bool {
-    let Ok(resolved) = std::fs::canonicalize(root) else { return false };
-    match std::fs::canonicalize(lib) {
-        Ok(lib) => resolved.starts_with(lib),
-        Err(_) => root.starts_with(lib) && !root.components().any(|c| c == std::path::Component::ParentDir),
+    let as_written = || root.starts_with(lexical_path(lib));
+    match std::fs::canonicalize(root) {
+        Ok(resolved) => as_written() || std::fs::canonicalize(lib).is_ok_and(|lib| resolved.starts_with(lib)),
+        Err(_) => root.exists() && as_written(),
     }
 }
 
