@@ -219,6 +219,9 @@ pub struct PrepState {
     steps_in: Option<u64>,
     last_at: Option<PhotoId>,
     steps: usize,
+    /// The view's signature, kept under what it is made of (the visible list's generation, the
+    /// catalog's revision, the scope): `prep_tick` runs every frame and needn't hash the list each time.
+    sig_cache: Option<((u64, u64, Scope), u64)>,
 }
 
 impl std::fmt::Debug for PrepState {
@@ -381,7 +384,7 @@ impl Session {
             if b.running() {
                 if !wanted {
                     b.cancel.store(true, Ordering::Relaxed);
-                } else if self.prep.started_for.is_some_and(|sig| sig != signature(&self.visible_cloned(), self, want.scope)) {
+                } else if self.prep.started_for.is_some_and(|sig| sig != self.view_signature(want.scope)) {
                     // another view (a folder, a filter, another library): this build's photos are
                     // not the ones shown; stopped, and the view now shown is prepared in its place
                     // (not counted as stopped by the user)
@@ -408,8 +411,7 @@ impl Session {
             return;
         }
         let Some(at) = at else { return };
-        let ids = self.visible_cloned();
-        let sig = signature(&ids, self, want.scope);
+        let sig = self.view_signature(want.scope);
         if self.prep.steps_in != Some(sig) {
             self.prep.steps_in = Some(sig);
             self.prep.steps = 0;
@@ -428,9 +430,10 @@ impl Session {
         {
             return;
         }
+        let (_, visible) = self.visible_shared();
         let ids: Vec<u64> = match want.scope {
-            Scope::Marked => ids.into_iter().filter(|id| marked(self, *id)).map(|id| id.0).collect(),
-            _ => ids.into_iter().map(|id| id.0).collect(),
+            Scope::Marked => visible.iter().copied().filter(|id| marked(self, *id)).map(|id| id.0).collect(),
+            _ => visible.iter().map(|id| id.0).collect(),
         };
         self.prep.started_for = Some(sig);
         if ids.is_empty() {
@@ -443,16 +446,33 @@ impl Session {
         }
     }
 
+    /// The visible list's [`signature`] for `scope`, worked out again only when the list, the catalog
+    /// or the scope changed.
+    fn view_signature(&mut self, scope: Scope) -> u64 {
+        let (generation, ids) = self.visible_shared();
+        let key = (generation, self.catalog.revision, scope);
+        if let Some((k, sig)) = self.prep.sig_cache
+            && k == key
+        {
+            return sig;
+        }
+        let sig = signature(&ids, self, scope);
+        self.prep.sig_cache = Some((key, sig));
+        sig
+    }
+
     /// Change the background preparation settings: the app-wide ones, or (`library`) this library's
-    /// own. Saved at once.
+    /// own. This library's are saved at once (`prefs.json`); the app-wide ones are the frontend's to
+    /// keep (the desktop app's `ui.json`), and `prefs.json` doesn't hold them.
     pub fn set_prep_settings(&mut self, settings: PrepSettings, library: bool) -> crate::Result<()> {
         let settings = settings.sanitized();
         if library {
             self.prep.library = Some(settings);
+            self.save_prefs()
         } else {
             self.prep.app = settings;
+            Ok(())
         }
-        self.save_prefs()
     }
 
     /// Back to the app-wide settings for this library.
@@ -523,5 +543,24 @@ mod tests {
         assert!(!wait_for_pictures(&|| false, std::time::Duration::from_secs(5)), "work that doesn't render waits for it");
         assert!(t.elapsed().as_millis() >= 100);
         assert!(!pictures_busy());
+    }
+
+    /// The view's signature is kept while nothing it is made of changes (CodeRabbit on #3080: it was
+    /// worked out every frame), and worked out again when a marked photo changes or the view does.
+    #[test]
+    fn the_view_signature_is_kept_until_the_view_or_the_catalog_changes() {
+        let mut s = Session::with_demo();
+        let ids = s.visible_cloned();
+        let first = s.view_signature(Scope::Marked);
+        let cached = s.prep.sig_cache.expect("kept");
+        assert_eq!(s.view_signature(Scope::Marked), first);
+        assert_eq!(s.prep.sig_cache, Some(cached), "the same entry: not worked out again");
+        assert_eq!(first, signature(&ids, &s, Scope::Marked));
+        let one = ids.first().copied().expect("a demo photo");
+        s.execute("photo.rate", &json!({"ids": [one.0], "rating": if s.catalog.photo(one).is_some_and(|p| p.rating > 0) { 0 } else { 3 }})).unwrap();
+        let after = s.view_signature(Scope::Marked);
+        assert_ne!(after, first, "a photo marked or unmarked is another set of marked photos");
+        assert_eq!(after, signature(&s.visible_cloned(), &s, Scope::Marked));
+        assert_ne!(s.view_signature(Scope::All), after, "another scope");
     }
 }
