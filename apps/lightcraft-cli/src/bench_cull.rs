@@ -105,15 +105,32 @@ fn sample_after<T>(v: &[T], skip: usize, take: usize) -> &[T] {
     rest.get(..take.min(rest.len())).unwrap_or_default()
 }
 
-/// Whether `path` names a file in `folder` (the source folder, which a run only reads): its
-/// nearest folder that exists (a `--work` folder may not be there yet), resolved, is `folder` or
-/// inside it.
+/// Whether `path` names a file in `folder` (the source folder, which a run only reads), resolved:
+/// a file that is there by itself (a link to a photo there is the photo), a link that points
+/// nowhere yet by where writing through it would create the file, and anything else by its nearest
+/// folder that exists (a `--work` folder may not be there yet).
 fn inside_source(path: &Path, folder: &Path) -> bool {
     let Ok(folder) = std::fs::canonicalize(folder) else { return false };
+    resolves_inside(path, &folder, 0)
+}
+
+/// [`inside_source`] for a `folder` already resolved; `hops`: links followed so far (a loop of
+/// links counts as inside: refused).
+fn resolves_inside(path: &Path, folder: &Path, hops: u32) -> bool {
+    if let Ok(c) = std::fs::canonicalize(path) {
+        return c.starts_with(folder);
+    }
+    if let Ok(target) = std::fs::read_link(path) {
+        if hops >= 40 {
+            return true;
+        }
+        let target = path.parent().map_or_else(|| target.clone(), |dir| dir.join(&target));
+        return resolves_inside(&target, folder, hops + 1);
+    }
     let mut p = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     loop {
         if let Ok(c) = std::fs::canonicalize(p) {
-            return c.starts_with(&folder);
+            return c.starts_with(folder);
         }
         match p.parent() {
             Some(up) if !up.as_os_str().is_empty() => p = up,
@@ -423,6 +440,55 @@ mod tests {
         let none = with_failed(&[], 3);
         assert_eq!((none["n"].as_u64(), none["failed"].as_u64()), (Some(0), Some(3)));
         assert!(none.get("p50").is_none(), "nothing timed: no median");
+    }
+
+    /// A file link at `at` to `target`.
+    #[cfg(unix)]
+    fn link(target: &Path, at: &Path) -> std::io::Result<()> {
+        std::os::unix::fs::symlink(target, at)
+    }
+
+    /// A file link at `at` to `target` (Windows: needs Developer Mode or the right to make links).
+    #[cfg(windows)]
+    fn link(target: &Path, at: &Path) -> std::io::Result<()> {
+        std::os::windows::fs::symlink_file(target, at)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    fn link(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::other("no file links here"))
+    }
+
+    /// `--json` naming a link (made elsewhere) to a file in the source folder is refused: writing
+    /// the results would follow it and overwrite a photo (CodeRabbit on #3080). So is a link that
+    /// points to a file not made yet in the source folder, and a loop of links.
+    #[test]
+    fn a_json_link_into_the_source_folder_is_refused() {
+        let work = run_dir(&std::env::temp_dir()).unwrap();
+        let src = fresh_dir(&work, "src").unwrap();
+        let photo = src.join("a.jpg");
+        std::fs::write(&photo, b"photo").unwrap();
+        let to_photo = work.join("report.json");
+        if let Err(e) = link(&photo, &to_photo) {
+            let _ = std::fs::remove_dir_all(&work);
+            lightcraft_testkit::skip!(System, "can't make a file link here ({e}); Windows needs Developer Mode");
+            return;
+        }
+        assert!(inside_source(&to_photo, &src), "a link to a photo in the source folder");
+        let e = check_outputs(&src, Some(&to_photo), &work.join("elsewhere")).unwrap_err();
+        assert!(e.contains("--json"), "{e}");
+        let to_new = work.join("new.json");
+        link(&src.join("not-yet.json"), &to_new).unwrap();
+        assert!(inside_source(&to_new, &src), "a link to a file not made yet in the source folder");
+        let (x, y) = (work.join("x.json"), work.join("y.json"));
+        link(&y, &x).unwrap();
+        link(&x, &y).unwrap();
+        assert!(inside_source(&x, &src), "a loop of links");
+        let to_elsewhere = work.join("fine.json");
+        link(&work.join("out.json"), &to_elsewhere).unwrap();
+        assert!(!inside_source(&to_elsewhere, &src), "a link to a file outside is fine");
+        assert_eq!(std::fs::read(&photo).unwrap(), b"photo");
+        let _ = std::fs::remove_dir_all(&work);
     }
 
     /// `--json` naming a file in the source folder is refused (CodeRabbit on #3077); elsewhere it is fine.

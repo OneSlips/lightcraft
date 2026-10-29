@@ -401,6 +401,12 @@ impl DiskCache {
         *t.get_or_insert_with(|| self.scan().iter().map(|f| f.1).sum())
     }
 
+    /// Bytes on disk when already known, without reading the folder (`None` until [`Self::size`],
+    /// a write or a prune has counted them).
+    pub fn known_size(&self) -> Option<u64> {
+        *self.total.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn clear(&self) {
         for (p, _, _) in self.scan() {
             let _ = std::fs::remove_file(p);
