@@ -49,7 +49,9 @@ pub(crate) use files::{expand_noting, probe_all, probe_paths, probe_with};
 use job::PreparedItem;
 pub use job::{ImportJob, Prepared, import, import_with};
 pub(crate) use scan::scan_files;
-pub use scan::{ScanInput, ScanOutput, ScanProgress, browse_files, browse_order, browse_path, browse_queue, browse_queue_until, scan, scan_with};
+pub use scan::{
+    ScanInput, ScanOutput, ScanProgress, browse_files, browse_order, browse_path, browse_queue, browse_queue_until, browse_spelling, scan, scan_with,
+};
 #[cfg(test)]
 use scan::{library_files, library_hashes};
 pub use types::{

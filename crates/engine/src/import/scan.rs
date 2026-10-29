@@ -169,8 +169,23 @@ pub fn browse_files(input: &ScanInput, root: &str, subfolders: bool) -> std::io:
 /// Windows takes `..` out by name; elsewhere `link/..` is the folder above where the link points,
 /// so a link before a `..` is resolved first. Everything else keeps its spelling (a mapped drive
 /// stays a drive letter, a link not followed by `..` stays the link), as the records were made.
+///
+/// It may read the disk (a link on a stalled network mount can block it): call it off the UI thread.
+/// [`browse_spelling`] is the UI's spelling meanwhile.
 pub fn browse_path(path: &Path) -> std::io::Result<PathBuf> {
+    normalized(path, true)
+}
+
+/// [`browse_path`] without reading the disk: `.` and `..` taken out by name. What the view shows
+/// until the worker has resolved the folder; the same folder unless a link comes before a `..`
+/// (not on Windows, which takes `..` out by name too).
+pub fn browse_spelling(path: &Path) -> std::io::Result<PathBuf> {
+    normalized(path, false)
+}
+
+fn normalized(path: &Path, resolve_links: bool) -> std::io::Result<PathBuf> {
     use std::path::Component;
+    // (no disk access: the current folder is the process's)
     let path = std::path::absolute(path)?;
     let mut out = PathBuf::new();
     for c in path.components() {
@@ -178,11 +193,14 @@ pub fn browse_path(path: &Path) -> std::io::Result<PathBuf> {
             Component::CurDir => {}
             Component::ParentDir => {
                 #[cfg(not(windows))]
-                if std::fs::symlink_metadata(&out).is_ok_and(|m| m.file_type().is_symlink())
+                if resolve_links
+                    && std::fs::symlink_metadata(&out).is_ok_and(|m| m.file_type().is_symlink())
                     && let Ok(real) = std::fs::canonicalize(&out)
                 {
                     out = real;
                 }
+                #[cfg(windows)]
+                let _ = resolve_links;
                 // (above the root: still the root)
                 if matches!(out.components().next_back(), Some(Component::Normal(_))) {
                     out.pop();

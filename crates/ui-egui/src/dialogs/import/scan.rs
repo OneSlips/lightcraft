@@ -16,6 +16,9 @@ pub struct ScanTask {
     sources: Vec<String>,
     /// The scan's row in the activity stack (its ✕ and `activity.cancel` set `progress.cancel`).
     guard: lightcraft_engine::activity::TaskGuard,
+    /// Browsing: the folder as the worker resolved it, once it has. The view shows it as given until then
+    /// (resolving reads the disk, which a stalled network mount can block: never on this thread).
+    resolved: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 /// What a scan's worker sends back. Every way it ends sends one, so the probes of earlier scans that
@@ -121,7 +124,7 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
     #[cfg(target_arch = "wasm32")]
     job();
     let guard = scan_guard(app, &progress, false);
-    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse: false, sources, guard });
+    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse: false, sources, guard, resolved: None });
     Ok(json!({"scanning": true}))
 }
 
@@ -130,11 +133,10 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
 /// and the photos then join the view in small batches under a progress window. A browse already
 /// running is replaced; the import review's scan is not.
 pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> Result<Value, String> {
-    // one spelling for the view, the listing and the catalog's records: `a/lib/../outside` is `a/outside`
-    let dir = lightcraft_engine::import::browse_path(std::path::Path::new(path)).map_err(|e| e.to_string())?;
-    if !dir.is_dir() {
-        return Err(format!("{path}: not a folder"));
-    }
+    // one spelling for the view, the listing and the catalog's records: `a/lib/../outside` is `a/outside`. Taken out
+    // by name here, without reading the disk (a link on a stalled network mount would freeze the window): the worker
+    // resolves the folder, checks it is one, and the view takes its spelling when it says (see `poll_scan`)
+    let dir = lightcraft_engine::import::browse_spelling(std::path::Path::new(path)).map_err(|e| e.to_string())?;
     if app.scan.as_ref().is_some_and(|t| !t.browse) || app.import.as_ref().is_some_and(|t| !t.browse) {
         return Err("an import is running".into());
     }
@@ -157,9 +159,19 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     let progress = std::sync::Arc::new(ScanProgress::default());
     let (tx, rx) = std::sync::mpsc::channel();
     let p = progress.clone();
-    let root = dir_s.clone();
+    let given = dir_s.clone();
     let sort = app.session.sort;
+    let (resolved_tx, resolved) = std::sync::mpsc::channel();
     let job = move || {
+        let root = match resolve_browse_root(&given) {
+            Ok(root) => root,
+            Err(e) => {
+                log::warn!("browse: can't read {given}: {e}");
+                let _ = tx.send(ScanEnd::Stopped { probes: input.take_probes(), failed: true });
+                return;
+            }
+        };
+        let _ = resolved_tx.send(root.clone());
         // (never the library's own folder, which the import would otherwise read as photos)
         let files = match lightcraft_engine::import::browse_files(&input, &root, subfolders) {
             Ok(files) => files,
@@ -199,9 +211,34 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
         job();
     }
     let guard = scan_guard(app, &progress, true);
-    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse: true, sources: Vec::new(), guard });
+    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse: true, sources: Vec::new(), guard, resolved: Some(resolved) });
     app.renderer.forget_imports();
     Ok(json!({"path": dir_s, "subfolders": subfolders, "scanning": true}))
+}
+
+/// The browsed folder `given` (a [`lightcraft_engine::import::browse_spelling`]) as [`lightcraft_engine::import::browse_path`]
+/// resolves it, checked to be a folder: on the browse worker, as it reads the disk.
+fn resolve_browse_root(given: &str) -> Result<String, String> {
+    #[cfg(test)]
+    held_resolve(given);
+    let dir = lightcraft_engine::import::browse_path(std::path::Path::new(given)).map_err(|e| e.to_string())?;
+    if !dir.is_dir() {
+        return Err(format!("{given}: not a folder"));
+    }
+    Ok(dir.to_string_lossy().trim_end_matches(['/', '\\']).to_string())
+}
+
+/// Tests: browsed folders whose resolution waits (as on a stalled network mount) while they are listed here.
+#[cfg(test)]
+pub(crate) static HELD_RESOLVES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn held_resolve(given: &str) {
+    let held = || HELD_RESOLVES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().any(|p| p == given);
+    let start = std::time::Instant::now();
+    while held() && start.elapsed() < std::time::Duration::from_secs(30) {
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 }
 
 /// Collect a finished scan and open the review (called every frame).
@@ -210,6 +247,14 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
     collect_stopped(app, ctx);
     let Some(task) = app.scan.as_ref() else { return };
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    // the worker resolved the browsed folder: the view takes its spelling (before its listing, sent after it)
+    if let Some(root) = task.resolved.as_ref().and_then(|r| r.try_recv().ok())
+        && let Some(b) = app.session.browse.as_mut().filter(|b| b.path != root)
+    {
+        b.path = root;
+        app.session.keep_active_in_view();
+    }
+    let Some(task) = app.scan.as_ref() else { return };
     let end = match task.rx.try_recv() {
         Ok(o) => o,
         Err(std::sync::mpsc::TryRecvError::Empty) => {
@@ -337,7 +382,7 @@ pub(crate) fn scan_by_hand(app: &mut LightcraftApp, browse: bool) -> std::sync::
     let progress = std::sync::Arc::new(ScanProgress::default());
     let (tx, rx) = std::sync::mpsc::channel::<ScanEnd>();
     let guard = scan_guard(app, &progress, false);
-    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse, sources: Vec::new(), guard });
+    app.scan = Some(ScanTask { progress, rx, copy: false, album: None, browse, sources: Vec::new(), guard, resolved: None });
     tx
 }
 
