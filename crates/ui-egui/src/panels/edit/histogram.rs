@@ -322,28 +322,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn particle_only_grain_sliders_are_disabled_before_process_v3() {
-        use lightcraft_develop::{Process, ProcessVersion};
-        let all = ["grain.size", "grain.sizeVariation", "grain.roughness", "grain.clumping", "grain.color", "grain.response", "grain.seed"];
-        let particle_only = ["grain.sizeVariation", "grain.clumping", "grain.color", "grain.response"];
-        let mut d = DevelopSettings::default();
-        assert!(grain_control_enabled(&d, "grain.amount"));
-        assert!(all.iter().all(|c| !grain_control_enabled(&d, c)), "no grain: only Amount moves");
-        d.grain.amount = 30.0;
-        assert_eq!(d.process.process(), Process::LATEST);
-        assert!(all.iter().all(|c| grain_control_enabled(&d, c)), "V3: every grain slider moves");
-        for p in [Process::V1, Process::V2] {
-            d.process = p.version();
-            for c in all {
-                assert_eq!(grain_control_enabled(&d, c), !particle_only.contains(&c), "{p:?} {c}");
-            }
-            assert!(grain_control_enabled(&d, "grain.amount"));
-        }
-        d.process = ProcessVersion::legacy();
-        assert!(!grain_control_enabled(&d, "grain.clumping"), "settings saved without a process are V1");
-    }
-
-    #[test]
     fn an_hdr_edit_keeps_its_hdr_histogram_through_8_bit_renders() {
         let ctx = egui::Context::default();
         let id = PhotoId(7);

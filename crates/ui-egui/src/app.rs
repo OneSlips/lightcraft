@@ -73,7 +73,7 @@ impl LightcraftApp {
             pending_picks: vec![],
             synthetic_mods: egui::Modifiers::NONE,
             synthetic_mods_release: false,
-            pointer_repair: pointer_repair::PointerRepair::default(),
+            pointer_repair: crate::pointer_repair::PointerRepair::default(),
             host_mods: egui::Modifiers::NONE,
             styled: false,
             font_language: i18n::Locale::En,
