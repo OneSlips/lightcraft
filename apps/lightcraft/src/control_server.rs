@@ -206,9 +206,30 @@ fn serve(stream: TcpStream, tx: &Sender<ControlRequest>, ctx: &egui::Context, mo
             Box::new(move || await_reply(&rrx, &state, || ctx.cumulative_pass_nr(), || ctx.request_repaint(), NO_FRAMES_AFTER, REPLY_TIMEOUT));
         Some(if pipelined { Reply::Pipelined(wait) } else { Reply::Wait(wait) })
     });
+    close_gracefully(&stream);
     open.store(false, Ordering::SeqCst);
     drop(sink);
     let _ = pump.join();
+}
+
+/// Close so the client reads every reply and then a clean end of stream. Closing a socket that still
+/// holds unread input (lines sent after a rejected one) resets the connection on Windows, and the
+/// client could lose the reply that says why it was closed: so stop writing, then read off what the
+/// client already sent (bounded in time and size) before the socket is dropped.
+fn close_gracefully(stream: &TcpStream) {
+    let _ = stream.shutdown(std::net::Shutdown::Write);
+    if stream.set_read_timeout(Some(Duration::from_millis(200))).is_err() {
+        return;
+    }
+    let mut buf = [0u8; 4096];
+    let mut left = 1usize << 20;
+    let mut reader = stream;
+    while left > 0 {
+        match reader.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => left = left.saturating_sub(n),
+        }
+    }
 }
 
 /// Wait for a request's reply. While the app has not picked the request up and `frames` (its
@@ -944,15 +965,19 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let (s, _) = listener.accept().unwrap();
-            let read = s.try_clone().unwrap();
-            serve_lines(read, s, |_, _| Some(Reply::Ready(json!({"ok": true}))));
+            serve_lines(&s, &s, |_, _| Some(Reply::Ready(json!({"ok": true}))));
+            close_gracefully(&s);
         });
         let mut c = TcpStream::connect(addr).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        c.write_all(b"{\"id\":7,\"method\":\"x\"}\nhello\n{\"method\":\"y\"}\n").unwrap();
+        c.write_all(b"{\"id\":7,\"method\":\"x\"}\nhello\n").unwrap();
+        // a line that arrives while the server closes stays unread by it; on Windows closing over unread
+        // input reset the connection, and the client lost the replies
+        std::thread::sleep(Duration::from_millis(50));
+        let _ = c.write_all(b"{\"method\":\"y\"}\n");
+        server.join().unwrap();
         let mut text = String::new();
         c.read_to_string(&mut text).unwrap(); // returns at EOF: the server closed the connection
-        server.join().unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2, "{text}");
         assert!(lines[0].contains("\"id\":7"));
