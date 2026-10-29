@@ -617,8 +617,9 @@ impl Gpu {
                     &built
                 }
                 Err(e) => {
-                    // the render is redone on the CPU, with its grain
-                    fail(FailKind::Fatal, e);
+                    // the render is redone on the CPU, with its grain; the device and its other
+                    // kernels stay in use
+                    fail(FailKind::Kernel, e);
                     return;
                 }
             },
@@ -790,6 +791,9 @@ pub(crate) enum FailKind {
     OutOfMemory,
     /// The image came back entirely black: redone on the CPU in case the GPU dropped work.
     Blank,
+    /// A kernel built on first use ([`FILM_GRAIN`]) failed to build: the renders that need it are
+    /// drawn on the CPU, the others stay on the GPU.
+    Kernel,
     /// Device error or loss, readback failure, incomplete image: the GPU is not used again.
     Fatal,
 }
@@ -1022,6 +1026,44 @@ mod tests {
         if run_child("retired_child").is_none() {
             lightcraft_testkit::skip!(Gpu, "no GPU device");
         }
+    }
+
+    /// A film grain kernel the adapter won't build (it is built on the first grain render) sends
+    /// the grain renders to the CPU and keeps the GPU for everything else: renders without grain,
+    /// and process V1's value-noise grain, which the kernel built with the device draws.
+    #[test]
+    fn a_film_grain_kernel_that_fails_to_build_keeps_the_gpu() {
+        if run_child("failed_film_grain_child").is_none() {
+            lightcraft_testkit::skip!(Gpu, "no GPU device");
+        }
+    }
+
+    #[test]
+    #[ignore = "run in its own process by a_film_grain_kernel_that_fails_to_build_keeps_the_gpu"]
+    fn failed_film_grain_child() {
+        use lightcraft_develop::{DevelopSettings, ProcessVersion};
+        use lightcraft_pipeline::{RenderRequest, SourceInfo};
+        let Some(g) = crate::device() else {
+            println!("CHILD: no GPU");
+            return;
+        };
+        g.lazy.lock().unwrap().insert(super::FILM_GRAIN, Err("simulated: the film grain kernel failed to build".into()));
+        let (w, h) = (256, 192);
+        let src = std::sync::Arc::new(lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| [x as f32 / w as f32, y as f32 / h as f32, 0.4]));
+        let (info, req) = (SourceInfo::default(), RenderRequest::fit(w, h));
+        let mut grain = DevelopSettings::default();
+        grain.grain.amount = 50.0;
+        match crate::try_render(&src, &info, &grain, &req, None) {
+            Err(crate::Fallback::Failed(why)) => assert!(why.contains("film grain"), "{why}"),
+            other => panic!("a film grain render falls back to the CPU: {:?}", other.map(|_| ())),
+        }
+        assert!(crate::available(), "the GPU stays in use: {:?}", crate::unavailable_reason());
+        assert!(crate::try_render(&src, &info, &DevelopSettings::default(), &req, None).is_ok(), "a render without grain");
+        let v1 = DevelopSettings { process: ProcessVersion::V1, ..grain.clone() };
+        assert!(crate::try_render(&src, &info, &v1, &req, None).is_ok(), "V1 grain (value noise)");
+        assert!(matches!(crate::try_render(&src, &info, &grain, &req, None), Err(crate::Fallback::Failed(_))), "film grain again");
+        assert!(crate::available());
+        println!("CHILD: survived");
     }
 
     #[test]
