@@ -130,7 +130,8 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
 /// and the photos then join the view in small batches under a progress window. A browse already
 /// running is replaced; the import review's scan is not.
 pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> Result<Value, String> {
-    let dir = std::path::absolute(std::path::Path::new(path)).map_err(|e| e.to_string())?;
+    // one spelling for the view, the listing and the catalog's records: `a/lib/../outside` is `a/outside`
+    let dir = lightcraft_engine::import::lexical_path(&std::path::absolute(std::path::Path::new(path)).map_err(|e| e.to_string())?);
     if !dir.is_dir() {
         return Err(format!("{path}: not a folder"));
     }
