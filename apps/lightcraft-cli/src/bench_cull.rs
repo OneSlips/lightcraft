@@ -380,9 +380,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 fn finish(out: Value, json_out: Option<PathBuf>) -> Result<(), String> {
     if let Some(p) = json_out {
-        std::fs::write(&p, serde_json::to_string_pretty(&out).unwrap_or_default()).map_err(|e| format!("{}: {e}", p.display()))?;
+        write_replacing(&p, serde_json::to_string_pretty(&out).unwrap_or_default().as_bytes())?;
     }
     println!("{}", serde_json::to_string(&out).unwrap_or_default());
+    Ok(())
+}
+
+/// Write `bytes` to `path` through a new file next to it, renamed over `path`: an existing `path`
+/// is replaced as a name, never written into. A hard link there shares its data with another file
+/// (maybe a photo in the source folder, which [`inside_source`] can't tell), and writing into it
+/// would overwrite that file too (CodeRabbit on #3077). The temporary file is removed on error.
+fn write_replacing(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    let err = |e: std::io::Error| format!("{}: {e}", path.display());
+    let dir = path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let name = path.file_name().ok_or_else(|| format!("{}: not a file name", path.display()))?;
+    static TEMPS: AtomicUsize = AtomicUsize::new(0);
+    let n = TEMPS.fetch_add(1, Ordering::Relaxed);
+    let mut tmp_name = std::ffi::OsString::from(".");
+    tmp_name.push(name);
+    tmp_name.push(format!(".{}-{n}.tmp", std::process::id()));
+    let tmp = dir.join(tmp_name);
+    let written =
+        std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).and_then(|mut f| f.write_all(bytes).and_then(|()| f.sync_all()));
+    if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, path)) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err(e));
+    }
     Ok(())
 }
 
@@ -488,6 +512,32 @@ mod tests {
         link(&work.join("out.json"), &to_elsewhere).unwrap();
         assert!(!inside_source(&to_elsewhere, &src), "a link to a file outside is fine");
         assert_eq!(std::fs::read(&photo).unwrap(), b"photo");
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// `--json` naming a hard link (made elsewhere) to a photo in the source folder passes
+    /// [`inside_source`] (a hard link has no target to resolve), so the results replace the link
+    /// instead of writing into it: the photo keeps its bytes (CodeRabbit on #3077).
+    #[test]
+    fn a_json_hard_link_to_a_photo_leaves_the_photo_alone() {
+        let work = run_dir(&std::env::temp_dir()).unwrap();
+        let src = fresh_dir(&work, "src").unwrap();
+        let photo = src.join("a.jpg");
+        std::fs::write(&photo, b"photo").unwrap();
+        let report = work.join("report.json");
+        if let Err(e) = std::fs::hard_link(&photo, &report) {
+            let _ = std::fs::remove_dir_all(&work);
+            lightcraft_testkit::skip!(System, "can't make a hard link here ({e})");
+            return;
+        }
+        finish(json!({"browse": 1}), Some(report.clone())).unwrap();
+        assert_eq!(std::fs::read(&photo).unwrap(), b"photo", "the photo is unchanged");
+        let written: Value = serde_json::from_slice(&std::fs::read(&report).unwrap()).unwrap();
+        assert_eq!(written["browse"], 1);
+        let left: Vec<_> = std::fs::read_dir(&work).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(left.len(), 2, "no temporary file is left: {left:?}");
+        // a folder that isn't there: an error, nothing panics
+        assert!(write_replacing(&work.join("missing").join("r.json"), b"x").is_err());
         let _ = std::fs::remove_dir_all(&work);
     }
 
