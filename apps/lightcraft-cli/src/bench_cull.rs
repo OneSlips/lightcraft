@@ -50,6 +50,18 @@ fn stats(ms: &[f64]) -> Value {
     json!({"p50": round(at(0.5)), "p95": round(at(0.95)), "max": round(at(1.0)), "n": v.len()})
 }
 
+/// [`stats`] of the previews that loaded, with the count of those that didn't (`failed`): a file
+/// without a usable camera preview is not timed as one.
+fn with_failed(ms: &[f64], failed: usize) -> Value {
+    match stats(ms) {
+        Value::Object(mut m) => {
+            m.insert("failed".into(), json!(failed));
+            Value::Object(m)
+        }
+        _ => json!({"n": 0, "failed": failed}),
+    }
+}
+
 fn round(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
 }
@@ -99,6 +111,21 @@ fn inside_source(json: &Path, folder: &Path) -> bool {
     let Ok(folder) = std::fs::canonicalize(folder) else { return false };
     let parent = json.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
     std::fs::canonicalize(parent).is_ok_and(|p| p.starts_with(&folder))
+}
+
+/// The first `k` supported files of `folder` by name (`--files K`), hidden ones left out as browsing lists the folder.
+fn first_files(folder: &Path, k: usize) -> Result<Vec<String>, String> {
+    let mut list: Vec<String> = std::fs::read_dir(folder)
+        .map_err(|e| format!("{}: {e}", folder.display()))?
+        .flatten()
+        .filter(|e| !lightcraft_engine::walk::is_hidden_entry(e))
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && lightcraft_engine::import::is_supported(p))
+        .map(|p| p.display().to_string())
+        .collect();
+    list.sort();
+    list.truncate(k);
+    Ok(list)
 }
 
 fn library(dir: &Path) -> Result<Session, String> {
@@ -172,15 +199,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             (r["photos"].as_u64().unwrap_or(0), s.visible_cloned())
         }
         Some(k) => {
-            let mut list: Vec<String> = std::fs::read_dir(&folder)
-                .map_err(|e| format!("{}: {e}", folder.display()))?
-                .flatten()
-                .map(|e| e.path())
-                .filter(|p| p.is_file() && lightcraft_engine::import::is_supported(p))
-                .map(|p| p.display().to_string())
-                .collect();
-            list.sort();
-            list.truncate(k);
+            let list = first_files(&folder, k)?;
             let r = s.execute("library.import", &json!({"paths": list, "mode": "add", "local": true})).map_err(|e| e.to_string())?;
             let ids: Vec<PhotoId> = r["imported"].as_array().into_iter().flatten().filter_map(Value::as_u64).map(PhotoId).collect();
             (ids.len() as u64, ids)
@@ -206,7 +225,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let screen: Vec<String> = paths.iter().take(48).cloned().collect();
     let next = Arc::new(AtomicUsize::new(0));
     let t = Instant::now();
-    let per: Vec<(f64, f64)> = std::thread::scope(|sc| {
+    // (`None`: no camera preview loaded, counted apart)
+    let per: Vec<Option<(f64, f64)>> = std::thread::scope(|sc| {
         let workers: Vec<_> = (0..render_threads())
             .map(|_| {
                 let (next, loader, screen) = (next.clone(), loader.clone(), &screen);
@@ -214,8 +234,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     let mut done = Vec::new();
                     while let Some(p) = screen.get(next.fetch_add(1, Ordering::Relaxed)) {
                         let a = Instant::now();
-                        let _ = loader(p, 512);
-                        done.push((ms_since(a), ms_since(t)));
+                        let loaded = loader(p, 512).is_some();
+                        done.push(loaded.then(|| (ms_since(a), ms_since(t))));
                     }
                     done
                 })
@@ -223,27 +243,37 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .collect();
         workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
     });
+    let failed = per.iter().filter(|p| p.is_none()).count();
+    let per: Vec<(f64, f64)> = per.into_iter().flatten().collect();
     let first = per.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
     let all = per.iter().map(|p| p.1).fold(0.0, f64::max);
     let each = stats(&per.iter().map(|p| p.0).collect::<Vec<_>>());
-    println!("grid: first thumbnail: {first:.1} ms wall");
-    println!("grid: {} thumbnails: {all:.1} ms wall", per.len());
+    if !per.is_empty() {
+        println!("grid: first thumbnail: {first:.1} ms wall");
+        println!("grid: {} thumbnails: {all:.1} ms wall", per.len());
+    }
+    if failed > 0 {
+        println!("grid: {failed} without a camera preview (not timed)");
+    }
     line("grid: one 512 px thumbnail", &each);
-    out["thumbs"] = json!({"firstMs": round(first), "allMs": round(all), "count": per.len(), "each": each});
+    // (no thumbnail loaded: no first or last time either)
+    let (first, all) = if per.is_empty() { (Value::Null, Value::Null) } else { (json!(round(first)), json!(round(all))) };
+    out["thumbs"] = json!({"firstMs": first, "allMs": all, "count": per.len(), "failed": failed, "each": each});
 
     // --- camera previews at loupe sizes, one at a time (what a step costs without look-ahead) -----
     let sample = sample_after(&paths, 48, 20);
     for edge in [1280usize, 2560, usize::MAX] {
-        let ms: Vec<f64> = sample
+        let timed: Vec<Option<f64>> = sample
             .iter()
             .map(|p| {
                 let a = Instant::now();
-                let _ = loader(p, edge);
-                ms_since(a)
+                let loaded = loader(p, edge).is_some();
+                loaded.then(|| ms_since(a))
             })
             .collect();
+        let ms: Vec<f64> = timed.iter().flatten().copied().collect();
         let name = if edge == usize::MAX { "camera preview full size (100 %)".to_string() } else { format!("camera preview {edge} px") };
-        let st = stats(&ms);
+        let st = with_failed(&ms, timed.len().saturating_sub(ms.len()));
         line(&name, &st);
         out[if edge == usize::MAX { "cameraFull".to_string() } else { format!("camera{edge}") }] = st;
     }
@@ -351,6 +381,29 @@ mod tests {
         assert_eq!(sample_after(&v[..3], 48, 20), &v[..3]);
         assert_eq!(sample_after(&v[..48], 48, 5), &v[..5]);
         assert!(sample_after::<u32>(&[], 48, 20).is_empty());
+    }
+
+    /// `--files K` leaves hidden files out, as browsing does (CodeRabbit on #3080).
+    #[test]
+    fn a_sample_of_the_folder_leaves_hidden_files_out() {
+        let work = run_dir(&std::env::temp_dir()).unwrap();
+        for name in [".hidden.jpg", "a.jpg", "b.jpg", "notes.txt"] {
+            std::fs::write(work.join(name), b"x").unwrap();
+        }
+        let names: Vec<String> =
+            first_files(&work, 2).unwrap().iter().map(|p| Path::new(p).file_name().unwrap().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, ["a.jpg", "b.jpg"]);
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Previews that didn't load are counted apart, not timed (CodeRabbit on #3080).
+    #[test]
+    fn previews_that_did_not_load_are_counted_not_timed() {
+        let v = with_failed(&[10.0, 20.0], 1);
+        assert_eq!((v["n"].as_u64(), v["failed"].as_u64()), (Some(2), Some(1)));
+        let none = with_failed(&[], 3);
+        assert_eq!((none["n"].as_u64(), none["failed"].as_u64()), (Some(0), Some(3)));
+        assert!(none.get("p50").is_none(), "nothing timed: no median");
     }
 
     /// `--json` naming a file in the source folder is refused (CodeRabbit on #3077); elsewhere it is fine.
