@@ -863,7 +863,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (pu(F_GRAIN_MODEL) == 0u) {
             e = e + value_grain(gx, gy, lum);
         } else {
-            e = e + grain_apply(gx, gy, lum);
+            // `grain_apply` in the kernel built with film grain (`ctx::FILM_GRAIN`)
+            e = e + film_grain(gx, gy, lum);
         }
     }
     if (warn == 1u) {
