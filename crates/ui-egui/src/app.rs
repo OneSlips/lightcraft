@@ -122,6 +122,8 @@ impl LightcraftApp {
             window_is_fullscreen: false,
             gpu_applied: None,
             gpu_notice: false,
+            disk_space_notice: false,
+            disk_notice: None,
             memory_applied: None,
             display_applied: None,
             display_error: None,

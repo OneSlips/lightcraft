@@ -624,6 +624,9 @@ impl Session {
             crate::cmd::previews::refresh_stale_smart_previews(self);
         }
         self.library_identity = std::sync::Arc::new(());
+        // a library open is a new session for the low-disk alert: look at the drive now
+        self.disk_alert = Default::default();
+        self.check_disk_space(true);
         Ok(())
     }
 
@@ -830,7 +833,8 @@ impl Session {
     }
 
     /// Bring the disk cache's budget up to date with the library (photos were added since it was
-    /// set): cheap, nothing is read or written. Called before previews are built.
+    /// set): cheap, nothing is read or written. Called before previews are built, so it also
+    /// looks at the drive's free space when that is due ([`Session::check_disk_space`]).
     pub fn fit_disk_cache(&mut self) {
         let want = self.cache_bytes();
         if let Some(d) = self.media.rendered.disk()
@@ -838,6 +842,7 @@ impl Session {
         {
             d.set_budget(want);
         }
+        self.check_disk_space(false);
     }
 
     /// Change the thumbnail disk cache budget (MB, 0 = default) in place: the cached thumbnails

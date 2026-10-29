@@ -28,6 +28,7 @@ pub mod crs_masks;
 pub mod demo;
 pub mod denoise;
 pub mod devices;
+pub mod disk_space;
 pub mod display;
 pub mod doc_path;
 mod errors;
@@ -400,6 +401,8 @@ pub struct Session {
     pub import_defaults: import::ImportDefaults,
     /// Disk budget of the library's thumbnail cache in MB (0 = default; persisted in prefs.json).
     pub cache_mb: u32,
+    /// The once-per-session alert for a drive running low under the preview cache ([`disk_space`]).
+    pub(crate) disk_alert: disk_space::DiskAlertState,
     /// Slideshow playback settings (`slideshow.playback`; persisted in prefs.json).
     pub slideshow: slideshow::PlaybackSettings,
     /// Slideshow slide layout: Layout, Options and Backdrop (`slideshow.layout`; persisted in
@@ -537,6 +540,7 @@ impl Session {
             slideshow_export: None,
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
+            disk_alert: Default::default(),
             slideshow: slideshow::PlaybackSettings::default(),
             slide_layout: slide::SlideSettings::default(),
             slide_overlays: slide_overlay::OverlaySettings::default(),

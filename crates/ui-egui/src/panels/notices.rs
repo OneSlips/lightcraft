@@ -1,6 +1,7 @@
 //! Things the user must not miss (issue #103): settings files that were damaged or unreadable when
 //! the library opened (and host warnings such as a damaged `ui.json`), and quitting while changes
-//! are only in memory or while tasks that would be cut short are running (issue #345).
+//! are only in memory or while tasks that would be cut short are running (issue #345). Also, once
+//! per session, that the drive holding the preview cache is running low ([`disk_space_notice`]).
 
 use egui::{Align2, RichText, vec2};
 
@@ -8,11 +9,23 @@ use crate::theme::Tokens;
 use crate::widgets::WidgetHit;
 use crate::{LightcraftApp, QuitPrompt};
 
-/// Collect the library's settings-file warnings (each is shown once), and the no-GPU notice once the GPU device has
-/// been tried.
+/// Collect the library's settings-file warnings (each is shown once), the no-GPU notice once the GPU device has
+/// been tried, and the low-disk notice (once per session).
 pub fn logic(app: &mut LightcraftApp) {
     let new = app.session.take_library_warnings();
     app.notices.extend(new);
+    if app.disk_space_notice {
+        // while previews are built the cache grows: the engine reads the free space at most every
+        // few minutes (this is a clock check otherwise)
+        if app.session.preview_build.as_ref().is_some_and(|b| b.running()) {
+            app.session.check_disk_space(false);
+        }
+        if let Some(alert) = app.session.take_disk_space_alert() {
+            let text = disk_space_notice(&alert);
+            app.disk_notice = Some(text.clone());
+            app.notices.push(text);
+        }
+    }
     use lightcraft_engine::gpu;
     if app.gpu_notice && app.gpu_applied == Some(true) && gpu::ready() {
         app.gpu_notice = false;
@@ -38,6 +51,34 @@ pub fn gpu_notice(reason: Option<&str>, enabled: bool) -> Option<String> {
         text.push_str(crate::i18n::tr("On NixOS, start it from `nix develop`."));
     }
     Some(text)
+}
+
+/// Bytes in plain words: "12.3 GB", "850 MB" (binary units, as the cache size choices).
+fn size_words(bytes: u64) -> String {
+    const GB: f64 = (1u64 << 30) as f64;
+    const MB: f64 = (1u64 << 20) as f64;
+    let b = bytes as f64;
+    if b >= 100.0 * GB {
+        format!("{:.0} GB", b / GB)
+    } else if b >= GB {
+        format!("{:.1} GB", b / GB)
+    } else {
+        format!("{:.0} MB", b / MB)
+    }
+}
+
+/// What to tell the user when the drive holding the preview cache runs low: its free space, the
+/// cache's size, and where a limit can be set (the notice's button opens Settings ▸ Performance).
+pub fn disk_space_notice(alert: &lightcraft_engine::disk_space::LowDiskAlert) -> String {
+    let free = size_words(alert.space.available);
+    let total = size_words(alert.space.total);
+    let cache = size_words(alert.cache_bytes);
+    crate::i18n::tr_format!(
+        "The drive with this library's previews is almost full: {free} free of {total}. The preview cache takes {cache} and grows as the library does. To keep it smaller, set a size limit in Settings → Performance.",
+        free = free,
+        total = total,
+        cache = cache
+    )
 }
 
 /// The quit prompt's text while `count` cancellable tasks run (`names` lists them).
@@ -94,6 +135,7 @@ enum Choice {
     QuitAnyway,
     Cancel,
     Ok,
+    Settings,
 }
 
 /// The prompt (quit or settings notice) that owns input this frame, if any.
@@ -570,11 +612,21 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 app.quit_confirmed = true;
                 app.ui.quit = true;
             }
-            Some(Choice::Cancel | Choice::Ok) | None => app.quit_prompt = None,
+            Some(Choice::Cancel | Choice::Ok | Choice::Settings) | None => app.quit_prompt = None,
         }
         return;
     }
     if let Some(text) = app.notices.first().cloned() {
+        if app.disk_notice.as_ref() == Some(&text) {
+            let buttons = [("noticeSettings", "Open Performance Settings", Choice::Settings), ("noticeOk", "OK", Choice::Ok)];
+            let Some(i) = window(ctx, "settings-notice", "Drive almost full", &text, &buttons, &mut app.notice_input) else { return };
+            app.notices.remove(0);
+            app.disk_notice = None;
+            if buttons.get(i).is_some_and(|(_, _, choice)| *choice == Choice::Settings) {
+                app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "performance".into() });
+            }
+            return;
+        }
         let buttons = [("noticeOk", "OK", Choice::Ok)];
         if window(ctx, "settings-notice", "Settings file problem", &text, &buttons, &mut app.notice_input).is_some() {
             app.notices.remove(0);
