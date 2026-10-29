@@ -2186,3 +2186,31 @@ fn a_tool_chosen_mid_stroke_drops_a_stroke_that_was_not_live() {
     pointer(&mut h, json!([{"kind": "up", "x": 0.65, "y": 0.4}]));
     h.settle(SETTLE);
 }
+
+/// The overlay falls back to the last frame's hovered mask while this frame's panels set the new one, so a frame in
+/// which the hovered row or pin changed (or the pointer left them) asks for one more: the overlay follows the
+/// pointer at once, not at the next input (CodeRabbit on #2920).
+#[test]
+fn a_frame_whose_hovered_mask_changed_asks_for_another() {
+    let mut h = detail("panel.masking");
+    let row = Some((lightcraft_catalog::PhotoId(1), 1));
+    let asks = |h: &mut Headless, now, before| {
+        h.app.ui.mask_hover = now;
+        h.app.ui.mask_hover_prev = before;
+        // (a settled context: its own first frames asked for, so only this frame's request counts)
+        let ctx = egui::Context::default();
+        for _ in 0..3 {
+            ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        }
+        let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = asked.clone();
+        ctx.set_request_repaint_callback(move |_| seen.store(true, std::sync::atomic::Ordering::Relaxed));
+        h.app.repaint_on_mask_hover_change(&ctx);
+        asked.load(std::sync::atomic::Ordering::Relaxed)
+    };
+    assert!(asks(&mut h, row, None), "onto a row");
+    assert!(asks(&mut h, None, row), "off it");
+    assert!(asks(&mut h, Some((lightcraft_catalog::PhotoId(1), 2)), row), "onto another");
+    assert!(!asks(&mut h, row, row), "resting on the same row");
+    assert!(!asks(&mut h, None, None), "nowhere near");
+}
