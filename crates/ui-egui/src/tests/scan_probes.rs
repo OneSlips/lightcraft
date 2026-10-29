@@ -84,3 +84,39 @@ fn a_cancelled_scan_whose_worker_ends_without_a_result_is_not_a_failure() {
     assert!(h.app.scan.is_none());
     assert!(!failed_toast(&h), "a cancelled scan says nothing: {:?}", h.app.ui.toast);
 }
+
+/// Browsing reads the disk only on its worker (CodeRabbit on #3077): a folder whose resolution is held (a link on
+/// a stalled network mount) still lets `browse` return at once, the view shows the folder as given, and the scan
+/// waits; once resolved, the folder is read.
+#[test]
+fn a_browse_whose_folder_resolves_slowly_returns_at_once_and_waits() {
+    let mut h = demo();
+    let dir = std::env::temp_dir().join(format!("lc-ui-browse-held-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let given = lightcraft_engine::import::browse_spelling(&dir).unwrap().to_string_lossy().trim_end_matches(['/', '\\']).to_string();
+    crate::import::HELD_RESOLVES.lock().unwrap().push(given.clone());
+    let start = std::time::Instant::now();
+    let r = crate::import::browse(&mut h.app, &dir.to_string_lossy(), None).unwrap();
+    assert!(start.elapsed() < Duration::from_secs(2), "returned after {:?}", start.elapsed());
+    assert_eq!(r["scanning"], true, "{r}");
+    assert_eq!(h.app.session.browse.as_ref().map(|b| b.path.clone()), Some(given.clone()), "shown as given meanwhile");
+    for _ in 0..5 {
+        h.step();
+    }
+    assert!(h.app.scan.is_some(), "still waiting for the folder");
+    crate::import::HELD_RESOLVES.lock().unwrap().retain(|p| *p != given);
+    assert!(h.step_until(T, |h| h.app.scan.is_none()), "read once resolved");
+    assert!(!failed_toast(&h), "{:?}", h.app.ui.toast);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A path that isn't a folder is found out by the worker, not by the window's thread: `browse` returns, and the scan
+/// then ends as failed.
+#[test]
+fn a_browse_of_a_missing_folder_fails_on_its_worker() {
+    let mut h = demo();
+    let gone = std::env::temp_dir().join(format!("lc-ui-browse-gone-{}", std::process::id())).join("not-there");
+    assert!(crate::import::browse(&mut h.app, &gone.to_string_lossy(), None).is_ok());
+    assert!(h.step_until(T, |h| h.app.scan.is_none()));
+    assert!(failed_toast(&h), "the failure is reported: {:?}", h.app.ui.toast);
+}
