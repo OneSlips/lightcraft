@@ -625,7 +625,7 @@ impl Session {
         }
         self.library_identity = std::sync::Arc::new(());
         // a library open is a new session for the low-disk alert: look at the drive now
-        self.disk_alert = Default::default();
+        self.disk_alert.reset();
         self.check_disk_space(true);
         Ok(())
     }

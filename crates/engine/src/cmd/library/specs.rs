@@ -1314,6 +1314,8 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         // ---- persistence
         cmd!(query "library.info", "Library Info", [], None, "{}", always, |s, _| {
+            // the answer of a free-space read that ran on a worker (lowDiskSpace below)
+            s.poll_disk_space();
             let photos = s.catalog.len();
             let albums = s.catalog.albums().count();
             let (rendered_n, rendered_bytes) = s.media.rendered.mem_usage();
