@@ -5,7 +5,7 @@ use super::job::{ImportJob, Prepared, PreparedItem, ReadyFile};
 use super::scan::ScanProgress;
 #[cfg(test)]
 use super::types::{ImportMode, ImportOptions};
-use super::*;
+use super::{Path, PathBuf, ProbeInfo, Session};
 
 /// File extensions offered by import discovery and file pickers (lower case).
 /// This includes preview-only raws; the file probe decides whether sensor decoding is available.
@@ -320,6 +320,7 @@ pub(super) fn copy_into(dir: &Path, src: &str, name: Option<&str>, probe_hash: O
 #[cfg(test)]
 mod prepared_tests {
     use super::*;
+    use lightcraft_catalog::{Op, Photo, PhotoId, Source};
 
     fn temp_dir(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lc-launch-{tag}-{}", std::process::id()));
