@@ -1,5 +1,10 @@
 # What's new in LightCraft
 
+## 2026-10-27
+
+### The Edit menu groups Select Only Active Photo and Paste Settings from Previous with their kin
+- Select Only Active Photo now sits under Deselect All, and Paste Settings from Previous under Paste Selected Settings…, instead of both after Settings…, near the end of the Edit menu. On macOS, where Settings… lives in the application menu, the Edit menu no longer shows two separator lines in a row.
+
 ## 2026-10-26
 
 ### Panels come back as they were
@@ -7,6 +12,12 @@
   position, and the photo doesn't move; if the panel was hidden, it stays hidden. Pressing a panel key a second time
   (I for Info, M for Masking, C for Crop, H for Remove) or its tool-strip button puts back exactly what the right
   column showed before: Edit → I → I is Edit again, Masks → I → I is Masks, and a closed panel stays closed.
+
+## 2026-10-25
+
+### `>=` and `<=` work in the search box
+- Fielded search tokens now take inclusive comparisons: `rating:>=3`, `iso:<=400`, `f:>=2.8`, `focal:<=50`. Before,
+  the `=` was read as part of the number, so such a search quietly showed no photos at all.
 
 ## 2026-10-24
 
@@ -284,6 +295,13 @@
 - A crop ratio no longer flips to the photo's orientation (issue #2253): after X turns the crop portrait, picking
   another ratio (4 × 5, 2 × 3…) keeps it portrait, as in Lightroom, and a Custom ratio taller than wide gives a
   portrait crop.
+
+## 2026-10-17
+
+### Short Epson and Mamiya raws are refused
+- An Epson ERF or Mamiya MEF whose raw strip runs past the end of the file is now an error on import (issue #2119).
+  Before, the header probe trusted the declared strip length and sized its sample buffer from it, so a few KB of file
+  could make it allocate gigabytes.
 
 ## 2026-10-16
 
