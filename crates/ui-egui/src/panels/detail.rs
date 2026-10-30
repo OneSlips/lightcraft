@@ -472,7 +472,7 @@ fn prefetch_neighbours(app: &mut LightcraftApp, id: PhotoId, main_area: Rect, pp
     // only once this photo is on screen (nor while a cell on screen waits for its first picture: those come before
     // anything bigger)
     if app.renderer.is_pending(Slot::Main)
-        || !app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id)
+        || app.renderer.textures.get(&Slot::Main).is_none_or(|t| t.photo != id)
         || app.pictures_busy(app.renderer.frame())
     {
         return;
