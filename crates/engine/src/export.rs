@@ -2169,7 +2169,8 @@ impl PreparedExport {
                         Some(_turn) => renders(),
                         None => {
                             lap("the GPU is busy: rendering on the processor", &mut t);
-                            lightcraft_gpu::on_cpu(renders)
+                            // (a panic is caught inside `on_cpu`, which then gives the lane the GPU back)
+                            lightcraft_gpu::on_cpu(|| crate::guard::catch("rendering on the processor", renders)).and_then(|r| r)
                         }
                     }
                 } else if self.gpu && uses_helper() {
@@ -2500,10 +2501,19 @@ pub fn export_parallelism(n: usize) -> usize {
     if cfg!(target_arch = "wasm32") {
         return 1;
     }
-    let lanes = export_lanes_override().unwrap_or_else(|| {
-        let cores = std::thread::available_parallelism().map_or(1, |c| c.get());
-        auto_lanes(cores, if uses_helper() { lightcraft_gpu::batch_usage_of(lightcraft_gpu::Role::Helper).limit_jobs } else { 0 })
-    });
+    let helper_jobs = if uses_helper() { lightcraft_gpu::batch_usage_of(lightcraft_gpu::Role::Helper).limit_jobs } else { 0 };
+    let lanes = match (lanes_from_env(), export_lanes_override()) {
+        // (a measurement asked for exactly this many)
+        (Some(n), _) => n,
+        // the setting (Test my machine on one card): at least enough photos for both cards'
+        // turns at once, else a small setting keeps every photo on the second card
+        (None, Some(n)) if helper_jobs > 0 => n.max(both_cards_lanes(lightcraft_gpu::batch_usage().limit_jobs, helper_jobs)),
+        (None, Some(n)) => n,
+        (None, None) => {
+            let cores = std::thread::available_parallelism().map_or(1, |c| c.get());
+            auto_lanes(cores, helper_jobs)
+        }
+    };
     lanes.clamp(1, MAX_EXPORT_LANES).min(n.max(1))
 }
 
@@ -2511,6 +2521,17 @@ pub fn export_parallelism(n: usize) -> usize {
 /// renders at once: half the cores, up to 12, plus the helper's.
 fn auto_lanes(cores: usize, helper_jobs: usize) -> usize {
     (cores / 2).clamp(1, 12).saturating_add(helper_jobs).min(MAX_EXPORT_LANES)
+}
+
+/// The fewest lanes that feed both cards: every turn the editing card (`editing_jobs`) and the
+/// second card (`helper_jobs`) give out at once, plus one decoding or encoding beside them.
+fn both_cards_lanes(editing_jobs: usize, helper_jobs: usize) -> usize {
+    editing_jobs.max(1).saturating_add(helper_jobs).saturating_add(1).min(MAX_EXPORT_LANES)
+}
+
+/// `LIGHTCRAFT_EXPORT_LANES`, when set (measurements: always exactly this many).
+fn lanes_from_env() -> Option<usize> {
+    std::env::var("LIGHTCRAFT_EXPORT_LANES").ok().and_then(|v| v.trim().parse::<usize>().ok()).filter(|n| *n > 0)
 }
 
 /// The most photos an export renders side by side, whatever is asked.
@@ -2721,8 +2742,11 @@ fn run_gated(item: PreparedExport, stop: &dyn Fn() -> bool) -> Result<Exported, 
     // (its GPU renders take turns with the other photos' and stay behind the window's: `lightcraft_gpu::as_batch`)
     // (on the processor when the GPU is turned off for exports: `set_export_gpu`)
     let gpu = item.gpu;
-    let render = || lightcraft_gpu::as_batch(|| item.run_until(stop));
-    crate::guard::catch(&what, || if gpu { render() } else { lightcraft_gpu::on_cpu(render) }).and_then(|r| r)
+    // (the panic is caught inside `as_batch` / `on_cpu`, so they put this lane thread's flags back
+    // and its next photo starts clean; the card's turn and role guards give back on unwind)
+    let run = || crate::guard::catch(&what, || item.run_until(stop)).and_then(|r| r);
+    let render = || lightcraft_gpu::as_batch(run);
+    if gpu { render() } else { lightcraft_gpu::on_cpu(render) }
 }
 
 /// The photos of a batch shared by its lanes: each lane takes the next one, at most
@@ -3017,6 +3041,10 @@ mod tests {
         assert_eq!(auto_lanes(32, 4), 16);
         assert_eq!(auto_lanes(1, 0), 1);
         assert_eq!(auto_lanes(usize::MAX, usize::MAX), MAX_EXPORT_LANES);
+        // a lanes setting from one card still feeds both: 4 + 4 turns and one beside them
+        assert_eq!(both_cards_lanes(4, 4), 9);
+        assert_eq!(both_cards_lanes(0, 4), 6);
+        assert_eq!(both_cards_lanes(usize::MAX, usize::MAX), MAX_EXPORT_LANES);
     }
 
     #[test]
