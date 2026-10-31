@@ -12,7 +12,7 @@ use lightcraft_denoise::run::TileRunner;
 use serde_json::{Value, json};
 
 use crate::Session;
-use crate::denoise::{Loader, Model, PhotoState, RunOn};
+use crate::denoise::{Lent, Loader, Model, PhotoState, RunOn};
 use crate::export::{ExportOptions, export_photo};
 use crate::tests_xmp::{synthetic_dng_of, temp_dir};
 
@@ -41,8 +41,8 @@ impl TileRunner for Dim {
 }
 
 impl Model for Dim {
-    fn runner(&self, _: RunOn, threads: usize) -> (&dyn TileRunner, usize) {
-        (self, threads)
+    fn runner(&self, _: RunOn, threads: usize) -> (Box<dyn TileRunner + '_>, usize) {
+        (Box::new(Lent(self)), threads)
     }
 
     fn self_test(&self, _: RunOn) -> Result<Value, String> {
@@ -316,7 +316,7 @@ fn a_photo_is_denoised_in_the_background_and_the_amount_mixes_it_in() {
     let r = pump_until_ready(&mut x.s, 1);
     assert_eq!(r["queued"], 0, "{r}");
     assert_eq!(x.s.denoise_photo_state(id), PhotoState::Ready);
-    assert!(x.runs.load(Ordering::Relaxed) >= 4, "a 192 × 160 mosaic is four 64-cell tiles: {}", x.runs.load(Ordering::Relaxed));
+    assert!(x.runs.load(Ordering::Relaxed) >= 4, "a 192 Ã— 160 mosaic is four 64-cell tiles: {}", x.runs.load(Ordering::Relaxed));
     let products: Vec<_> = std::fs::read_dir(x.dir.join("library").join("denoise")).unwrap().flatten().collect();
     assert_eq!(products.len(), 1, "one cached picture, no DNG or anything else in the library");
     assert!(products[0].path().extension().is_some_and(|e| e == "lcdn"));
@@ -331,7 +331,7 @@ fn a_photo_is_denoised_in_the_background_and_the_amount_mixes_it_in() {
     assert!(half < plain - 1.0 && half > full + 1.0, "{full} < {half} < {plain}");
     set_amount(&mut x.s, 0.0);
     assert!((rendered_mean(&mut x.s, id) - plain).abs() < 0.01, "amount 0 is the plain picture again");
-    // …and a render that uses it has another identity than one that does not
+    // â€¦and a render that uses it has another identity than one that does not
     assert_ne!(key_before, {
         set_amount(&mut x.s, 100.0);
         x.s.render_job(id, 160, 160, false, true).unwrap().key
@@ -533,8 +533,8 @@ fn files_that_cannot_be_denoised_fail_with_a_reason_and_never_a_panic() {
         }
     }
     impl Model for Wrong {
-        fn runner(&self, _: RunOn, threads: usize) -> (&dyn TileRunner, usize) {
-            (self, threads)
+        fn runner(&self, _: RunOn, threads: usize) -> (Box<dyn TileRunner + '_>, usize) {
+            (Box::new(Lent(self)), threads)
         }
         fn self_test(&self, _: RunOn) -> Result<Value, String> {
             Err("no".into())
@@ -619,7 +619,7 @@ fn the_cache_is_kept_within_its_limit_and_what_photos_use_goes_last() {
     x.s.denoise_evict_to(10, None);
     assert!(!mine.exists());
     assert_ne!(x.s.denoise_photo_state(id), PhotoState::Ready);
-    // …and it is made again, because the photo still has its amount
+    // â€¦and it is made again, because the photo still has its amount
     pump_until_ready(&mut x.s, 1);
     assert!(mine.exists());
     // clearing deletes it all
@@ -679,7 +679,7 @@ fn settings_are_checked_saved_and_a_paused_pump_starts_nothing() {
         assert_eq!(r["running"], Value::Null);
     }
     assert!(matches!(x.s.denoise_photo_state(id), PhotoState::Queued { .. }), "{:?}", x.s.denoise_photo_state(id));
-    // …and cancelling forgets it
+    // â€¦and cancelling forgets it
     assert_eq!(x.s.execute("denoise.cancel", &json!({})).unwrap()["cancelled"], 1);
     assert_eq!(x.s.denoise_photo_state(id), PhotoState::Idle);
     // when the pace allows, it is made
@@ -969,4 +969,143 @@ fn ai_denoise_above_an_iso_is_switched_on_at_import() {
     assert!(!p.develop.enhance.denoise_enabled());
     drop(x.s);
     let _ = std::fs::remove_dir_all(x.dir);
+}
+
+/// A stand-in for a model on two graphics cards: [`Dim`] on each, `lanes` photos at once, counting the photos holding a
+/// card at the same time; with `broken`, the second card stopped working (only one card is offered: `Network`'s own
+/// tests check how a card is given up on).
+struct TwoCards {
+    lanes: usize,
+    broken: bool,
+    runs: Arc<AtomicUsize>,
+    holding: Arc<AtomicUsize>,
+    peak: Arc<AtomicUsize>,
+    leases: std::sync::Mutex<Vec<usize>>,
+}
+
+/// One photo's hold on a card.
+struct Held<'a> {
+    model: &'a TwoCards,
+    card: usize,
+}
+
+impl TileRunner for Held<'_> {
+    fn run(&self, input: &[f32]) -> Result<Vec<f32>, lightcraft_denoise::Error> {
+        // long enough for the photos on two cards to overlap
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let _ = self.card;
+        Dim { runs: self.model.runs.clone() }.run(input)
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        self.model.holding.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+impl Model for TwoCards {
+    fn runner(&self, _: RunOn, threads: usize) -> (Box<dyn TileRunner + '_>, usize) {
+        let now = self.holding.fetch_add(1, Ordering::SeqCst) + 1;
+        self.peak.fetch_max(now, Ordering::SeqCst);
+        let mut leases = self.leases.lock().unwrap();
+        let card = leases.len() % self.lanes.max(1);
+        leases.push(card);
+        (Box::new(Held { model: self, card }), threads.min(4))
+    }
+
+    fn lanes(&self, _: RunOn) -> usize {
+        if self.broken { 1 } else { self.lanes }
+    }
+
+    fn bytes_per_tile(&self) -> usize {
+        1 << 20
+    }
+
+    fn self_test(&self, _: RunOn) -> Result<Value, String> {
+        Ok(json!({"ok": true}))
+    }
+}
+
+/// A library of four different raw photos with the stand-in model on `lanes` cards; their pictures made as one batch.
+/// Returns each picture's bytes (by file name), the most photos made at once, and the batch's summary (done, failed).
+fn batch_on(tag: &str, lanes: usize, broken: bool) -> (Vec<(String, Vec<u8>)>, usize, (u64, u64)) {
+    let dir = temp_dir(tag);
+    let originals = dir.join("originals");
+    std::fs::create_dir_all(&originals).unwrap();
+    let mut paths = Vec::new();
+    for (i, cfa) in ["RGGB", "BGGR", "GRBG", "GBRG"].iter().enumerate() {
+        let p = originals.join(format!("ramp{i}.dng"));
+        std::fs::write(&p, ramp_dng(192 + 16 * i, 160, cfa)).unwrap();
+        paths.push(p.to_string_lossy().to_string());
+    }
+    let mut s = Session::new().with_fs();
+    s.open_library(dir.join("library"), false).unwrap();
+    s.execute("library.import", &json!({"paths": paths})).unwrap();
+    s.set_denoise_models_dir(Some(dir.join("denoise-models")));
+    let (holding, peak) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let (h, pk) = (holding.clone(), peak.clone());
+    s.denoise.loader = Arc::new(move |_, _| {
+        Ok(Arc::new(TwoCards {
+            lanes,
+            broken,
+            runs: Arc::new(AtomicUsize::new(0)),
+            holding: h.clone(),
+            peak: pk.clone(),
+            leases: std::sync::Mutex::new(Vec::new()),
+        }) as Arc<dyn Model>)
+    });
+    let onnx = model_files(&dir, "stand-in");
+    s.execute("denoise.models.install", &json!({"path": onnx.to_string_lossy(), "acknowledged": true})).unwrap();
+    let ids: Vec<u64> = s.catalog.photos().map(|p| p.id.0).collect();
+    assert_eq!(ids.len(), 4);
+    let r = s.execute("denoise.queue", &json!({"ids": ids})).unwrap();
+    assert_eq!(r["added"], 4, "{r}");
+    let mut rows_seen = 0;
+    for _ in 0..1200 {
+        let r = s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+        let rows: Vec<_> = s.activity.list().into_iter().filter(|t| t.kind == "denoise").collect();
+        if let Some(batch) = rows.iter().find(|t| t.batch) {
+            assert_eq!(batch.total, 4, "one batch row counting every photo: {rows:?}");
+            let photos = rows.iter().filter(|t| !t.batch && t.parent == Some(batch.id)).count();
+            assert!(photos <= lanes, "a row under the batch for each photo being made, at most one per card: {rows:?}");
+            rows_seen = rows_seen.max(photos);
+        }
+        if r["ready"].as_u64() >= Some(4) && !s.denoise_busy() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    s.execute("denoise.pump", &json!({"pace": "full"})).unwrap();
+    assert_eq!(s.execute("denoise.status", &json!({})).unwrap()["ready"], 4);
+    assert!(rows_seen >= 1);
+    let last = s.activity.finished().last().cloned().expect("the batch leaves its summary");
+    assert_eq!(holding.load(Ordering::SeqCst), 0, "every card was given back");
+    let mut pictures: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir.join("library").join(crate::denoise::DIR))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| (e.file_name().to_string_lossy().to_string(), std::fs::read(e.path()).unwrap()))
+        .collect();
+    pictures.sort();
+    drop(s);
+    let _ = std::fs::remove_dir_all(&dir);
+    (pictures, peak.load(Ordering::SeqCst), (last.done, last.failed))
+}
+
+/// Dual-GPU PR 5 (decision 7): a batch runs a photo on each graphics card at once, and comes out the same as on one card;
+/// the batch row counts every photo once. A broken second card leaves one photo at a time, and every photo is made.
+#[test]
+fn a_batch_on_two_cards_makes_what_one_card_makes() {
+    let (one, peak_one, summary_one) = batch_on("twocards-one", 1, false);
+    assert_eq!(peak_one, 1, "one card: one photo at a time");
+    assert_eq!(summary_one, (4, 0));
+    let (two, peak_two, summary_two) = batch_on("twocards-two", 2, false);
+    assert_eq!(peak_two, 2, "two cards: two photos at once");
+    assert_eq!(summary_two, (4, 0), "the batch row counts every photo once");
+    assert_eq!(one.len(), 4);
+    assert_eq!(one, two, "the same pictures, byte for byte");
+    let (broken, peak_broken, summary_broken) = batch_on("twocards-broken", 2, true);
+    assert_eq!(peak_broken, 1, "a broken second card is not given photos");
+    assert_eq!(summary_broken, (4, 0));
+    assert_eq!(broken, one);
 }

@@ -93,8 +93,14 @@ impl RunOn {
 /// A loaded denoise model: what runs tiles, and a self-check.
 pub(crate) trait Model: Send + Sync {
     /// What runs a photo's tiles, and how many to run at once, when `threads` may be used and the setting is `run_on`
-    /// (a graphics card is kept busy by a few). The first time the card may be used it is set up and checked here.
-    fn runner(&self, run_on: RunOn, threads: usize) -> (&dyn TileRunner, usize);
+    /// (a graphics card is kept busy by a few). The first time the cards may be used they are set up and checked here.
+    /// The runner holds the photo's graphics card until it is dropped.
+    fn runner(&self, run_on: RunOn, threads: usize) -> (Box<dyn TileRunner + '_>, usize);
+    /// Photos that may run at once under `run_on`: one per graphics card that works (one when there is none, or none
+    /// was set up yet). Never starts anything.
+    fn lanes(&self, _run_on: RunOn) -> usize {
+        1
+    }
     /// Check it does something sensible: the test's result, or why not. Unless `run_on` is the processor the graphics
     /// card is set up and checked too, and the result says where the work will run.
     fn self_test(&self, run_on: RunOn) -> Result<Value, String>;
@@ -107,6 +113,17 @@ pub(crate) trait Model: Send + Sync {
     /// timed. Never starts anything.
     fn device(&self, _run_on: RunOn) -> Value {
         json!({"kind": "cpu"})
+    }
+}
+
+/// A runner lent for one photo (what [`Model::runner`] returns for a test model whose runner is itself).
+#[cfg(test)]
+pub(crate) struct Lent<'a>(pub &'a dyn TileRunner);
+
+#[cfg(test)]
+impl TileRunner for Lent<'_> {
+    fn run(&self, input: &[f32]) -> Result<Vec<f32>, RunError> {
+        self.0.run(input)
     }
 }
 
@@ -128,6 +145,8 @@ const GPU_SETUP_LIMIT: Duration = Duration::from_secs(30);
 const GPU_MAX_FALLBACKS: usize = 3;
 /// The file beside a model while the graphics card is set up for it (see [`set_up_card`]).
 pub(crate) const GPU_SETUP_MARKER: &str = "gpu-setup.marker";
+/// The same while the second graphics card is set up.
+pub(crate) const GPU_SETUP_MARKER_HELPER: &str = "gpu-setup-helper.marker";
 /// Why the card is not tried when a set-up marker is found.
 #[cfg(feature = "denoise")]
 const GPU_CRASHED: &str = "LightCraft closed while it was setting up the graphics card for AI Denoise last time";
@@ -144,25 +163,53 @@ fn worth_retrying(why: &str) -> bool {
     why == GPU_CRASHED || why == GPU_STUCK || why.starts_with(GPU_SLOW)
 }
 
-/// The model on our pure-Rust CPU runner, and on the graphics card when there is one that can run it: the card is set up for the
-/// first photo that may use it, checked against the CPU's answer on a check tile and timed against it, and used while
-/// it keeps working; a tile it gets wrong is run on the CPU, so a photo is always finished.
+/// The model on our pure-Rust CPU runner, and on the graphics cards when there are any that can run it: each card (the
+/// card for editing, the second graphics card) is set up for the first photo that may use it, checked against the CPU's
+/// answer on a check tile and timed against it, and used while it keeps working; a tile it gets wrong is run on the CPU,
+/// so a photo is always finished. A batch runs a photo on each card that works (decision 7 of 31 Oct 2026: whole photos
+/// on both cards; one photo's tiles stay on one card), the second graphics card first.
 #[cfg(feature = "denoise")]
 struct Network {
     cpu: lightcraft_denoise::runtime::CpuRunner,
     path: PathBuf,
     tile: usize,
-    gpu: OnceLock<Result<GpuSide, String>>,
-    /// Tiles the card got wrong (an error, numbers that are not finite) and the CPU ran.
-    fallbacks: AtomicUsize,
+    /// Each card's side, in the order photos take them ([`lightcraft_gpu::ai::BACKGROUND_ORDER`]: the helper first).
+    cards: [CardSide; 2],
+    /// Hands photos their card one at a time.
+    picking: Mutex<()>,
     /// Tiles at once of the photo started last (0: none yet), to say where the work runs.
     last_threads: AtomicUsize,
     /// Another computer's graphics card (`LIGHTCRAFT_DENOISE_URL` + `LIGHTCRAFT_DENOISE_TOKEN`; see
     /// `docs/denoise.md` → Another computer's graphics card), greeted on first use: it takes tiles while it has a free
     /// slot, on top of this computer's runner.
     remote: Option<RemoteSide>,
-    /// Whether this computer's share runs on the card (else the CPU), as chosen for the photo started last.
-    local_card: AtomicBool,
+}
+
+/// One graphics card's part of a [`Network`].
+#[cfg(feature = "denoise")]
+struct CardSide {
+    card: lightcraft_gpu::Role,
+    gpu: OnceLock<Result<GpuSide, String>>,
+    /// Tiles the card got wrong (an error, numbers that are not finite) and the CPU ran.
+    fallbacks: AtomicUsize,
+    /// Photos running on it now.
+    photos: AtomicUsize,
+}
+
+#[cfg(feature = "denoise")]
+impl CardSide {
+    fn new(card: lightcraft_gpu::Role) -> CardSide {
+        CardSide { card, gpu: OnceLock::new(), fallbacks: AtomicUsize::new(0), photos: AtomicUsize::new(0) }
+    }
+}
+
+/// The set-up marker's name for `card` (the editing card keeps the name it always had).
+#[cfg(feature = "denoise")]
+fn setup_marker(card: lightcraft_gpu::Role) -> &'static str {
+    match card {
+        lightcraft_gpu::Role::Primary => GPU_SETUP_MARKER,
+        lightcraft_gpu::Role::Helper => GPU_SETUP_MARKER_HELPER,
+    }
 }
 
 #[cfg(feature = "denoise")]
@@ -351,13 +398,16 @@ fn card_tile_ms(runner: &dyn TileRunner, input: &[f32]) -> f64 {
     best
 }
 
-/// Set the card up for the model at `path`: kernels built, the check tile run on both and compared, both timed.
+/// Set `card` up for the model at `path`: kernels built, the check tile run on both and compared, both timed.
 #[cfg(feature = "denoise")]
-fn make_gpu(cpu: &lightcraft_denoise::runtime::CpuRunner, path: &Path, tile: usize) -> Result<GpuSide, String> {
+fn make_gpu(cpu: &lightcraft_denoise::runtime::CpuRunner, path: &Path, tile: usize, card: lightcraft_gpu::Role) -> Result<GpuSide, String> {
+    if card == lightcraft_gpu::Role::Helper && lightcraft_gpu::ai::helper_name().is_none() {
+        return Err(lightcraft_gpu::ai::NO_HELPER.into());
+    }
     let input = Arc::new(lightcraft_denoise::runtime::check_tile(tile));
     let (on_card, net) = (input.clone(), cpu.net().clone());
-    let card = move || -> Result<_, String> {
-        let runner = lightcraft_gpu::nn::runner(&net, tile)?;
+    let card_work = move || -> Result<_, String> {
+        let runner = lightcraft_gpu::nn::runner_on(card, &net, tile)?;
         let got = runner.run(&on_card).map_err(|e| format!("the GPU could not run the check tile: {e}"))?;
         let card_ms = card_tile_ms(&runner, &on_card);
         Ok((runner, got, card_ms))
@@ -366,90 +416,162 @@ fn make_gpu(cpu: &lightcraft_denoise::runtime::CpuRunner, path: &Path, tile: usi
         let started = web_time::Instant::now();
         (cpu.run(&input), started.elapsed().as_secs_f64() * 1000.0)
     };
-    let ((runner, got, card_ms), (want, cpu_ms)) = set_up_card(&path.with_file_name(GPU_SETUP_MARKER), GPU_SETUP_LIMIT, card, on_cpu)?;
+    let ((runner, got, card_ms), (want, cpu_ms)) = set_up_card(&path.with_file_name(setup_marker(card)), GPU_SETUP_LIMIT, card_work, on_cpu)?;
     let want = want.map_err(|e| format!("the CPU could not check the GPU: {e}"))?;
-    let scale = want.iter().fold(0f32, |m, v| m.max(v.abs())).max(1e-12);
-    let worst = want.iter().zip(&got).fold(0f32, |m, (a, b)| m.max((a - b).abs())) / scale;
+    let worst = disagreement(&want, &got);
     if got.len() != want.len() || !got.iter().all(|v| v.is_finite()) || worst > GPU_AGREE {
         return Err(format!("its answer on the check tile is not the CPU's (off by {worst:.1e} of the largest value): not used"));
     }
     Ok(GpuSide { adapter: runner.adapter(), runner: Box::new(runner), card_ms, cpu_ms })
 }
 
+/// How far `got` is from `want`, as a share of `want`'s largest value (the check tile's measure, [`GPU_AGREE`]).
+#[cfg(feature = "denoise")]
+fn disagreement(want: &[f32], got: &[f32]) -> f32 {
+    let scale = want.iter().fold(0f32, |m, v| m.max(v.abs())).max(1e-12);
+    want.iter().zip(got).fold(0f32, |m, (a, b)| m.max((a - b).abs())) / scale
+}
+
 #[cfg(feature = "denoise")]
 impl Network {
-    /// The card when it can be used now, else why not. `start` sets it up when that has not been tried yet; without it
-    /// nothing is started.
-    fn card(&self, start: bool) -> Result<&GpuSide, String> {
-        let side = if start {
-            Some(self.gpu.get_or_init(|| {
-                let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| make_gpu(&self.cpu, &self.path, self.tile)))
+    /// Set every card up that was not tried yet, all at once (each on its own thread, the CPU checking meanwhile).
+    fn set_up(&self) {
+        let todo: Vec<&CardSide> = self.cards.iter().filter(|c| c.gpu.get().is_none()).collect();
+        if todo.is_empty() {
+            return;
+        }
+        std::thread::scope(|scope| {
+            for side in todo {
+                let spawned = std::thread::Builder::new().name("denoise-card".into()).stack_size(STACK).spawn_scoped(scope, move || {
+                    let _ = self.card(side, true);
+                });
+                if spawned.is_err() {
+                    // no thread: set it up here
+                    let _ = self.card(side, true);
+                }
+            }
+        });
+    }
+
+    /// `side`'s card when it can be used now, else why not. `start` sets it up when that has not been tried yet;
+    /// without it nothing is started.
+    fn card<'a>(&self, side: &'a CardSide, start: bool) -> Result<&'a GpuSide, String> {
+        let got = if start {
+            Some(side.gpu.get_or_init(|| {
+                let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| make_gpu(&self.cpu, &self.path, self.tile, side.card)))
                     .unwrap_or_else(|_| Err("the GPU runner gave up".into()));
-                if let Err(why) = &made {
-                    log::info!("denoise: running on the CPU ({why})");
+                match &made {
+                    Ok(g) => log::info!("denoise: the {} card is {}", side.card.id(), g.adapter),
+                    Err(why) => log::info!("denoise: not on the {} card ({why})", side.card.id()),
                 }
                 made
             }))
         } else {
-            self.gpu.get()
+            side.gpu.get()
         };
-        let g = match side {
+        let g = match got {
             None => return Err("the graphics card is not set up yet".into()),
             Some(Err(why)) => return Err(why.clone()),
             Some(Ok(g)) => g,
         };
-        if let Some(why) = lightcraft_gpu::nn::broken_reason() {
+        if let Some(why) = lightcraft_gpu::nn::broken_reason_on(side.card) {
             return Err(format!("the graphics card stopped working ({why})"));
         }
-        if self.fallbacks.load(Ordering::Relaxed) >= GPU_MAX_FALLBACKS {
+        if side.fallbacks.load(Ordering::Relaxed) >= GPU_MAX_FALLBACKS {
             return Err(format!("{} got {GPU_MAX_FALLBACKS} tiles wrong", g.adapter));
         }
         Ok(g)
     }
 
-    /// The card, when a photo made `threads` tiles at a time under `run_on` runs on it; else why the CPU does.
-    fn choose(&self, run_on: RunOn, threads: usize, start: bool) -> Result<&GpuSide, String> {
+    /// `side`'s card, when a photo made `threads` tiles at a time under `run_on` runs on it; else why the CPU does.
+    fn choose<'a>(&self, side: &'a CardSide, run_on: RunOn, threads: usize, start: bool) -> Result<&'a GpuSide, String> {
         if run_on == RunOn::Cpu {
             return Err("the processor is chosen in Settings".into());
         }
-        let g = self.card(start)?;
+        let g = self.card(side, start)?;
         if run_on == RunOn::Auto && !card_is_faster(g.card_ms, g.cpu_ms, threads) {
             return Err(format!("it is faster than {} on this computer", g.adapter));
         }
         Ok(g)
     }
 
-    fn fell_back(&self, why: &str) {
-        let n = self.fallbacks.fetch_add(1, Ordering::Relaxed) + 1;
+    /// The card for a photo starting now (none: the CPU): of the cards it may run on, the one with fewest photos, the
+    /// second graphics card first. It counts the photo until the lease ends.
+    fn lease(&self, run_on: RunOn, threads: usize) -> Option<&CardSide> {
+        let _one_at_a_time = self.picking.lock().unwrap_or_else(PoisonError::into_inner);
+        let side = self.cards.iter().filter(|s| self.choose(s, run_on, threads, false).is_ok()).min_by_key(|s| s.photos.load(Ordering::Relaxed))?;
+        side.photos.fetch_add(1, Ordering::Relaxed);
+        Some(side)
+    }
+
+    fn fell_back(&self, side: &CardSide, why: &str) {
+        let n = side.fallbacks.fetch_add(1, Ordering::Relaxed) + 1;
         if n == 1 {
-            log::warn!("denoise: a tile came back wrong from the GPU ({why}); the CPU runs it");
+            log::warn!("denoise: a tile came back wrong from the {} card ({why}); the CPU runs it", side.card.id());
         } else if n == GPU_MAX_FALLBACKS {
-            log::warn!("denoise: the GPU got {n} tiles wrong; the CPU does the rest");
+            log::warn!("denoise: the {} card got {n} tiles wrong; the CPU does the rest", side.card.id());
         }
+    }
+
+    /// The card a photo starting now would use, and the times measured there (for the status).
+    fn describe_card(&self, side: &CardSide, run_on: RunOn, threads: usize) -> Option<Value> {
+        let made = side.gpu.get()?;
+        if matches!(made, Err(why) if why.starts_with(lightcraft_gpu::ai::NO_HELPER)) {
+            return None;
+        }
+        let mut v = match self.choose(side, run_on, threads, false) {
+            Ok(g) => json!({"card": side.card.id(), "kind": "gpu", "adapter": g.adapter}),
+            Err(why) => json!({"card": side.card.id(), "kind": "cpu", "retry": worth_retrying(&why), "reason": why}),
+        };
+        if let (Ok(g), Some(o)) = (made, v.as_object_mut()) {
+            o.insert("adapter".into(), json!(g.adapter));
+            o.insert("cardMs".into(), json!(g.card_ms));
+            o.insert("cpuMs".into(), json!(g.cpu_ms));
+            o.insert("fellBack".into(), json!(side.fallbacks.load(Ordering::Relaxed)));
+            o.insert("photos".into(), json!(side.photos.load(Ordering::Relaxed)));
+        }
+        Some(v)
     }
 }
 
-/// A remote server's free slot first (when there is one), then the card when this photo runs on it, with the CPU
-/// running any tile either gets wrong. Handed out for photos that run on the card or have a server to share.
+/// What runs one photo's tiles: a remote server's free slot first (when it shares), then the photo's card (when it
+/// has one), with the CPU running any tile either gets wrong. Gives the card back when the photo is done.
 #[cfg(feature = "denoise")]
-impl TileRunner for Network {
+struct Lease<'a> {
+    net: &'a Network,
+    side: Option<&'a CardSide>,
+    remote: bool,
+}
+
+#[cfg(feature = "denoise")]
+impl TileRunner for Lease<'_> {
     fn run(&self, input: &[f32]) -> Result<Vec<f32>, RunError> {
-        if let Some(Ok(remote)) = self.remote.as_ref().filter(|r| r.share.load(Ordering::Relaxed)).map(|r| r.usable(false))
+        let net = self.net;
+        if let Some(Ok(remote)) = net.remote.as_ref().filter(|_| self.remote).map(|r| r.usable(false))
             && let Some(Ok(out)) = remote.try_run(input)
         {
             return Ok(out);
         }
-        if !self.local_card.load(Ordering::Relaxed) {
-            return self.cpu.run(input);
-        }
-        if let Ok(g) = self.card(false) {
+        if let Some(side) = self.side
+            && let Ok(g) = net.card(side, false)
+        {
             match g.runner.run(input) {
                 Ok(out) if out.iter().all(|v| v.is_finite()) => return Ok(out),
-                Ok(_) => self.fell_back("numbers that are not finite"),
-                Err(e) => self.fell_back(&e.to_string()),
+                Ok(_) => net.fell_back(side, "numbers that are not finite"),
+                Err(e) => net.fell_back(side, &e.to_string()),
             }
         }
-        self.cpu.run(input)
+        net.cpu.run(input)
+    }
+}
+
+#[cfg(feature = "denoise")]
+impl Drop for Lease<'_> {
+    fn drop(&mut self) {
+        if let Some(side) = self.side {
+            // each lease counted itself once (`Network::lease`)
+            side.photos.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -458,20 +580,23 @@ impl Model for Network {
     fn bytes_per_tile(&self) -> usize {
         self.cpu.bytes_per_tile()
     }
-    fn runner(&self, run_on: RunOn, threads: usize) -> (&dyn TileRunner, usize) {
+
+    fn runner(&self, run_on: RunOn, threads: usize) -> (Box<dyn TileRunner + '_>, usize) {
         let threads = threads.max(1);
         self.last_threads.store(threads, Ordering::Relaxed);
-        let (card, local) = match self.choose(run_on, threads, true) {
-            Ok(_) => (true, threads.min(GPU_PARALLEL)),
-            Err(_) => (false, threads),
-        };
-        self.local_card.store(card, Ordering::Relaxed);
+        if run_on != RunOn::Cpu {
+            self.set_up();
+        }
+        let side = self.lease(run_on, threads);
+        let local = if side.is_some() { threads.min(GPU_PARALLEL) } else { threads };
+        let mut lease = Lease { net: self, side, remote: false };
         if let Some(r) = &self.remote {
             // this computer's time for a tile: the card's, or the CPU's with `threads` tiles sharing it (as
-            // `card_is_faster` counts them); unknown when the card was never set up (then the server is used)
-            let local_ms = match self.gpu.get() {
-                Some(Ok(g)) if card => g.card_ms,
-                Some(Ok(g)) => g.cpu_ms / (1.0 + 0.5 * threads.saturating_sub(1) as f64),
+            // `card_is_faster` counts them); unknown when no card was set up (then the server is used)
+            let set_up = self.cards.iter().find_map(|c| c.gpu.get().and_then(|g| g.as_ref().ok()));
+            let local_ms = match (side.and_then(|s| s.gpu.get()), set_up) {
+                (Some(Ok(g)), _) => g.card_ms,
+                (_, Some(g)) => g.cpu_ms / (1.0 + 0.5 * threads.saturating_sub(1) as f64),
                 _ => f64::INFINITY,
             };
             let share = match (r.usable(true), r.tile_ms()) {
@@ -488,10 +613,19 @@ impl Model for Network {
             r.share.store(share, Ordering::Relaxed);
             if let (true, Ok(remote)) = (share, r.usable(false)) {
                 // the server's slots come on top of this computer's own tiles at once
-                return (self, local + remote.slots());
+                lease.remote = true;
+                return (Box::new(lease), local + remote.slots());
             }
         }
-        if card { (self, local) } else { (&self.cpu, local) }
+        (Box::new(lease), local)
+    }
+
+    fn lanes(&self, run_on: RunOn) -> usize {
+        let threads = match self.last_threads.load(Ordering::Relaxed) {
+            0 => GPU_PARALLEL,
+            n => n,
+        };
+        self.cards.iter().filter(|s| self.choose(s, run_on, threads, false).is_ok()).count().max(1)
     }
 
     fn self_test(&self, run_on: RunOn) -> Result<Value, String> {
@@ -501,9 +635,9 @@ impl Model for Network {
             return Err(format!("the model failed its self-test: it does not {}", failed.join(", and does not ")));
         }
         let mut v = serde_json::to_value(&t).map_err(|e| e.to_string())?;
-        // the card is set up and checked here, so the test says where the work will run
+        // the cards are set up and checked here, so the test says where the work will run
         if run_on != RunOn::Cpu {
-            let _ = self.card(true);
+            self.set_up();
         }
         if let Some(o) = v.as_object_mut() {
             o.insert("device".into(), self.device(run_on));
@@ -512,23 +646,26 @@ impl Model for Network {
     }
 
     fn device(&self, run_on: RunOn) -> Value {
-        if run_on != RunOn::Cpu && self.gpu.get().is_none() {
+        if run_on != RunOn::Cpu && self.cards.iter().any(|c| c.gpu.get().is_none()) {
             return json!({"kind": "pending"});
         }
         let threads = match self.last_threads.load(Ordering::Relaxed) {
             0 => Pace::Full.parallel(std::thread::available_parallelism().map_or(1, |n| n.get()), None),
             n => n,
         };
-        let mut v = match self.choose(run_on, threads, false) {
-            Ok(g) => json!({"kind": "gpu", "adapter": g.adapter}),
-            // a set-up that crashed or ran out of time can be tried again (`denoise.settings {runOn}`)
-            Err(why) => json!({"kind": "cpu", "retry": worth_retrying(&why), "reason": why}),
+        let cards: Vec<Value> = self.cards.iter().filter_map(|c| self.describe_card(c, run_on, threads)).collect();
+        // the first card a photo would use (the helper first), else why the CPU does the work (the editing card's reason)
+        let used = cards.iter().find(|c| c["kind"] == "gpu");
+        let mut v = match (used, cards.last()) {
+            (Some(c), _) | (None, Some(c)) => c.clone(),
+            (None, None) => json!({"kind": "cpu", "retry": false, "reason": "the processor is chosen in Settings"}),
         };
-        if let (Some(Ok(g)), Some(o)) = (self.gpu.get(), v.as_object_mut()) {
-            // measured on this computer, on the check tile: the card's best run, and one tile alone on the CPU
-            o.insert("cardMs".into(), json!(g.card_ms));
-            o.insert("cpuMs".into(), json!(g.cpu_ms));
-            o.insert("fellBack".into(), json!(self.fallbacks.load(Ordering::Relaxed)));
+        if let Some(o) = v.as_object_mut() {
+            o.remove("card");
+            o.remove("photos");
+            if cards.len() > 1 {
+                o.insert("cards".into(), json!(cards));
+            }
         }
         if let (Some(r), Some(o)) = (&self.remote, v.as_object_mut()) {
             o.insert("remote".into(), r.describe());
@@ -564,12 +701,11 @@ fn network(path: &Path, manifest: &DenoiserManifest, remote: Option<RemoteSide>)
     let cpu = lightcraft_denoise::runtime::CpuRunner::load(path, manifest).map_err(|e| e.to_string())?;
     Ok(Network {
         remote,
-        local_card: AtomicBool::new(true),
         cpu,
         path: path.to_path_buf(),
         tile: manifest.tile as usize,
-        gpu: OnceLock::new(),
-        fallbacks: AtomicUsize::new(0),
+        cards: lightcraft_gpu::ai::BACKGROUND_ORDER.map(CardSide::new),
+        picking: Mutex::new(()),
         last_threads: AtomicUsize::new(0),
     })
 }
@@ -740,6 +876,7 @@ pub(crate) fn installed_models(dir: &Path) -> Vec<Installed> {
 pub(crate) fn forget_gpu_set_ups(dir: &Path) {
     for i in installed_models(dir) {
         let _ = std::fs::remove_file(i.onnx.with_file_name(GPU_SETUP_MARKER));
+        let _ = std::fs::remove_file(i.onnx.with_file_name(GPU_SETUP_MARKER_HELPER));
     }
 }
 
@@ -934,6 +1071,7 @@ pub(crate) fn make_product(spec: &JobSpec, progress: Option<&Progress>) -> Resul
     let parallel = spec.parallel.clamp(1, 4).min((budget / scratch.max(1)).max(1));
     let _held = crate::memory::work_gate().acquire(mosaic.data.len().saturating_mul(20).saturating_add(scratch.saturating_mul(parallel)));
     let (runner, parallel) = model.runner(spec.run_on, parallel);
+    let runner = &*runner;
     let params = Params {
         tile: spec.manifest.tile as usize,
         overlap: spec.manifest.overlap as usize,
@@ -1059,7 +1197,12 @@ struct Running {
     progress: Arc<Progress>,
     outcome: Arc<Mutex<Option<Outcome>>>,
     started: web_time::Instant,
+    /// Its row under the batch row (its tiles).
+    task: Option<crate::activity::TaskGuard>,
 }
+
+/// Most photos made at once: one per graphics card (the card for editing and the second one).
+const MAX_LANES: usize = 2;
 
 pub(crate) struct State {
     /// Where the models are kept (`None` where there is no file system).
@@ -1078,7 +1221,8 @@ pub(crate) struct State {
     /// The catalog revision and time of the last index, to look again when photos changed.
     reindexed: Option<(u64, web_time::Instant)>,
     queue: VecDeque<PhotoId>,
-    running: Option<Running>,
+    /// The photos being made, oldest first: one per graphics card that works ([`Model::lanes`]).
+    running: Vec<Running>,
     failed: HashMap<PhotoId, Failure>,
     /// Counts every change of what is ready, so the interface knows to draw again.
     pub generation: u64,
@@ -1087,8 +1231,6 @@ pub(crate) struct State {
     /// AI Denoise's batch row in the activity stack (client note 34), while a photo is being made or waits its
     /// turn: the photos done and failed since the queue was last idle, and the time left.
     task: Option<crate::activity::TaskGuard>,
-    /// The running photo's row under it (its tiles).
-    photo_task: Option<crate::activity::TaskGuard>,
     /// Photos whose batch was cancelled (the row's cancel): looking at them doesn't queue them again; asking for them
     /// does (the switch, `denoise.queue`, an export).
     held: HashSet<PhotoId>,
@@ -1107,21 +1249,20 @@ impl Default for State {
             dirty: true,
             reindexed: None,
             queue: VecDeque::new(),
-            running: None,
+            running: Vec::new(),
             failed: HashMap::new(),
             generation: 0,
             made: 0,
             task: None,
-            photo_task: None,
             held: HashSet::new(),
         }
     }
 }
 
 impl Drop for State {
-    /// Quitting stops the job instead of leaving it to finish a photo nobody will see.
+    /// Quitting stops the jobs instead of leaving them to finish photos nobody will see.
     fn drop(&mut self) {
-        if let Some(r) = &self.running {
+        for r in &self.running {
             r.progress.cancel_now();
         }
     }
@@ -1130,7 +1271,7 @@ impl Drop for State {
 impl State {
     /// The library was replaced: nothing carries over (photo ids are per library).
     pub fn library_changed(&mut self) {
-        if let Some(r) = self.running.take() {
+        for r in self.running.drain(..) {
             r.progress.cancel_now();
         }
         self.queue.clear();
@@ -1196,7 +1337,7 @@ impl Session {
             fingerprint,
             model: Arc::new(Mutex::new(None)),
         });
-        if let Some(r) = self.denoise.running.take() {
+        for r in self.denoise.running.drain(..) {
             r.progress.cancel_now();
         }
         self.denoise.queue.clear();
@@ -1216,13 +1357,13 @@ impl Session {
     pub(crate) fn denoise_reindex(&mut self) {
         self.denoise.dirty = false;
         self.denoise.reindexed = Some((self.catalog.revision, web_time::Instant::now()));
-        let running = self.denoise.running.as_ref().map(|r| r.photo);
+        let running: Vec<PhotoId> = self.denoise.running.iter().map(|r| r.photo).collect();
         let mut now: HashMap<PhotoId, DenoiseSpec> = HashMap::new();
         if let (Some(dir), Some(active)) = (self.denoise_products_dir(), self.denoise.active.as_ref()) {
             let names: HashSet<String> =
                 products_in(&dir).into_iter().filter_map(|(p, _, _)| p.file_stem().and_then(|s| s.to_str()).map(str::to_string)).collect();
             if !names.is_empty() {
-                for p in self.catalog.photos().filter(|p| eligible(p) && running != Some(p.id)) {
+                for p in self.catalog.photos().filter(|p| eligible(p) && !running.contains(&p.id)) {
                     let key = product_key(&active.fingerprint, p);
                     if names.contains(&key) {
                         now.insert(p.id, DenoiseSpec { product: product_path(&dir, &key), key, make: None });
@@ -1256,7 +1397,7 @@ impl Session {
     /// file is on disk while the job still counts as running. Finding it here would make the photo Ready while the session
     /// is busy with it (#719); [`Self::denoise_poll`] makes it Ready in the pump that takes the job's result instead.
     fn denoise_check_photo(&mut self, id: PhotoId) {
-        if self.denoise.running.as_ref().is_some_and(|r| r.photo == id) {
+        if self.denoise.running.iter().any(|r| r.photo == id) {
             return;
         }
         let Some(p) = self.catalog.photo(id).cloned() else { return };
@@ -1296,11 +1437,11 @@ impl Session {
         if self.media.denoise.spec(id).is_some() {
             return PhotoState::Ready;
         }
-        if let Some(r) = self.denoise.running.as_ref().filter(|r| r.photo == id) {
+        if let Some(r) = self.denoise.running.iter().find(|r| r.photo == id) {
             return PhotoState::Running { done: r.progress.done.load(Ordering::Relaxed), total: r.progress.total.load(Ordering::Relaxed) };
         }
         if let Some(ahead) = self.denoise.queue.iter().position(|q| *q == id) {
-            return PhotoState::Queued { ahead: ahead + usize::from(self.denoise.running.is_some()) };
+            return PhotoState::Queued { ahead: ahead + self.denoise.running.len() };
         }
         let key = self.denoise_spec(p).map(|s| s.1);
         match self.denoise.failed.get(&id) {
@@ -1322,7 +1463,7 @@ impl Session {
             if !eligible(&p) || self.media.denoise.spec(*id).is_some() || self.denoise.queue.contains(id) {
                 continue;
             }
-            if self.denoise.running.as_ref().is_some_and(|r| r.photo == *id) || self.denoise.queue.len() >= MAX_QUEUE {
+            if self.denoise.running.iter().any(|r| r.photo == *id) || self.denoise.queue.len() >= MAX_QUEUE {
                 continue;
             }
             let Some((_, key)) = self.denoise_spec(&p) else { continue };
@@ -1348,12 +1489,10 @@ impl Session {
         }
     }
 
-    /// Stop the job that is running, and with `all` forget everything that waits.
+    /// Stop the jobs that are running (`photo`'s only, when given), and with `all` forget everything that waits.
     pub(crate) fn denoise_cancel(&mut self, photo: Option<PhotoId>, all: bool) -> usize {
         let mut n = 0;
-        if let Some(r) = &self.denoise.running
-            && photo.is_none_or(|p| p == r.photo)
-        {
+        for r in self.denoise.running.iter().filter(|r| photo.is_none_or(|p| p == r.photo)) {
             r.progress.cancel_now();
             n += 1;
         }
@@ -1395,8 +1534,8 @@ impl Session {
         })
     }
 
-    /// Start the next queued photo on its own thread.
-    fn denoise_start_next(&mut self, parallel: usize) {
+    /// Start the next queued photo on its own thread; `false` when nothing was started.
+    fn denoise_start_next(&mut self, parallel: usize) -> bool {
         while let Some(id) = self.denoise.queue.pop_front() {
             let Some(p) = self.catalog.photo(id).cloned() else { continue };
             if !eligible(&p) || self.media.denoise.spec(id).is_some() {
@@ -1425,23 +1564,45 @@ impl Session {
             });
             match started {
                 Ok(_) => {
-                    self.denoise.running = Some(Running { photo: id, key, product, progress, outcome, started: web_time::Instant::now() });
+                    self.denoise.running.push(Running { photo: id, key, product, progress, outcome, started: web_time::Instant::now(), task: None });
                 }
                 Err(e) => {
                     self.denoise.failed.insert(id, Failure { key, why: format!("could not start the denoiser: {e}"), unsupported: false });
                     continue;
                 }
             }
-            return;
+            return true;
+        }
+        false
+    }
+
+    /// Photos that may be made at once now: one per graphics card the loaded model works on (one before it is loaded
+    /// and its cards set up), and only one at a light pace (the user is working: the second graphics card's photo).
+    fn denoise_lanes(&self, pace: Pace) -> usize {
+        if matches!(pace, Pace::Pause | Pace::Light) {
+            return 1;
+        }
+        let model = self.denoise.active.as_ref().and_then(|a| a.model.lock().unwrap_or_else(PoisonError::into_inner).clone());
+        model.map_or(1, |m| m.lanes(self.denoise.settings.run_on())).clamp(1, MAX_LANES)
+    }
+
+    /// Take in the running jobs' results.
+    fn denoise_poll(&mut self) {
+        let mut i = 0;
+        while let Some(r) = self.denoise.running.get(i) {
+            let outcome = r.outcome.lock().unwrap_or_else(PoisonError::into_inner).take();
+            match outcome {
+                Some(o) => {
+                    let r = self.denoise.running.remove(i);
+                    self.denoise_finished(r, o);
+                }
+                None => i += 1,
+            }
         }
     }
 
-    /// Take in the running job's result.
-    fn denoise_poll(&mut self) {
-        let Some(r) = &self.denoise.running else { return };
-        let Some(outcome) = r.outcome.lock().unwrap_or_else(PoisonError::into_inner).take() else { return };
-        let Some(r) = self.denoise.running.take() else { return };
-        self.denoise.photo_task = None;
+    /// Record how job `r` ended.
+    fn denoise_finished(&mut self, r: Running, outcome: Outcome) {
         match outcome {
             Outcome::Done => {
                 self.denoise.made += 1;
@@ -1558,9 +1719,11 @@ impl Session {
             self.denoise_enqueue(&others, false, false);
             self.denoise_enqueue(&open, true, false);
         }
-        if self.denoise.running.is_none() && pace != Pace::Pause {
+        if pace != Pace::Pause {
             let cores = std::thread::available_parallelism().map_or(1, |n| n.get());
-            self.denoise_start_next(pace.parallel(cores, cap));
+            let lanes = self.denoise_lanes(pace);
+            // each photo's tiles run on its own card: the threads are not split between them
+            while self.denoise.running.len() < lanes && self.denoise_start_next(pace.parallel(cores, cap)) {}
         }
     }
 
@@ -1582,7 +1745,7 @@ impl Session {
 
     /// Is a picture being made, or waiting for its turn with a model to make it? (Headless runs wait for this.)
     pub fn denoise_busy(&self) -> bool {
-        self.denoise.running.is_some() || (!self.denoise.queue.is_empty() && self.denoise.active.is_some())
+        !self.denoise.running.is_empty() || (!self.denoise.queue.is_empty() && self.denoise.active.is_some())
     }
 
     /// Keep AI Denoise's rows in the activity stack up to date (each `denoise.pump`). One batch row while a photo is
@@ -1592,53 +1755,57 @@ impl Session {
     /// again when wanted: shown, exported, or queued by hand).
     pub(crate) fn denoise_track(&mut self) {
         if !self.denoise_busy() {
-            self.denoise.photo_task = None;
             self.denoise.task = None;
             return;
         }
         if self.denoise.task.as_ref().is_some_and(|t| t.is_cancelled()) {
             // what was waiting stays put until asked for again (not re-queued by looking at it)
-            let held: Vec<PhotoId> = self.denoise.queue.iter().copied().chain(self.denoise.running.as_ref().map(|r| r.photo)).collect();
+            let held: Vec<PhotoId> = self.denoise.queue.iter().copied().chain(self.denoise.running.iter().map(|r| r.photo)).collect();
             self.denoise.held.extend(held);
             self.denoise_cancel(None, true);
-            self.denoise.photo_task = None;
+            for r in &mut self.denoise.running {
+                r.task = None;
+            }
             self.denoise.task = None;
             return;
         }
         let task = self.denoise.task.get_or_insert_with(|| self.activity.start_batch("denoise", "AI Denoise", crate::activity::Cancel::Yes));
-        let left = self.denoise.queue.len() as u64 + u64::from(self.denoise.running.is_some());
+        let left = self.denoise.queue.len() as u64 + self.denoise.running.len() as u64;
         let done = task.done();
         task.progress(done, done.saturating_add(left));
-        match &self.denoise.running {
-            Some(r) => {
-                let name = self.catalog.photo(r.photo).map_or("", |p| p.file_name.as_str());
-                task.detail(name);
-                let child = self.denoise.photo_task.get_or_insert_with(|| {
-                    let t = task.child("denoise", "AI Denoise");
-                    t.set_unit(crate::activity::Unit::Percent);
-                    t
-                });
-                child.progress(r.progress.done.load(Ordering::Relaxed) as u64, r.progress.total.load(Ordering::Relaxed) as u64);
-                child.detail(name);
-            }
-            None => {
-                self.denoise.photo_task = None;
-                task.detail("");
-            }
+        // the batch row names the photo started first; each photo being made has its row under it
+        let mut names = Vec::new();
+        for r in &mut self.denoise.running {
+            let name = self.catalog.photo(r.photo).map_or("", |p| p.file_name.as_str());
+            names.push(name.to_string());
+            let child = r.task.get_or_insert_with(|| {
+                let t = task.child("denoise", "AI Denoise");
+                t.set_unit(crate::activity::Unit::Percent);
+                t
+            });
+            child.progress(r.progress.done.load(Ordering::Relaxed) as u64, r.progress.total.load(Ordering::Relaxed) as u64);
+            child.detail(name);
         }
+        task.detail(names.first().map_or("", String::as_str));
     }
 
-    /// Seconds the running job has been going, and its progress.
+    /// Seconds the job started first has been going, and its progress; with two photos being made (one on each
+    /// graphics card) `photos` lists both, the same way.
     pub(crate) fn denoise_running_json(&self) -> Value {
-        match &self.denoise.running {
-            Some(r) => json!({
+        let one = |r: &Running| {
+            json!({
                 "photo": r.photo.0,
                 "done": r.progress.done.load(Ordering::Relaxed),
                 "total": r.progress.total.load(Ordering::Relaxed),
                 "seconds": r.started.elapsed().as_secs_f64(),
-            }),
-            None => Value::Null,
+            })
+        };
+        let Some(first) = self.denoise.running.first() else { return Value::Null };
+        let mut v = one(first);
+        if let (true, Some(o)) = (self.denoise.running.len() > 1, v.as_object_mut()) {
+            o.insert("photos".into(), self.denoise.running.iter().map(one).collect());
         }
+        v
     }
 
     pub(crate) fn denoise_made(&self) -> u64 {
@@ -1648,7 +1815,7 @@ impl Session {
     /// The running job's product path and key (tests stand in for the worker's save).
     #[cfg(test)]
     pub(crate) fn denoise_running_product(&self) -> Option<(PathBuf, String)> {
-        self.denoise.running.as_ref().map(|r| (r.product.clone(), r.key.clone()))
+        self.denoise.running.first().map(|r| (r.product.clone(), r.key.clone()))
     }
 
     /// What an export of photo `id` with `settings` needs for its Denoise amount: its denoised picture, made now when the
@@ -1723,6 +1890,35 @@ mod gpu_tests {
         (loaded, cpu, path)
     }
 
+    /// The two cards' sides: the editing card `editing`, no second card.
+    fn one_card(editing: Result<GpuSide, String>) -> [CardSide; 2] {
+        two_cards(Err(lightcraft_gpu::ai::NO_HELPER.into()), editing)
+    }
+
+    /// The two cards' sides, set up as given.
+    fn two_cards(helper: Result<GpuSide, String>, editing: Result<GpuSide, String>) -> [CardSide; 2] {
+        use lightcraft_gpu::Role;
+        let side = |card, g| {
+            let s = CardSide::new(card);
+            let _ = s.gpu.set(g);
+            s
+        };
+        [side(Role::Helper, helper), side(Role::Primary, editing)]
+    }
+
+    /// A network on `cpu` with these cards.
+    fn with_cards(cpu: &lightcraft_denoise::runtime::CpuRunner, path: &Path, cards: [CardSide; 2]) -> Network {
+        Network {
+            cpu: cpu.clone(),
+            path: path.to_path_buf(),
+            tile: 32,
+            cards,
+            picking: Mutex::new(()),
+            last_threads: AtomicUsize::new(0),
+            remote: None,
+        }
+    }
+
     fn worst(want: &[f32], got: &[f32]) -> f32 {
         assert_eq!(want.len(), got.len());
         let scale = want.iter().fold(1e-9f32, |m, v| m.max(v.abs()));
@@ -1751,6 +1947,36 @@ mod gpu_tests {
             other => panic!("the first photo decides where the work runs, not {other:?}"),
         }
         assert!(!path.with_file_name(GPU_SETUP_MARKER).exists(), "a set-up that ended leaves no marker");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// Each graphics card is set up on its own and passes the check tile against the CPU ([`GPU_AGREE`]); the two cards'
+    /// answers on a test tile agree as closely. A card that isn't here (no second card: `LIGHTCRAFT_GPU_HELPER=same`
+    /// makes one on the same card) is skipped.
+    #[test]
+    fn each_card_passes_the_check_tile() {
+        let (_, cpu, path) = model("eachcard", 64);
+        let (input, _) = lightcraft_denoise::runtime::test_tile(64);
+        let want = cpu.run(&input).unwrap();
+        let mut answers = Vec::new();
+        for card in lightcraft_gpu::ai::BACKGROUND_ORDER {
+            match make_gpu(&cpu, &path, 64, card) {
+                Ok(g) => {
+                    let got = g.runner.run(&input).unwrap();
+                    let off = disagreement(&want, &got);
+                    eprintln!("{} card: {} — check tile {:.1} ms (CPU {:.0} ms), off by {off:.1e}", card.id(), g.adapter, g.card_ms, g.cpu_ms);
+                    assert!(off <= GPU_AGREE, "{}: {off:e}", g.adapter);
+                    answers.push(got);
+                }
+                Err(why) => lightcraft_testkit::skip!(Gpu, "AI Denoise on the {} card: {why}", card.id()),
+            }
+            assert!(!path.with_file_name(setup_marker(card)).exists(), "a set-up that ended leaves no marker");
+        }
+        if let [a, b] = answers.as_slice() {
+            let off = disagreement(a, b);
+            eprintln!("the two cards differ by {off:.1e}");
+            assert!(off <= GPU_AGREE);
+        }
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -1803,7 +2029,7 @@ mod gpu_tests {
         // a local card faster than the server there and back (here a stand-in that takes no time): nothing is shared,
         // the photo never waits for the slower server, and the status says why
         let mut net = with_remote(&path, 64, &addr, &sha);
-        net.gpu = OnceLock::from(Ok(GpuSide { runner: Box::new(cpu.clone()), adapter: "Fast card".into(), card_ms: 1e-6, cpu_ms: 1000.0 }));
+        net.cards = one_card(Ok(GpuSide { runner: Box::new(cpu.clone()), adapter: "Fast card".into(), card_ms: 1e-6, cpu_ms: 1000.0 }));
         let (_, at_once) = net.runner(RunOn::Gpu, 8);
         assert_eq!(at_once, GPU_PARALLEL, "no server slots");
         let d = net.device(RunOn::Gpu);
@@ -1863,16 +2089,7 @@ mod gpu_tests {
     fn a_tile_the_card_gets_wrong_is_run_on_the_processor_and_three_stop_the_card() {
         let (_, cpu, path) = model("garbage", 64);
         let card = GpuSide { runner: Box::new(Garbage(AtomicUsize::new(0))), adapter: "Test card".into(), card_ms: 1.0, cpu_ms: 1000.0 };
-        let model = Network {
-            cpu: cpu.clone(),
-            path: path.clone(),
-            tile: 32,
-            gpu: OnceLock::from(Ok(card)),
-            fallbacks: AtomicUsize::new(0),
-            last_threads: AtomicUsize::new(0),
-            remote: None,
-            local_card: AtomicBool::new(true),
-        };
+        let model = with_cards(&cpu, &path, one_card(Ok(card)));
         let (input, _) = lightcraft_denoise::runtime::test_tile(64);
         let want = cpu.run(&input).unwrap();
         let (runner, at_once) = model.runner(RunOn::Auto, 8);
@@ -1889,20 +2106,103 @@ mod gpu_tests {
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
+    /// A card that runs the CPU's model and counts its tiles.
+    struct Counting(lightcraft_denoise::runtime::CpuRunner, Arc<AtomicUsize>);
+
+    impl TileRunner for Counting {
+        fn run(&self, input: &[f32]) -> Result<Vec<f32>, RunError> {
+            self.1.fetch_add(1, Ordering::Relaxed);
+            self.0.run(input)
+        }
+    }
+
+    fn counting(cpu: &lightcraft_denoise::runtime::CpuRunner, name: &str) -> (GpuSide, Arc<AtomicUsize>) {
+        let n = Arc::new(AtomicUsize::new(0));
+        (GpuSide { runner: Box::new(Counting(cpu.clone(), n.clone())), adapter: name.into(), card_ms: 1.0, cpu_ms: 1000.0 }, n)
+    }
+
+    /// Decision 7 (31 Oct 2026): photos of a batch run on both cards at once, the second graphics card first, each
+    /// photo's tiles on its own card, with the CPU's answers.
+    #[test]
+    fn two_photos_run_on_two_cards_the_helper_first() {
+        let (_, cpu, path) = model("twocards", 64);
+        let ((helper, on_helper), (editing, on_editing)) = (counting(&cpu, "Helper card"), counting(&cpu, "Editing card"));
+        let net = with_cards(&cpu, &path, two_cards(Ok(helper), Ok(editing)));
+        assert_eq!(net.lanes(RunOn::Gpu), 2, "a photo on each card");
+        assert_eq!(net.lanes(RunOn::Cpu), 1, "the processor chosen: one photo at a time");
+        let (input, _) = lightcraft_denoise::runtime::test_tile(64);
+        let want = cpu.run(&input).unwrap();
+        let (first, at_once) = net.runner(RunOn::Gpu, 16);
+        assert_eq!(at_once, GPU_PARALLEL);
+        assert_eq!(first.run(&input).unwrap(), want);
+        assert_eq!((on_helper.load(Ordering::Relaxed), on_editing.load(Ordering::Relaxed)), (1, 0), "the first photo takes the helper");
+        let (second, _) = net.runner(RunOn::Gpu, 16);
+        assert_eq!(second.run(&input).unwrap(), want);
+        assert_eq!(on_editing.load(Ordering::Relaxed), 1, "the second photo takes the free card");
+        let d = net.device(RunOn::Gpu);
+        assert_eq!((d["kind"].as_str(), d["adapter"].as_str()), (Some("gpu"), Some("Helper card")), "{d}");
+        let cards = d["cards"].as_array().unwrap();
+        assert_eq!(
+            cards.iter().map(|c| (c["card"].as_str().unwrap(), c["photos"].as_u64().unwrap())).collect::<Vec<_>>(),
+            [("helper", 1), ("editing", 1)]
+        );
+        drop(first);
+        let (third, _) = net.runner(RunOn::Gpu, 16);
+        third.run(&input).unwrap();
+        assert_eq!(on_helper.load(Ordering::Relaxed), 2, "a card given back takes the next photo");
+        drop((second, third));
+        assert!(net.cards.iter().all(|c| c.photos.load(Ordering::Relaxed) == 0), "every card was given back");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    /// A second graphics card that gets tiles wrong: its tiles are the CPU's, and after three it gets no more photos;
+    /// the card for editing takes them, and the batch never loses a tile.
+    #[test]
+    fn a_broken_helper_leaves_the_work_to_the_editing_card_and_the_cpu() {
+        let (_, cpu, path) = model("brokenhelper", 64);
+        let garbage = Arc::new(AtomicUsize::new(0));
+        struct Shared(Arc<AtomicUsize>);
+        impl TileRunner for Shared {
+            fn run(&self, input: &[f32]) -> Result<Vec<f32>, RunError> {
+                Garbage(AtomicUsize::new(0)).run(input).inspect(|_| {
+                    self.0.fetch_add(1, Ordering::Relaxed);
+                })
+            }
+        }
+        let helper = GpuSide { runner: Box::new(Shared(garbage.clone())), adapter: "Broken card".into(), card_ms: 1.0, cpu_ms: 1000.0 };
+        let (editing, on_editing) = counting(&cpu, "Editing card");
+        let net = with_cards(&cpu, &path, two_cards(Ok(helper), Ok(editing)));
+        let (input, _) = lightcraft_denoise::runtime::test_tile(64);
+        let want = cpu.run(&input).unwrap();
+        let (photo, _) = net.runner(RunOn::Gpu, 8);
+        for _ in 0..GPU_MAX_FALLBACKS + 2 {
+            assert_eq!(photo.run(&input).unwrap(), want, "a wrong tile is the CPU's tile");
+        }
+        assert_eq!(garbage.load(Ordering::Relaxed), GPU_MAX_FALLBACKS, "after three wrong tiles the card is not asked again");
+        drop(photo);
+        assert_eq!(net.lanes(RunOn::Gpu), 1, "one card left");
+        let (next, at_once) = net.runner(RunOn::Gpu, 8);
+        assert_eq!(at_once, GPU_PARALLEL, "the next photo still runs on a card");
+        assert_eq!(next.run(&input).unwrap(), want);
+        assert_eq!((garbage.load(Ordering::Relaxed), on_editing.load(Ordering::Relaxed)), (GPU_MAX_FALLBACKS, 1), "on the editing card");
+        let d = net.device(RunOn::Gpu);
+        assert_eq!(d["adapter"], "Editing card", "{d}");
+        let helper = d["cards"].as_array().unwrap().iter().find(|c| c["card"] == "helper").cloned().unwrap();
+        assert!(helper["reason"].as_str().is_some_and(|r| r.contains("tiles wrong")), "{d}");
+        // both broken: the CPU does it all
+        net.cards[1].fallbacks.store(GPU_MAX_FALLBACKS, Ordering::Relaxed);
+        drop(next);
+        let (cpu_only, at_once) = net.runner(RunOn::Gpu, 8);
+        assert_eq!((at_once, cpu_only.run(&input).unwrap()), (8, want));
+        assert_eq!(net.device(RunOn::Gpu)["kind"], "cpu");
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
     #[test]
     fn a_slow_card_is_left_out_unless_it_is_chosen() {
         let (_, cpu, path) = model("slow", 64);
         let slow = GpuSide { runner: Box::new(cpu.clone()), adapter: "Slow card".into(), card_ms: 490.0, cpu_ms: 1400.0 };
-        let model = Network {
-            cpu,
-            path: path.clone(),
-            tile: 32,
-            gpu: OnceLock::from(Ok(slow)),
-            fallbacks: AtomicUsize::new(0),
-            last_threads: AtomicUsize::new(0),
-            remote: None,
-            local_card: AtomicBool::new(true),
-        };
+        let model = with_cards(&cpu, &path, one_card(Ok(slow)));
         assert_eq!(model.runner(RunOn::Auto, 16).1, 16, "sixteen threads beat it");
         let device = model.device(RunOn::Auto);
         assert_eq!((device["kind"].as_str(), device["reason"].as_str()), (Some("cpu"), Some("it is faster than Slow card on this computer")));
@@ -1920,9 +2220,13 @@ mod gpu_tests {
         let marker = path.with_file_name(GPU_SETUP_MARKER);
         std::fs::write(&marker, "setting up the graphics card for AI Denoise (unix time 0)").unwrap();
         let (_, at_once) = model.runner(RunOn::Gpu, 4);
-        assert_eq!(at_once, 4, "the CPU does the work");
-        let device = model.device(RunOn::Gpu);
-        assert_eq!((device["kind"].as_str(), device["reason"].as_str()), (Some("cpu"), Some(GPU_CRASHED)), "{device}");
+        let all = model.device(RunOn::Gpu);
+        // a second graphics card (when this machine has one) is not the card that crashed: it may do the work
+        let device = all["cards"].as_array().and_then(|c| c.iter().find(|c| c["card"] == "editing")).cloned().unwrap_or(all.clone());
+        if all["cards"].is_null() {
+            assert_eq!(at_once, 4, "the CPU does the work");
+        }
+        assert_eq!((device["kind"].as_str(), device["reason"].as_str()), (Some("cpu"), Some(GPU_CRASHED)), "{all}");
         assert_eq!(device["retry"], true, "the interface offers to try again");
         assert!(marker.exists(), "it stays until the user chooses where denoise runs");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
