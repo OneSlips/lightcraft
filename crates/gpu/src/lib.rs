@@ -892,10 +892,17 @@ pub(crate) fn existing_device() -> Option<Arc<ctx::Gpu>> {
 pub fn warm_up() {
     #[cfg(not(target_arch = "wasm32"))]
     if !env_disabled() && ENABLED.load(Ordering::Relaxed) {
-        let _ = std::thread::Builder::new().name("lc-gpu-init".into()).spawn(|| {
+        // (the second card counts as being set up from now: `wait_helper` right after this
+        // waited for nothing while the editing card's device was still being made)
+        HELPER_WARMING.fetch_add(1, Ordering::SeqCst);
+        let spawned = std::thread::Builder::new().name("lc-gpu-init".into()).spawn(|| {
+            let _warming = Warming;
             let _ = device_for(Role::Primary);
             sync_helper();
         });
+        if spawned.is_err() {
+            HELPER_WARMING.fetch_sub(1, Ordering::SeqCst);
+        }
     }
 }
 
@@ -1542,8 +1549,9 @@ pub fn helper_ready() -> bool {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HelperStatus {
     /// `off` (turned off, or GPU rendering is), `none` (no other card to use), `notStarted` (made
-    /// after the editing card's device: the app's warm-up), `starting`, `ready`, `lost` (stopped
-    /// responding: restarted after a pause), `failed` (its device couldn't be made).
+    /// once it is known which card edits: the app's warm-up), `starting` (being set up, or a new
+    /// choice being applied), `ready`, `lost` (stopped responding: restarted after a pause),
+    /// `failed` (its device couldn't be made).
     pub state: &'static str,
     /// The card's name (ready, lost).
     pub name: Option<String>,
@@ -1563,6 +1571,11 @@ pub fn helper_status() -> HelperStatus {
             return st("off", None, Some("GPU rendering is turned off".into()));
         }
         let name = slot::existing(Role::Helper).map(|g| g.info.name.clone());
+        // (a new choice being applied: not the old one's state, which a script polling for
+        // `ready` would take for the answer)
+        if helper_syncing() {
+            return st("starting", name, None);
+        }
         if let Some(r) = slot::lost_reason(Role::Helper) {
             return st("lost", name, Some(r));
         }
@@ -1576,14 +1589,27 @@ pub fn helper_status() -> HelperStatus {
         if let Some(r) = slot::creation_error(Role::Helper) {
             return st("failed", None, Some(r));
         }
-        if helper_syncing() {
-            return st("starting", None, None);
-        }
         st("notStarted", None, None)
     }
     #[cfg(target_arch = "wasm32")]
     {
         HelperStatus { state: "off", name: None, reason: Some("the browser build has no GPU path yet".into()) }
+    }
+}
+
+/// Warm-ups ([`warm_up`]) that will set the second card up once the editing card's device is made.
+#[cfg(not(target_arch = "wasm32"))]
+static HELPER_WARMING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// A warm-up's mark on [`HELPER_WARMING`], taken off when it ends (its sync, started before, is
+/// then running or done; on unwind too).
+#[cfg(not(target_arch = "wasm32"))]
+struct Warming;
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for Warming {
+    fn drop(&mut self) {
+        HELPER_WARMING.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -1594,6 +1620,12 @@ static HELPER_SYNC: Mutex<(bool, bool)> = Mutex::new((false, false));
 #[cfg(not(target_arch = "wasm32"))]
 fn helper_syncing() -> bool {
     HELPER_SYNC.lock().unwrap_or_else(std::sync::PoisonError::into_inner).0
+}
+
+/// A sync runs, or a warm-up will start one.
+#[cfg(not(target_arch = "wasm32"))]
+fn helper_pending() -> bool {
+    HELPER_WARMING.load(Ordering::SeqCst) > 0 || helper_syncing()
 }
 
 /// Make the second card's device match the settings now, on a thread of its own (`lc-gpu-helper`):
@@ -1634,12 +1666,13 @@ fn sync_helper() {
 }
 
 /// Wait (at most `timeout`) until the second card's device matches the settings ([`set_helper`],
-/// the warm-up): `true` when no sync runs any more (tests, `app.gpu {wait}`).
+/// the warm-up, also while it still makes the editing card's device first): `true` when no sync
+/// runs or is coming any more (tests, `app.gpu {wait}`).
 pub fn wait_helper(timeout: std::time::Duration) -> bool {
     #[cfg(not(target_arch = "wasm32"))]
     {
         let end = std::time::Instant::now() + timeout;
-        while helper_syncing() {
+        while helper_pending() {
             if std::time::Instant::now() >= end {
                 return false;
             }
@@ -1909,6 +1942,28 @@ mod tests {
         assert_eq!(std::thread::spawn(super::take_rendered_on).join().ok().flatten(), None, "another thread's render");
         assert_eq!(super::take_rendered_on().as_deref(), Some("Card A"));
         assert_eq!(super::take_rendered_on(), None);
+    }
+
+    /// `wait_helper` right after `warm_up` waits for the second card's set-up although the
+    /// warm-up still makes the editing card's device first (before, it returned `true` at once
+    /// with the state still `notStarted`).
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn waiting_for_the_second_card_covers_a_warm_up_that_has_not_reached_it_yet() {
+        use std::sync::atomic::Ordering;
+        use std::time::{Duration, Instant};
+        // a warm-up in its first part (as `warm_up` marks it before its thread runs)
+        super::HELPER_WARMING.fetch_add(1, Ordering::SeqCst);
+        let warm = std::thread::spawn(|| {
+            let _w = super::Warming;
+            std::thread::sleep(Duration::from_millis(300));
+        });
+        assert!(!super::wait_helper(Duration::from_millis(50)), "still coming: the short wait times out");
+        let t = Instant::now();
+        assert!(super::wait_helper(Duration::from_secs(10)));
+        assert!(t.elapsed() >= Duration::from_millis(150), "waited for the warm-up: {:?}", t.elapsed());
+        warm.join().unwrap();
+        assert!(super::wait_helper(Duration::ZERO), "nothing coming: at once");
     }
 
     // Given a request the 8-bit kernel can't draw (high bit depth, a soft proof, Visualize HDR),
