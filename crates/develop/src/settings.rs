@@ -493,6 +493,20 @@ impl Mixer {
     pub fn is_neutral(&self) -> bool {
         self.bands().iter().all(|b| *b == Hsl::default())
     }
+    /// Band `i` (in [`MIXER_BANDS`] order), `None` past the last.
+    pub fn band_mut(&mut self, i: usize) -> Option<&mut Hsl> {
+        Some(match i {
+            0 => &mut self.red,
+            1 => &mut self.orange,
+            2 => &mut self.yellow,
+            3 => &mut self.green,
+            4 => &mut self.aqua,
+            5 => &mut self.blue,
+            6 => &mut self.purple,
+            7 => &mut self.magenta,
+            _ => return None,
+        })
+    }
 }
 
 /// Most Point Color samples per photo (Lightroom's limit).
@@ -1260,6 +1274,12 @@ pub struct Mask {
     /// global colour tools. Not written while empty.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub point_colors: Vec<PointColor>,
+    /// Local Color Mixer: Hue / Saturation / Luminance of the 8 colour bands, applied within the mask
+    /// with the global mixer's maths (after the global colour tools, before its Point Color). Not in
+    /// Lightroom (Capture One has it per layer); written in LightCraft's own settings only, and not
+    /// written while neutral (a mask without it reads as neutral).
+    #[serde(skip_serializing_if = "Mixer::is_neutral")]
+    pub mixer: Mixer,
     /// Where its coordinates (gradients, brush strokes, AI selections) live: `true`, on the photo as
     /// shot (user orientation, before lens corrections, Upright and Transform), so the mask stays
     /// on the same content whatever those do (note 2026-10-22 #3); `false`, a mask from before
@@ -1298,6 +1318,7 @@ impl Default for Mask {
             preset: None,
             curve: ToneCurve::default(),
             point_colors: Vec::new(),
+            mixer: Mixer::default(),
             on_photo: true,
             link: String::new(),
         }

@@ -234,9 +234,9 @@ pub fn with_tone(terms: &mut [[f32; MASK_TERMS]], tone: &[[f32; 4]]) {
     }
 }
 
-/// A mask's local Curve and Point Color, resolved for the per-pixel stage. They apply where the
-/// global ones do, weighted by the mask's opacity: Point Color after the global colour tools (on
-/// OkLCh), the curve after the global curves (on encoded values).
+/// A mask's local Curve, Color Mixer and Point Color, resolved for the per-pixel stage. They apply
+/// where the global ones do, weighted by the mask's opacity: the Color Mixer and then Point Color
+/// after the global colour tools (on OkLCh), the curve after the global curves (on encoded values).
 #[derive(Clone, Debug, Default)]
 pub struct MaskLocal {
     /// The mask's tone curves (as [`FinishParams::curves`]), `None` when they change nothing.
@@ -245,6 +245,8 @@ pub struct MaskLocal {
     pub refine_sat: f32,
     /// The mask's Point Color samples that change something.
     pub points: Vec<crate::colorops::PointK>,
+    /// The mask's Color Mixer, `None` when neutral (or in black and white, as Point Color).
+    pub mixer: Option<crate::colorops::MixerK>,
 }
 
 impl MaskLocal {
@@ -263,15 +265,21 @@ impl MaskLocal {
                     .map(crate::colorops::PointK::new)
                     .collect()
             },
+            mixer: (!bw && !m.mixer.is_neutral()).then(|| crate::colorops::MixerK::new(&m.mixer)),
         }
     }
 
     pub fn is_identity(&self) -> bool {
-        self.curves.is_none() && self.points.is_empty()
+        self.curves.is_none() && self.points.is_empty() && self.mixer.is_none()
+    }
+
+    /// Whether it changes colour (Color Mixer or Point Color) at the colour stage.
+    pub fn has_color(&self) -> bool {
+        self.mixer.is_some() || !self.points.is_empty()
     }
 }
 
-/// The local Curve and Point Color of the masks the per-pixel stage evaluates (visible, with
+/// The local Curve, Color Mixer and Point Color of the masks the per-pixel stage evaluates (visible, with
 /// components: the order of [`crate::masks::evaluate`]); empty when none has any.
 pub fn mask_locals(s: &DevelopSettings) -> Vec<MaskLocal> {
     let bw = crate::is_bw(s);
@@ -728,9 +736,9 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
 
             // --- colour
             d = ops.apply(d, l_sat, l_hue);
-            // local Point Color: each mask's samples at the mask's opacity
+            // local Color Mixer and Point Color: each mask's at the mask's opacity
             if !local.is_empty() {
-                d = local_point_colors(d, i, &p.masks, local);
+                d = local_colors(d, i, &p.masks, local);
             }
             if let Some((dir, amt)) = tint_col {
                 let lab = lightcraft_color::perceptual::oklab_from_2020(d);
@@ -877,13 +885,14 @@ pub(crate) fn finish_with<T: Copy + Default + Send>(
     out
 }
 
-/// The masks' local Point Color on display-linear Rec.2020 colour `d` of pixel `i`.
+/// The masks' local Color Mixer and Point Color on display-linear Rec.2020 colour `d` of pixel `i`
+/// (per mask: its mixer, then its samples, at the mask's opacity).
 #[inline]
-fn local_point_colors(d: [f32; 3], i: usize, masks: &[crate::masks::Evaluated], local: &[MaskLocal]) -> [f32; 3] {
+fn local_colors(d: [f32; 3], i: usize, masks: &[crate::masks::Evaluated], local: &[MaskLocal]) -> [f32; 3] {
     use lightcraft_color::perceptual::{lab_to_lch, lch_to_lab, oklab_from_2020, oklab_to_2020};
     let mut lch: Option<[f32; 3]> = None;
     for (m, ml) in masks.iter().zip(local) {
-        if ml.points.is_empty() {
+        if !ml.has_color() {
             continue;
         }
         let a = m.alpha.data.get(i).copied().unwrap_or(0.0).min(1.0);
@@ -891,6 +900,9 @@ fn local_point_colors(d: [f32; 3], i: usize, masks: &[crate::masks::Evaluated], 
             continue;
         }
         let mut v = lch.unwrap_or_else(|| lab_to_lch(oklab_from_2020(d)));
+        if let Some(mk) = &ml.mixer {
+            v = mk.apply_scaled(v, a);
+        }
         for k in &ml.points {
             v = k.apply_scaled(v, a);
         }

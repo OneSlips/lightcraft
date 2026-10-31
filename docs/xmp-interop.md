@@ -231,6 +231,7 @@ mask: `CorrectionName` → name, `CorrectionAmount` → Amount, inactive correct
 | `MaskBlendMode` 0 / 1 / 2, `MaskInverted` | add / subtract / intersect, invert | |
 | `MainCurve`, `RedCurve`, `GreenCurve`, `BlueCurve` (`"x,y"` on 0..255), `LocalCurveRefineSaturation` | `curve.master` / `red` / `green` / `blue` (0..1), `curve.refine_saturation` | the mask's own point curves; a straight channel is no curve. Written back by `preset.exportXmp` |
 | `LocalPointColors`, `LocalColorVariance` | `point_colors` | the mask's own Point Color, see *Point Color samples* below. Written back by `preset.exportXmp` |
+| — | `mixer` | the mask's own Color Mixer (8 bands' Hue / Saturation / Luminance; beyond Lightroom, whose masks have none). Only in LightCraft's own settings (`lc:settings` in sidecars, `lc:PresetSettings` in exported presets), not written while neutral; a mask without it reads as neutral. `preset.exportXmp` notes that Lightroom drops it |
 
 Applying a preset adds its masks to the photo's own (masks the photo already has are not added twice), and the Amount
 slider scales them. A sidecar's masks replace the photo's, because a sidecar holds the whole edit. Components we can't

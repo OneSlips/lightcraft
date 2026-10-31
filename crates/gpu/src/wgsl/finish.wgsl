@@ -113,14 +113,33 @@ fn local_alpha(m: u32, i: u32, n: u32) -> f32 {
     return min(masks[m * n + i], 1.0);
 }
 
-// `finish::local_point_colors`: each mask's Point Color samples at the mask's opacity.
+// `colorops::mixer_apply`: the colour mixer's band shifts (hue, sat, lum) on OkLCh `lch` at `strength`.
+fn mixer_apply(mh: array<f32, 8>, ms: array<f32, 8>, ml: array<f32, 8>, lch: vec3<f32>, strength: f32) -> vec3<f32> {
+    let w = band_weights(lch.z);
+    var dh = 0.0;
+    var ds = 0.0;
+    var dl = 0.0;
+    for (var i = 0u; i < 8u; i++) {
+        dh += w[i] * mh[i];
+        ds += w[i] * ms[i];
+        dl += w[i] * ml[i];
+    }
+    let chroma_w = min(lch.y / 0.12, 1.0);
+    let h = lch.z + dh * strength * chroma_w;
+    let c = lch.y * max(1.0 + ds * strength, 0.0);
+    let l = lch.x + dl * strength * chroma_w * sqrt(max(lch.x, 0.05));
+    return vec3<f32>(l, c, h);
+}
+
+// `finish::local_colors`: each mask's Color Mixer, then its Point Color samples, at the mask's opacity.
 fn local_point_colors(d: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
     var lch = vec3<f32>(0.0);
     var any = false;
     for (var m = 0u; m < pu(F_NMASK); m++) {
         let rec = pu(F_LOCAL_OFF) + m * LOCAL_WORDS;
         let np = min(u32(aux[rec + 2u]), 8u);
-        if (np == 0u) {
+        let mix_on = aux[rec + LOCAL_MIX] != 0.0;
+        if (np == 0u && !mix_on) {
             continue;
         }
         let a = local_alpha(m, i, n);
@@ -131,6 +150,18 @@ fn local_point_colors(d: vec3<f32>, i: u32, n: u32) -> vec3<f32> {
             let lab = oklab(d);
             lch = vec3<f32>(lab.x, sqrt(lab.y * lab.y + lab.z * lab.z), atan2(lab.z, lab.y));
             any = true;
+        }
+        if (mix_on) {
+            var mh: array<f32, 8>;
+            var ms: array<f32, 8>;
+            var ml: array<f32, 8>;
+            let o = rec + LOCAL_MIX + 1u;
+            for (var j = 0u; j < 8u; j++) {
+                mh[j] = aux[o + j];
+                ms[j] = aux[o + 8u + j];
+                ml[j] = aux[o + 16u + j];
+            }
+            lch = mixer_apply(mh, ms, ml, lch, a);
         }
         for (var k = 0u; k < np; k++) {
             var w: array<f32, POINT_WORDS>;
@@ -200,19 +231,18 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
     var c = sqrt(lab0.y * lab0.y + lab0.z * lab0.z);
     var h = atan2(lab0.z, lab0.y);
     if (pu(F_MIXER) != 0u) {
-        let w = band_weights(h);
-        var dh = 0.0;
-        var ds = 0.0;
-        var dl = 0.0;
+        var mh: array<f32, 8>;
+        var ms: array<f32, 8>;
+        var ml: array<f32, 8>;
         for (var i = 0u; i < 8u; i++) {
-            dh += w[i] * pf(F_MIX_HUE + i);
-            ds += w[i] * pf(F_MIX_SAT + i);
-            dl += w[i] * pf(F_MIX_LUM + i);
+            mh[i] = pf(F_MIX_HUE + i);
+            ms[i] = pf(F_MIX_SAT + i);
+            ml[i] = pf(F_MIX_LUM + i);
         }
-        let chroma_w = min(c / 0.12, 1.0);
-        h += dh * chroma_w;
-        c *= max(1.0 + ds, 0.0);
-        l += dl * chroma_w * sqrt(max(l, 0.05));
+        let r = mixer_apply(mh, ms, ml, vec3<f32>(l, c, h), 1.0);
+        l = r.x;
+        c = r.y;
+        h = r.z;
     }
     for (var k = 0u; k < pu(F_NPC); k++) {
         let r = point_color(k, vec3<f32>(l, c, h));

@@ -492,6 +492,34 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 ),
             ];
         }),
+        ("masks (local color mixer)", |s| {
+            use lightcraft_develop::{Hsl, Mixer, PointColor};
+            let radial = MaskShape::Radial { center: Point::new(0.4, 0.6), rx: 0.3, ry: 0.25, angle: 0.0, feather: 50.0, invert: false };
+            let linear = MaskShape::Linear { start: Point::new(0.5, 0.0), end: Point::new(0.5, 0.7) };
+            let m = |shape, mixer, point_colors, amount| Mask {
+                components: vec![MaskComponent { anchor: None, name: None, op: MaskOp::Add, invert: false, shape }],
+                adjust: lightcraft_develop::LocalAdjustments { amount, ..Default::default() },
+                mixer,
+                point_colors,
+                ..Default::default()
+            };
+            // a global mixer too: the local one applies after it
+            s.mixer.green.sat = -40.0;
+            s.masks = vec![
+                m(
+                    radial,
+                    Mixer { orange: Hsl { hue: 50.0, sat: 30.0, lum: -40.0 }, blue: Hsl { hue: -30.0, sat: -90.0, lum: 30.0 }, ..Default::default() },
+                    Vec::new(),
+                    100.0,
+                ),
+                m(
+                    linear,
+                    Mixer { green: Hsl { hue: 60.0, sat: 50.0, lum: 20.0 }, magenta: Hsl { hue: 0.0, sat: -70.0, lum: -20.0 }, ..Default::default() },
+                    vec![PointColor { lum: 0.5, chroma: 0.12, hue: 270.0, sat_shift: 40.0, hue_range: 80.0, ..Default::default() }],
+                    70.0,
+                ),
+            ];
+        }),
         ("masks (auto mask brush)", |s| {
             let st = |pts: &[(f64, f64)], auto_mask, erase| BrushStroke {
                 points: pts.iter().map(|p| Point::new(p.0, p.1)).collect(),

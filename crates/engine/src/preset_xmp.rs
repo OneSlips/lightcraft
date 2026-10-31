@@ -104,6 +104,9 @@ fn local_attrs(a: &LocalAdjustments) -> String {
 /// `LocalCurveRefineSaturation` attribute, and the `MainCurve` / `RedCurve` / `GreenCurve` / `BlueCurve`
 /// (`"x,y"` on 0..255), `LocalPointColors` and `LocalColorVariance` elements.
 fn local_curve_and_points(m: &Mask, notes: &mut Vec<String>) -> (String, String) {
+    if !m.mixer.is_neutral() {
+        notes.push(format!("{}: Lightroom's masks have no Color Mixer; it is kept in the LightCraft preset only", m.name));
+    }
     let c = &m.curve;
     if c.highlights != 0.0 || c.lights != 0.0 || c.darks != 0.0 || c.shadows != 0.0 {
         notes.push(format!("{}: Lightroom's masks have no parametric curve; it is left out", m.name));

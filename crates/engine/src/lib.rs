@@ -2107,6 +2107,8 @@ mod tests_mask_links;
 #[cfg(test)]
 mod tests_mask_local;
 #[cfg(test)]
+mod tests_mask_mixer;
+#[cfg(test)]
 mod tests_mask_next;
 #[cfg(test)]
 mod tests_merge;

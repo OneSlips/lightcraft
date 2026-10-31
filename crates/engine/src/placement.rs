@@ -123,7 +123,7 @@ fn family(d: &DevelopSettings) -> u64 {
     h = json_hash(h, &d.disabled_sections);
     h = fnv(h, &(d.masks.len() as u64).to_le_bytes());
     for m in &d.masks {
-        h = json_hash(h, &(&m.adjust, &m.curve, &m.point_colors, m.visible, m.invert, m.components.len()));
+        h = json_hash(h, &(&m.adjust, &m.curve, &m.point_colors, &m.mixer, m.visible, m.invert, m.components.len()));
     }
     h
 }

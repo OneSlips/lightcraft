@@ -1839,7 +1839,7 @@ pub(crate) const MIXER_TABS: [(&str, &str); 2] = [("Mixer", "mixer"), ("Point Co
 pub(crate) const MIXER_ADJUST: [(&str, &str); 2] = [("HSL", "hsl"), ("Color", "color")];
 pub(crate) const MIXER_GROUPS: [(&str, &str); 4] = [("Hue", "hue"), ("Saturation", "sat"), ("Luminance", "lum"), ("All", "all")];
 /// The mixer bands' names, as the HSL sliders are labelled (parallel to `MIXER_BANDS`).
-const BAND_NAMES: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
+pub(crate) const BAND_NAMES: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];
 
 /// The Color Mixer, laid out as in Lightroom Classic: "Mixer | Point Color" tabs; the Mixer
 /// adjusts by HSL (Hue | Saturation | Luminance | All: eight colour sliders per group, each group
@@ -1932,7 +1932,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings) {
 }
 
 /// A word tab (Hue, Saturation…): bright and underlined when it is the one shown.
-fn group_tab(ui: &mut egui::Ui, id: &str, label: &str, active: bool) -> egui::Response {
+pub(crate) fn group_tab(ui: &mut egui::Ui, id: &str, label: &str, active: bool) -> egui::Response {
     let t = Tokens::get(ui.ctx());
     let font = t.semibold(11.5);
     let (r, resp) = {

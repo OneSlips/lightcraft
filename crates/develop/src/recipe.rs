@@ -368,6 +368,28 @@ fn carry_fields<T: Serialize + serde::de::DeserializeOwned + Clone>(old: &T, new
     serde_json::from_value(serde_json::Value::Object(t)).unwrap_or_else(|_| new.clone())
 }
 
+/// A mask's Color Mixer edit (`old` → `new`) on another photo's `target` mixer: each slider that
+/// changed (a band's Hue, Saturation or Luminance) set to its new value, the others left as they are.
+fn carry_mixer(old: &crate::Mixer, new: &crate::Mixer, target: &crate::Mixer) -> crate::Mixer {
+    let mut out = *target;
+    for (k, (o, n)) in old.bands().iter().zip(new.bands()).enumerate() {
+        if *o == n {
+            continue;
+        }
+        let Some(t) = out.band_mut(k) else { continue };
+        if o.hue != n.hue {
+            t.hue = n.hue;
+        }
+        if o.sat != n.sat {
+            t.sat = n.sat;
+        }
+        if o.lum != n.lum {
+            t.lum = n.lum;
+        }
+    }
+    out
+}
+
 /// Auto Sync of a masks edit on one photo (`old` → `new`) onto another photo's `target` masks
 /// (whose image is `aspect` = width / height, oriented), merged rather than copied over:
 ///
@@ -440,6 +462,9 @@ pub fn sync_masks(old: &[Mask], new: &[Mask], target: &[Mask], aspect: f64) -> (
         }
         if o.point_colors != n.point_colors {
             m.point_colors = n.point_colors.clone();
+        }
+        if o.mixer != n.mixer {
+            m.mixer = carry_mixer(&o.mixer, &n.mixer, &t.mixer);
         }
         let keys_old: Vec<_> = o.components.iter().map(component_key).collect();
         let keys_new: Vec<_> = n.components.iter().map(component_key).collect();
