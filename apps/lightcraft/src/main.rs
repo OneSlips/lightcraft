@@ -50,7 +50,7 @@ mod platform;
 mod prefs;
 mod session;
 
-use gpu_crash::{gpu_crash_check, gpu_lost_check_at, gpu_lost_marker_path, gpu_lost_reason, record_gpu_lost, window_files};
+use gpu_crash::{gpu_crash_check, gpu_lost_check_at, gpu_lost_marker_path, gpu_lost_reason, gpu_quit_cleanly, record_gpu_lost, window_files};
 #[cfg(test)]
 use gpu_crash::{gpu_crash_check_at, gpu_crash_notice, window_wgpu_options};
 #[cfg(test)]
@@ -116,6 +116,9 @@ impl eframe::App for App {
         if !self.0.shutdown(EXIT_WAIT) {
             log::warn!("quit: background work was still running after {EXIT_WAIT:?}");
         }
+        // an orderly quit, even one while the GPU device is still being created, is not a crash
+        // inside the driver: the next launch keeps the GPU on
+        gpu_quit_cleanly();
         // macOS (#1331): end the process here, before eframe tears the window down, as Quit from
         // the menu bar already does (PR #444). AccessKit's macOS adapter subclasses the window's
         // content view and restores its class on teardown; AppKit's Touch Bar support observes
