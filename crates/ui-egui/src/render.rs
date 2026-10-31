@@ -679,8 +679,7 @@ impl Renderer {
             self.keep_window(t);
         }
         if slot == Slot::Main {
-            self.kept_views.clear();
-            self.full_views.clear();
+            self.clear_kept_views();
         }
         if slot == Slot::Region {
             self.retain_pan_tiles(|_| false);
@@ -947,26 +946,70 @@ impl Renderer {
         self.failed.remove(&Slot::Main);
         // (a render still out for the view is older than this one now)
         self.shown_ids.insert(Slot::Main, lightcraft_preview::next_tick());
+        let native = found.native;
         if let Some(old) = self.textures.insert(Slot::Main, found) {
             self.keep_view(old);
+        }
+        // a kept render that stayed on the GPU: the view draws (and later renders into) its texture
+        if let Some(id) = native
+            && let Some(prev) = self.natives.insert(Slot::Main, id)
+            && prev != id
+            && let Some(screen) = self.screen.as_mut()
+        {
+            screen.free(prev);
         }
         true
     }
 
-    /// Keep `t`, a whole-frame render that leaves [`Slot::Main`], if it is a full-quality one drawn
-    /// from pixels (a draft, or a texture that stayed on the GPU, is let go).
+    /// Keep `t`, a whole-frame render that leaves [`Slot::Main`], if it is a full-quality one (a
+    /// draft is let go). One that stayed on the GPU keeps its texture: the view's next render gets a
+    /// texture of its own (note 5 of 31 Oct: on the GPU every C rendered the photo again, as only
+    /// renders drawn from pixels were kept).
     fn keep_view(&mut self, t: Tex) {
-        if t.native.is_some() || !self.full_views.contains(&t.key) {
+        if !self.full_views.contains(&t.key) {
             self.full_views.remove(&t.key);
+            // (a GPU texture still bound to the view is drawn into by its next render; any other is freed)
+            if let Some(id) = t.native
+                && self.natives.get(&Slot::Main) != Some(&id)
+                && let Some(screen) = self.screen.as_mut()
+            {
+                screen.free(id);
+            }
             return;
         }
-        self.kept_views.retain(|k| k.key != t.key);
+        if let Some(id) = t.native
+            && self.natives.get(&Slot::Main) == Some(&id)
+        {
+            self.natives.remove(&Slot::Main);
+            self.native_frames.remove(&Slot::Main);
+        }
+        if let Some(i) = self.kept_views.iter().position(|k| k.key == t.key)
+            && let Some(old) = self.kept_views.remove(i)
+        {
+            self.let_go_view(old);
+        }
         self.kept_views.push_back(t);
         while self.kept_views.len() > KEPT_VIEWS {
             if let Some(gone) = self.kept_views.pop_front() {
                 self.full_views.remove(&gone.key);
+                self.let_go_view(gone);
             }
         }
+    }
+
+    /// Free the GPU texture of a kept whole-frame render that goes ([`Self::keep_view`]).
+    fn let_go_view(&mut self, t: Tex) {
+        if let (Some(id), Some(screen)) = (t.native, self.screen.as_mut()) {
+            screen.free(id);
+        }
+    }
+
+    /// Let every kept whole-frame render go.
+    fn clear_kept_views(&mut self) {
+        for t in std::mem::take(&mut self.kept_views) {
+            self.let_go_view(t);
+        }
+        self.full_views.clear();
     }
 
     /// Keep `t`, a window that leaves [`Slot::Region`], if it is a full-quality one drawn from
@@ -1128,8 +1171,7 @@ impl Renderer {
         self.textures.clear();
         self.kept_windows.clear();
         self.full_windows.clear();
-        self.kept_views.clear();
-        self.full_views.clear();
+        self.clear_kept_views();
         self.windows_ahead_done = None;
         for t in std::mem::take(&mut self.pan_tiles) {
             if let (Some(id), Some(screen)) = (t.tex.native, self.screen.as_mut()) {
@@ -1147,6 +1189,13 @@ impl Renderer {
 
     /// Release every GPU-resident texture shown.
     fn free_natives(&mut self) {
+        // (kept whole-frame renders that stayed on the GPU go with them)
+        let (gpu, pixels): (Vec<Tex>, Vec<Tex>) = std::mem::take(&mut self.kept_views).into_iter().partition(|t| t.native.is_some());
+        self.kept_views = pixels.into();
+        for t in gpu {
+            self.full_views.remove(&t.key);
+            self.let_go_view(t);
+        }
         if let Some(screen) = self.screen.as_mut() {
             for (_, id) in self.natives.drain() {
                 screen.free(id);
@@ -1456,10 +1505,10 @@ impl Renderer {
             // on and off), and the new one gets a texture of its own
             if slot == Slot::Main && r.rendered.is_ok() {
                 let draft = self.view_requests.get(&r.request_id).is_some_and(|q| q.draft);
-                if !draft && r.frame.is_none() {
+                if !draft {
                     self.full_views.insert(r.key);
                 }
-                if self.textures.get(&Slot::Main).is_some_and(|t| t.key != r.key && self.full_views.contains(&t.key) && t.native.is_none())
+                if self.textures.get(&Slot::Main).is_some_and(|t| t.key != r.key && self.full_views.contains(&t.key))
                     && let Some(t) = self.textures.remove(&Slot::Main)
                 {
                     self.keep_view(t);
@@ -2244,6 +2293,99 @@ mod thumbnail_tests {
         let shot = cpu.get(&egui::TextureId::User(7)).expect("the headless screenshot has the view's pixels");
         assert_eq!(shot.image.size, [w, h]);
         assert_eq!(shot.image.pixels[4], egui::Color32::from_rgb(40, 100, 200));
+    }
+
+    /// Gives each GPU-resident render a texture id of its own (or updates the one it is given) and
+    /// records the ids freed.
+    #[cfg(not(target_arch = "wasm32"))]
+    struct CountingScreen {
+        next: u64,
+        freed: std::rc::Rc<std::cell::RefCell<Vec<egui::TextureId>>>,
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    impl ScreenTextures for CountingScreen {
+        fn show(&mut self, _: &lightcraft_engine::media::ScreenFrame, id: Option<egui::TextureId>) -> Option<egui::TextureId> {
+            Some(id.unwrap_or_else(|| {
+                self.next += 1;
+                egui::TextureId::User(self.next)
+            }))
+        }
+        fn free(&mut self, id: egui::TextureId) {
+            self.freed.borrow_mut().push(id);
+        }
+    }
+
+    /// Note 5 of 31 Oct (verify run): on the GPU, every Crop on/off with the edit unchanged still
+    /// rendered the photo again (60–200 ms): only whole-frame renders drawn from pixels were kept for a
+    /// return to them, and a render that stayed on the GPU was drawn into by the next one. Now it keeps
+    /// its texture and comes back without a render.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_whole_frame_render_that_stayed_on_the_gpu_comes_back_without_a_render() {
+        use lightcraft_engine::gpu::wgpu;
+        let device = (|| {
+            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
+            desc.backends = lightcraft_engine::gpu::backend::window_backends();
+            desc.backend_options = lightcraft_engine::gpu::backend::backend_options();
+            let instance = wgpu::Instance::new(desc);
+            let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { label: Some("test window"), ..Default::default() })).ok()
+        })();
+        let Some((device, _queue)) = device else {
+            lightcraft_testkit::skip!(Gpu, "no GPU adapter");
+            return;
+        };
+        let frame = || {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d { width: 4, height: 4, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            lightcraft_engine::media::ScreenFrame { texture, width: 4, height: 4 }
+        };
+        let (mut app, work, ctx) = fixture();
+        let freed = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        app.renderer.set_screen_textures(Box::new(CountingScreen { next: 0, freed: freed.clone() }));
+        let render_on_gpu = |app: &mut crate::LightcraftApp, job: RenderJob| {
+            let key = job.key;
+            app.renderer.request(Slot::Main, job, 100);
+            let (slot, job) = take_job(&work);
+            let mut result = job.run();
+            result.frame = Some(frame());
+            finish(app, &work, &ctx, slot, result);
+            let t = app.renderer.textures.get(&Slot::Main).unwrap();
+            assert_eq!(t.key, key);
+            t.id()
+        };
+        // the uncropped view, then the cropped one (another whole-frame render of the same edit)
+        let uncropped = app.session.render_job(PhotoId(1), 64, 64, false, true).unwrap();
+        let cropped = app.session.render_job(PhotoId(1), 48, 40, false, true).unwrap();
+        assert_ne!(uncropped.key, cropped.key);
+        let (a, b) = (render_on_gpu(&mut app, uncropped.clone()), render_on_gpu(&mut app, cropped.clone()));
+        assert_ne!(a, b, "the second render got a texture of its own: the first one's is kept");
+        // back (C): the kept render, at once and without a render
+        app.renderer.request(Slot::Main, uncropped.clone(), 100);
+        assert!(work.borrow().jobs.is_empty(), "coming back rendered again");
+        let t = app.renderer.textures.get(&Slot::Main).unwrap();
+        assert_eq!((t.key, t.id()), (uncropped.key, a));
+        // and again the other way
+        app.renderer.request(Slot::Main, cropped.clone(), 100);
+        assert!(work.borrow().jobs.is_empty(), "coming back rendered again");
+        assert_eq!(app.renderer.textures.get(&Slot::Main).map(|t| t.id()), Some(b));
+        assert!(freed.borrow().is_empty(), "nothing shown or kept was freed");
+        // a new edit renders into a texture of its own; the views kept stay drawable, and leaving the
+        // view frees them
+        let edited = app.session.render_job(PhotoId(1), 56, 56, false, true).unwrap();
+        let c = render_on_gpu(&mut app, edited);
+        assert!(![a, b].contains(&c));
+        app.renderer.release(Slot::Main);
+        let freed = freed.borrow();
+        assert!(freed.contains(&a) && freed.contains(&b), "the kept views' textures are freed: {freed:?}");
     }
 
     fn relink_destination() -> std::path::PathBuf {

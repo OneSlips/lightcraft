@@ -1064,13 +1064,19 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             "Grid thumbnails and the previews the loupe shows, kept on disk so photos open at once next time. Each library keeps its own. Automatic takes 15 % of the drive's free space (at least 20 GB, never the last 10 GB). When it is full, the oldest previews go first and your edited photos' latest previews last.",
         ),
     );
-    let used = app.session.media.rendered.disk().map(|d| (d.size(), d.budget()));
+    // (never counted here: the first count walks the whole folder, on a thread of its own)
+    let rendered = &app.session.media.rendered;
+    let used = rendered.disk().map(|d| (rendered.disk_size_now(), d.budget()));
+    if matches!(used, Some((None, _))) {
+        ui.ctx().request_repaint_after(std::time::Duration::from_millis(250));
+    }
     row(ui, t, crate::i18n::tr("In use"), |ui| {
         ui.label(
-            RichText::new(
-                used.map(|(b, limit)| format!("{} / {}", cache_size_text(b), cache_size_text(limit)))
-                    .unwrap_or_else(|| crate::i18n::tr("memory only").to_string()),
-            )
+            RichText::new(match used {
+                Some((Some(b), limit)) => format!("{} / {}", cache_size_text(b), cache_size_text(limit)),
+                Some((None, limit)) => format!("{} / {}", crate::i18n::tr("counting…"), cache_size_text(limit)),
+                None => crate::i18n::tr("memory only").to_string(),
+            })
             .color(t.text),
         );
         let r = ui.button(crate::i18n::tr("Clear Cache"));
