@@ -32,6 +32,7 @@ pub mod contact_sheet;
 pub mod crs;
 pub mod crs_masks;
 pub mod crs_point_color;
+pub(crate) mod decode_share;
 pub mod demo;
 pub mod denoise;
 pub mod devices;

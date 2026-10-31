@@ -631,7 +631,7 @@ pub fn sharpen_gain(raw: f32) -> f32 {
     1.0 + (ratio - 1.0) * blend
 }
 
-pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, native_long: f64, q: Quality) -> PlaneSigmas {
+pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, native_long: f64, _quality: Quality) -> PlaneSigmas {
     let ppl = px_per_long as f32;
     // A hidden mask, or one with no components, does not change the picture. Its sliders must
     // not pick the tone base Clarity reads (#1214).
@@ -643,10 +643,10 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, native_long: f64, q: 
     // Edge-aware base at ~1.5% of the long edge (EV² epsilon: edges of > ~0.6 EV are preserved)
     // From V2 it is taken of the median at 0.15%: lines and texture finer than that are detail,
     // not tone (#632).
-    let base = tone_active.then(|| {
-        let sigma = (0.015 * ppl).max(1.0);
-        if q == Quality::Draft { sigma.min(24.0) } else { sigma }
-    });
+    // (a draft takes the same width as the full render: drafts once capped it at 24 px, which
+    // changed the large-scale tone of every draft wider than ~1600 px, most at 100 %, where the
+    // base is ~90 px wide: note 4 of 2026-10-31. The fast guided filter costs no more for a wider one.)
+    let base = tone_active.then(|| (0.015 * ppl).max(1.0));
     let clarity = (s.effects.clarity != 0.0 || local_any(|a| a.clarity)).then(|| (0.012 * ppl).max(1.0));
     // local Noise and Defringe read the fine detail band too
     let texture = (s.effects.texture != 0.0

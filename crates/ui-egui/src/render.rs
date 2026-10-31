@@ -328,6 +328,9 @@ pub struct Renderer {
     /// screenshot reads it back ([`Self::cpu_textures`]) instead of finding no pixels (a white
     /// photo, review of PR #1065).
     native_frames: HashMap<Slot, lightcraft_engine::media::ScreenFrame>,
+    /// The loupe's last full-quality request per view ([`Slot::Main`], [`Slot::Region`]): its photo
+    /// and the flag that tells it a draft replaced it ([`lightcraft_engine::media::RenderJob::superseded`]).
+    full_requests: HashMap<Slot, (PhotoId, Arc<std::sync::atomic::AtomicBool>)>,
 }
 
 /// Whether a render of `s` solves a content-aware fill (a Fill spot).
@@ -472,6 +475,7 @@ impl Renderer {
             fill_jobs: HashMap::new(),
             fill_row: None,
             native_frames: HashMap::new(),
+            full_requests: HashMap::new(),
         }
     }
 }
@@ -679,6 +683,25 @@ impl Renderer {
         } else {
             self.fill_jobs.remove(&slot);
         }
+        // The loupe's drafts never wait for its full render (note 8 of 2026-10-31: on a photo just
+        // landed on, a slider did nothing for 2–5 s while the first full render decoded and
+        // rendered): a draft starts beside it, and the full render it replaces stops once its
+        // source is decoded (the draft takes that decode over instead of decoding again). So does
+        // a full render of a photo the view has left.
+        let draft = job.request.quality == lightcraft_pipeline::Quality::Draft;
+        let overtakes = draft && matches!(slot, Slot::Main | Slot::Region);
+        if matches!(slot, Slot::Main | Slot::Region) {
+            if let Some((photo, flag)) = self.full_requests.get(&slot)
+                && (draft || *photo != job.photo)
+            {
+                flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+            if !draft {
+                let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                job.superseded = Some(flag.clone());
+                self.full_requests.insert(slot, (job.photo, flag));
+            }
+        }
         if matches!(slot, Slot::Main | Slot::Region) {
             // (requests a drag superseded and that never came back: dropped, the map stays small)
             if self.view_requests.len() > 256 {
@@ -687,7 +710,6 @@ impl Renderer {
                     self.view_requests.remove(&o);
                 }
             }
-            let draft = job.request.quality == lightcraft_pipeline::Quality::Draft;
             self.view_requests.insert(job.request_id, ViewRequest { draft, at_ms: crate::now_ms() });
         }
         // (an offload keeps its own per-view stage caches; the flag tells it to)
@@ -702,15 +724,15 @@ impl Renderer {
         let key = job.key;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_) | Slot::RegionAhead);
         let display = self.display.clone();
-        self.pool.submit(
-            slot,
-            key,
-            priority,
-            Box::new(move || {
-                let run = || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                Self::run_for(run, &display)
-            }),
-        );
+        let run: lightcraft_preview::pool::Job<Finished> = Box::new(move || {
+            let run = || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
+            Self::run_for(run, &display)
+        });
+        if overtakes {
+            self.pool.submit_overtaking(slot, key, priority, run);
+        } else {
+            self.pool.submit(slot, key, priority, run);
+        }
     }
 
     /// Request a stand-in for `slot` (once per job key). The loupe's [`Slot::Preview`] takes over
@@ -1212,6 +1234,12 @@ impl Renderer {
                     && r.rendered.is_ok();
                 if !newer_draft {
                     self.discarded += 1;
+                    // (the source a view's render decoded before a draft replaced it is still the
+                    // photo's: kept, or the next render decodes it again)
+                    let replaced = matches!(&r.rendered, Err(e) if e == lightcraft_engine::media::SUPERSEDED);
+                    if replaced && slot.is_view() && r.loaded.is_some() && r.request_id >= self.epoch {
+                        session.accept(&r);
+                    }
                     continue;
                 }
                 session.accept(&r);
@@ -1766,6 +1794,66 @@ mod thumbnail_tests {
         r.wait_for_draft(&ctx, &mut s, budget);
         assert!(!r.is_pending(Slot::Main));
         assert_eq!(r.textures.get(&Slot::Main).map(|t| t.key), want);
+    }
+
+    /// Note 8 of 2026-10-31: on a photo just landed on, a slider did nothing for 2–5 s: its drafts
+    /// waited behind the loupe's first full render (raw decode + render). Now a draft starts beside
+    /// it, takes over the decode already running instead of decoding the file again, and the full
+    /// render it replaced stops once the source is decoded (the source is kept all the same).
+    #[test]
+    fn a_draft_does_not_wait_for_the_first_full_render_and_shares_its_decode() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let decodes = Arc::new(AtomicUsize::new(0));
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        let released = Arc::new(std::sync::Mutex::new(released));
+        let mut s = Session::new();
+        let (d, gate) = (decodes.clone(), released.clone());
+        s.media.file_loader = Some(Arc::new(move |_, _, _| {
+            d.fetch_add(1, Ordering::SeqCst);
+            // the raw decode takes as long as the test says
+            let _ = gate.lock().unwrap().recv_timeout(std::time::Duration::from_secs(30));
+            let mut image = lightcraft_raster::Rgb32f::new(16, 16);
+            image.data.fill([0.2, 0.2, 0.2]);
+            Ok((image, Default::default()))
+        }));
+        let p = Photo::new(PhotoId(1), Source::File { path: "note8-slider.nef".into() }, "note8-slider.nef", "NEF", 6000, 4000, "2026-01-01");
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        s.execute("library.select", &serde_json::json!({"ids": [1], "active": 1})).unwrap();
+        let mut r = Renderer::with_worker_threads(2);
+        let ctx = egui::Context::default();
+        // the photo is landed on: its first full render starts decoding
+        r.request(Slot::Main, s.loupe_job(PhotoId(1), 64, 64, true).unwrap(), 100);
+        let started = std::time::Instant::now();
+        while decodes.load(Ordering::SeqCst) == 0 && started.elapsed() < std::time::Duration::from_secs(10) {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(decodes.load(Ordering::SeqCst), 1);
+        // a slider moves: the draft (built before anything is decoded) starts beside the full render
+        s.execute("develop.set", &serde_json::json!({"control": "light.exposure", "value": 0.5})).unwrap();
+        let draft = s.loupe_job(PhotoId(1), 48, 48, true).unwrap().draft();
+        let want = draft.key;
+        r.request(Slot::Main, draft, 100);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        assert_eq!(decodes.load(Ordering::SeqCst), 1, "the draft waits for the decode running, it does not decode again");
+        drop(release);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while r.textures.get(&Slot::Main).is_none_or(|t| t.key != want) && std::time::Instant::now() < deadline {
+            r.pool.wait(std::time::Duration::from_millis(50));
+            r.poll(&ctx, &mut s);
+        }
+        assert_eq!(r.textures.get(&Slot::Main).map(|t| t.key), Some(want), "the draft is on screen");
+        while r.completed < 2 && std::time::Instant::now() < deadline {
+            r.pool.wait(std::time::Duration::from_millis(50));
+            r.poll(&ctx, &mut s);
+        }
+        assert_eq!(r.completed, 2);
+        assert_eq!(decodes.load(Ordering::SeqCst), 1, "one decode for both");
+        let log: Vec<_> = r.loupe_log.iter().map(|l| l.draft).collect();
+        assert_eq!(log, vec![true], "the replaced full render (old settings) never reached the screen");
+        assert!(r.failure(Slot::Main).is_none(), "a replaced render is no failure");
+        // the decoded source is the session's: the next render does not decode again
+        let next = s.loupe_job(PhotoId(1), 64, 64, true).unwrap();
+        assert!(matches!(next.source, lightcraft_engine::media::SourceRef::Loaded(_)), "the decode was kept");
     }
 
     // Given a loupe render asked for after the frame's poll (the refine of a still photo while an
