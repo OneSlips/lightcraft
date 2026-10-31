@@ -185,9 +185,62 @@ pub fn set_init_marker(path: Option<PathBuf>) {
     *MARKER.lock().unwrap_or_else(|e| e.into_inner()) = path;
 }
 
-/// The marker's text: what started, and when.
-fn marker_text(what: &str, secs: u64) -> String {
-    format!("GPU {what} started (unix time {secs})\n")
+/// The marker line naming the process that wrote it.
+const OWNER_PREFIX: &str = "owner ";
+
+/// This launch's owner token: the process id plus a per-launch random part, so that a second
+/// LightCraft sharing the configuration folder (and so the marker file) never mistakes the other
+/// instance's marker for its own, even after the operating system reuses a process id.
+fn owner_token() -> &'static str {
+    static TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    TOKEN.get_or_init(|| {
+        use std::hash::{BuildHasher, Hasher};
+        // `RandomState` is seeded randomly per process; the clock adds to it
+        let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        h.write_u128(nanos);
+        format!("{}-{:016x}", std::process::id(), h.finish())
+    })
+}
+
+/// The marker's text: what started, when, and which launch wrote it (`owner`).
+fn marker_text(what: &str, secs: u64, owner: &str) -> String {
+    format!("GPU {what} started (unix time {secs})\n{OWNER_PREFIX}{owner}\n")
+}
+
+/// The marker text this launch writes when driver work `what` starts (owner line included), for
+/// tests outside this crate that stand in for a device creation still running.
+pub fn this_launch_marker_text(what: &str) -> String {
+    marker_text(what, 1, owner_token())
+}
+
+/// Whether the marker text names `owner` as the launch that wrote it. A marker without an owner
+/// line (written by an older LightCraft) belongs to no running launch.
+fn marker_owned_by(text: &str, owner: &str) -> bool {
+    text.lines().any(|l| l.trim().strip_prefix(OWNER_PREFIX) == Some(owner))
+}
+
+/// Remove `marker` if this launch still owns it. Another LightCraft using the same configuration
+/// may have overwritten it while starting its own GPU device; that marker is left for it to clear
+/// (or, if it dies in the driver, for the next launch to report). I/O errors are logged.
+fn remove_if_owned(marker: &std::path::Path) {
+    let text = match std::fs::read_to_string(marker) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            log::warn!("gpu: could not read {}: {e}", marker.display());
+            return;
+        }
+    };
+    if !marker_owned_by(&text, owner_token()) {
+        log::info!("gpu: leaving {} in place: another LightCraft wrote it", marker.display());
+        return;
+    }
+    if let Err(e) = std::fs::remove_file(marker)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        log::warn!("gpu: could not remove {}: {e}", marker.display());
+    }
 }
 
 /// Enter a driver-work scope on `marker`: the first one writes the file.
@@ -203,17 +256,19 @@ fn arm_locked(marker: &std::path::Path, n: &mut u32, what: &str) {
             let _ = std::fs::create_dir_all(d);
         }
         let secs = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        let _ = std::fs::write(marker, marker_text(what, secs));
+        if let Err(e) = std::fs::write(marker, marker_text(what, secs, owner_token())) {
+            log::warn!("gpu: could not write {}: {e}", marker.display());
+        }
     }
     *n += 1;
 }
 
-/// Leave a scope: the last one removes the file.
+/// Leave a scope: the last one removes the file, if this launch still owns it.
 fn disarm(marker: &std::path::Path, active: &Mutex<u32>) {
     let mut n = active.lock().unwrap_or_else(|e| e.into_inner());
     *n = n.saturating_sub(1);
     if *n == 0 {
-        let _ = std::fs::remove_file(marker);
+        remove_if_owned(marker);
     }
 }
 
@@ -267,11 +322,9 @@ fn release_on(slot: &Mutex<Option<PathBuf>>, active: &Mutex<u32>) {
     // the scope lock first, as `arm` / `disarm` take it: no scope writes the file while it goes
     let _n = active.lock().unwrap_or_else(|e| e.into_inner());
     let marker = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(m) = marker
-        && let Err(e) = std::fs::remove_file(&m)
-        && e.kind() != std::io::ErrorKind::NotFound
-    {
-        log::warn!("gpu: could not remove {}: {e}", m.display());
+    if let Some(m) = marker {
+        // only our own: another instance may be inside device creation right now
+        remove_if_owned(&m);
     }
 }
 
@@ -291,9 +344,12 @@ pub fn take_init_marker(path: &std::path::Path) -> Option<String> {
 /// What the init marker `path` recorded, if it is present — without removing it. For sessions
 /// that must leave the disk as they found it (`--memory`, issues #164 and #169): GPU rendering
 /// still starts off, and the marker stays for the next ordinary launch to report and clear.
+/// The owner line is left out of the description; a marker without one (an older LightCraft's)
+/// still counts.
 pub fn read_init_marker(path: &std::path::Path) -> Option<String> {
     let text = std::fs::read_to_string(path).ok()?;
-    Some(text.trim().to_string())
+    let what: Vec<&str> = text.lines().filter(|l| !l.trim().starts_with(OWNER_PREFIX)).collect();
+    Some(what.join("\n").trim().to_string())
 }
 
 /// What draws the desktop window: egui-wgpu on one wgpu backend, or eframe's OpenGL renderer
@@ -501,6 +557,38 @@ mod tests {
         assert_eq!(*active.lock().unwrap(), 0);
         // releasing twice, or with no marker, is harmless
         release_on(&slot, &active);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two LightCraft instances share one configuration (and so one marker file). Instance A arms,
+    /// then instance B starts its own device creation and overwrites the marker; A's orderly quit,
+    /// or A's scope ending, must leave B's marker so a crash of B is still reported. Before the
+    /// fix A removed B's marker. A alone still removes its own.
+    #[test]
+    fn an_orderly_quit_leaves_another_instances_marker() {
+        let dir = std::env::temp_dir().join(format!("lc-gpu-other-{}", std::process::id()));
+        let m = dir.join("gpu-init.marker");
+        let _ = std::fs::remove_dir_all(&dir);
+        let b_text = marker_text("device creation", 1, "99999-00000000deadbeef");
+        // the orderly quit while B owns the file
+        let (slot, active) = (Mutex::new(Some(m.clone())), Mutex::new(0));
+        with_marker_in(&slot, &active, "device creation", || {
+            assert!(marker_owned_by(&std::fs::read_to_string(&m).unwrap(), owner_token()), "A wrote its token");
+            std::fs::write(&m, &b_text).unwrap(); // instance B arms
+            release_on(&slot, &active);
+        });
+        assert_eq!(std::fs::read_to_string(&m).unwrap(), b_text, "B's marker stays after A's quit and scope end");
+        // A's scope ending (no quit) while B owns the file
+        let (slot, active) = (Mutex::new(Some(m.clone())), Mutex::new(0));
+        with_marker_in(&slot, &active, "kernel compilation", || std::fs::write(&m, &b_text).unwrap());
+        assert_eq!(std::fs::read_to_string(&m).unwrap(), b_text, "B's marker stays after A's scope ends");
+        // the description the next launch reports leaves the owner line out
+        assert_eq!(read_init_marker(&m).unwrap(), "GPU device creation started (unix time 1)");
+        // A alone: its quit removes its own marker
+        std::fs::remove_file(&m).unwrap();
+        let (slot, active) = (Mutex::new(Some(m.clone())), Mutex::new(0));
+        with_marker_in(&slot, &active, "device creation", || release_on(&slot, &active));
+        assert!(!m.exists(), "A's own marker is removed");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

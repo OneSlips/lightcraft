@@ -196,8 +196,9 @@ fn an_orderly_quit_during_gpu_start_up_is_not_a_crash() {
     let m = d.join("gpu-init.marker");
     // launch: nothing left behind, the sentinel is armed
     assert_eq!(gpu_crash_check_at(Some(m.clone()), false), None);
-    // device creation started and has not returned (what `with_init_marker` writes)
-    std::fs::write(&m, "GPU device and kernel creation started (backends DX12) (unix time 1)\n").unwrap();
+    // device creation started and has not returned (what `with_init_marker` writes, owned by this launch)
+    let ours = lightcraft_engine::gpu::backend::this_launch_marker_text("device and kernel creation (backends DX12)");
+    std::fs::write(&m, ours).unwrap();
     // the orderly quit (`App::on_exit`) runs
     gpu_quit_cleanly();
     assert!(!m.exists());
