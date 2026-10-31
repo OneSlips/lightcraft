@@ -62,10 +62,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Develop
         }
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW), Sense::click());
         register(ui.ctx(), format!("mask:{}", m.id), r);
+        // the mask's own row (name, eye, menu) is where its effect is judged, so the pointer on it
+        // shows no overlay; a component row under it does (test notes 2026-10-31 note 7)
         let hovered = ui.rect_contains_pointer(r);
-        if hovered {
-            app.ui.mask_hover = Some(m.id);
-        }
         ui.painter().rect_filled(
             r,
             4.0,

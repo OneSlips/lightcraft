@@ -952,7 +952,8 @@ pub struct UiState {
     /// without it.
     #[serde(skip)]
     pub mask_overlay: bool,
-    /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it).
+    /// The mask whose pin or component row the pointer is on, this frame and the last (the overlay
+    /// shows it). Not its own row: there the effect is judged (test notes 2026-10-31 note 7).
     #[serde(skip)]
     pub mask_hover: Option<u32>,
     /// The mask whose pin on the photo was right-clicked: the photo's menu is that mask's menu.

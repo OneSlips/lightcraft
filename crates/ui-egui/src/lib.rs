@@ -191,6 +191,8 @@ mod tests_mask_local;
 #[cfg(test)]
 mod tests_mask_modes;
 #[cfg(test)]
+mod tests_mask_overlay_rows;
+#[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
 mod tests_mask_select;
