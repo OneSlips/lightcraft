@@ -106,7 +106,7 @@ pub fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
             for lane in &lanes {
                 let (dir, cancel, count) = (&dir, &run.cancel, count.clone());
                 let job = move || {
-                    crate::eye_cull::judge_counted(dir, lane, cancel, false, |_, r, cached| count.add(&r, cached));
+                    judge(dir, lane, cancel, false, |_, r, cached| count.add(&r, cached));
                 };
                 match std::thread::Builder::new().name("lightcraft-eye-prep".into()).spawn_scoped(sc, job) {
                     Ok(h) => handles.push(h),
@@ -115,7 +115,7 @@ pub fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
             }
             for lane in inline {
                 let count = count.clone();
-                crate::eye_cull::judge_counted(&dir, lane, &run.cancel, false, |_, r, cached| count.add(&r, cached));
+                judge(&dir, lane, &run.cancel, false, |_, r, cached| count.add(&r, cached));
             }
             for h in handles {
                 if h.join().is_err() {
@@ -142,7 +142,7 @@ pub fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
                 let job = {
                     let lane = lane.clone();
                     move || {
-                        crate::eye_cull::judge_counted(&dir, &lane, &flag, true, |_, r, cached| {
+                        judge(&dir, &lane, &flag, true, |_, r, cached| {
                             count.add(&r, cached);
                             match &r {
                                 Ok(_) => row.item_done(),
@@ -157,7 +157,7 @@ pub fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
                 }
             }
             for lane in inline {
-                crate::eye_cull::judge_counted(&dir, &lane, &flag, true, |_, r, cached| {
+                judge(&dir, &lane, &flag, true, |_, r, cached| {
                     count.add(&r, cached);
                     match &r {
                         Ok(_) => task.item_done(),
@@ -177,6 +177,19 @@ pub fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
     let out = run.json();
     s.eye_prep = Some(Arc::new(run));
     Ok(out)
+}
+
+/// One lane's photos looked at ([`crate::eye_cull::judge_counted`]): work done ahead of culling,
+/// so its GPU work is background work, on the second graphics card first and behind the photo on
+/// screen ([`crate::media::background_gpu`]). A lane that fails unexpectedly is logged.
+fn judge(
+    dir: &std::path::Path,
+    lane: &[EyeJob],
+    cancel: &AtomicBool,
+    polite: bool,
+    each: impl FnMut(PhotoId, std::result::Result<Arc<crate::eyes::EyeReport>, String>, bool),
+) {
+    let _ = crate::media::background_gpu("finding eyes", || crate::eye_cull::judge_counted(dir, lane, cancel, polite, each));
 }
 
 /// The most lanes a run takes.

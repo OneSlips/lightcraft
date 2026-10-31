@@ -449,6 +449,8 @@ impl Renderer {
     fn pool(threads: usize) -> JobPool<Slot, Finished> {
         let pool = if threads == 0 { JobPool::new(0) } else { JobPool::with_fast_lane(threads, STAND_IN_WORKERS, Slot::is_stand_in) };
         pool.cap_background(BACKGROUND_BELOW, BACKGROUND_AT_ONCE);
+        // (they render on the second graphics card first, never in the way of the photo on screen)
+        pool.run_background_with(lightcraft_engine::media::as_background_gpu);
         pool
     }
 
