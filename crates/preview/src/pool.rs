@@ -29,6 +29,8 @@ struct Entry<S, R> {
     key: u64,
     priority: u32,
     seq: u64,
+    /// May start while a job of its slot that is not one of these runs ([`JobPool::submit_overtaking`]).
+    overtakes: bool,
     job: Job<R>,
 }
 
@@ -37,8 +39,9 @@ struct Shared<S, R> {
     /// Slots with a job running: their next job waits until it ends, so a slot never has two at
     /// once (a slider drag submits faster than renders finish; overlapping renders of one view
     /// were mostly thrown away, and took the GPU from the one that is shown). Locked inside
-    /// `queue`.
-    busy: Mutex<Vec<S>>,
+    /// `queue`. The flag marks an overtaking job ([`JobPool::submit_overtaking`]): one of those
+    /// waits only for another of its slot's overtaking jobs.
+    busy: Mutex<Vec<(S, bool)>>,
     cv: Condvar,
     shutdown: AtomicBool,
     /// Which slots' jobs are cheap: the fast lane's workers take only those.
@@ -181,7 +184,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
                     while let Some((e, background)) = take(&shared, true, fast_only) {
                         let t0 = std::time::Instant::now();
                         // the slot is free again when the job ends, also if it panics
-                        let _free = Free(&shared, e.slot, background);
+                        let _free = Free(&shared, e.slot, e.overtakes, background);
                         let result = (e.job)();
                         let done = Done { slot: e.slot, key: e.key, result, ms: t0.elapsed().as_secs_f64() * 1000.0 };
                         if tx.send(done).is_err() {
@@ -239,6 +242,18 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
 
     /// Queue `job` for `slot`, replacing a queued (not yet running) job for the same slot.
     pub fn submit(&mut self, slot: S, key: u64, priority: u32, job: Job<R>) {
+        self.submit_lane(slot, key, priority, false, job);
+    }
+
+    /// [`Self::submit`] for a job that need not wait for the job of its slot already running (an
+    /// interactive draft of a view, which must not wait seconds behind the view's first full render:
+    /// note 8 of 2026-10-31). It waits only for another overtaking job of its slot; a job submitted
+    /// with [`Self::submit`] still waits for every job of its slot, this one included.
+    pub fn submit_overtaking(&mut self, slot: S, key: u64, priority: u32, job: Job<R>) {
+        self.submit_lane(slot, key, priority, true, job);
+    }
+
+    fn submit_lane(&mut self, slot: S, key: u64, priority: u32, overtakes: bool, job: Job<R>) {
         if self.stopped {
             return; // nothing runs it any more
         }
@@ -247,7 +262,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         let (lock, cv) = (&self.shared.queue, &self.shared.cv);
         let mut q = lock.lock().unwrap_or_else(|e| e.into_inner());
         q.retain(|e| e.slot != slot);
-        q.push(Entry { slot, key, priority, seq: self.seq, job });
+        q.push(Entry { slot, key, priority, seq: self.seq, overtakes, job });
         cv.notify_all(); // (all: a fast-lane worker woken for a job it may not take would leave it waiting)
     }
 
@@ -297,7 +312,7 @@ impl<S: Copy + Eq + Hash + Send + 'static, R: Send + 'static> JobPool<S, R> {
         let mut ran = 0;
         while ran < n {
             let Some((e, background)) = take(&self.shared, false, false) else { break };
-            let _free = Free(&self.shared, e.slot, background);
+            let _free = Free(&self.shared, e.slot, e.overtakes, background);
             let result = (e.job)();
             let _ = self.tx.send(Done { slot: e.slot, key: e.key, result, ms: 0.0 });
             ran += 1;
@@ -325,13 +340,16 @@ fn take<S: PartialEq + Copy, R>(shared: &Shared<S, R>, wait: bool, fast_only: bo
             let background = |e: &Entry<S, R>| e.priority < below && !cheap(e);
             q.iter()
                 .enumerate()
-                .filter(|(_, e)| !busy.contains(&e.slot) && (!fast_only || cheap(e)) && (room || !background(e)))
+                // (an overtaking job waits only for another overtaking job of its slot)
+                .filter(|(_, e)| {
+                    !busy.iter().any(|(s, o)| *s == e.slot && (*o || !e.overtakes)) && (!fast_only || cheap(e)) && (room || !background(e))
+                })
                 .max_by_key(|(_, e)| (e.priority, e.seq))
                 .map(|(i, e)| (i, background(e)))
         };
         if let Some((i, background)) = best {
             let e = q.swap_remove(i);
-            shared.busy.lock().unwrap_or_else(|e| e.into_inner()).push(e.slot);
+            shared.busy.lock().unwrap_or_else(|e| e.into_inner()).push((e.slot, e.overtakes));
             if background {
                 shared.background_running.fetch_add(1, Ordering::Relaxed);
             }
@@ -346,7 +364,7 @@ fn take<S: PartialEq + Copy, R>(shared: &Shared<S, R>, wait: bool, fast_only: bo
 
 /// The job for `slot` ended (`background`: it counted as background work): a job queued for it
 /// may start.
-fn finished<S: PartialEq, R>(shared: &Shared<S, R>, slot: &S, background: bool) {
+fn finished<S: PartialEq, R>(shared: &Shared<S, R>, slot: &S, overtakes: bool, background: bool) {
     {
         // under the queue lock: a worker is either before its look at `busy` or waiting
         let _q = shared.queue.lock().unwrap_or_else(|e| e.into_inner());
@@ -355,7 +373,7 @@ fn finished<S: PartialEq, R>(shared: &Shared<S, R>, slot: &S, background: bool) 
             shared.background_running.store(n.saturating_sub(1), Ordering::Relaxed);
         }
         let mut busy = shared.busy.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(i) = busy.iter().position(|s| s == slot) {
+        if let Some(i) = busy.iter().position(|(s, o)| s == slot && *o == overtakes) {
             busy.swap_remove(i);
         }
     }
@@ -363,11 +381,11 @@ fn finished<S: PartialEq, R>(shared: &Shared<S, R>, slot: &S, background: bool) 
 }
 
 /// Frees a job's slot when the job ends (see [`finished`]).
-struct Free<'a, S: PartialEq, R>(&'a Shared<S, R>, S, bool);
+struct Free<'a, S: PartialEq, R>(&'a Shared<S, R>, S, bool, bool);
 
 impl<S: PartialEq, R> Drop for Free<'_, S, R> {
     fn drop(&mut self) {
-        finished(self.0, &self.1, self.2);
+        finished(self.0, &self.1, self.2, self.3);
     }
 }
 

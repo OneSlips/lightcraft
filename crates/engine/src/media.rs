@@ -346,55 +346,35 @@ impl SourceRef {
             }
             SourceRef::Demo { scene, max_edge } => crate::demo::scene_pixels(scene, *max_edge)?,
             SourceRef::File { path, max_edge, loader, fallback, denoise, camera_profile, reduced } => {
-                let dcp = camera_profile.as_ref().map(|(_, p)| p.as_ref());
-                let made_with = camera_profile.as_ref().map(|(id, _)| id.clone());
-                // a photo with an imported camera profile is developed from the raw image itself, with that profile
-                let plain = || match (reduced.as_ref().filter(|_| dcp.is_none()), loader) {
-                    (Some(l), _) => {
-                        l(path, *max_edge).map(|(image, info, reduced)| DecodedSource { reduced, ..DecodedSource::new(Arc::new(image), Some(info)) })
-                    }
-                    (None, Some(l)) => l(path, *max_edge, dcp)
-                        .map(|(image, info)| DecodedSource { camera_profile: made_with.clone(), ..DecodedSource::new(Arc::new(image), Some(info)) }),
-                    (None, None) => Err(format!("no decoder available for {path}")),
+                // (a job that comes while another decodes the same pixels waits for that decode)
+                let key =
+                    share_key(path, *max_edge, loader.as_ref(), fallback.as_deref(), denoise.as_ref(), camera_profile.as_ref(), reduced.as_ref());
+                let decode = || {
+                    Self::decode_file(
+                        path,
+                        *max_edge,
+                        loader.as_ref(),
+                        fallback.as_deref(),
+                        denoise.as_ref(),
+                        camera_profile.as_ref(),
+                        reduced.as_ref(),
+                    )
                 };
-                // the denoised picture comes with the plain one from a single decode; when it cannot be read the
-                // pair loader gives the plain picture alone (the cached file is never a reason to fail a render)
-                let r = match denoise {
-                    Some((spec, pair)) => {
-                        // a job that needs the denoised picture has it made first; if that fails the job fails (no smart
-                        // preview stands in: an export must not quietly come out without the denoise it was asked for)
-                        let made = match &spec.make {
-                            Some(make) => make()?,
-                            None => true,
-                        };
-                        if made {
-                            pair(path, *max_edge, spec, dcp).and_then(|(image, twin, info)| {
-                                if spec.make.is_some() && twin.is_none() {
-                                    return Err("the cached AI Denoise picture could not be read; clear the denoise cache and retry".into());
-                                }
-                                Ok(DecodedSource {
-                                    image: Arc::new(image),
-                                    info: Some(info),
-                                    camera_tone: None,
-                                    denoised: twin.map(|t| Arc::new(Twin::new(Arc::new(t)))),
-                                    camera_profile: made_with.clone(),
-                                    from_proxy: false,
-                                    reduced: false,
-                                })
-                            })
-                        } else {
-                            plain()
+                return match key {
+                    Some(key) => {
+                        let mut anchors: crate::decode_share::Anchors = Vec::new();
+                        if let Some(l) = loader {
+                            anchors.push(Box::new(Arc::downgrade(l)));
                         }
+                        if let Some(l) = reduced {
+                            anchors.push(Box::new(Arc::downgrade(l)));
+                        }
+                        if let Some((_, l)) = denoise {
+                            anchors.push(Box::new(Arc::downgrade(l)));
+                        }
+                        crate::decode_share::decode_once(&key, anchors, decode)
                     }
-                    None => plain(),
-                };
-                // An offline original renders from its smart preview (no decoder facts: header ones).
-                return match (r, fallback) {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    (Err(e), Some(sp)) if denoise.as_ref().is_none_or(|(spec, _)| spec.make.is_none()) && crate::smart::is_valid(sp) => {
-                        crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}"))
-                    }
-                    (r, _) => r,
+                    None => decode(),
                 };
             }
             #[cfg(not(target_arch = "wasm32"))]
@@ -404,6 +384,92 @@ impl SourceRef {
         };
         Ok(DecodedSource::new(image, None))
     }
+
+    /// Decode a [`SourceRef::File`] (its fields).
+    fn decode_file(
+        path: &str,
+        max_edge: usize,
+        loader: Option<&FileLoader>,
+        fallback: Option<&std::path::Path>,
+        denoise: Option<&(DenoiseSpec, PairLoader)>,
+        camera_profile: Option<&(String, Arc<DcpProfile>)>,
+        reduced: Option<&ReducedLoader>,
+    ) -> Result<DecodedSource, String> {
+        let dcp = camera_profile.map(|(_, p)| p.as_ref());
+        let made_with = camera_profile.map(|(id, _)| id.clone());
+        // a photo with an imported camera profile is developed from the raw image itself, with that profile
+        let plain = || match (reduced.filter(|_| dcp.is_none()), loader) {
+            (Some(l), _) => {
+                l(path, max_edge).map(|(image, info, reduced)| DecodedSource { reduced, ..DecodedSource::new(Arc::new(image), Some(info)) })
+            }
+            (None, Some(l)) => l(path, max_edge, dcp)
+                .map(|(image, info)| DecodedSource { camera_profile: made_with.clone(), ..DecodedSource::new(Arc::new(image), Some(info)) }),
+            (None, None) => Err(format!("no decoder available for {path}")),
+        };
+        // the denoised picture comes with the plain one from a single decode; when it cannot be read the
+        // pair loader gives the plain picture alone (the cached file is never a reason to fail a render)
+        let r = match denoise {
+            Some((spec, pair)) => {
+                // a job that needs the denoised picture has it made first; if that fails the job fails (no smart
+                // preview stands in: an export must not quietly come out without the denoise it was asked for)
+                let made = match &spec.make {
+                    Some(make) => make()?,
+                    None => true,
+                };
+                if made {
+                    pair(path, max_edge, spec, dcp).and_then(|(image, twin, info)| {
+                        if spec.make.is_some() && twin.is_none() {
+                            return Err("the cached AI Denoise picture could not be read; clear the denoise cache and retry".into());
+                        }
+                        Ok(DecodedSource {
+                            image: Arc::new(image),
+                            info: Some(info),
+                            camera_tone: None,
+                            denoised: twin.map(|t| Arc::new(Twin::new(Arc::new(t)))),
+                            camera_profile: made_with.clone(),
+                            from_proxy: false,
+                            reduced: false,
+                        })
+                    })
+                } else {
+                    plain()
+                }
+            }
+            None => plain(),
+        };
+        // An offline original renders from its smart preview (no decoder facts: header ones).
+        match (r, fallback) {
+            #[cfg(not(target_arch = "wasm32"))]
+            (Err(e), Some(sp)) if denoise.is_none_or(|(spec, _)| spec.make.is_none()) && crate::smart::is_valid(sp) => {
+                crate::smart::load(sp).map_err(|e2| format!("{e}; smart preview: {e2}"))
+            }
+            (r, _) => r,
+        }
+    }
+}
+
+/// What a [`SourceRef::File`] decode's pixels depend on, as a key for [`crate::decode_share`]
+/// (the loaders by identity: the session keeps one of each). `None`: not shared (a decode that
+/// makes the photo's denoised picture first, for an export).
+fn share_key(
+    path: &str,
+    max_edge: usize,
+    loader: Option<&FileLoader>,
+    fallback: Option<&std::path::Path>,
+    denoise: Option<&(DenoiseSpec, PairLoader)>,
+    camera_profile: Option<&(String, Arc<DcpProfile>)>,
+    reduced: Option<&ReducedLoader>,
+) -> Option<String> {
+    if denoise.is_some_and(|(spec, _)| spec.make.is_some()) {
+        return None;
+    }
+    let at = |p: Option<*const ()>| p.map_or(0, |p| p as usize);
+    let loader = at(loader.map(|l| Arc::as_ptr(l) as *const ()));
+    let reduced = at(reduced.map(|l| Arc::as_ptr(l) as *const ()));
+    let pair = at(denoise.map(|(_, l)| Arc::as_ptr(l) as *const ()));
+    let denoised = denoise.map(|(spec, _)| (spec.key.as_str(), spec.product.as_path()));
+    let profile = camera_profile.map(|(id, _)| id.as_str());
+    Some(format!("{path}|{max_edge}|{loader:x}|{reduced:x}|{pair:x}|{denoised:?}|{profile:?}|{fallback:?}"))
 }
 
 pub struct MediaCache {
@@ -915,6 +981,9 @@ impl MediaCache {
     }
 }
 
+/// The error of a render skipped because a newer request replaced it ([`RenderJob::superseded`]).
+pub const SUPERSEDED: &str = "replaced by a newer render";
+
 /// Everything needed to render one photo, detached from the session.
 #[derive(Clone)]
 pub struct RenderJob {
@@ -960,6 +1029,11 @@ pub struct RenderJob {
     /// to a 64 px step) and the window would otherwise shrink the texture with 2-tap bilinear sampling, which blurs fine detail at
     /// small ratios and aliases it at large ones. The caches keep the full render.
     pub display_fit: Option<(usize, usize)>,
+    /// Set by the frontend when a newer request for the same view replaced this one while it ran
+    /// (an interactive draft on a photo whose first full render is decoding: note 8 of 2026-10-31).
+    /// Checked once the source is decoded: the render is then skipped (the decoded source still
+    /// comes back for the session to keep), so the draft gets the processor and the GPU.
+    pub superseded: Option<Arc<std::sync::atomic::AtomicBool>>,
     /// Where the result lies in its photo and the look it has ([`crate::placement`]): what lets it
     /// stand in, at once, for the photo with another crop (notes 4, 5 and 7 of 2026-10-25). Set for
     /// the photo's own renders; `None` for others (a variant, a face tile, a hover preview).
@@ -1283,6 +1357,9 @@ impl RenderJob {
             None => self.source.load_source().and_then(|s| closing().map_or(Ok(s), Err)),
         };
         match source {
+            Ok(source) if self.superseded.as_ref().is_some_and(|s| s.load(std::sync::atomic::Ordering::Relaxed)) => {
+                RenderResult { loaded: (!was_loaded).then_some(source), ..self.failed(SUPERSEDED.into()) }
+            }
             Ok(source) => {
                 // the plain picture, or (Denoise amount above 0 and a denoised picture cached) the mix the amount asks for
                 let src = &source.image_for(self.settings.denoise_amount());
@@ -1895,6 +1972,7 @@ impl crate::Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            superseded: None,
             placement,
         })
     }
@@ -1970,6 +2048,7 @@ impl crate::Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            superseded: None,
             placement: None,
         })
     }
@@ -2028,6 +2107,7 @@ impl crate::Session {
             slide: None,
             preview_cut,
             display_fit: None,
+            superseded: None,
             placement: None,
         })
     }

@@ -1962,6 +1962,7 @@ impl Session {
             slide: None,
             preview_cut: None,
             display_fit: None,
+            superseded: None,
             placement: None,
         };
         let embedded = match (&self.media.preview_loader, c.kind) {
