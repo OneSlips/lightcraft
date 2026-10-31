@@ -222,11 +222,11 @@ fn gpu_marker_path() -> Option<std::path::PathBuf> {
 /// A `--memory` session writes nothing (issue #169): it neither arms the sentinel — which would
 /// create the settings folder — nor removes a marker it finds. It still honours one, so the GPU
 /// starts off there too, and the next ordinary launch reports and clears it.
-fn gpu_crash_check(in_memory: bool) -> Option<String> {
-    gpu_crash_check_at(gpu_marker_path(), in_memory)
+fn gpu_crash_check(in_memory: bool, saved_card: &str) -> Option<GpuCrash> {
+    gpu_crash_check_at(gpu_marker_path(), in_memory, saved_card)
 }
 
-fn gpu_crash_check_at(marker: Option<std::path::PathBuf>, in_memory: bool) -> Option<String> {
+fn gpu_crash_check_at(marker: Option<std::path::PathBuf>, in_memory: bool, saved_card: &str) -> Option<GpuCrash> {
     use lightcraft_engine::gpu::backend;
     let left = if in_memory {
         marker.as_deref().and_then(backend::read_init_marker)
@@ -235,7 +235,66 @@ fn gpu_crash_check_at(marker: Option<std::path::PathBuf>, in_memory: bool) -> Op
         backend::set_init_marker(marker);
         left
     };
-    left.map(|what| gpu_crash_notice(&what))
+    left.map(|what| gpu_crash_from(&what, saved_card))
+}
+
+/// What a crash of the last launch inside the graphics driver costs this one, and the notice.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct GpuCrash {
+    notice: String,
+    /// GPU rendering starts off (the crash was in driver work that names no chosen card).
+    gpu_off: bool,
+    /// The graphics card chosen for editing goes back to Automatic (it crashed starting).
+    reset_card: bool,
+    /// The second graphics card is no longer used (it crashed starting).
+    helper_off: bool,
+}
+
+impl GpuCrash {
+    /// A crash (or a lost device) that turns GPU rendering off.
+    fn gpu_off(notice: String) -> GpuCrash {
+        GpuCrash { notice, gpu_off: true, reset_card: false, helper_off: false }
+    }
+}
+
+/// [`GpuCrash`] from what the crash marker recorded: when every scope it names was a device of a
+/// card chosen in the settings (`saved_card`) or of the second card, only those choices are
+/// dropped and the GPU stays on; anything else (Automatic's card, listing the cards, AI kernels)
+/// turns GPU rendering off, as before.
+fn gpu_crash_from(what: &str, saved_card: &str) -> GpuCrash {
+    use lightcraft_engine::gpu::{backend, cards::AdapterKey};
+    let saved = AdapterKey::parse(saved_card);
+    let (mut card, mut helper) = (None, None);
+    let scopes = backend::marker_scopes(what);
+    let only_choices = !scopes.is_empty()
+        && scopes.iter().all(|s| match &s.card {
+            Some((k, role)) if role == "helper" => {
+                helper = Some(k.name.clone());
+                true
+            }
+            Some((k, role)) if role == "editing" && saved.as_ref().is_some_and(|c| c.same_model(k)) => {
+                card = Some(k.name.clone());
+                true
+            }
+            _ => false,
+        });
+    if !only_choices {
+        return GpuCrash::gpu_off(gpu_crash_notice(what));
+    }
+    let mut notice = Vec::new();
+    if let Some(name) = &card {
+        notice.push(format!(
+            "LightCraft closed unexpectedly while starting the graphics card chosen for editing ({name}) last time, so it now uses Automatic. \
+             To try that card again, choose it in Settings ▸ Performance ▸ Graphics card for editing."
+        ));
+    }
+    if let Some(name) = &helper {
+        notice.push(format!(
+            "LightCraft closed unexpectedly while starting the second graphics card ({name}) last time, so it isn't used any more. \
+             To try it again, choose it in Settings ▸ Performance ▸ Second graphics card."
+        ));
+    }
+    GpuCrash { notice: notice.join(" "), gpu_off: false, reset_card: card.is_some(), helper_off: helper.is_some() }
 }
 
 fn gpu_crash_notice(what: &str) -> String {
@@ -1117,9 +1176,17 @@ fn main() -> eframe::Result {
     );
     // GPU compute: off if the preference says so, or if the last launch died creating the device
     // (issue #136) — before anything can create it
-    let gpu_crash = gpu_crash_check(in_memory).or_else(|| gpu_lost_check_at(gpu_lost_marker_path().as_deref(), in_memory));
-    let gpu_on = prefs.as_ref().is_none_or(|u| u.settings.gpu) && gpu_crash.is_none();
+    let saved_card = prefs.as_ref().map(|u| u.settings.gpu_card.clone()).unwrap_or_default();
+    let gpu_crash =
+        gpu_crash_check(in_memory, &saved_card).or_else(|| gpu_lost_check_at(gpu_lost_marker_path().as_deref(), in_memory).map(GpuCrash::gpu_off));
+    let gpu_on = prefs.as_ref().is_none_or(|u| u.settings.gpu) && !gpu_crash.as_ref().is_some_and(|c| c.gpu_off);
     lightcraft_engine::gpu::set_enabled(gpu_on);
+    // the graphics card for editing, before anything can create the device (a card that crashed
+    // starting last time: Automatic)
+    let card = if gpu_crash.as_ref().is_some_and(|c| c.reset_card) { "" } else { saved_card.as_str() };
+    if let Err(e) = lightcraft_engine::gpu::set_card(card) {
+        log::warn!("gpu: the graphics card in the settings: {e}");
+    }
     // the window's renderer: probed (Windows) and with a fallback chain, so a driver that can't
     // build egui's pipeline never kills the start-up
     let win_files = std::sync::Arc::new(window_files(in_memory));
@@ -1227,9 +1294,17 @@ fn main() -> eframe::Result {
                     settings.library_path = dir;
                 }
                 // after the snapshot above, so the writer saves the switched-off preference
-                if let Some(notice) = gpu_crash {
-                    app.ui.settings.gpu = false;
-                    app.notices.push(notice);
+                if let Some(crash) = gpu_crash {
+                    if crash.gpu_off {
+                        app.ui.settings.gpu = false;
+                    }
+                    if crash.reset_card {
+                        app.ui.settings.gpu_card = String::new();
+                    }
+                    if crash.helper_off {
+                        app.ui.settings.gpu_helper = "off".into();
+                    }
+                    app.notices.push(crash.notice);
                 }
                 // requests from --control and from the control-surface listener
                 let (control_tx, control_rx) = std::sync::mpsc::channel();
@@ -1272,6 +1347,10 @@ fn main() -> eframe::Result {
                 // (LIGHTCRAFT_GPU_WINDOW=0: a device of its own, renders read back - for comparison or a driver
                 // that misbehaves with compute and drawing on one device)
                 let window_device = std::env::var_os("LIGHTCRAFT_GPU_WINDOW").is_none_or(|v| v != "0");
+                // the screen's card: Automatic edits there (Settings ▸ Performance names it)
+                if let Some(rs) = cc.wgpu_render_state.as_ref() {
+                    lightcraft_engine::gpu::set_screen_card(&rs.adapter.get_info());
+                }
                 let window_textures =
                     cc.wgpu_render_state.as_ref().filter(|_| gpu_on && window_device).map(|rs| adopt_window_device(rs, &cc.egui_ctx));
                 Ok(Box::new(App(
@@ -1591,19 +1670,19 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         let m = d.join("gpu-init.marker");
         // nothing left behind: no notice, and the folder is not created
-        assert_eq!(gpu_crash_check_at(Some(m.clone()), true), None);
+        assert_eq!(gpu_crash_check_at(Some(m.clone()), true, ""), None);
         assert!(!d.exists(), "a --memory session must not create the settings folder");
         // a marker left by a crashed launch: reported, kept
         std::fs::create_dir_all(&d).unwrap();
         std::fs::write(&m, "GPU device creation started (backends METAL)").unwrap();
-        let notice = gpu_crash_check_at(Some(m.clone()), true).unwrap();
-        assert!(notice.contains("GPU rendering is now off"), "{notice}");
+        let crash = gpu_crash_check_at(Some(m.clone()), true, "").unwrap();
+        assert!(crash.gpu_off && crash.notice.contains("GPU rendering is now off"), "{crash:?}");
         assert!(m.exists(), "the marker stays for the next ordinary launch");
         // the next ordinary launch reports it once and removes it
-        assert!(gpu_crash_check_at(Some(m.clone()), false).is_some());
+        assert!(gpu_crash_check_at(Some(m.clone()), false, "").is_some());
         lightcraft_engine::gpu::backend::set_init_marker(None);
         assert!(!m.exists());
-        assert_eq!(gpu_crash_check_at(Some(m.clone()), false), None);
+        assert_eq!(gpu_crash_check_at(Some(m.clone()), false, ""), None);
         lightcraft_engine::gpu::backend::set_init_marker(None);
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -1651,6 +1730,33 @@ mod tests {
         assert!(notice.contains("GPU rendering is now off") && notice.contains("Use the GPU for rendering"), "{notice}");
         assert!(!m.exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// A crash while starting a card chosen for editing, or the second card, costs only that
+    /// choice next time; any other crash in the driver turns the GPU off as before.
+    #[test]
+    fn a_crash_starting_a_chosen_card_drops_only_that_choice() {
+        let k4070 = "dx12:10de:2783:NVIDIA GeForce RTX 4070 SUPER#1";
+        let k5070 = "dx12:10de:2f04:NVIDIA GeForce RTX 5070#1";
+        let line =
+            |key: &str, role: &str| format!("GPU device and kernel creation (backends DX12) [card={key}; role={role}] started (unix time 1)\n");
+        // the card chosen for editing: back to Automatic, the GPU stays on
+        let c = gpu_crash_from(&line(k4070, "editing"), k4070);
+        assert!(!c.gpu_off && c.reset_card && !c.helper_off, "{c:?}");
+        assert!(c.notice.contains("NVIDIA GeForce RTX 4070 SUPER") && c.notice.contains("Graphics card for editing"), "{}", c.notice);
+        // Automatic's own card (nothing chosen, or another card chosen): the GPU goes off
+        assert!(gpu_crash_from(&line(k5070, "editing"), "").gpu_off);
+        assert!(gpu_crash_from(&line(k5070, "editing"), k4070).gpu_off);
+        // the second card: only it goes
+        let c = gpu_crash_from(&line(k4070, "helper"), "");
+        assert!(!c.gpu_off && !c.reset_card && c.helper_off && c.notice.contains("Second graphics card"), "{c:?}");
+        // both chosen cards at once
+        let c = gpu_crash_from(&(line(k4070, "editing") + &line(k5070, "helper")), k4070);
+        assert!(!c.gpu_off && c.reset_card && c.helper_off, "{c:?}");
+        // anything else alongside (listing the cards, an older marker): the GPU goes off
+        assert!(gpu_crash_from(&(line(k4070, "helper") + "GPU graphics card listing started (unix time 1)\n"), "").gpu_off);
+        assert!(gpu_crash_from("GPU device creation started (backends DX12)", k4070).gpu_off);
+        assert!(gpu_crash_from("", k4070).gpu_off);
     }
 
     /// Issue #136: Windows windows render with DX12 alone (no Vulkan driver loaded) by default.
