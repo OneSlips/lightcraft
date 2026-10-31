@@ -12,8 +12,8 @@ photo in view runs (cancelled at the end), and prints both:
 
 - `p95LatencyMs`: 95th percentile of the drafts' request-to-screen time (`perf.loupeRenders`,
   measured by the app on the frames it draws);
-- `maxUpdateMs`: the slowest UI frame during the drags (`perf.updateMs` per poll, and the app's
-  own `perf.maxUpdateMs`);
+- `maxUpdateMs`: the slowest UI frame seen during the drags (`perf.updateMs` per poll; the app's
+  own `perf.maxUpdateMs`, a maximum since it started, is shown as `appMaxUpdateMs`);
 - `renders`: the app's renders by who they were for (`library.previewProgress` → `renders`): the
   build's are background work, which goes to the second graphics card first; the loupe's never;
 - `gpu`: `app.gpu` (each card and what it is doing, when the app reports it).
@@ -111,7 +111,8 @@ def phase(c, name):
         "drafts": len(lat),
         "p95LatencyMs": p95(lat),
         "medianLatencyMs": statistics.median(lat) if lat else None,
-        "maxUpdateMs": max(max(r["frameMsMax"], r["maxUpdateMs"]) for r in runs),
+        "maxUpdateMs": max(r["frameMsMax"] for r in runs),
+        "appMaxUpdateMs": max(r["maxUpdateMs"] for r in runs),
         "runs": runs,
     }
     print(json.dumps({k: v for k, v in out.items() if k != "runs"}))
@@ -133,8 +134,16 @@ def within(loaded, idle):
 
 def main():
     c = Conn()
+    if "--helper" in args:  # (the second graphics card for this run: auto, off, same, a card's name)
+        c.ex("app.gpu", {"helper": opt("--helper", "auto"), "wait": True})
+    # (the photo dragged is the one the loupe shows: the active photo, selected alone)
+    active = c.ex("library.state")["selection"]["active"]
+    c.ex("library.select", {"ids": [active]})
     c.ex("view.detail")
-    time.sleep(1.0)
+    t0 = time.perf_counter()
+    while (c.ex("library.previewProgress") or {}).get("running") and time.perf_counter() - t0 < 60:
+        time.sleep(0.5)  # (an earlier build still finishing)
+    time.sleep(2.0)
     idle = phase(c, "idle")
     before = c.ex("library.previewProgress")
     r = c.ex("library.buildPreviews", {"size": SIZE, "force": True})
