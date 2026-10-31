@@ -74,6 +74,24 @@ pub enum Slot {
     /// The loupe zoomed in while stepping: the next photo's window at the same place, made ahead
     /// and kept with the recent windows ([`Renderer::prefetch_window`]), so the step shows it at once.
     RegionAhead,
+    /// The loupe zoomed in and still: a window next to the one on screen, made ahead at low priority
+    /// and kept with the [pan tiles](Renderer::pan_tiles), so a pan finds it sharp (test notes
+    /// 2026-10-31 note 2).
+    RegionNear,
+}
+
+/// Windows of the zoomed view kept while it pans ([`Renderer::pan_tiles`]): the ones the view moved
+/// away from and the ones made ahead around it. Each holds a window of the visible area plus its
+/// margin (~26 MB at 1920 x 1200 points), so this many hold the view and the eight around it.
+pub const PAN_TILES: usize = 10;
+
+/// A window of the zoomed view that left [`Slot::Region`] (the view panned on) or was made ahead
+/// around it ([`Slot::RegionNear`]): drawn where it belongs until the view leaves its photo, zoom
+/// or look ([`Renderer::retain_pan_tiles`]).
+pub struct PanTile {
+    pub tex: Tex,
+    /// The GPU-resident render it shows, with [`Renderer::keep_pixels`] (headless screenshots).
+    frame: Option<lightcraft_engine::media::ScreenFrame>,
 }
 
 /// Full-quality zoom windows ([`Slot::Region`]) kept after the view moved on, newest last: going
@@ -328,6 +346,9 @@ pub struct Renderer {
     /// screenshot reads it back ([`Self::cpu_textures`]) instead of finding no pixels (a white
     /// photo, review of PR #1065).
     native_frames: HashMap<Slot, lightcraft_engine::media::ScreenFrame>,
+    /// Windows of the zoomed view kept while it pans, oldest first ([`PanTile`], at most
+    /// [`PAN_TILES`]).
+    pan_tiles: std::collections::VecDeque<PanTile>,
 }
 
 /// Whether a render of `s` solves a content-aware fill (a Fill spot).
@@ -472,6 +493,7 @@ impl Renderer {
             fill_jobs: HashMap::new(),
             fill_row: None,
             native_frames: HashMap::new(),
+            pan_tiles: std::collections::VecDeque::new(),
         }
     }
 }
@@ -573,8 +595,11 @@ impl Renderer {
             return job;
         }
         let job = job.with_display(self.display.clone());
-        // a drag's drafts are only drawn: they may stay on the GPU when the window can show them
-        if self.screen.is_some() && job.request.quality == lightcraft_pipeline::Quality::Draft { job.on_screen() } else { job }
+        // a drag's drafts are only drawn: they may stay on the GPU when the window can show them.
+        // So are the zoomed view's windows: read back and uploaded again, a full-quality one of a
+        // big view is 50-120 MB through the UI thread as it arrives (test notes 2026-10-31 note 2)
+        let only_drawn = job.request.quality == lightcraft_pipeline::Quality::Draft || slot == Slot::Region;
+        if self.screen.is_some() && only_drawn { job.on_screen() } else { job }
     }
 
     /// Show GPU-resident renders through `screen` from now on (the desktop app, once its GPU
@@ -635,7 +660,88 @@ impl Renderer {
         {
             self.keep_window(t);
         }
+        if slot == Slot::Region {
+            self.retain_pan_tiles(|_| false);
+            self.drop_queued(Slot::RegionNear);
+        }
         self.stages.remove(&slot);
+    }
+
+    /// The windows of the zoomed view kept while it pans, oldest first ([`PanTile`]).
+    pub fn pan_tiles(&self) -> impl Iterator<Item = &Tex> {
+        self.pan_tiles.iter().map(|t| &t.tex)
+    }
+
+    /// Keep the pan tiles `keep` says still belong to the view (its photo, zoom and look); the
+    /// others are let go (a full-quality one drawn from pixels joins the [kept windows](KEPT_WINDOWS)).
+    pub fn retain_pan_tiles(&mut self, keep: impl Fn(&Tex) -> bool) {
+        if self.pan_tiles.iter().all(|t| keep(&t.tex)) {
+            return;
+        }
+        let (kept, gone): (Vec<PanTile>, Vec<PanTile>) = self.pan_tiles.drain(..).partition(|t| keep(&t.tex));
+        self.pan_tiles = kept.into();
+        for t in gone {
+            self.let_go_tile(t);
+        }
+    }
+
+    fn let_go_tile(&mut self, t: PanTile) {
+        match t.tex.native {
+            Some(id) => {
+                self.full_windows.remove(&t.tex.key);
+                if let Some(screen) = self.screen.as_mut() {
+                    screen.free(id);
+                }
+            }
+            None => self.keep_window(t.tex),
+        }
+    }
+
+    /// Whether the window rendered for `key` is a full-quality one (not a drag's draft).
+    pub fn is_full_window(&self, key: u64) -> bool {
+        self.full_windows.contains(&key)
+    }
+
+    /// Move what `slot` shows (a window: [`Slot::Region`] or [`Slot::RegionNear`]) into the pan
+    /// tiles, with the GPU-resident texture it may hold (the slot's next one gets a texture of its own).
+    fn keep_as_pan_tile(&mut self, slot: Slot) {
+        let Some(tex) = self.textures.remove(&slot) else { return };
+        // (the texture id now belongs to the tile: the slot must not draw its next render into it)
+        if tex.native.is_some() {
+            self.natives.remove(&slot);
+        }
+        let frame = self.native_frames.remove(&slot);
+        if let Some(i) = self.pan_tiles.iter().position(|t| t.tex.key == tex.key && t.tex.photo == tex.photo)
+            && let Some(old) = self.pan_tiles.remove(i)
+        {
+            self.let_go_tile(old);
+        }
+        self.pan_tiles.push_back(PanTile { tex, frame });
+        while self.pan_tiles.len() > PAN_TILES {
+            if let Some(gone) = self.pan_tiles.pop_front() {
+                self.let_go_tile(gone);
+            }
+        }
+    }
+
+    /// Make the window `job` (already keyed for [`Slot::Region`], see [`Self::job_for`]) next to the
+    /// zoomed view, at `priority`, into the pan tiles ([`Slot::RegionNear`]). Nothing when it is
+    /// there already, on screen or being made, or another one is being made.
+    pub fn prefetch_near(&mut self, job: RenderJob, priority: u32) {
+        let key = job.key;
+        if self.pan_tiles.iter().any(|t| t.tex.key == key)
+            || self.textures.get(&Slot::Region).is_some_and(|t| t.key == key)
+            || self.pending.get(&Slot::Region).is_some_and(|p| p.0 == key)
+            || self.pending.contains_key(&Slot::RegionNear)
+        {
+            return;
+        }
+        self.request(Slot::RegionNear, job, priority);
+    }
+
+    /// How many pan tiles there are ([`PAN_TILES`] at most).
+    pub fn pan_tile_count(&self) -> usize {
+        self.pan_tiles.len()
     }
 
     /// Run jobs through `offload` from now on (instead of the job pool / inline).
@@ -663,6 +769,10 @@ impl Renderer {
             self.slides_live = true;
         }
         let mut job = self.job_for(slot, job);
+        // (a window made ahead for the next photo is kept as pixels, [`KEPT_WINDOWS`])
+        if slot == Slot::RegionAhead {
+            job.on_screen = false;
+        }
         if slot == Slot::Region && self.textures.get(&slot).is_none_or(|t| t.key != job.key) && self.take_kept_window(job.key) {
             return;
         }
@@ -700,7 +810,8 @@ impl Renderer {
             return;
         }
         let key = job.key;
-        let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_) | Slot::RegionAhead);
+        let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_) | Slot::RegionAhead | Slot::RegionNear);
+        // (a thumbnail on screen is not: it must not wait for an export's turn at the GPU)
         let display = self.display.clone();
         self.pool.submit(
             slot,
@@ -933,6 +1044,11 @@ impl Renderer {
         self.kept_windows.clear();
         self.full_windows.clear();
         self.windows_ahead_done = None;
+        for t in std::mem::take(&mut self.pan_tiles) {
+            if let (Some(id), Some(screen)) = (t.tex.native, self.screen.as_mut()) {
+                screen.free(id);
+            }
+        }
         self.stages.clear();
         self.quick_tried.clear();
         self.failed.clear();
@@ -1243,6 +1359,14 @@ impl Renderer {
                 self.quick_tried.remove(&slot);
                 slot = Slot::Preview;
             }
+            // a new window of the zoomed view: the one it replaces stays where it is, sharp, while
+            // the view pans (test notes 2026-10-31 note 2)
+            if slot == Slot::Region
+                && r.rendered.is_ok()
+                && self.textures.get(&Slot::Region).is_some_and(|t| t.key != r.key && t.photo == r.photo && t.quick.is_none())
+            {
+                self.keep_as_pan_tile(Slot::Region);
+            }
             // a render that stayed on the GPU: drawn from its texture
             if let (Some(frame), Ok(rendered)) = (r.frame.as_ref(), r.rendered.as_ref()) {
                 self.failed.remove(&slot);
@@ -1255,6 +1379,32 @@ impl Renderer {
                     continue;
                 };
                 self.natives.insert(slot, id);
+                // (a full-quality window that stays on the GPU, as a pixel one is marked below)
+                if matches!(slot, Slot::Region | Slot::RegionNear) {
+                    let draft = slot == Slot::Region && self.view_requests.get(&r.request_id).is_some_and(|q| q.draft);
+                    if !draft {
+                        self.full_windows.insert(r.key);
+                    }
+                    if slot == Slot::Region
+                        && let Some(q) = self.view_requests.remove(&r.request_id)
+                    {
+                        let now = crate::now_ms();
+                        if self.loupe_log.len() >= LOUPE_LOG_LEN {
+                            self.loupe_log.pop_front();
+                        }
+                        self.loupe_log.push_back(LoupeRender {
+                            at_ms: now,
+                            slot: "region",
+                            width: frame.width,
+                            height: frame.height,
+                            draft: q.draft,
+                            render_ms: ms,
+                            latency_ms: (now - q.at_ms).max(0.0),
+                            gpu_fallback: false,
+                            cached: false,
+                        });
+                    }
+                }
                 if self.keep_pixels {
                     self.native_frames.insert(slot, frame.clone());
                 }
@@ -1292,6 +1442,9 @@ impl Renderer {
                 }
                 if slot == Slot::Main {
                     self.last_main_ms = ms;
+                }
+                if slot == Slot::RegionNear {
+                    self.keep_as_pan_tile(slot);
                 }
                 changed = true;
                 continue;
@@ -1336,7 +1489,7 @@ impl Renderer {
             }
             // a zoom window: the full-quality one shown so far is kept for a return to it, and the
             // new one gets a texture of its own
-            if slot == Slot::Region || slot == Slot::RegionAhead {
+            if slot == Slot::Region || slot == Slot::RegionAhead || slot == Slot::RegionNear {
                 let draft = slot == Slot::Region && self.view_requests.get(&r.request_id).is_some_and(|q| q.draft);
                 if !draft {
                     self.full_windows.insert(r.key);
@@ -1390,6 +1543,12 @@ impl Renderer {
                         },
                     );
                 }
+            }
+            // a window made next to the view: a pan tile
+            if slot == Slot::RegionNear {
+                self.keep_as_pan_tile(slot);
+                changed = true;
+                continue;
             }
             // a window made ahead: kept for the step to its photo
             if slot == Slot::RegionAhead {
@@ -1499,6 +1658,14 @@ impl Renderer {
                 };
                 Some((t.id(), crate::softpaint::CpuTexture::linear(pixels)))
             })
+            .chain(self.pan_tiles.iter().filter_map(|t| {
+                let pixels = match (&t.tex.pixels, &t.frame, self.screen.as_ref()) {
+                    (Some(p), ..) => p.clone(),
+                    (None, Some(frame), Some(screen)) => Arc::new(screen.read(frame)?),
+                    _ => return None,
+                };
+                Some((t.tex.id(), crate::softpaint::CpuTexture::linear(pixels)))
+            }))
             .collect()
     }
 
