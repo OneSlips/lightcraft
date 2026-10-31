@@ -2022,6 +2022,8 @@ mod tests_albums_local;
 #[cfg(test)]
 mod tests_app_store;
 #[cfg(test)]
+mod tests_auto_mask_range;
+#[cfg(test)]
 mod tests_autosync;
 #[cfg(test)]
 mod tests_background_merge;
