@@ -7,9 +7,10 @@ use serde_json::{Value, json};
 use crate::Session;
 
 /// A photo of four bands, left to right: pure white, a warm grey, near black, and a warm grey
-/// with a white speck every other pixel (more than a quarter of it clipped).
-fn bands() -> (std::path::PathBuf, Session) {
-    let dir = std::env::temp_dir().join(format!("lc-wbpick-{}", std::process::id()));
+/// with a white speck every other pixel (more than a quarter of it clipped). Each test passes its
+/// own `name`, so tests running in parallel never share (and delete) one another's folder.
+fn bands(name: &str) -> (std::path::PathBuf, Session) {
+    let dir = std::env::temp_dir().join(format!("lc-wbpick-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let (w, h) = (256usize, 128usize);
@@ -40,7 +41,7 @@ fn wb(s: &Session) -> (f64, f64) {
 
 #[test]
 fn clipped_white_and_black_spots_are_refused_and_change_nothing() {
-    let (dir, mut s) = bands();
+    let (dir, mut s) = bands("refused");
     let before = wb(&s);
     for (x, why) in [(0.12, "bright"), (0.62, "dark"), (0.88, "bright")] {
         let r: Value = s.execute("develop.wbPick", &json!({"x": x, "y": 0.5})).unwrap();
@@ -60,7 +61,7 @@ fn clipped_white_and_black_spots_are_refused_and_change_nothing() {
 /// the grey; a large one there takes in the white and is refused.
 #[test]
 fn the_sample_size_is_the_callers() {
-    let (dir, mut s) = bands();
+    let (dir, mut s) = bands("size");
     let small = s.execute("develop.wbPick", &json!({"x": 0.27, "y": 0.5, "size": 0.01})).unwrap();
     assert_eq!(small["applied"], true, "{small}");
     let large = s.execute("develop.wbPick", &json!({"x": 0.27, "y": 0.5, "size": 0.2})).unwrap();
