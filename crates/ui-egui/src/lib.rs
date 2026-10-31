@@ -930,6 +930,11 @@ impl LightcraftApp {
     }
 
     fn run_typed_inner(&mut self, id: &str, params: Value, t: &mut f64) -> Result<Value, CommandError> {
+        // a brush stroke being painted belongs to the mask and photo it started on: picking another ends it
+        // first, so its next live update or its release can't land on the one picked
+        if matches!(id, "mask.select" | "library.select") {
+            self.cancel_brush_gesture();
+        }
         if let Some(result) = model_setup::intercept(self, id, &params) {
             return result.map_err(CommandError::from);
         }
@@ -1154,6 +1159,19 @@ impl LightcraftApp {
     /// and A unlocks it). Returns whether it stored one (one undo step of its own outside an
     /// interaction, which the caller merges with the edit). Only this photo: Auto Sync carries the
     /// edit, not a ratio fitted to this photo's shape.
+    /// End a Brush stroke being painted, if one is: what already went to the photo stays (its undo step is
+    /// closed), what didn't is dropped. The pointer still held paints nothing more until it is let go.
+    /// Other gestures are left alone.
+    pub(crate) fn cancel_brush_gesture(&mut self) {
+        let Some(panels::detail::Gesture::Brush { live, .. }) = &self.gesture else { return };
+        let went_live = live.is_some();
+        self.gesture = None;
+        self.brush_live = None;
+        if went_live {
+            let _ = self.session.execute("develop.endInteraction", &serde_json::json!({}));
+        }
+    }
+
     pub(crate) fn store_shown_crop_lock(&mut self) -> bool {
         // nothing chosen yet: the photo's own shape, as `crop_tool_aspect` shows it
         let aspect = self.ui.crop_default_aspect.clone().unwrap_or_else(|| serde_json::json!("original"));

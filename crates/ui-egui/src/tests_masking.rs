@@ -521,6 +521,104 @@ fn brush_strokes_carry_auto_mask() {
     h.settle(SETTLE);
 }
 
+/// TEST-NOTES 2026-10-31 note 1: the Auto Mask range slider sits under Auto Mask (shown while it is on), and
+/// each stroke keeps the range it was painted with.
+#[test]
+fn each_stroke_keeps_the_auto_mask_range_it_was_painted_with() {
+    let mut h = detail("panel.masking");
+    exec(&mut h, "tool.brush", json!({}));
+    h.step();
+    h.step();
+    let has = |h: &Headless| h.app.widgets.iter().any(|(w, _)| w == "slider:ui.brushAutoRange");
+    assert!(!has(&h), "no range without Auto Mask");
+    let r = h.request("ui.set", json!({"brushAutoMask": true}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    h.step();
+    assert!(has(&h), "the range shows under Auto Mask");
+    assert_eq!(h.app.ui.brush_auto_range, 0.0, "it starts at Lightroom's limits");
+    let r = h.request("ui.dragWidget", json!({"id": "slider:ui.brushAutoRange", "dx": 40.0, "dy": 0.0, "steps": 6}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.step();
+    let wide = h.app.ui.brush_auto_range;
+    assert!(wide > 0.0 && wide <= 100.0, "dragged wider: {wide}");
+    let stroke = |h: &mut Headless, y: f64| {
+        pointer(h, json!([{"kind": "down", "x": 0.3, "y": y}, {"kind": "drag", "x": 0.4, "y": y}, {"kind": "up", "x": 0.4, "y": y}]));
+        h.step();
+    };
+    stroke(&mut h, 0.4);
+    // tighter for the next stroke
+    let r = h.request("ui.set", json!({"brushAutoRange": -50.0}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    stroke(&mut h, 0.6);
+    let d = develop(&h);
+    let MaskShape::Brush { strokes } = &d.masks[0].components[0].shape else { panic!("brush") };
+    let got: Vec<f64> = strokes.iter().map(|s| s.auto_range).collect();
+    assert_eq!(got.len(), 2, "{strokes:?}");
+    assert!((got[0] - f64::from(wide)).abs() < 1e-3 && got[1] == -50.0, "each as painted: {got:?}");
+    h.settle(SETTLE);
+}
+
+/// Picking another mask or another photo while a live Brush stroke is held ends the stroke first: its next live
+/// update or its release can't replace the picked mask's strokes or start a mask on the new photo, and the
+/// pointer still held paints nothing more until it is let go (review of #2920, NOTES-1031-7 follow-up).
+#[test]
+fn picking_another_mask_or_photo_mid_stroke_ends_the_stroke() {
+    let stroke_count = |h: &Headless, id: u32| -> usize {
+        develop(h)
+            .masks
+            .iter()
+            .find(|m| m.id == id)
+            .map(|m| m.components.iter().map(|c| if let MaskShape::Brush { strokes } = &c.shape { strokes.len() } else { 0 }).sum())
+            .unwrap_or(0)
+    };
+    for pick in ["mask", "photo"] {
+        let mut h = detail("panel.masking");
+        h.settle(SETTLE);
+        exec(&mut h, "tool.brush", json!({"new": true}));
+        h.app.ui.brush_auto_mask = false;
+        brush_at(&mut h, 0.2, 0.5);
+        exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.0}}));
+        let first = h.app.session.active_mask.expect("the first mask");
+        exec(&mut h, "tool.brush", json!({"new": true}));
+        brush_at(&mut h, 0.6, 0.5);
+        exec(&mut h, "mask.adjust", json!({"values": {"exposure": -1.0}}));
+        let second = h.app.session.active_mask.expect("the second mask");
+        assert_ne!(first, second);
+        // a live stroke on the second mask (it has settings: its effect shows while painting)
+        pointer(&mut h, json!([{"kind": "down", "x": 0.6, "y": 0.7}, {"kind": "drag", "x": 0.65, "y": 0.7}, {"kind": "drag", "x": 0.7, "y": 0.7}]));
+        h.step();
+        assert!(matches!(h.app.gesture, Some(crate::panels::detail::Gesture::Brush { live: Some(_), .. })), "{pick}: a live stroke");
+        let photo = h.app.session.active().expect("a photo");
+        let (first_strokes, masks) = (stroke_count(&h, first), develop(&h).masks.len());
+        if pick == "mask" {
+            exec(&mut h, "mask.select", json!({"id": first}));
+        } else {
+            let other = h.app.session.visible_cloned().into_iter().find(|p| *p != photo).expect("another photo");
+            exec(&mut h, "library.select", json!({"ids": [other.0]}));
+        }
+        assert!(h.app.gesture.is_none(), "{pick}: the stroke ended");
+        assert!(h.app.session.interaction.is_none(), "{pick}: its undo step closed");
+        // the pointer carries on and lets go: nothing lands on what was picked
+        pointer(&mut h, json!([{"kind": "drag", "x": 0.75, "y": 0.7}, {"kind": "drag", "x": 0.8, "y": 0.7}, {"kind": "up", "x": 0.8, "y": 0.7}]));
+        h.step();
+        h.step();
+        if pick == "mask" {
+            assert_eq!(stroke_count(&h, first), first_strokes, "the picked mask's strokes are untouched");
+            assert_eq!(develop(&h).masks.len(), masks, "no new mask");
+        } else {
+            assert!(develop(&h).masks.is_empty(), "no mask started on the new photo: {:?}", develop(&h).masks.len());
+        }
+        // and the next press paints again (the brush armed again: picking a mask or photo puts it down)
+        exec(&mut h, "tool.brush", json!({}));
+        h.step();
+        pointer(&mut h, json!([{"kind": "down", "x": 0.3, "y": 0.3}, {"kind": "drag", "x": 0.35, "y": 0.3}, {"kind": "up", "x": 0.35, "y": 0.3}]));
+        h.step();
+        assert!(!develop(&h).masks.is_empty(), "{pick}: a new press paints");
+        h.settle(SETTLE);
+    }
+}
+
 #[test]
 fn remove_spots_by_pointer_and_keyboard() {
     let mut h = detail("panel.remove");

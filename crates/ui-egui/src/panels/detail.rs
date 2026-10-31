@@ -4136,6 +4136,9 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                     points.push(n);
                     erase.push(erasing);
                 }
+                // a stroke starts with a press, not part-way through a drag: one ended for picking another mask
+                // or photo ([`LightcraftApp::cancel_brush_gesture`]) paints nothing more until the button is let go
+                _ if !(resp.drag_started() || resp.clicked()) => {}
                 _ => {
                     let mut pressure = Vec::new();
                     record_pressure(&mut pressure, 0, force);
@@ -4168,7 +4171,8 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                 let _ = app.run("develop.beginInteraction", json!({"label": "Brush"}));
             }
             // the gesture so far, as runs of one mode each; it replaces what it sent last time
-            let mut params = json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "continue": !first, "replace": prev});
+            let mut params =
+                json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "autoRange": app.ui.brush_auto_range, "continue": !first, "replace": prev});
             stroke_into(&mut params, target);
             let _ = app.run("mask.brushStroke", params);
             if let Some(Gesture::Brush { live, sent, .. }) = &mut app.gesture {
@@ -4217,8 +4221,7 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
             let shift = resp.ctx.input(|i| i.modifiers.shift);
             // a ⇧-click draws a straight line from where the last stroke ended, as in Lightroom
             let connect = shift && resp.clicked() && points.len() == 1;
-            let mut params =
-                json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "continue": live.is_some(), "replace": sent, "connect": connect});
+            let mut params = json!({"runs": runs, "autoMask": app.ui.brush_auto_mask, "autoRange": app.ui.brush_auto_range, "continue": live.is_some(), "replace": sent, "connect": connect});
             stroke_into(&mut params, target);
             let _ = app.run("mask.brushStroke", params);
             if live.is_some() {

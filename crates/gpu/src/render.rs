@@ -1384,7 +1384,7 @@ const STROKE_WORDS: usize = 20;
 /// The `shape` kernel's brush data for `dabs` in a `w × h` output, or `None` when it would be too
 /// big (the CPU rasterizes the brush then): stroke records ([`STROKE_WORDS`] words: dab offset, dab
 /// count, r, hard, flow, density, erase, bbox x0 y0 x1 y1, auto, tile table offset, tiles across,
-/// tiles down, tile size, Lightroom model (1/0), its dab profile's a and p, unused), then each
+/// tiles down, tile size, Lightroom model (1/0), its dab profile's a and p, Auto Mask range scale), then each
 /// stroke's dab centres, tile table and tile lists.
 ///
 /// Each stroke's dabs are binned into square tiles (about a quarter radius across): a pixel looks
@@ -1444,7 +1444,8 @@ fn brush_aux(dabs: &[&lightcraft_pipeline::masks::BrushDabs], erase: bool, w: us
         head.push(d.auto as u8 as f32);
         head.extend([table as f32, tx as f32, ty as f32, ts as f32]);
         let (a, p) = d.lrc.unwrap_or((0.0, 0.0));
-        head.extend([d.lrc.is_some() as u8 as f32, a as f32, p as f32, 0.0]);
+        // the last word: the Auto Mask range's scale of a Lightroom-model stroke (`masks::BrushDabs::auto_scale`)
+        head.extend([d.lrc.is_some() as u8 as f32, a as f32, p as f32, d.auto_scale]);
     }
     head.extend(tail);
     Some(head)

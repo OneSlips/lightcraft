@@ -609,7 +609,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Brush Stroke",
             [],
             None,
-            "{id?: maskId, points: [[x,y],…] normalized, size?: the solid core's radius, fraction of long edge (0.03), feather?: 0..100, the soft halo outside the core, flow?, density?, erase?: bool, model?: 1 Lightroom's brush (default) | 0 the brush of strokes saved before it (size = the whole dab, feather inward), autoMask?: bool, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, or its last `replace` strokes, so the stroke shows live), runs?: [{points, erase?, size?, feather?, flow?, density?, pressure?}, …] (one gesture in parts painted with different modes, e.g. ⌥ / Alt pressed and let go during it: each run is a stroke, the values left out taken from the top level; instead of `points`), replace?: n (with `continue`: how many strokes the gesture sent last time, 1), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
+            "{id?: maskId, points: [[x,y],…] normalized, size?: the solid core's radius, fraction of long edge (0.03), feather?: 0..100, the soft halo outside the core, flow?, density?, erase?: bool, model?: 1 Lightroom's brush (default) | 0 the brush of strokes saved before it (size = the whole dab, feather inward), autoMask?: bool, autoRange?: -100 (tight) … 0 (default, Lightroom's limits) … 100 (wide), how different a pixel may be from the one under the dab and still take Auto Mask's paint (the limits scale by ½ … 2), kept with the stroke, pressure?: [p,…] pen pressure 0..1 per point (scales each dab's size and flow; omitted: full), component?: index of the mask's Brush component the stroke goes into (omitted: its last Brush component, or a new one), continue?: bool (the stroke being painted, sent again as it grows: it replaces that component's last stroke, or its last `replace` strokes, so the stroke shows live), runs?: [{points, erase?, size?, feather?, flow?, density?, pressure?}, …] (one gesture in parts painted with different modes, e.g. ⌥ / Alt pressed and let go during it: each run is a stroke, the values left out taken from the top level; instead of `points`), replace?: n (with `continue`: how many strokes the gesture sent last time, 1), connect?: bool — start from the last point of the mask's last stroke (⇧-click), size / feather / flow tapering from that stroke's to these} → {activeMask, connected}",
             has_active,
             |s, p| {
                 // one stroke, or one per run of a gesture painted in parts (note 19)
@@ -1710,6 +1710,8 @@ fn brush_stroke_of(r: &Value, top: &Value) -> Result<BrushStroke> {
         density: num("density", d.density),
         erase: flag("erase"),
         auto_mask: flag("autoMask"),
+        // fixed with the stroke: a later change of the slider leaves it as painted
+        auto_range: num("autoRange", d.auto_range).clamp(-lightcraft_develop::AUTO_RANGE_MAX, lightcraft_develop::AUTO_RANGE_MAX),
         pressure,
         model: if model == Some(0) { BRUSH_MODEL_LEGACY } else { BRUSH_MODEL_LRC },
         points: pts,
