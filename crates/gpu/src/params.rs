@@ -2,7 +2,7 @@
 //! `finish` kernel reads (`F_*` constants, generated from [`FIELDS`]), plus its auxiliary tables.
 
 use lightcraft_develop::VignetteStyle;
-use lightcraft_pipeline::colorops::POINT_WORDS;
+use lightcraft_pipeline::colorops::{MIXER_WORDS, POINT_WORDS};
 use lightcraft_pipeline::finish::{FinishParams, GrainModel, MASK_TERMS, srgb_lut};
 use lightcraft_pipeline::grain::GrainParams;
 
@@ -190,10 +190,13 @@ impl Block {
     }
 }
 
-/// Words per mask in the local Curve / Point Color records: the offset of its three curve tables in
+/// Words per mask in the local Curve / Color Mixer / Point Color records: the offset of its three curve tables in
 /// `aux` (as `f32` bits; 0 = no curve: the tone table is first), Refine Saturation, the number of Point Color
-/// samples, then up to 8 samples of [`POINT_WORDS`].
-pub const LOCAL_WORDS: usize = 3 + 8 * POINT_WORDS;
+/// samples, then up to 8 samples of [`POINT_WORDS`], then (at [`LOCAL_MIX`]) whether its Color Mixer is on (0/1)
+/// and its [`MIXER_WORDS`].
+pub const LOCAL_WORDS: usize = LOCAL_MIX + 1 + MIXER_WORDS;
+/// Where a local record's Color Mixer starts.
+pub const LOCAL_MIX: usize = 3 + 8 * POINT_WORDS;
 
 /// Which optional planes are bound.
 pub struct Present {
@@ -249,6 +252,12 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
             let head = [f32::from_bits(curve_at), ml.refine_sat, ml.points.len().min(8) as f32];
             for (slot, v) in aux.iter_mut().skip(rec).zip(head.iter().chain(&points)) {
                 *slot = *v;
+            }
+            if let Some(mk) = &ml.mixer {
+                let mix = std::iter::once(1.0).chain(mk.words());
+                for (slot, v) in aux.iter_mut().skip(rec + LOCAL_MIX).zip(mix) {
+                    *slot = v;
+                }
             }
         }
     }

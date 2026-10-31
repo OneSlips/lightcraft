@@ -170,3 +170,79 @@ fn mask_whites_and_blacks_move_a_bright_subjects_tones() {
     let top_deep = rows(&plain, top.0, top.1) - rows(&blacks, top.0, top.1);
     assert!(top_deep < deep, "…more than its brightest ({top_deep:.1} vs {deep:.1})");
 }
+
+/// A Color Mixer that moves several bands (hue, saturation and luminance).
+fn strong_mixer() -> lightcraft_develop::Mixer {
+    use lightcraft_develop::{Hsl, Mixer};
+    Mixer {
+        orange: Hsl { hue: 60.0, sat: 40.0, lum: -30.0 },
+        green: Hsl { hue: -50.0, sat: -80.0, lum: 40.0 },
+        blue: Hsl { hue: 30.0, sat: -100.0, lum: -50.0 },
+        magenta: Hsl { hue: 0.0, sat: 70.0, lum: 20.0 },
+        ..Default::default()
+    }
+}
+
+fn mixer_masked(start: f64, end: f64, mixer: lightcraft_develop::Mixer) -> DevelopSettings {
+    let mut s = masked(start, end, ToneCurve::default(), Vec::new(), 100.0);
+    s.masks[0].mixer = mixer;
+    s
+}
+
+#[test]
+fn a_full_mask_color_mixer_renders_as_the_global_mixer() {
+    let src = colours();
+    let global = DevelopSettings { mixer: strong_mixer(), ..Default::default() };
+    let (g, l) = (shot(&src, &global), shot(&src, &mixer_masked(2.0, 2.1, strong_mixer())));
+    let (_, differ) = compare(&g, &l, 0, W);
+    assert_eq!(differ, 0, "same mixer, same maths");
+    let (_, changed) = compare(&g, &shot(&src, &DevelopSettings::default()), 0, W);
+    assert!(changed > W * H / 4, "the mixer changes the colours ({changed} px)");
+}
+
+#[test]
+fn local_color_mixer_stays_inside_the_mask() {
+    let src = colours();
+    let plain = shot(&src, &DevelopSettings::default());
+    let img = shot(&src, &mixer_masked(0.45, 0.46, strong_mixer()));
+    let (_, outside) = compare(&img, &plain, (W as f64 * 0.47) as usize, W);
+    assert_eq!(outside, 0, "nothing changes outside the mask");
+    let (_, inside) = compare(&img, &plain, 0, (W as f64 * 0.44) as usize);
+    assert!(inside > W * H / 8, "the mask's mixer applies inside ({inside} px)");
+}
+
+#[test]
+fn a_neutral_local_mixer_changes_nothing_and_costs_nothing() {
+    let src = colours();
+    // a mask with only a neutral mixer: nothing local to compute at all
+    let s = mixer_masked(0.45, 0.46, lightcraft_develop::Mixer::default());
+    assert!(crate::finish::mask_locals(&s).is_empty(), "no local colour stage for a neutral mixer");
+    assert_eq!(shot(&src, &s).data, shot(&src, &DevelopSettings::default()).data);
+    // next to a Point Color: the same pixels as without the mixer
+    let mut with = masked(0.45, 0.46, ToneCurve::default(), vec![orange_sample()], 100.0);
+    assert!(crate::finish::mask_locals(&with)[0].mixer.is_none());
+    let before = shot(&src, &with);
+    with.masks[0].mixer = lightcraft_develop::Mixer::default();
+    assert_eq!(shot(&src, &with).data, before.data);
+}
+
+#[test]
+fn black_and_white_ignores_the_local_mixer() {
+    let src = colours();
+    let mut bw = mixer_masked(2.0, 2.1, strong_mixer());
+    bw.treatment = lightcraft_develop::Treatment::Bw;
+    let plain = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..Default::default() };
+    assert_eq!(shot(&src, &bw).data, shot(&src, &plain).data);
+}
+
+#[test]
+fn the_local_mixer_is_written_only_when_set_and_reads_back() {
+    let mut m = Mask::default();
+    let json = serde_json::to_string(&m).unwrap();
+    assert!(!json.contains("mixer"), "a neutral mixer isn't written: {json}");
+    let back: Mask = serde_json::from_str(&json).unwrap();
+    assert!(back.mixer.is_neutral(), "a mask without it reads as neutral");
+    m.mixer = strong_mixer();
+    let back: Mask = serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+    assert_eq!(back.mixer, strong_mixer());
+}

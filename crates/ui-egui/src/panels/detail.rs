@@ -2391,10 +2391,14 @@ pub(crate) fn overlay_shown(app: &LightcraftApp, m: &lightcraft_develop::Mask) -
 }
 
 /// Whether mask `m` changes the photo by itself: any adjustment slider off its default, a local
-/// curve or Point Color, or an effect preset's mark. (Its shape, Refine Edges included, is not a
+/// curve, Color Mixer or Point Color, or an effect preset's mark. (Its shape, Refine Edges included, is not a
 /// setting: it is what the overlay is for.)
 pub(crate) fn mask_has_settings(m: &lightcraft_develop::Mask) -> bool {
-    m.adjust != lightcraft_develop::LocalAdjustments::default() || m.preset.is_some() || !m.curve.is_default() || !m.point_colors.is_empty()
+    m.adjust != lightcraft_develop::LocalAdjustments::default()
+        || m.preset.is_some()
+        || !m.curve.is_default()
+        || !m.point_colors.is_empty()
+        || !m.mixer.is_neutral()
 }
 
 /// Whether a mask is being shaped on the photo right now: a handle, the gradient or the pin
