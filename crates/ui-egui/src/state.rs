@@ -91,12 +91,13 @@ pub struct UiState {
     /// Masking: the selected mask's overlay switched on to stay (O, the panel's eye: "Always"),
     /// how it is drawn (`MaskView` name, ⇧O cycles), in which colour and opacity (0..100, colour
     /// views), and whether pins are drawn. Without it the overlay shows only by the one rule of
-    /// [`crate::panels::detail::overlay_mask`]: a mask without settings yet, or the mask whose row
-    /// or pin the pointer is on. Not kept between sessions: the photo opens without it.
+    /// [`crate::panels::detail::overlay_mask`]: a mask without settings yet, or the mask whose pin
+    /// or component row the pointer is on. Not kept between sessions: the photo opens without it.
     #[serde(skip)]
     pub mask_overlay: bool,
-    /// The mask whose row or pin the pointer is on, this frame and the last (the overlay shows it),
-    /// with the photo it is on: a mask of the same id on another photo is another mask.
+    /// The mask whose pin or component row the pointer is on, this frame and the last (the overlay
+    /// shows it), with the photo it is on: a mask of the same id on another photo is another mask.
+    /// Not the mask's own row: there its effect is judged.
     #[serde(skip)]
     pub mask_hover: Option<(lightcraft_engine::catalog::PhotoId, u32)>,
     #[serde(skip)]

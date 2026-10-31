@@ -263,10 +263,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             register(ui, format!("maskName:{}", m.id), Rect::from_min_size(at, g.size()));
             ui.painter().galley(at, g, color);
             let resp = if elided { resp.on_hover_text(&m.name) } else { resp };
-            // the pointer on a mask's row shows that mask's overlay (as Lightroom Classic)
-            if ui.rect_contains_pointer(r) {
-                app.ui.mask_hover = app.session.active().map(|photo| (photo, m.id));
-            }
+            // the mask's own row (name, eye, menu) is where its effect is judged, the eye switching it
+            // on and off: the pointer on it shows no overlay (a component row under it does)
             // show / hide on hover (and always while hidden)
             // (the pointer test, not `hovered`: over the eye, the row itself no longer counts as hovered)
             if ui.rect_contains_pointer(r) || !m.visible {
@@ -319,7 +317,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 MaskShape::Prompt { text, .. } => format!("“{text}”"),
                 _ => menu_label(kind).to_string(),
             });
-            ui.horizontal(|ui| {
+            let row = ui.horizontal(|ui| {
                 let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                 paint(ui.painter(), r, icon, t.text_label);
                 let op = match c.op {
@@ -364,6 +362,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     egui::Popup::menu(&more).show(|ui| component_row_menu(app, ui, m.id, i, &label, m.components.len()));
                 });
             });
+            // the pointer on a component's row shows the whole mask's overlay, to see where it is
+            if ui.rect_contains_pointer(row.response.rect) {
+                app.ui.mask_hover = app.session.active().map(|photo| (photo, m.id));
+            }
             range_controls(app, ui, i, &c.shape);
         }
         ui.add_space(6.0);

@@ -13,8 +13,9 @@
 
 ### The mask overlay shows when it helps
 - One rule now decides when a mask's overlay covers the photo: when you switch it on with **O** (or the eye by the
-  Masks title), while the pointer is on the mask's row or pin, or by itself for a mask that has no settings yet, so
-  you see what it selects. A mask with settings (its own or a preset's) never shows the overlay by itself, so you can
+  Masks title), while the pointer is on one of the mask's parts (the rows under its name) or its pin, or by itself for a mask that
+  has no settings yet, so you see what it selects. The pointer on the mask's own row shows nothing, so its eye
+  switches the effect on and off with nothing over the photo. A mask with settings (its own or a preset's) never shows the overlay by itself, so you can
   judge its effect: picking, creating, duplicating or adding to such a mask no longer covers the photo. While a
   slider is at work nothing covers the photo, not even an overlay switched on with O; it comes back when you let go.
   During a mask drag or a brush stroke, hovering shows no overlay; an overlay switched on with O, or a mask without

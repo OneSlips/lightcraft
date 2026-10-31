@@ -204,7 +204,7 @@ fn mask_adjustments_hide_overlay_without_disabling_the_mask() {
 /// One overlay rule replaces showing the overlay again on every new, picked, duplicated or extended
 /// mask (issue #1800): a mask without settings shows what it selects by itself; picking a mask that
 /// has settings, adding a part to it or duplicating it shows its effect, so it can be judged; the
-/// pointer on its row (or pin), or O, shows its overlay on request.
+/// pointer on one of its component rows (or its pin), or O, shows its overlay on request.
 #[test]
 fn a_mask_shows_its_overlay_by_itself_only_without_settings() {
     use lightcraft_pipeline::Overlay;
@@ -235,9 +235,9 @@ fn a_mask_shows_its_overlay_by_itself_only_without_settings() {
         off_rows(&mut h);
         assert!(!shown(&h), "{cmd} on a mask with settings shows its effect");
     }
-    // on request: the pointer on the mask's row, or O
+    // on request: the pointer on one of its component rows (or its pin), or O
     h.app.ui.mask_hover = h.app.session.active().zip(h.app.session.active_mask);
-    assert!(shown(&h), "the pointer on its row shows the overlay");
+    assert!(shown(&h), "the pointer on a component row shows the overlay");
     off_rows(&mut h);
     h.request("ui.key", json!({"key": "o"}), T);
     assert!(shown(&h), "O shows it");
@@ -268,6 +268,82 @@ fn each_mask_hidden_with_o_stays_hidden() {
     h.request("ui.key", json!({"key": "o"}), T);
     assert!(shown(&h), "O shows A again");
     h.settle(SETTLE);
+}
+
+/// Which hover shows a mask's overlay (the user's test notes, 31 Oct): the mask's own row (name, eye, menu)
+/// shows none, so its eye can judge the effect with nothing over the photo; a component row under it shows the
+/// whole mask's overlay; the pin shows it; a mask without settings keeps its overlay, also over its own row; O still
+/// shows and hides it; dragging the pin hides it while it moves.
+#[test]
+fn the_mask_row_shows_no_overlay_and_a_component_row_does() {
+    use lightcraft_pipeline::Overlay;
+    let mut h = detail("panel.masking");
+    let steps = |h: &mut Headless| {
+        h.step();
+        h.step();
+    };
+    let ask = |h: &mut Headless, method: &str, params: serde_json::Value| {
+        let r = h.request(method, params.clone(), T);
+        assert_eq!(r["ok"], true, "{method} {params}: {r}");
+    };
+    let shown = |h: &Headless| matches!(crate::panels::detail::view_overlay(&h.app, &develop(h)), Overlay::Mask { .. });
+    let visible = |h: &Headless, id: u32| develop(h).masks.iter().find(|m| m.id == id).is_some_and(|m| m.visible);
+    let canvas = h.app.canvas_rect.expect("the loupe");
+    let away = json!({"x": canvas.left() + 6.0, "y": canvas.top() + 6.0});
+    // a mask without settings: its overlay stays, whatever is hovered
+    exec(&mut h, "mask.add", json!({"kind": "radial", "center": [0.5, 0.5]}));
+    let mid = h.app.session.active_mask.expect("selected");
+    steps(&mut h);
+    ask(&mut h, "ui.hoverWidget", json!({"id": format!("mask:{mid}")}));
+    steps(&mut h);
+    assert!(shown(&h), "no settings yet: shown, also over its own row");
+    // with settings: its own row and its eye show nothing; the eye switches the effect
+    exec(&mut h, "mask.adjust", json!({"values": {"exposure": 1.0}}));
+    ask(&mut h, "ui.hoverWidget", json!({"id": format!("mask:{mid}")}));
+    steps(&mut h);
+    assert!(!shown(&h), "the pointer on the mask's own row shows no overlay");
+    ask(&mut h, "ui.clickWidget", json!({"id": format!("maskVisible:{mid}")}));
+    steps(&mut h);
+    assert!(!visible(&h, mid), "the eye switched the effect off");
+    assert!(!shown(&h), "with nothing over the photo");
+    ask(&mut h, "ui.clickWidget", json!({"id": format!("maskVisible:{mid}")}));
+    steps(&mut h);
+    assert!(visible(&h, mid) && !shown(&h), "and on again, still with no overlay");
+    // a component row: the whole mask's overlay
+    exec(&mut h, "mask.addComponent", json!({"op": "subtract", "kind": "linear", "start": [0.5, 0.0], "end": [0.5, 0.3]}));
+    steps(&mut h);
+    for i in 0..2 {
+        ask(&mut h, "ui.hoverWidget", json!({"id": format!("component:{i}")}));
+        steps(&mut h);
+        assert!(shown(&h), "the pointer on component {i} shows the mask's overlay");
+        assert_eq!(h.app.ui.mask_hover.or(h.app.ui.mask_hover_prev).map(|(_, m)| m), Some(mid), "the whole mask");
+    }
+    ask(&mut h, "ui.move", away.clone());
+    steps(&mut h);
+    assert!(!shown(&h), "leaving the row hides it");
+    // the pin
+    let img = h.app.image_rect.expect("the photo on screen");
+    ask(&mut h, "ui.move", json!({"x": img.center().x, "y": img.center().y}));
+    steps(&mut h);
+    assert!(shown(&h), "the pointer on the pin shows the overlay");
+    // dragging the pin: hidden while it moves
+    pointer(&mut h, json!([{"kind": "down", "x": 0.5, "y": 0.5}, {"kind": "drag", "x": 0.53, "y": 0.52}, {"kind": "drag", "x": 0.56, "y": 0.54}]));
+    steps(&mut h);
+    assert!(crate::panels::detail::mask_gesture(&h.app), "the pin is being dragged: {:?}", h.app.gesture);
+    assert!(!shown(&h), "no overlay while the pin is dragged");
+    pointer(&mut h, json!([{"kind": "up", "x": 0.56, "y": 0.54}]));
+    steps(&mut h);
+    ask(&mut h, "ui.move", away);
+    steps(&mut h);
+    assert!(!shown(&h));
+    // O over its own row
+    ask(&mut h, "ui.hoverWidget", json!({"id": format!("mask:{mid}")}));
+    exec(&mut h, "view.maskOverlay", json!({"show": true}));
+    steps(&mut h);
+    assert!(shown(&h), "O shows it, even over its own row");
+    exec(&mut h, "view.maskOverlay", json!({"show": false}));
+    steps(&mut h);
+    assert!(!shown(&h), "and hides it");
 }
 
 /// The pointer on a mask's row, and O hiding a mask's automatic overlay, belong to that photo: on

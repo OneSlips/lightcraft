@@ -928,15 +928,16 @@ fn shapes_graphics(id: &str) -> bool {
 }
 
 /// The mask the overlay shows, if any. One rule:
-/// overlay = O / Always, OR (the pointer on the mask's pin or row AND not adjusting), OR (Auto AND
-/// the mask has no settings). "Adjusting" is a slider at work ([`adjusting`], which hides every
+/// overlay = O / Always, OR (the pointer on the mask's pin or on one of its component rows AND not
+/// adjusting), OR (Auto AND the mask has no settings). The pointer on the mask's own row (name, eye,
+/// menu) shows nothing: that is where its effect is judged, the eye switching it on and off. "Adjusting" is a slider at work ([`adjusting`], which hides every
 /// overlay in [`view_overlay`]) or a mask gesture (a handle or the gradient dragged, a brush
 /// stroke): hovering never shows the overlay while one runs, even with the pointer over the pin
 /// being dragged. A mask with settings (its own, or a preset's) never shows by itself, so its effect
 /// can be judged while it is placed or picked; a mask without settings shows what it selects, also
 /// while it is drawn (there is no effect to see yet). This replaces showing the overlay again on
 /// every new, picked or duplicated mask (#1800): that covered the photo exactly when the user
-/// judges a mask's effect; hovering its row or pin, or O, shows it on request.
+/// judges a mask's effect; hovering one of its component rows or its pin, or O, shows it on request.
 pub(crate) fn overlay_mask<'a>(app: &LightcraftApp, d: &'a DevelopSettings) -> Option<&'a lightcraft_develop::Mask> {
     if !mask_gesture(app)
         && let Some(photo) = app.session.active()
