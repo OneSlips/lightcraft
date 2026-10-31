@@ -812,13 +812,22 @@ impl Renderer {
         let key = job.key;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_) | Slot::RegionAhead | Slot::RegionNear);
         // (a thumbnail on screen is not: it must not wait for an export's turn at the GPU)
+        let batch = matches!(slot, Slot::Prefetch(_) | Slot::RegionAhead | Slot::RegionNear) || (background && priority < BACKGROUND_BELOW);
         let display = self.display.clone();
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
-                let run = || if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
+                // background renders (thumbnails, the neighbours and synced photos prepared, windows
+                // made ahead) take turns at the GPU behind the view's own and keep one short
+                // submission queued at a time, so the window's frames and the desktop's cursor
+                // slot in between (test notes 2026-10-31 note 3; `lightcraft_gpu::as_batch`)
+                let run = || match (background, batch) {
+                    (true, true) => lightcraft_engine::memory::in_background(|| lightcraft_engine::gpu::as_batch(|| job.run())),
+                    (true, false) => lightcraft_engine::memory::in_background(|| job.run()),
+                    _ => job.run(),
+                };
                 Self::run_for(run, &display)
             }),
         );
