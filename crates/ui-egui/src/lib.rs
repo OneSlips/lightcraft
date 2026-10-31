@@ -267,6 +267,8 @@ mod tests_smart_presets;
 #[cfg(test)]
 mod tests_solo_sections;
 #[cfg(test)]
+mod tests_space_hold;
+#[cfg(test)]
 mod tests_stand_in_crop;
 #[cfg(test)]
 mod tests_surface;
@@ -2006,6 +2008,7 @@ impl LightcraftApp {
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
         self.inject_synthetic(raw);
         self.pointer_repair.repair(raw);
+        drop_space_repeats(raw);
     }
 
     fn inject_synthetic(&mut self, raw: &mut egui::RawInput) {
@@ -2366,6 +2369,16 @@ fn sam_download_ended(download: &lightcraft_engine::segment::DownloadStatus) -> 
         None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks use it.").to_string(), true)),
         None => None,
     }
+}
+
+/// Space is a modifier (held: the hand that pans; pressed: Toggle Zoom), like Shift or Alt, so
+/// holding it never fires again and again (test notes 2026-10-31 note 6): the key's auto-repeat
+/// presses are dropped before anything sees them, for the shortcuts, a focused handle or button
+/// and the control channel alike. Only the key events go: the typed text (`Event::Text`) stays,
+/// so holding Space in a text box still types spaces. `key_down(Space)` is unchanged (the first
+/// press sets it, the release clears it).
+fn drop_space_repeats(raw: &mut egui::RawInput) {
+    raw.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Space, pressed: true, repeat: true, .. }));
 }
 
 /// A file `ui.dropFiles` delivers as dropped, as a real OS drop arrives in `raw.dropped_files`.

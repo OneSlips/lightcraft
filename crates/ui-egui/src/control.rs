@@ -307,8 +307,16 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
         "ui.key" => {
             let Some(k) = s("key").and_then(key_from) else { return err("unknown or missing `key`") };
             let m = modifiers(p);
-            app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: true, repeat: false, modifiers: m });
-            app.synthetic.push(egui::Event::Key { key: k, physical_key: None, pressed: false, repeat: false, modifiers: m });
+            // `phase`: "press" (down and up, the default), "down" (held), "repeat" (the system's
+            // auto-repeat while held) or "up" (released)
+            let key = |pressed: bool, repeat: bool| egui::Event::Key { key: k, physical_key: None, pressed, repeat, modifiers: m };
+            match s("phase").unwrap_or("press") {
+                "press" => app.synthetic.extend([key(true, false), key(false, false)]),
+                "down" => app.synthetic.push(key(true, false)),
+                "repeat" => app.synthetic.push(key(true, true)),
+                "up" => app.synthetic.push(key(false, false)),
+                other => return err(format!("ui.key: unknown phase `{other}` (press, down, repeat or up)")),
+            }
             ctx.request_repaint();
             ok(Value::Null)
         }
