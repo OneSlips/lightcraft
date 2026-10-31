@@ -2359,9 +2359,11 @@ fn shapes_graphics(id: &str) -> bool {
         || id.starts_with("crop.")
 }
 
-/// The mask the overlay shows, if any. One rule (the user's, note 5):
-/// overlay = O / Always, OR (the pointer on the mask's pin or row AND not adjusting), OR (Auto AND
-/// the mask has no settings). "Adjusting" is a slider or dial at work ([`adjusting`], which hides
+/// The mask the overlay shows, if any. One rule (the user's, note 5, refined by test notes
+/// 2026-10-31 note 7): overlay = O / Always, OR (the pointer on the mask's pin or on one of its
+/// component rows AND not adjusting), OR (Auto AND the mask has no settings). The pointer on the
+/// mask's own row (name, eye, menu) shows nothing: that is where its effect is judged, the eye
+/// switching it on and off. "Adjusting" is a slider or dial at work ([`adjusting`], which hides
 /// every overlay in [`view_overlay`]) or a mask gesture (a handle, the gradient or the pin dragged,
 /// a brush stroke, a range area or pin): hovering never shows the overlay while one runs, even
 /// with the pointer over the pin being dragged. A mask with settings (its own, the last mask's

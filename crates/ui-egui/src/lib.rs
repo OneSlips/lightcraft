@@ -103,6 +103,8 @@ mod tests_compare;
 #[cfg(test)]
 mod tests_copy_paste_dialogs;
 #[cfg(test)]
+mod tests_crop_lock_kept;
+#[cfg(test)]
 mod tests_crop_rotate;
 #[cfg(test)]
 mod tests_crop_tool;
@@ -189,6 +191,8 @@ mod tests_mask_local;
 #[cfg(test)]
 mod tests_mask_modes;
 #[cfg(test)]
+mod tests_mask_overlay_rows;
+#[cfg(test)]
 mod tests_mask_panel;
 #[cfg(test)]
 mod tests_mask_select;
@@ -266,6 +270,8 @@ mod tests_slideshow;
 mod tests_smart_presets;
 #[cfg(test)]
 mod tests_solo_sections;
+#[cfg(test)]
+mod tests_space_hold;
 #[cfg(test)]
 mod tests_stand_in_crop;
 #[cfg(test)]
@@ -933,7 +939,25 @@ impl LightcraftApp {
             params
         };
         self.lap(t, &format!("{id} (before)"));
+        // an edit of the crop on an untouched photo keeps the lock the tool shows (note 9)
+        let commits = self.session.commits();
+        let stored_lock = touches_crop(id, &params, self.session.active()) && self.store_shown_crop_lock();
         let r = self.session.execute(id, &params).map_err(CommandError::from);
+        if stored_lock && self.session.interaction.is_none() {
+            let steps = usize::try_from(self.session.commits().wrapping_sub(commits)).unwrap_or(0);
+            match &r {
+                // the lock and the edit are one undo step, named after the edit
+                Ok(_) if steps >= 2 => {
+                    let label = self.session.undo.last().map(|e| e.label.clone()).unwrap_or_default();
+                    self.session.merge_undo(steps, &label);
+                }
+                // the edit was refused or changed nothing: take the lock back off as well
+                _ if steps == 1 && self.session.undo_step().is_ok() => {
+                    self.session.redo.pop();
+                }
+                _ => {}
+            }
+        }
         self.lap(t, &format!("{id} (engine)"));
         // Upright that found nothing to correct says why, whatever ran it (the panel, a console key,
         // a menu, an agent): under the photo, never over it (test notes 2026-10-24 notes 4 and 15)
@@ -1104,20 +1128,39 @@ impl LightcraftApp {
 
     /// Called only after a crop gesture begins, inside its undo transaction.
     pub(crate) fn begin_crop(&mut self) -> Result<(), String> {
-        // nothing chosen yet: the photo's own shape, as `crop_tool_aspect` shows it
-        let aspect = self.ui.crop_default_aspect.clone().unwrap_or_else(|| serde_json::json!("original"));
-        if self.session.interaction.is_some()
-            && self.session.active().is_some_and(|id| self.session.crop_untouched(id))
-            && aspect != serde_json::json!("free")
-            // the remembered ratio, turned like the new photo's crop (as a named ratio is)
-            && let Err(e) = self.session.execute("crop.aspect", &serde_json::json!({"aspect": aspect, "orientation": "crop"}))
-        {
-            // A remembered value the command refuses (a hand-edited settings file) would refuse
-            // every crop drag on an untouched photo: forget it and let this drag go ahead.
-            self.ui.crop_default_aspect = None;
-            self.ui.status = e.to_string();
+        if self.session.interaction.is_some() {
+            self.store_shown_crop_lock();
         }
         Ok(())
+    }
+
+    /// Before an edit of an untouched photo's crop (a drag, the angle, Straighten, Auto, a flip):
+    /// store the ratio the tool shows locked into the crop itself. Until then the
+    /// lock is only shown (`crop_tool_aspect`), and the edit would leave the crop touched with no
+    /// lock, which reads as unlocked (test notes 2026-10-31 note 9: nothing but the lock button
+    /// and A unlocks it). Returns whether it stored one (one undo step of its own outside an
+    /// interaction, which the caller merges with the edit). Only this photo: Auto Sync carries the
+    /// edit, not a ratio fitted to this photo's shape.
+    pub(crate) fn store_shown_crop_lock(&mut self) -> bool {
+        // nothing chosen yet: the photo's own shape, as `crop_tool_aspect` shows it
+        let aspect = self.ui.crop_default_aspect.clone().unwrap_or_else(|| serde_json::json!("original"));
+        if !self.session.active().is_some_and(|id| self.session.crop_untouched(id)) || aspect == serde_json::json!("free") {
+            return false;
+        }
+        let sync = std::mem::replace(&mut self.session.auto_sync, false);
+        // the remembered ratio, turned like the new photo's crop (as a named ratio is)
+        let r = self.session.execute("crop.aspect", &serde_json::json!({"aspect": aspect, "orientation": "crop"}));
+        self.session.auto_sync = sync;
+        match r {
+            Ok(_) => true,
+            Err(e) => {
+                // A remembered value the command refuses (a hand-edited settings file) would refuse
+                // every crop edit on an untouched photo: forget it and let this edit go ahead.
+                self.ui.crop_default_aspect = None;
+                self.ui.status = e.to_string();
+                false
+            }
+        }
     }
 
     /// Show a transient toast at the bottom of the canvas (like the reference app's HUD).
@@ -2006,6 +2049,7 @@ impl LightcraftApp {
     pub fn raw_input_hook(&mut self, raw: &mut egui::RawInput) {
         self.inject_synthetic(raw);
         self.pointer_repair.repair(raw);
+        drop_space_repeats(raw);
     }
 
     fn inject_synthetic(&mut self, raw: &mut egui::RawInput) {
@@ -2366,6 +2410,39 @@ fn sam_download_ended(download: &lightcraft_engine::segment::DownloadStatus) -> 
         None if download.finished => Some((crate::i18n::tr("The SAM 3 model is installed: Object and Describe masks use it.").to_string(), true)),
         None => None,
     }
+}
+
+/// Whether command `id` edits the active photo's crop other than through its lock: the angle
+/// (slider, Straighten tool, pointer rotation, Auto, its Reset), a crop drag, a flip. Such an edit
+/// first stores the lock the tool shows (note 9). (Constrain Crop leaves the crop untouched, note
+/// 16, so the tool goes on showing the lock it had.)
+fn touches_crop(id: &str, params: &Value, active: Option<lightcraft_catalog::PhotoId>) -> bool {
+    match id {
+        "crop.straighten" | "crop.autoStraighten" | "crop.drag" => true,
+        // a rect given outright is the shape asked for (no lock is honoured there); an angle alone turns the crop
+        "crop.set" => params.get("rect").is_none_or(Value::is_null),
+        // a flip of other photos leaves the active one alone
+        "photo.flipHorizontal" | "photo.flipVertical" => match params.get("ids").and_then(Value::as_array) {
+            Some(ids) => active.is_some_and(|a| ids.iter().any(|v| v.as_u64() == Some(a.0))),
+            None => true,
+        },
+        _ if id.starts_with("develop.") => {
+            let crop_control = |c: &str| c.starts_with("crop.");
+            params.get("control").and_then(Value::as_str).is_some_and(crop_control)
+                || params.get("values").and_then(Value::as_object).is_some_and(|o| o.keys().any(|k| crop_control(k)))
+        }
+        _ => false,
+    }
+}
+
+/// Space is a modifier (held: the hand that pans; pressed: Toggle Zoom), like Shift or Alt, so
+/// holding it never fires again and again (test notes 2026-10-31 note 6): the key's auto-repeat
+/// presses are dropped before anything sees them, for the shortcuts, a focused handle or button
+/// and the control channel alike. Only the key events go: the typed text (`Event::Text`) stays,
+/// so holding Space in a text box still types spaces. `key_down(Space)` is unchanged (the first
+/// press sets it, the release clears it).
+fn drop_space_repeats(raw: &mut egui::RawInput) {
+    raw.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Space, pressed: true, repeat: true, .. }));
 }
 
 /// A file `ui.dropFiles` delivers as dropped, as a real OS drop arrives in `raw.dropped_files`.
