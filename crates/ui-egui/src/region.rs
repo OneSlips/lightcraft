@@ -590,6 +590,100 @@ pub fn window_for(full_w: usize, full_h: usize, visible: (f32, f32, f32, f32), m
     Some(PixelWindow { x: x0, y: y0, w: x1 - x0, h: y1 - y0 })
 }
 
+/// The part of `win` (a window of a `full` frame) that is drawn when it is one of several windows
+/// of the view ([`crate::render::PanTile`]): its pixels away from the frame's edges, where the
+/// spatial stages had their context ([`margin_for`]). The window itself when that leaves nothing.
+pub fn inner(win: PixelWindow, full: (usize, usize)) -> PixelWindow {
+    let m = margin_for(full.0.max(full.1));
+    let axis = |a: usize, len: usize, full: usize| -> (usize, usize) {
+        let lo = if a == 0 { 0 } else { a.saturating_add(m) };
+        let end = a.saturating_add(len);
+        let hi = if end >= full { end } else { end.saturating_sub(m) };
+        (lo, hi)
+    };
+    let (x0, x1) = axis(win.x, win.w, full.0);
+    let (y0, y1) = axis(win.y, win.h, full.1);
+    if x1 <= x0 || y1 <= y0 {
+        return win;
+    }
+    PixelWindow { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/// Whether `rects` together cover all of `area` (`(x0, y0, x1, y1)`, frame pixels): exact, on the
+/// grid their edges make. An empty area is covered.
+pub fn covers(rects: &[PixelWindow], area: (f32, f32, f32, f32)) -> bool {
+    let (ax0, ay0, ax1, ay1) = area;
+    if ![ax0, ay0, ax1, ay1].iter().all(|v| v.is_finite()) || ax1 <= ax0 || ay1 <= ay0 {
+        return true;
+    }
+    let edges = |lo: f32, hi: f32, of: &dyn Fn(&PixelWindow) -> [f32; 2]| -> Vec<f32> {
+        let mut v = vec![lo, hi];
+        v.extend(rects.iter().flat_map(of).filter(|e| *e > lo && *e < hi));
+        v.sort_by(f32::total_cmp);
+        v.dedup();
+        v
+    };
+    let xs = edges(ax0, ax1, &|r| [r.x as f32, (r.x + r.w) as f32]);
+    let ys = edges(ay0, ay1, &|r| [r.y as f32, (r.y + r.h) as f32]);
+    xs.windows(2).all(|x| {
+        let cx = (x[0] + x[1]) / 2.0;
+        ys.windows(2).all(|y| {
+            let cy = (y[0] + y[1]) / 2.0;
+            rects.iter().any(|r| cx >= r.x as f32 && cx < (r.x + r.w) as f32 && cy >= r.y as f32 && cy < (r.y + r.h) as f32)
+        })
+    })
+}
+
+/// The visible area `visible` (frame pixels) of a view that moved by `moved` (frame pixels) since
+/// the last frame, grown in the direction it moves by about half a second of travel (at most one
+/// view's size): the window asked for then still covers the view when it arrives.
+pub fn lead(visible: (f32, f32, f32, f32), moved: (f32, f32)) -> (f32, f32, f32, f32) {
+    let (x0, y0, x1, y1) = visible;
+    let reach = |d: f32, size: f32| if d.is_finite() { (d * LEAD_FRAMES).clamp(-size, size) } else { 0.0 };
+    let (dx, dy) = (reach(moved.0, x1 - x0), reach(moved.1, y1 - y0));
+    (x0 + dx.min(0.0), y0 + dy.min(0.0), x1 + dx.max(0.0), y1 + dy.max(0.0))
+}
+
+/// Frames of travel a pan's window is asked for ahead ([`lead`]): half a second at 60 Hz.
+const LEAD_FRAMES: f32 = 30.0;
+
+/// The areas next to `visible` (frame pixels) of a `full` frame that a still zoomed view makes
+/// ahead, nearest first: one view's size to the right, left, below and above, then the corners.
+/// Areas wholly outside the frame are left out.
+pub fn around(visible: (f32, f32, f32, f32), full: (usize, usize)) -> Vec<(f32, f32, f32, f32)> {
+    let (x0, y0, x1, y1) = visible;
+    let (w, h) = (x1 - x0, y1 - y0);
+    if !(w > 0.0 && h > 0.0) {
+        return Vec::new();
+    }
+    let (fw, fh) = (full.0 as f32, full.1 as f32);
+    [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)]
+        .into_iter()
+        .map(|(i, j)| (x0 + i * w, y0 + j * h, x1 + i * w, y1 + j * h))
+        .map(|(a, b, c, d)| (a.max(0.0), b.max(0.0), c.min(fw), d.min(fh)))
+        .filter(|(a, b, c, d)| c > a && d > b)
+        .collect()
+}
+
+/// The share (0..1) of `area` that `rects` cover together, sampled on a fine grid (overlaps count
+/// once): how much of the photo on screen a zoomed view draws sharp. An empty area counts as covered.
+pub fn covered_share(area: egui::Rect, rects: &[egui::Rect]) -> f32 {
+    const N: usize = 48;
+    if !(area.width() > 0.0 && area.height() > 0.0) {
+        return 1.0;
+    }
+    let mut hit = 0usize;
+    for j in 0..N {
+        for i in 0..N {
+            let q = egui::pos2(area.left() + (i as f32 + 0.5) / N as f32 * area.width(), area.top() + (j as f32 + 0.5) / N as f32 * area.height());
+            if rects.iter().any(|r| r.contains(q)) {
+                hit += 1;
+            }
+        }
+    }
+    hit as f32 / (N * N) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1311,5 +1405,75 @@ mod tests {
         d.observe(7.0, 1000, f64::NAN);
         d.observe(8.0, 1000, -1.0);
         assert_eq!(d.ms_per_mp(), before);
+    }
+
+    // ------------------------------------------------ panning (test notes 2026-10-31 note 2)
+
+    #[allow(non_snake_case)]
+    fn W(x: usize, y: usize, w: usize, h: usize) -> PixelWindow {
+        PixelWindow { x, y, w, h }
+    }
+
+    #[test]
+    fn windows_cover_an_area_together_exactly() {
+        let a = (100.0, 100.0, 900.0, 500.0);
+        assert!(covers(&[W(0, 0, 1000, 1000)], a));
+        // two halves meet edge to edge
+        assert!(covers(&[W(0, 0, 500, 1000), W(500, 0, 500, 1000)], a));
+        // a one-pixel gap between them is found
+        assert!(!covers(&[W(0, 0, 499, 1000), W(500, 0, 500, 1000)], a));
+        // and a corner missing
+        assert!(!covers(&[W(0, 0, 1000, 400), W(0, 400, 800, 600)], a));
+        assert!(!covers(&[], a));
+        // nothing to cover, or hostile numbers: covered (never a render for them)
+        assert!(covers(&[], (5.0, 5.0, 5.0, 9.0)));
+        assert!(covers(&[], (f32::NAN, 0.0, 1.0, 1.0)));
+    }
+
+    #[test]
+    fn a_window_draws_its_inner_part_except_at_the_frame_edges() {
+        let full = (8000, 6000);
+        let m = margin_for(8000);
+        let win = W(1024, 1024, 4096, 3072);
+        assert_eq!(inner(win, full), W(1024 + m, 1024 + m, 4096 - 2 * m, 3072 - 2 * m));
+        // at the frame's edges the window's own pixels are the frame's: drawn to the edge
+        assert_eq!(inner(W(0, 0, 4096, 3072), full), W(0, 0, 4096 - m, 3072 - m));
+        assert_eq!(inner(W(4000, 3000, 4000, 3000), full), W(4000 + m, 3000 + m, 4000 - m, 3000 - m));
+        // a window narrower than its margins stays whole
+        assert_eq!(inner(W(1000, 1000, m, m), full), W(1000, 1000, m, m));
+    }
+
+    #[test]
+    fn a_pan_asks_ahead_in_its_direction() {
+        let v = (1000.0, 1000.0, 2920.0, 2200.0);
+        assert_eq!(lead(v, (0.0, 0.0)), v);
+        // moving right by 20 px a frame: half a second ahead on the right only
+        assert_eq!(lead(v, (20.0, 0.0)), (1000.0, 1000.0, 2920.0 + 600.0, 2200.0));
+        // up and to the left, at most one view's size
+        assert_eq!(lead(v, (-500.0, -10.0)), (1000.0 - 1920.0, 1000.0 - 300.0, 2920.0, 2200.0));
+        assert_eq!(lead(v, (f32::NAN, f32::INFINITY)), v);
+    }
+
+    #[test]
+    fn the_areas_around_a_view_come_nearest_first_and_inside_the_frame() {
+        let v = (2000.0, 2000.0, 3000.0, 2600.0);
+        let a = around(v, (8000, 6000));
+        assert_eq!(a.len(), 8);
+        assert_eq!(a[0], (3000.0, 2000.0, 4000.0, 2600.0), "right first");
+        assert_eq!(a[1], (1000.0, 2000.0, 2000.0, 2600.0), "then left");
+        // in the frame's top-left corner only right, below and their corner remain
+        let a = around((0.0, 0.0, 1000.0, 600.0), (8000, 6000));
+        assert_eq!(a, vec![(1000.0, 0.0, 2000.0, 600.0), (0.0, 600.0, 1000.0, 1200.0), (1000.0, 600.0, 2000.0, 1200.0)]);
+        assert!(around((0.0, 0.0, 0.0, 10.0), (100, 100)).is_empty());
+    }
+
+    #[test]
+    fn the_sharp_share_counts_overlaps_once() {
+        let area = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(100.0, 100.0));
+        let half = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(50.0, 100.0));
+        assert!((covered_share(area, &[half, half]) - 0.5).abs() < 0.03);
+        assert_eq!(covered_share(area, &[area]), 1.0);
+        assert_eq!(covered_share(area, &[]), 0.0);
+        assert_eq!(covered_share(egui::Rect::NOTHING, &[]), 1.0);
     }
 }

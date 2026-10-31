@@ -85,6 +85,8 @@ mod tests_browse_active;
 #[cfg(test)]
 mod tests_brush_notes;
 #[cfg(test)]
+mod tests_brush_sync;
+#[cfg(test)]
 mod tests_button;
 #[cfg(test)]
 mod tests_canvas_keys;
@@ -216,6 +218,8 @@ mod tests_offline;
 mod tests_open_lightroom;
 #[cfg(test)]
 mod tests_osd;
+#[cfg(test)]
+mod tests_pan;
 #[cfg(test)]
 mod tests_panel_restore;
 #[cfg(test)]
@@ -611,6 +615,13 @@ pub struct LightcraftApp {
     /// How the loupe drew its picture last frame ([`panels::detail::LoupeDrawn`]): where the
     /// picture's corners went and the rect it fills (tests check that no part of it is empty).
     pub loupe_drawn: Option<panels::detail::LoupeDrawn>,
+    /// Zoomed past the whole-frame render: the share (0..1) of the photo on screen that the last
+    /// frame drew sharp, from window renders (the rest is the whole-frame render magnified); `None`
+    /// when the view needs no window (test notes 2026-10-31 note 2).
+    pub loupe_sharp: Option<f32>,
+    /// Where the zoomed view's visible area began last frame (photo, frame size, top-left in frame
+    /// pixels): how far it moved, so a pan asks for the window it is heading into.
+    pub(crate) pan_seen: Option<(lightcraft_catalog::PhotoId, (usize, usize), (f32, f32))>,
     /// Renders made for the crop tool (the whole photo, uncropped), by photo and render key: once
     /// the tool closes they stay on screen until the cropped render arrives, drawn cropped
     /// (client note 3b: Done showed the uncropped photo for seconds). The last few only.
@@ -804,6 +815,8 @@ impl LightcraftApp {
             brush_live: None,
             loupe_shown: None,
             loupe_drawn: None,
+            loupe_sharp: None,
+            pan_seen: None,
             crop_tool_renders: Vec::new(),
             paint_hold_until: f64::NEG_INFINITY,
             paint_hold: false,
