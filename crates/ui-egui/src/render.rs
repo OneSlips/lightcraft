@@ -81,6 +81,12 @@ pub enum Slot {
 /// again (note 10 of 2026-10-24: "switching between two photos re-renders every time").
 pub const KEPT_WINDOWS: usize = 8;
 
+/// Full-quality whole-frame loupe renders ([`Slot::Main`]) kept after the view moved on, newest
+/// last: the crop tool's whole photo and the cropped view of the same edit (note 5 of 2026-10-31:
+/// pressing C changes nothing in the edit, so it shows the kept render at once instead of
+/// rendering again), or a step back to the photo before.
+pub const KEPT_VIEWS: usize = 2;
+
 pub struct Tex {
     pub key: u64,
     pub photo: PhotoId,
@@ -331,6 +337,10 @@ pub struct Renderer {
     /// The loupe's last full-quality request per view ([`Slot::Main`], [`Slot::Region`]): its photo
     /// and the flag that tells it a draft replaced it ([`lightcraft_engine::media::RenderJob::superseded`]).
     full_requests: HashMap<Slot, (PhotoId, Arc<std::sync::atomic::AtomicBool>)>,
+    /// Recent full-quality whole-frame renders ([`KEPT_VIEWS`], least recently shown first).
+    kept_views: std::collections::VecDeque<Tex>,
+    /// Keys of the full-quality (not draft) whole-frame renders among the textures and `kept_views`.
+    full_views: std::collections::HashSet<u64>,
 }
 
 /// Whether a render of `s` solves a content-aware fill (a Fill spot).
@@ -476,6 +486,8 @@ impl Renderer {
             fill_row: None,
             native_frames: HashMap::new(),
             full_requests: HashMap::new(),
+            kept_views: std::collections::VecDeque::new(),
+            full_views: std::collections::HashSet::new(),
         }
     }
 }
@@ -639,6 +651,10 @@ impl Renderer {
         {
             self.keep_window(t);
         }
+        if slot == Slot::Main {
+            self.kept_views.clear();
+            self.full_views.clear();
+        }
         self.stages.remove(&slot);
     }
 
@@ -668,6 +684,9 @@ impl Renderer {
         }
         let mut job = self.job_for(slot, job);
         if slot == Slot::Region && self.textures.get(&slot).is_none_or(|t| t.key != job.key) && self.take_kept_window(job.key) {
+            return;
+        }
+        if slot == Slot::Main && self.textures.get(&slot).is_none_or(|t| t.key != job.key) && self.take_kept_view(job.key) {
             return;
         }
         if !self.request_needed(slot, job.key, priority) {
@@ -793,6 +812,39 @@ impl Renderer {
             self.keep_window(old);
         }
         true
+    }
+
+    /// Show the kept whole-frame render made for `key` ([`KEPT_VIEWS`]) in [`Slot::Main`], keeping
+    /// the one shown there now. Whether there was one.
+    fn take_kept_view(&mut self, key: u64) -> bool {
+        let Some(i) = self.kept_views.iter().position(|t| t.key == key) else { return false };
+        let Some(found) = self.kept_views.remove(i) else { return false };
+        self.drop_queued(Slot::Main);
+        self.pending.remove(&Slot::Main);
+        self.requests.remove(&Slot::Main);
+        self.failed.remove(&Slot::Main);
+        // (a render still out for the view is older than this one now)
+        self.shown_ids.insert(Slot::Main, lightcraft_preview::next_tick());
+        if let Some(old) = self.textures.insert(Slot::Main, found) {
+            self.keep_view(old);
+        }
+        true
+    }
+
+    /// Keep `t`, a whole-frame render that leaves [`Slot::Main`], if it is a full-quality one drawn
+    /// from pixels (a draft, or a texture that stayed on the GPU, is let go).
+    fn keep_view(&mut self, t: Tex) {
+        if t.native.is_some() || !self.full_views.contains(&t.key) {
+            self.full_views.remove(&t.key);
+            return;
+        }
+        self.kept_views.retain(|k| k.key != t.key);
+        self.kept_views.push_back(t);
+        while self.kept_views.len() > KEPT_VIEWS {
+            if let Some(gone) = self.kept_views.pop_front() {
+                self.full_views.remove(&gone.key);
+            }
+        }
     }
 
     /// Keep `t`, a window that leaves [`Slot::Region`], if it is a full-quality one drawn from
@@ -954,6 +1006,8 @@ impl Renderer {
         self.textures.clear();
         self.kept_windows.clear();
         self.full_windows.clear();
+        self.kept_views.clear();
+        self.full_views.clear();
         self.windows_ahead_done = None;
         self.stages.clear();
         self.quick_tried.clear();
@@ -1270,6 +1324,19 @@ impl Renderer {
                 self.requests.remove(&Slot::Preview);
                 self.quick_tried.remove(&slot);
                 slot = Slot::Preview;
+            }
+            // the whole frame: a full-quality render shown so far is kept for a return to it (Crop
+            // on and off), and the new one gets a texture of its own
+            if slot == Slot::Main && r.rendered.is_ok() {
+                let draft = self.view_requests.get(&r.request_id).is_some_and(|q| q.draft);
+                if !draft && r.frame.is_none() {
+                    self.full_views.insert(r.key);
+                }
+                if self.textures.get(&Slot::Main).is_some_and(|t| t.key != r.key && self.full_views.contains(&t.key) && t.native.is_none())
+                    && let Some(t) = self.textures.remove(&Slot::Main)
+                {
+                    self.keep_view(t);
+                }
             }
             // a render that stayed on the GPU: drawn from its texture
             if let (Some(frame), Ok(rendered)) = (r.frame.as_ref(), r.rendered.as_ref()) {
