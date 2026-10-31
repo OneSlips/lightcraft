@@ -4859,10 +4859,31 @@ mod tests {
         }
         // Performance: the thumbnail cache size goes to the library preferences
         h.request("ui.clickWidget", json!({"id": "button:settingsTab-performance"}), t);
+        // (with a GPU, the graphics-card rows push these controls below the fold: scroll the page
+        // until each one is inside it; clipped widgets are still listed, so compare the rects)
+        let reveal = |h: &mut Headless, id: &str| {
+            h.request("ui.hoverWidget", json!({"id": "settings:content"}), t);
+            for _ in 0..16 {
+                let rect = |name: &str| h.app.widgets.iter().find(|(w, _)| w == name).map(|(_, r)| *r);
+                let (Some(r), Some(page)) = (rect(id), rect("settings:content")) else { break };
+                if page.contains_rect(r) {
+                    break;
+                }
+                // (a wheel step scrolls smoothly over a few frames)
+                let dy = if r.top() < page.top() { 200.0 } else { -200.0 };
+                h.request("ui.scroll", json!({"dy": dy}), t);
+                for _ in 0..10 {
+                    h.step();
+                }
+            }
+        };
+        reveal(&mut h, "button:settingsCache-0");
         h.request("ui.clickWidget", json!({"id": "button:settingsCache-0"}), t);
         assert_eq!(h.app.session.cache_mb, 512);
+        reveal(&mut h, "button:settingsPreview-3");
         h.request("ui.clickWidget", json!({"id": "button:settingsPreview-3"}), t);
         assert_eq!(h.app.ui.settings.preview_limit, 3840);
+        reveal(&mut h, "button:settingsMemory-2");
         h.request("ui.clickWidget", json!({"id": "button:settingsMemory-2"}), t);
         assert_eq!(h.app.ui.settings.memory_mb, 1024);
         h.step();
