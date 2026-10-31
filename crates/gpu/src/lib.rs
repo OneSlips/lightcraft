@@ -332,6 +332,24 @@ pub fn wait_batch_turn_any(src_px: usize, out_px: usize, stop: &dyn Fn() -> bool
     }
 }
 
+thread_local! {
+    /// The card that made this thread's latest GPU image ([`take_rendered_on`]).
+    static RENDERED_ON: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// A GPU render on this thread made its image on card `name`.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+fn note_rendered_on(name: &str) {
+    let _ = RENDERED_ON.try_with(|c| *c.borrow_mut() = Some(name.to_string()));
+}
+
+/// The name of the card that made this thread's latest GPU image since the last call, and forget
+/// it; `None` when no render on this thread made a GPU image since (the processor rendered, or
+/// the GPU fell back). An export's `gpuDevice`: which of two cards took the photo.
+pub fn take_rendered_on() -> Option<String> {
+    RENDERED_ON.try_with(|c| c.borrow_mut().take()).ok().flatten()
+}
+
 /// Batch renders on the editing card don't start for `d` from now: the window needs the GPU (it
 /// resizes, a frame was slow). Renders already running finish.
 pub fn hold_batch(d: std::time::Duration) {
@@ -1101,6 +1119,10 @@ pub fn adopt_window_device(device: wgpu::Device, queue: wgpu::Queue, info: wgpu:
         return Err("GPU rendering is off".into());
     }
     let _work = exit::enter().ok_or("LightCraft is closing")?;
+    // the second card builds its kernels beside the editing card's, below normal priority (both
+    // took ~27 s one after the other on a busy machine: the second card was ready ~56 s after
+    // launch); the screen's card is known now, so it can tell which card is the other one
+    sync_helper();
     let Some(backends) = backend::compute_backends() else { return Err("disabled by LIGHTCRAFT_GPU_BACKEND=off".into()) };
     *WINDOW.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
         Some(WindowDevice { device: device.clone(), queue: queue.clone(), info: info.clone(), declined: false });
@@ -1576,8 +1598,9 @@ fn helper_syncing() -> bool {
 
 /// Make the second card's device match the settings now, on a thread of its own (`lc-gpu-helper`):
 /// made, replaced by another card's, or released. Once at a time; asked again meanwhile, it runs
-/// once more after. Nothing before the editing card's device was tried ([`warm_up`] and
-/// [`adopt_window_device`] call it after).
+/// once more after. Nothing before it is known which card edits: the editing card's device tried
+/// ([`warm_up`] calls it after), or the screen's card told ([`adopt_window_device`] calls it
+/// before building the editing card's kernels, so both cards build theirs at once).
 #[cfg(not(target_arch = "wasm32"))]
 fn sync_helper() {
     {
@@ -1589,6 +1612,8 @@ fn sync_helper() {
         *s = (true, false);
     }
     let spawned = std::thread::Builder::new().name("lc-gpu-helper".into()).spawn(|| {
+        // below normal priority: the editing card's set-up and the window come first
+        lightcraft_sysmem::lower_thread_priority();
         loop {
             if let Some(_work) = exit::enter() {
                 sync_helper_now();
@@ -1631,7 +1656,9 @@ pub fn wait_helper(timeout: std::time::Duration) -> bool {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn sync_helper_now() {
-    if env_disabled() || !ENABLED.load(Ordering::Relaxed) || !slot::tried(Role::Primary) {
+    // (which card is the editing one must be known: its device tried, or the screen's card told)
+    let editing_known = slot::tried(Role::Primary) || cards::screen().is_some();
+    if env_disabled() || !ENABLED.load(Ordering::Relaxed) || !editing_known {
         return;
     }
     let Some(backends) = backend::compute_backends() else { return };
@@ -1685,10 +1712,15 @@ pub(crate) fn helper_pick(backends: wgpu::Backends) -> Result<(wgpu::Adapter, Op
         })
         .map_err(|_| "listing the graphics cards panicked".to_string())
     })?;
-    let primary = slot::existing(Role::Primary).and_then(|g| {
-        let key = g.key.clone().unwrap_or_else(|| cards::AdapterKey::of(&g.info, 1));
-        entries.iter().position(|e| e.key == key).or_else(|| entries.iter().position(|e| e.key.same_model(&key)))
-    });
+    let primary = match slot::existing(Role::Primary) {
+        Some(g) => {
+            let key = g.key.clone().unwrap_or_else(|| cards::AdapterKey::of(&g.info, 1));
+            entries.iter().position(|e| e.key == key).or_else(|| entries.iter().position(|e| e.key.same_model(&key)))
+        }
+        // the editing card's device is still being made (its kernels build beside these): the
+        // card it will be on, as it resolves it
+        None => cards::resolve_card(&entries, backend::wanted_adapter().as_deref(), cards::card().as_ref()).index,
+    };
     let Some(i) = cards::resolve_helper(&entries, primary, &choice, pins) else {
         return Err(match &choice {
             cards::HelperChoice::Card(k) => format!("the {} isn't available", k.name),
@@ -1851,7 +1883,11 @@ fn run(
                 }
                 format!("device failure during the render: {}", unavailable_reason().unwrap_or_default())
             }
-            (Ok(Some(r)), None) => return Ok(r),
+            (Ok(Some(r)), None) => {
+                // (an export names the card that made its file: `gpuDevice`)
+                note_rendered_on(&gpu.info.name);
+                return Ok(r);
+            }
             // every path of `render::render` that gives up records a failure first; should one
             // not, the CPU renders it rather than nothing
             (Ok(None), None) => "GPU render: no image came back".to_string(),
@@ -1864,6 +1900,16 @@ fn run(
 #[cfg(test)]
 mod tests {
     use lightcraft_pipeline::{OutputDepth, Overlay};
+
+    // An export asks which card made its image once per photo: the name is this thread's and goes
+    #[test]
+    fn the_card_that_rendered_is_taken_once_per_thread() {
+        assert_eq!(super::take_rendered_on(), None);
+        super::note_rendered_on("Card A");
+        assert_eq!(std::thread::spawn(super::take_rendered_on).join().ok().flatten(), None, "another thread's render");
+        assert_eq!(super::take_rendered_on().as_deref(), Some("Card A"));
+        assert_eq!(super::take_rendered_on(), None);
+    }
 
     // Given a request the 8-bit kernel can't draw (high bit depth, a soft proof, Visualize HDR),
     // the GPU doesn't take it; the loupe and diagnostic overlays it can draw stay on the GPU

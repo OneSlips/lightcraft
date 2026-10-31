@@ -109,8 +109,17 @@ an agent testing on one card never touches the other.
 - **Routing is per thread**, like `on_cpu`: `with_role(role, f)` sends that thread's renders to `role`'s
   device (the CPU when it has none); `on_helper(f)` uses the second card when it is ready. Batch work
   takes `batch_turn_any(src_px, out_px)` (or `wait_batch_turn_any`) inside `as_batch`: a turn on the
-  second card first, else on the editing card, else `None` (render on the CPU). While the turn is held
-  the thread's renders go to its card, so a photo's SDR and HDR renditions stay on one card.
+  card with room that would finish the photo soonest — its photos running now plus this one, at its
+  measured batch speed (`batch_rate_of(role)`: bytes of finished turns per busy second, the last
+  minutes counting most; both cards alike until each finished some; ties to the second card) — else
+  `None` (render on the CPU). So both cards work in proportion to their speed, and a build of two
+  photos at a time puts one on each (before, the second card took every photo while it had room: a
+  2-lane 1:1 build of 24 raws took 69 s on both cards vs 52 s on the RTX 5070 alone). In the desktop
+  app the second card still takes a photo first whenever it has none (§8). `batch_cards()` counts the
+  cards taking batch work and `batch_lanes_hint(per_card)` sizes a caller's lanes for them. While the
+  turn is held the thread's renders go to its card, so a photo's SDR and HDR renditions stay on one
+  card. In the desktop app `app.gpu {helper}` never waits for the card's set-up (its commands run on
+  the UI thread): it answers with `helper.state` `starting`; poll `app.gpu` until `ready`.
 - **The editing card yields to the interface** (`track_interaction(true)`, the desktop app only): batch
   turns there start only after about 1 s without input (`note_interaction`, every frame with input) and
   without a view render; while the second card works, the editing card takes one batch render at a
@@ -242,6 +251,17 @@ walks the drive.
   wait for device creation at startup. Six workers rendering 256 px thumbnails: 3.6 ms each on an
   RTX 5070 vs 4.3–5.2 ms on 32 CPU threads (`crates/gpu/tests/it/thumbs_bench.rs`), and the cores stay
   free for raw decoding.
+- **Exports on two cards** (`export.rs`): with a second card ready (`helper_ready`), each photo of a
+  batch takes a turn on whichever card has room first, the second card first (`wait_batch_turn_any`;
+  in `mix` mode `batch_turn_any`, the processor when both are busy), and keeps that card for both of a
+  gain map's renditions; the editing card takes batch photos only while the interface is idle (§8 gate).
+  Photos are split between cards, never one render across them. The automatic export lanes grow by the
+  photos the second card renders at once (still within the export memory gate). Each file of the
+  result names its card (`gpuDevice`). The second card lost mid-batch: the photo on it renders on the
+  processor (`gpuFallback`), the rest on the editing card; no file is lost
+  (`crates/engine/tests/export_two_cards.rs`). One card: exports run exactly as before.
+  `export::set_export_cards(Both | Editing | Helper)` and `export_bench --helper on|off|only` compare
+  them; Test my machine measures a run on both cards and keeps the second card unless it was > 3 % slower.
 - Every 8-bit render takes the GPU path whatever its settings: LUT profiles (the `.cube` table
   rides in the kernel's `aux` buffer, trilinear like `Lut3d::apply`, after grain), masks with
   Refine Edges (the cross guided filter of Auto Mask, blended by √refine before the mask's invert
