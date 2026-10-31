@@ -100,3 +100,64 @@ fn a_masks_point_color_section_samples_and_adjusts() {
     h.settle(SETTLE);
     assert!(develop(&h).masks[0].point_colors.is_empty());
 }
+
+#[test]
+fn a_masks_color_mixer_section_shows_and_drives_its_mixer() {
+    let mut h = with_mask();
+    // the section, under the Curve and above Point Color, opens on Hue: a slider per colour
+    let at = |h: &mut Headless, id: &str| {
+        let r = h.request("ui.hoverWidget", json!({"id": id}), T);
+        assert_eq!(r["ok"], true, "{id}: {r}");
+    };
+    for id in
+        ["section:maskMixer", "button:maskMixerGroup-hue", "icon:maskMixerTargeted-hue", "slider:maskMixer.red.hue", "slider:maskMixer.magenta.hue"]
+    {
+        at(&mut h, id);
+    }
+    let y = |h: &Headless, id: &str| h.app.widgets.iter().find(|(w, _)| w == id).map(|(_, r)| r.top()).unwrap_or_else(|| panic!("{id}"));
+    assert!(y(&h, "section:maskCurve") < y(&h, "section:maskMixer") && y(&h, "section:maskMixer") < y(&h, "section:maskPointColor"));
+    // a slider sets the mask's mixer, not the photo's
+    click(&mut h, "slider:maskMixer.blue.hue", Some((0.95, 0.5)));
+    h.settle(SETTLE);
+    let d = develop(&h);
+    assert!(d.masks[0].mixer.blue.hue > 50.0, "{:?}", d.masks[0].mixer);
+    assert!(d.mixer.is_neutral(), "the photo's own Color Mixer is untouched");
+    // Saturation shows the saturation sliders
+    click(&mut h, "button:maskMixerGroup-sat", None);
+    h.step();
+    at(&mut h, "slider:maskMixer.green.sat");
+    let r = h.request("ui.hoverWidget", json!({"id": "slider:maskMixer.green.hue"}), T);
+    assert_eq!(r["ok"], false, "{r}");
+    // Color: one colour's three sliders
+    click(&mut h, "button:maskMixerGroup-color", None);
+    h.step();
+    click(&mut h, "maskMixerBand:aqua", None);
+    h.step();
+    for id in ["slider:maskMixer.aqua.hue", "slider:maskMixer.aqua.sat", "slider:maskMixer.aqua.lum"] {
+        at(&mut h, id);
+    }
+    click(&mut h, "slider:maskMixer.aqua.lum", Some((0.05, 0.5)));
+    h.settle(SETTLE);
+    assert!(develop(&h).masks[0].mixer.aqua.lum < -50.0);
+    // the targeted adjustment: an upward drag on the photo raises the saturation of the colour there
+    click(&mut h, "button:maskMixerGroup-sat", None);
+    h.step();
+    click(&mut h, "icon:maskMixerTargeted-sat", None);
+    assert_eq!(h.app.ui.tool, "maskMixer:sat");
+    let before: f64 = develop(&h).masks[0].mixer.bands().iter().map(|b| b.sat).sum();
+    let r = h.request(
+        "ui.pointer",
+        json!({"events": [
+            {"kind": "down", "x": 0.5, "y": 0.5},
+            {"kind": "move", "x": 0.5, "y": 0.45},
+            {"kind": "move", "x": 0.5, "y": 0.4},
+            {"kind": "up", "x": 0.5, "y": 0.4}
+        ]}),
+        T,
+    );
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(SETTLE);
+    let after: f64 = develop(&h).masks[0].mixer.bands().iter().map(|b| b.sat).sum();
+    assert!(after > before, "the drag raised a band's saturation ({before} → {after})");
+    assert!(develop(&h).mixer.is_neutral());
+}

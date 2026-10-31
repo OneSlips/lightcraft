@@ -1253,8 +1253,12 @@ pub struct UiState {
     pub mask_curve_channel: String,
     /// Selected sample of a mask's Point Color.
     pub mask_point_color: usize,
-    /// A mask's sections (Curve, Point Color) the user folded shut.
+    /// A mask's sections (Curve, Color Mixer, Point Color) the user folded shut.
     pub mask_sections_closed: Vec<String>,
+    /// A mask's Color Mixer: the sliders shown ("hue", "sat", "lum": the eight colours' one slider;
+    /// "color": one colour's three) and that colour (a `MIXER_BANDS` name).
+    pub mask_mixer_group: String,
+    pub mask_mixer_band: String,
     /// Light panel "Visualize HDR": grey below SDR white, colour bands above (HDR edits).
     pub hdr_visualize: bool,
     /// Red Eye panel: selected correction, and whether new ones are pet eyes.
@@ -2104,6 +2108,8 @@ impl Default for UiState {
             mask_curve_channel: "master".into(),
             mask_point_color: 0,
             mask_sections_closed: Vec::new(),
+            mask_mixer_group: "hue".into(),
+            mask_mixer_band: "red".into(),
             hdr_visualize: false,
             eye: 0,
             eye_pet: false,
@@ -2282,7 +2288,9 @@ fn deserialize_favorite_themes<'de, D: serde::Deserializer<'de>>(d: D) -> Result
 /// (Point Color, a mask's Point Color, Color / Luminance Range). The white balance picker is left out: it puts
 /// itself away after one pick and keeps working across panels (W).
 pub fn is_picker(tool: &str) -> bool {
-    tool.starts_with("tat:") || matches!(tool, "pointColor" | "colorRange" | "lumRange" | "maskPointColor")
+    tool.starts_with("tat:")
+        || tool.starts_with(crate::panels::mask_local::MIXER_TOOL)
+        || matches!(tool, "pointColor" | "colorRange" | "lumRange" | "maskPointColor")
 }
 
 /// A note shown under the photo ([`UiState::photo_note`]).

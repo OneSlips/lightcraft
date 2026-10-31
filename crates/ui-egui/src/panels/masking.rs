@@ -797,7 +797,9 @@ fn carry_component(app: &mut LightcraftApp, d: &lightcraft_develop::DevelopSetti
 
 /// The on-photo tools that belong to Masking (armed from its panel or a shortcut).
 pub(crate) fn is_mask_tool(tool: &str) -> bool {
-    matches!(tool, "brush" | "linear" | "radial" | "colorRange" | "lumRange" | "object") || tool == super::mask_local::PICK_TOOL
+    matches!(tool, "brush" | "linear" | "radial" | "colorRange" | "lumRange" | "object")
+        || tool == super::mask_local::PICK_TOOL
+        || tool.starts_with(super::mask_local::MIXER_TOOL)
 }
 
 /// Put every mask tool away: a tool waiting for a new mask, and the brush armed on a component.

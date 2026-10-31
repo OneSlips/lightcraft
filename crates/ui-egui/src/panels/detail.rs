@@ -2313,8 +2313,9 @@ fn quick_name(q: lightcraft_engine::media::QuickSource) -> &'static str {
 
 /// Targeted adjustment tool: dragging up/down on the photo raises/lowers the tone-curve region or
 /// the colour-mixer bands under the press point (`develop.targeted`, one call per whole step, all
-/// in one interaction = one undo step).
-fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap, target: &str) {
+/// in one interaction = one undo step). `command`: `develop.targeted`, or `mask.mixerTargeted` for the
+/// selected mask's Color Mixer.
+fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap, target: &str, command: &str) {
     if resp.drag_started()
         && let Some(q) = resp.interact_pointer_pos()
     {
@@ -2333,7 +2334,7 @@ fn targeted_drag(app: &mut LightcraftApp, resp: &egui::Response, map: &CanvasMap
             if target == "curve" && app.ui.curve_channel != "parametric" {
                 p["channel"] = json!(app.ui.curve_channel);
             }
-            let _ = app.run("develop.targeted", p);
+            let _ = app.run(command, p);
         }
     }
     if resp.drag_stopped() && matches!(app.gesture, Some(Gesture::Targeted { .. })) {
@@ -2584,7 +2585,7 @@ fn general_interaction(
         return;
     }
     if let Some(target) = app.ui.tool.strip_prefix("tat:").map(str::to_string) {
-        targeted_drag(app, resp, map, &target);
+        targeted_drag(app, resp, map, &target, "develop.targeted");
         return;
     }
     if app.ui.tool == "colorRange" {
@@ -3868,6 +3869,14 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
     // the Luminance Range picker
     if app.ui.tool == "lumRange" {
         super::range_pick::luminance_tool(app, ui, resp, map, p);
+        return;
+    }
+    // the selected mask's Color Mixer targeted adjustment: a vertical drag moves the bands of the colour there
+    if let Some(target) = app.ui.tool.strip_prefix(super::mask_local::MIXER_TOOL).map(str::to_string) {
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
+        }
+        targeted_drag(app, resp, map, &target, "mask.mixerTargeted");
         return;
     }
     // the selected mask's Point Color eyedropper: a click samples the colour there
