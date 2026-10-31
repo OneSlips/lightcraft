@@ -707,6 +707,10 @@ pub struct LightcraftApp {
     pub window_is_fullscreen: bool,
     /// The GPU preference last applied (`app.gpu`), to apply Settings changes once.
     gpu_applied: Option<bool>,
+    /// The graphics card for editing last applied (`app.gpu {card}`).
+    gpu_card_applied: Option<String>,
+    /// The second graphics card's setting last applied.
+    gpu_helper_applied: Option<String>,
     /// Say once, when the GPU device has been tried, that no graphics processor was found
     /// ([`panels::notices::gpu_notice`]). The desktop app sets it; headless sessions and tests don't.
     pub gpu_notice: bool,
@@ -855,6 +859,8 @@ impl LightcraftApp {
             hover_preview: None,
             window_is_fullscreen: false,
             gpu_applied: None,
+            gpu_card_applied: None,
+            gpu_helper_applied: None,
             gpu_notice: false,
             gpu_event_seen: 0,
             last_screen: egui::Vec2::ZERO,
@@ -1974,6 +1980,10 @@ impl LightcraftApp {
             }
             self.last_screen = screen;
         }
+        // input this frame: batch work leaves the editing card to the interface for a moment (§8)
+        if ctx.input(|i| !i.events.is_empty() || i.pointer.any_down()) {
+            lightcraft_engine::gpu::note_interaction();
+        }
         #[cfg(not(target_arch = "wasm32"))]
         for e in lightcraft_engine::gpu::events_after(self.gpu_event_seen) {
             self.gpu_event_seen = self.gpu_event_seen.max(e.seq);
@@ -1987,6 +1997,14 @@ impl LightcraftApp {
 
     /// Apply settings that act outside the UI state: GPU rendering and window full screen.
     fn apply_settings(&mut self, ctx: &egui::Context) {
+        // the second graphics card (Settings ▸ Performance), before the warm-up below sets it up
+        if self.gpu_helper_applied.as_deref() != Some(self.ui.settings.gpu_helper.as_str()) {
+            self.gpu_helper_applied = Some(self.ui.settings.gpu_helper.clone());
+            let helper = if self.ui.settings.gpu_helper.is_empty() { "auto".to_string() } else { self.ui.settings.gpu_helper.clone() };
+            if let Err(e) = self.session.execute("app.gpu", &serde_json::json!({"helper": helper, "wait": false})) {
+                log::warn!("second graphics card: {e}");
+            }
+        }
         if self.gpu_applied != Some(self.ui.settings.gpu) {
             self.gpu_applied = Some(self.ui.settings.gpu);
             let _ = self.session.execute("app.gpu", &serde_json::json!({"enabled": self.ui.settings.gpu, "wait": false}));
@@ -1994,6 +2012,14 @@ impl LightcraftApp {
             // rendering is on: a broken driver must not keep the window from appearing (issue #136)
             if self.ui.settings.gpu {
                 lightcraft_engine::gpu::warm_up();
+            }
+        }
+        // the graphics card for editing (Settings ▸ Performance): applied at once, renders move over when it is ready
+        if self.gpu_card_applied.as_deref() != Some(self.ui.settings.gpu_card.as_str()) {
+            self.gpu_card_applied = Some(self.ui.settings.gpu_card.clone());
+            let card = if self.ui.settings.gpu_card.is_empty() { "auto".to_string() } else { self.ui.settings.gpu_card.clone() };
+            if let Err(e) = self.session.execute("app.gpu", &serde_json::json!({"card": card, "wait": false})) {
+                log::warn!("graphics card for editing: {e}");
             }
         }
         let mb = self.ui.settings.memory_mb;

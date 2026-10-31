@@ -242,28 +242,54 @@ pub fn specs() -> Vec<CommandSpec> {
                 "versions": ph.versions.iter().map(|v| json!({"name": v.name, "created": v.created})).collect::<Vec<_>>(),
             }))
         }),
-        cmd!(query "app.gpu", "GPU Rendering", [], None, "{enabled?: bool, wait?: bool} — allow/forbid GPU rendering (CPU fallback; LIGHTCRAFT_GPU=0 forbids it for the process); returns {enabled, available, adapter, reason (why the GPU is off), lastFallback (latest render redone on the CPU, and why)}. wait: false never waits for a device still being created (available, adapter and reason are then null)", always, |_, p| {
+        cmd!(query "app.gpu", "GPU Rendering", [], None, "{enabled?: bool, card?: string, helper?: string, wait?: bool} — allow/forbid GPU rendering (CPU fallback; LIGHTCRAFT_GPU=0 forbids it for the process); card: the graphics card for editing, \"auto\" (the screen's card) or a card's key from `adapters` (or part of its name), applied at once (renders stay on the current card until the new one is ready); helper: the second graphics card for batch work (exports, previews, AI), \"auto\" (another card when there is one), \"off\", \"same\" (a second device on the editing card: tests) or a card's key or part of its name (LIGHTCRAFT_GPU_HELPER overrides it; with wait it waits until the card is set up). Returns {enabled, available, adapter, card (the card photos render on), cardChoice (key or \"auto\"), switching, helper: {choice, state (off|none|notStarted|starting|ready|lost|failed), name, reason}, batchUsage: {editing, helper: {jobs, bytes, waiting, limitBytes, limitJobs, waits, waitedMs, pauses, pausedMs}}, adapters: [{key, name, kind, memoryMb, backend, drivesScreen, usable, whyNot}], reason (why the GPU is off), lastFallback (latest render redone on the CPU, and why)}. wait: false never waits for a device still being created nor lists the cards (available, adapter and reason are then null, adapters what was found so far)", always, |_, p| {
             if let Some(on) = p.get("enabled").and_then(Value::as_bool) {
                 lightcraft_gpu::set_enabled(on);
             }
+            if let Some(c) = p.get("card") {
+                let c = c.as_str().ok_or_else(|| bad("app.gpu", "card must be \"auto\" or a graphics card's key (see adapters)"))?;
+                lightcraft_gpu::set_card(c).map_err(|e| bad("app.gpu", &e))?;
+            }
+            let wait = p.get("wait").and_then(Value::as_bool) != Some(false);
+            if let Some(c) = p.get("helper") {
+                let c = c.as_str().ok_or_else(|| bad("app.gpu", "helper must be \"auto\", \"off\" or a graphics card's key (see adapters)"))?;
+                lightcraft_gpu::set_helper(c).map_err(|e| bad("app.gpu", &e))?;
+                if wait {
+                    lightcraft_gpu::wait_helper(std::time::Duration::from_secs(120));
+                }
+            }
+            let adapters = if wait { Some(lightcraft_gpu::adapters().unwrap_or_else(lightcraft_gpu::list_adapters)) } else { lightcraft_gpu::adapters() };
+            let adapters = adapters.map(|l| {
+                l.into_iter()
+                    .map(|a| {
+                        json!({"key": a.key, "name": a.name, "kind": a.kind, "memoryMb": a.memory.map(|m| m >> 20), "backend": a.backend,
+                               "drivesScreen": a.drives_screen, "usable": a.usable, "whyNot": a.why_not})
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let choice = lightcraft_gpu::card_setting();
+            let mut reply = json!({
+                "enabled": lightcraft_gpu::enabled(),
+                "card": lightcraft_gpu::card_in_use(),
+                "cardChoice": if choice.is_empty() { "auto".to_string() } else { choice },
+                "switching": lightcraft_gpu::switching_card(),
+                "helper": gpu_helper_json(),
+                "batchUsage": gpu_batch_usage_json(),
+                "adapters": adapters,
+                "lastFallback": lightcraft_gpu::last_fallback(),
+            });
             // the UI applies the setting on its first frame: it must not wait seconds for the
             // device there (issue #136; `warm_up` creates it off the UI thread)
-            if p.get("wait").and_then(Value::as_bool) == Some(false) && !lightcraft_gpu::ready() {
-                return Ok(json!({
-                    "enabled": lightcraft_gpu::enabled(),
-                    "available": null,
-                    "adapter": null,
-                    "reason": null,
-                    "lastFallback": lightcraft_gpu::last_fallback(),
-                }));
+            if !wait && !lightcraft_gpu::ready() {
+                reply["available"] = Value::Null;
+                reply["adapter"] = Value::Null;
+                reply["reason"] = Value::Null;
+            } else {
+                reply["available"] = json!(lightcraft_gpu::available());
+                reply["adapter"] = json!(lightcraft_gpu::adapter_name());
+                reply["reason"] = json!(lightcraft_gpu::unavailable_reason());
             }
-            Ok(json!({
-                "enabled": lightcraft_gpu::enabled(),
-                "available": lightcraft_gpu::available(),
-                "adapter": lightcraft_gpu::adapter_name(),
-                "reason": lightcraft_gpu::unavailable_reason(),
-                "lastFallback": lightcraft_gpu::last_fallback(),
-            }))
+            Ok(reply)
         }),
         cmd!(query "library.memory", "Memory Usage", [], None, "{} — bytes held by each cache (decoded sources, rendered previews, GPU buffers; heap when instrumented)", always, |s, _| {
             Ok(serde_json::to_value(s.memory_report()).unwrap_or_default())
@@ -299,5 +325,63 @@ mod pagination_tests {
         assert_eq!(pagination_usize(u64::MAX), usize::MAX);
         #[cfg(target_pointer_width = "32")]
         assert_eq!(pagination_usize(u64::from(u32::MAX) + 1), usize::MAX);
+    }
+}
+
+/// The second graphics card for `app.gpu` and `ui.inspect`: `{choice, state, name, reason}`.
+pub fn gpu_helper_json() -> Value {
+    let st = lightcraft_gpu::helper_status();
+    let choice = lightcraft_gpu::helper_setting();
+    json!({"choice": if choice.is_empty() { "auto".to_string() } else { choice }, "state": st.state, "name": st.name, "reason": st.reason})
+}
+
+/// Batch work on each card for `app.gpu` and `ui.inspect`: `{editing, helper}`.
+pub fn gpu_batch_usage_json() -> Value {
+    let one = |u: lightcraft_gpu::BatchUsage| {
+        json!({"jobs": u.jobs, "bytes": u.bytes, "waiting": u.waiting, "limitBytes": u.limit_bytes, "limitJobs": u.limit_jobs,
+               "waits": u.waits, "waitedMs": u.waited_ms, "pauses": u.pauses, "pausedMs": u.paused_ms})
+    };
+    json!({"editing": one(lightcraft_gpu::batch_usage_of(lightcraft_gpu::Role::Primary)), "helper": one(lightcraft_gpu::batch_usage_of(lightcraft_gpu::Role::Helper))})
+}
+
+#[cfg(test)]
+mod gpu_card_tests {
+    use crate::Session;
+    use serde_json::json;
+
+    /// `app.gpu` names the card choice and takes a new one: Automatic, a card's key (kept even
+    /// when that card isn't in this computer), never text that names no card.
+    #[test]
+    fn app_gpu_reports_and_takes_the_graphics_card_for_editing() {
+        let mut s = Session::with_demo();
+        let r = s.execute("app.gpu", &json!({"wait": false})).unwrap();
+        assert_eq!(r["cardChoice"], "auto", "{r}");
+        assert!(r.get("adapters").is_some() && r.get("card").is_some() && r["switching"].is_boolean(), "{r}");
+        let gone = "dx12:10de:2b85:NVIDIA GeForce RTX 5090#1";
+        let r = s.execute("app.gpu", &json!({"card": gone, "wait": false})).unwrap();
+        assert_eq!(r["cardChoice"], gone, "a card that isn't here is kept: {r}");
+        let err = s.execute("app.gpu", &json!({"card": "no such card anywhere", "wait": false})).unwrap_err().to_string();
+        assert!(err.contains("no graphics card"), "{err}");
+        assert!(s.execute("app.gpu", &json!({"card": 3, "wait": false})).is_err());
+        let r = s.execute("app.gpu", &json!({"card": "auto", "wait": false})).unwrap();
+        assert_eq!(r["cardChoice"], "auto", "{r}");
+    }
+
+    /// `app.gpu` names the second card's choice and state, takes a new choice, and reports each
+    /// card's batch work.
+    #[test]
+    fn app_gpu_reports_and_takes_the_second_graphics_card() {
+        let mut s = Session::with_demo();
+        let r = s.execute("app.gpu", &json!({"wait": false})).unwrap();
+        assert_eq!(r["helper"]["choice"], "auto", "{r}");
+        assert!(r["helper"]["state"].is_string(), "{r}");
+        assert!(r["batchUsage"]["editing"]["limitJobs"].is_number() && r["batchUsage"]["helper"]["jobs"].is_number(), "{r}");
+        let r = s.execute("app.gpu", &json!({"helper": "off", "wait": false})).unwrap();
+        assert_eq!(r["helper"]["choice"], "off", "{r}");
+        let err = s.execute("app.gpu", &json!({"helper": "no such card anywhere", "wait": false})).unwrap_err().to_string();
+        assert!(err.contains("no graphics card"), "{err}");
+        assert!(s.execute("app.gpu", &json!({"helper": false, "wait": false})).is_err());
+        let r = s.execute("app.gpu", &json!({"helper": "auto", "wait": false})).unwrap();
+        assert_eq!(r["helper"]["choice"], "auto", "{r}");
     }
 }

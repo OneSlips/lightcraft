@@ -452,6 +452,13 @@ pub struct AppSettings {
     pub import_dropped_directly: bool,
     /// GPU rendering allowed (`app.gpu`).
     pub gpu: bool,
+    /// Graphics card for editing (`app.gpu {card}`): a card's key (`lightcraft_gpu::CardInfo::key`), "" = Automatic
+    /// (the card the screen is connected to). A card that isn't there is kept: Automatic renders meanwhile.
+    #[serde(deserialize_with = "lenient")]
+    pub gpu_card: String,
+    /// Second graphics card (`app.gpu {helper}`): "" = Automatic (another card, when there is one), "off", or a card's key.
+    #[serde(deserialize_with = "lenient")]
+    pub gpu_helper: String,
     /// Largest long edge (pixels) the user lets the loupe render at; 0 = Automatic (the size it is
     /// drawn at, up to the photo's own pixels and [`LOUPE_EDGE_CEILING`]). Not the old
     /// `previewEdge` key: its 2560 px default was the soft-image bug (issue #323).
@@ -559,6 +566,8 @@ impl Default for AppSettings {
             close_dialogs_outside: false,
             import_dropped_directly: true,
             gpu: true,
+            gpu_card: String::new(),
+            gpu_helper: String::new(),
             preview_limit: 0,
             external_editor: String::new(),
             external_file: EditFile::default(),

@@ -49,7 +49,80 @@ Overrides (read once at launch):
 - `LIGHTCRAFT_GPU=0`: GPU rendering off for the process (the window is unaffected).
 - Both `LIGHTCRAFT_GPU=0` and `LIGHTCRAFT_GPU_BACKEND=off` also keep AI Denoise, the face models
   and the AI mask model (SAM 3 on Metal) on the CPU.
+- `LIGHTCRAFT_GPU_ADAPTER=<part of a card's name>` (any case, e.g. `4070`, `radeon`, `"rtx 4070 super"`):
+  the graphics card for editing renders, AI Denoise and the face and mask models, on a machine with more
+  than one; it wins over the card chosen in Settings (below). The first usable card whose name contains it
+  wins, in wgpu's order; software adapters (WARP, llvmpipe) never. A name that matches no card is logged
+  (`gpu: LIGHTCRAFT_GPU_ADAPTER=… names none of the graphics cards (…); using the default choice`) and the
+  default choice is used. While it is set, Automatic uses no second card (agents and test runs stay on the
+  one card they name; `LIGHTCRAFT_GPU_HELPER` still names one outright). Handy to keep test runs or a long
+  export off the card the screens hang on.
 
+### Choosing the graphics card (two or more cards)
+
+Settings ▸ Performance ▸ **Graphics card for editing** (`gpuCard` in `ui.json`, `app.gpu {card}`) lists
+Automatic and every card that can render (`lightcraft_gpu::adapters`; `app.gpu` → `adapters`). A card is
+saved by its key, `dx12:10de:2f04:NVIDIA GeForce RTX 5070#1` (backend, PCI vendor and device ids, the
+driver's name, and `#n` for identical cards: `device_pci_bus_id` isn't unique on DX12), parsed leniently
+(text that isn't a key means Automatic). The editing card is, in order (`cards::resolve_card`):
+`LIGHTCRAFT_GPU_ADAPTER`, the saved card (exactly, else the same model under another `#n`), the card the
+screen is connected to (Automatic), wgpu's high-performance pick.
+
+- **Automatic and the screen's card** render on the window's own device: finished views are drawn without a
+  copy (*Drawing renders straight from the GPU*). **Another card** renders on a device of its own and the
+  loupe's renders come back as pixels and are uploaded to the screen's card (a few ms per draft). The
+  window itself always stays on the card that drives the display: drawing it on another card would make
+  Windows copy every frame.
+- **Changing it applies at once** (`lightcraft_gpu::set_card`): a thread builds the device and kernels on
+  the new card (FXC can take up to ~30 s) while renders keep using the current one; then they move over
+  (stages cached on the old device are dropped by generation) and a notice says "Photos now render on the
+  …". Switching back to Automatic renders on the window's device again. A switch that fails leaves
+  renders where they were, with a notice.
+- **A saved card that isn't there** (taken out, driver missing): Automatic renders, the choice is kept, and
+  a notice says so once per session ("The graphics card chosen in Settings (…) isn't available, so
+  LightCraft uses Automatic (…)"); Settings lists it as "(not found)". A chosen card that can't render
+  (device or kernels fail) falls back to Automatic the same way, then to the CPU as before.
+- **A crash while starting a chosen card** (the process dies in the driver): the crash marker names each
+  device being started (`[card=<key>; role=editing|helper]`, one line per driver-work scope running), so
+  the next launch drops only that choice — the editing card back to Automatic, or the second card off —
+  and keeps the GPU on (`apps/lightcraft/src/main.rs` `gpu_crash_from`). A crash in any other driver work
+  (Automatic's card, listing the cards, AI kernels) turns GPU rendering off as before.
+
+
+### The second graphics card (batch work on another card)
+
+Settings ▸ Performance ▸ **Second graphics card** (`gpuHelper` in `ui.json`, `app.gpu {helper}`,
+`LIGHTCRAFT_GPU_HELPER` overrides it) gives batch work — exports, previews, AI — a device of its own on
+another card, so the editing card stays free for the photo being edited. Automatic (the default) uses
+another card that can render, a dedicated one first (`cards::resolve_helper`); `off` uses none; a key or
+part of a name picks one; `same` makes a second device on the editing card (tests and benchmarks of the
+two-device logic on one card). While `LIGHTCRAFT_GPU_ADAPTER` is set, Automatic means no second card, so
+an agent testing on one card never touches the other.
+
+- **Two devices, one per role** (`lightcraft_gpu::Role`: `Primary` = the editing card, `Helper`). Each
+  has its own slot (`slot.rs`: recovery, back-off, generations), its own batch gate (`gate.rs`: the second
+  card's share is 80 % of its memory, the editing card's 55 %) and its own memory counters
+  (`memory_of(role)`; `memory()` is both). The second card's device is made only by its warm-up, on the
+  `lc-gpu-helper` thread after the editing card's (never by a render), under the crash marker
+  (`role=helper`). Its renders always come back as pixels; views and display textures stay on the
+  editing card.
+- **Routing is per thread**, like `on_cpu`: `with_role(role, f)` sends that thread's renders to `role`'s
+  device (the CPU when it has none); `on_helper(f)` uses the second card when it is ready. Batch work
+  takes `batch_turn_any(src_px, out_px)` (or `wait_batch_turn_any`) inside `as_batch`: a turn on the
+  second card first, else on the editing card, else `None` (render on the CPU). While the turn is held
+  the thread's renders go to its card, so a photo's SDR and HDR renditions stay on one card.
+- **The editing card yields to the interface** (`track_interaction(true)`, the desktop app only): batch
+  turns there start only after about 1 s without input (`note_interaction`, every frame with input) and
+  without a view render; while the second card works, the editing card takes one batch render at a
+  time; a batch render already running pauses between its submissions as soon as the interface is used
+  again (`batch_usage_of(Primary).pauses`). The second card never waits for the interface.
+- **The second card stops responding**: its renders are redone on the CPU, batch work moves to the
+  editing card, a notice names it ("work continues on the other graphics card"), and it is restarted
+  after the pause like the editing card. Turning it off releases its device and memory.
+- **Status**: `helper_status()` (`off`, `none`, `notStarted`, `starting`, `ready`, `lost`, `failed`, with
+  the name and why); `app.gpu` → `helper`, `batchUsage {editing, helper}`; `ui.inspect` →
+  `perf.gpuHelper`, `perf.batchUsage`. Measured: the same render on the RTX 4070 SUPER and the RTX 5070
+  differs by at most 1 level (mean 0.0000; `crates/gpu/tests/devices.rs`).
 **DX12 shader compiler (issue #471).** Every instance (window and compute) compiles DX12 shaders with
 FXC (`d3dcompiler_47.dll`, part of Windows; `lightcraft_gpu::backend::backend_options`). wgpu's
 default, `Auto`, loads whichever `dxcompiler.dll` the DLL search path finds first. LightCraft ships

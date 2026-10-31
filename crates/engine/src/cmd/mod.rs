@@ -149,6 +149,7 @@ macro_rules! cmd {
 }
 pub(crate) use cmd;
 pub use masks::SPOT_SIZE;
+pub use query::{gpu_batch_usage_json, gpu_helper_json};
 
 pub fn command_specs() -> &'static [CommandSpec] {
     static SPECS: std::sync::OnceLock<Vec<CommandSpec>> = std::sync::OnceLock::new();
