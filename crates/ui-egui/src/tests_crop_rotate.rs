@@ -611,3 +611,75 @@ fn crop_left_entered_and_left_again_shows_the_crop_once() {
     let drawn = h.app.loupe_drawn.expect("how the loupe drew");
     assert!(!drawn.placed, "the cropped render is drawn whole, not cut again: {drawn:?}");
 }
+
+/// Note 5 of 2026-10-31: on a cropped photo, Crop on showed the cropped render stretched over the
+/// whole uncropped photo for ~2 s (a straightened crop: the view turns the photo under a level crop
+/// frame, and a turned view drew any picture as it is), then snapped; every C rendered again. Now
+/// the cropped render sits exactly in the crop rectangle, the rest of the photo is black until the
+/// whole photo renders, and C on → off → on with no edit change renders nothing again.
+#[test]
+fn crop_on_shows_the_crop_in_its_place_and_c_renders_nothing_again() {
+    use crate::render::Slot;
+    use std::{cell::Cell, rc::Rc};
+    for angle in [0.0, 4.0] {
+        let mut h = crop_tool();
+        let r = h.request("engine.execute", json!({"command": "crop.aspect", "params": {"aspect": "4x5"}}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        if angle != 0.0 {
+            let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"control": "crop.angle", "value": angle}}), T);
+            assert_eq!(r["ok"], true, "{r}");
+        }
+        h.settle(SETTLE);
+        let c = |h: &mut Headless| {
+            let r = h.request("ui.key", json!({"key": "c"}), T);
+            assert_eq!(r["ok"], true, "{r}");
+        };
+        c(&mut h);
+        h.settle(SETTLE);
+        assert_eq!(h.app.ui.right, crate::state::RightPanel::Edit);
+        // an edit outside Crop: no render of the whole photo with it exists yet
+        let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"control": "light.exposure", "value": 0.2}}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        let cropped = h.app.renderer.textures.get(&Slot::Main).map(|t| t.key).expect("the cropped render");
+        // the whole photo's render is held back: Crop opens with the cropped render on screen
+        let open = Rc::new(Cell::new(false));
+        h.app.renderer.set_offload(Box::new(crate::headless::RenderGate::new(open.clone())));
+        c(&mut h);
+        for _ in 0..6 {
+            h.step();
+        }
+        assert_eq!(h.app.ui.right, crate::state::RightPanel::Crop);
+        assert_eq!(h.app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(cropped), "angle {angle}: the whole photo is still rendering");
+        let drawn = h.app.loupe_drawn.expect("how the loupe drew");
+        let crop = drawn.crop.expect("the crop rectangle on screen");
+        for (got, want) in drawn.quad.iter().zip(crop) {
+            assert!((*got - want).length() < 2.0, "angle {angle}: the cropped render lies on the crop rectangle: {:?} vs {crop:?}", drawn.quad);
+        }
+        open.set(true);
+        h.settle(SETTLE);
+        let whole = h.app.renderer.textures.get(&Slot::Main).map(|t| t.key).expect("the whole photo");
+        assert_ne!(whole, cropped);
+        // C off → on → off with the edit unchanged: the kept renders, no new render
+        let main = |h: &Headless| h.app.renderer.submitted.iter().filter(|(s, _)| *s == Slot::Main).count();
+        let before = main(&h);
+        c(&mut h);
+        h.step();
+        assert_eq!(
+            h.app.renderer.textures.get(&Slot::Main).map(|t| t.key),
+            Some(cropped),
+            "angle {angle}: Crop off shows the cropped render at once"
+        );
+        h.settle(SETTLE);
+        c(&mut h);
+        h.step();
+        assert_eq!(h.app.renderer.textures.get(&Slot::Main).map(|t| t.key), Some(whole), "angle {angle}: Crop on shows the whole photo at once");
+        h.settle(SETTLE);
+        assert_eq!(main(&h), before, "angle {angle}: pressing C rendered again");
+        // an edit renders the whole photo once more
+        let r = h.request("engine.execute", json!({"command": "develop.set", "params": {"control": "light.exposure", "value": 0.4}}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        h.settle(SETTLE);
+        assert!(main(&h) > before, "angle {angle}: an edit renders");
+    }
+}

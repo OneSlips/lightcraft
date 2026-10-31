@@ -1092,6 +1092,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // an edited photo never shows the camera's JPEG (unedited, uncropped), not even one made while
     // the photo was still as shot (notes 3, 11, 31 of 2026-10-24)
     let as_shot = lightcraft_engine::import::looks_as_shot(&photo);
+    // the crop tool: where the crop rectangle is on screen (level), and the photo's own area is black
+    // under its pictures, so what of the photo has not rendered yet is black, never another picture
+    // or the canvas (note 5 of 2026-10-31)
+    let crop_on_screen = crop_tool.then(|| {
+        let map = CanvasMap::new(&frame, img_rect).turned(crop_turn);
+        frame_crop_quad(&d, &frame).map(|q| map.screen(q))
+    });
     let truthful = |t: &&crate::render::Tex| as_shot || t.quick != Some(lightcraft_engine::media::QuickSource::Embedded);
     let drawn = std::cell::Cell::new(None);
     let draw = |slot: Slot, r: Rect, clip: Rect| -> &'static str {
@@ -1104,7 +1111,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         // each picture's corners on the view, when it says where it lies (`Some(None)`: drawn as it
         // is; `None`: it can't be drawn for this view)
         let quad_of = |t: &crate::render::Tex, own: bool| -> Option<Option<[Pos2; 4]>> {
-            let (Some(have), Some(want)) = (t.placement.filter(|_| placed(t) && crop_turn == 0.0), view_place) else {
+            // (the crop tool turns the photo under a level crop frame: a picture that says where it
+            // lies is placed on the photo and turned with it; the cropped render still on screen as
+            // Crop opens then sits exactly in the crop rectangle instead of stretched over the whole
+            // photo: note 5 of 2026-10-31)
+            let (Some(have), Some(want)) = (t.placement.filter(|_| placed(t)), view_place) else {
                 return Some(None);
             };
             // a picture with another look (the as-shot preview of a photo with a preset since) never
@@ -1120,11 +1131,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             if lightcraft_engine::placement::is_identity(&uv, 1e-3) {
                 return Some(None);
             }
-            placed_quad(r, &uv).map(Some)
+            placed_quad(r, &uv).map(|q| Some(q.map(|p| spin_about(r.center(), p, crop_turn))))
         };
         // the first picture that fills the view (as it is, or cut to the crop); else the first that
         // fills part of it, where it lies
-        let view = r.intersect(clip);
+        // (turned, the photo reaches past its rectangle)
+        let view = if crop_turn != 0.0 { clip } else { r.intersect(clip) };
         let pick = candidates
             .iter()
             .flatten()
@@ -1133,7 +1145,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let Some((tex, what, quad)) = pick else { return "none" };
         if let Some(quad) = quad {
             p.with_clip_rect(view).add(placed_mesh(tex.id(), &quad));
-            drawn.set(Some(LoupeDrawn { quad, rect: view, placed: true, known: true }));
+            drawn.set(Some(LoupeDrawn { quad, rect: view, placed: true, known: true, crop: crop_on_screen }));
             return if uncropped(tex) { "cropping" } else { what };
         }
         // (a picture that says where it lies and got here is exactly the view: never cut again)
@@ -1147,7 +1159,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let image_rect = snap_fit_rect(fit_texture_rect(r, tex.size), tex.size, ppp);
         let corners = [image_rect.left_top(), image_rect.right_top(), image_rect.right_bottom(), image_rect.left_bottom()];
         let known = tex.placement.is_some_and(|h| placed(tex) && view_place.is_some_and(|w| h.look.close_to(&w.look)));
-        drawn.set(Some(LoupeDrawn { quad: corners, rect: image_rect.intersect(clip), placed: false, known }));
+        let corners = corners.map(|q| spin_about(image_rect.center(), q, crop_turn));
+        drawn.set(Some(LoupeDrawn { quad: corners, rect: image_rect.intersect(clip), placed: false, known, crop: crop_on_screen }));
         if crop_turn != 0.0 {
             image_turned(&p.with_clip_rect(clip), tex.id(), image_rect, crop_turn);
         } else {
@@ -1194,6 +1207,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         p.galley(bg.min + vec2(8.0, 4.0), g, Color32::WHITE);
         shown = "hover";
     } else {
+        if crop_tool && !split_view {
+            let photo_quad = [img_rect.left_top(), img_rect.right_top(), img_rect.right_bottom(), img_rect.left_bottom()]
+                .map(|q| spin_about(img_rect.center(), q, crop_turn));
+            p.add(egui::Shape::convex_polygon(photo_quad.to_vec(), Color32::BLACK, Stroke::NONE));
+        }
         shown = draw(Slot::Main, img_rect, canvas);
         if shown == "none" {
             match app.renderer.failure_of(Slot::Main, id) {
@@ -3259,6 +3277,18 @@ pub struct LoupeDrawn {
     pub placed: bool,
     /// The picture said where it lies and has the photo's look ([`lightcraft_engine::placement`]).
     pub known: bool,
+    /// The crop tool: the crop rectangle's corners on screen (as [`Self::quad`]).
+    pub crop: Option<[Pos2; 4]>,
+}
+
+/// `p` turned by `turn` radians (clockwise on screen) about `c`, as [`image_turned`] turns a picture.
+fn spin_about(c: Pos2, p: Pos2, turn: f32) -> Pos2 {
+    if turn == 0.0 || !turn.is_finite() {
+        return p;
+    }
+    let (s, co) = turn.sin_cos();
+    let v = p - c;
+    c + vec2(v.x * co - v.y * s, v.x * s + v.y * co)
 }
 
 /// Where a picture's corners go on screen when the view `r` shows the part of it whose corners
