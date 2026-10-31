@@ -6,7 +6,11 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
     // toggled off: back to exactly what the right column showed before (in the same frame: no flash, no jump),
     // closed when it was closed (note 21)
     let exposed = crate::docking::exposed(app, crate::docking::Panel::Tools);
-    if !app.ui.toggle_panel(p, exposed) {
+    let tool_before = app.ui.tool.clone();
+    let on = app.ui.toggle_panel(p, exposed);
+    // toggled off: the panel put back brings its own tool back (Masking's Brush, Remove's Heal or Clone)
+    let tool_restored = !on && app.ui.tool != tool_before;
+    if !on {
         app.toast(ctx, crate::i18n::tr_format!("{name} Off", name = crate::i18n::tr(name)));
     } else {
         app.toast(ctx, crate::i18n::tr_format!("{name} On", name = crate::i18n::tr(name)));
@@ -14,7 +18,7 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
             app.ui.view = ViewMode::Detail;
         }
     }
-    if p != RightPanel::Masking && app.ui.tool != "wbPicker" {
+    if !tool_restored && p != RightPanel::Masking && app.ui.tool != "wbPicker" {
         app.ui.tool.clear();
     }
     app.ui.note_right();

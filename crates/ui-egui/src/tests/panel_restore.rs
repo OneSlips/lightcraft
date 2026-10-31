@@ -334,3 +334,43 @@ fn a_panel_set_by_ui_set_is_noted_before_the_next_command() {
     }
     assert_eq!(h.app.ui.right, RightPanel::Info, "the brush was opened from Info");
 }
+
+/// A tool panel put back by a toggle brings its own on-canvas tool back: Masking's Brush, Remove's Heal or Clone
+/// (CodeRabbit on #3031). The panels come back as before (Edit → I → K → K → I = Edit).
+#[test]
+fn a_panel_put_back_by_a_toggle_keeps_its_tool() {
+    let mut h = detail();
+    exec(&mut h, "panel.masking");
+    h.app.ui.tool = "brush".into();
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Info);
+    exec(&mut h, "panel.info");
+    assert_eq!(h.app.ui.right, RightPanel::Masking, "Masks → I → I = Masks");
+    assert_eq!(h.app.ui.tool, "brush", "Masks → I → I keeps the Brush");
+    exec(&mut h, "panel.masking");
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+    assert_eq!(h.app.ui.tool, "", "Edit comes back with no tool");
+
+    exec(&mut h, "panel.remove");
+    assert_eq!(h.app.ui.right, RightPanel::Remove);
+    for mode in ["heal", "clone"] {
+        h.app.ui.tool = mode.into();
+        exec(&mut h, "panel.info");
+        exec(&mut h, "panel.info");
+        assert_eq!(h.app.ui.right, RightPanel::Remove);
+        assert_eq!(h.app.ui.tool, mode, "Remove → I → I keeps {mode}");
+    }
+    exec(&mut h, "panel.remove");
+    assert_eq!(h.app.ui.right, RightPanel::Edit);
+
+    // the panels themselves come back as before
+    for (command, right) in [
+        ("panel.info", RightPanel::Info),
+        ("panel.keywords", RightPanel::Keywords),
+        ("panel.keywords", RightPanel::Info),
+        ("panel.info", RightPanel::Edit),
+    ] {
+        exec(&mut h, command);
+        assert_eq!(h.app.ui.right, right, "Edit → I → K → K → I, after {command}");
+    }
+}

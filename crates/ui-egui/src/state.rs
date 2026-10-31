@@ -64,7 +64,9 @@ pub struct UiState {
     /// record (Edit → I → K → K → I = Edit). Forgotten once another panel is shown (not when F8 hides the panel and
     /// shows it again). At most [`TOGGLE_HISTORY`] deep.
     #[serde(skip)]
-    pub toggle_return: Vec<(RightPanel, RightPanel, Option<RightPanel>)>,
+    /// Each record also holds the on-canvas tool of the panel it replaced (Masking's Brush, Remove's Heal or Clone),
+    /// put back with that panel (`None`: a tool opened by a command, which leaves the tool as it is).
+    pub toggle_return: Vec<(RightPanel, RightPanel, Option<RightPanel>, Option<String>)>,
     /// The panel [`UiState::note_right`] last saw.
     #[serde(skip)]
     pub right_seen: RightPanel,
@@ -402,7 +404,7 @@ impl UiState {
             if self.toggle_return.len() >= TOGGLE_HISTORY {
                 self.toggle_return.remove(0);
             }
-            self.toggle_return.push((self.right, self.right_seen, self.tool_return));
+            self.toggle_return.push((self.right, self.right_seen, self.tool_return, None));
         }
         // F8 hiding the panel a toggle opened keeps its record, for F8 showing it again
         let f8_hid = |opened: RightPanel| self.right == RightPanel::None && self.right_hidden == opened;
@@ -446,7 +448,7 @@ impl UiState {
             self.note_right();
             false
         } else {
-            let saved = (p, if exposed || self.right != p { self.right } else { RightPanel::None }, self.tool_return);
+            let saved = (p, if exposed || self.right != p { self.right } else { RightPanel::None }, self.tool_return, Some(self.tool.clone()));
             if self.toggle_return.len() >= TOGGLE_HISTORY {
                 self.toggle_return.remove(0);
             }
@@ -459,13 +461,15 @@ impl UiState {
     }
 
     /// What the toggle that opened the panel on show replaced (see [`UiState::toggle_panel`]), with its own tool
-    /// memory put back, or `None` when that panel wasn't opened by a toggle.
+    /// memory and on-canvas tool put back, or `None` when that panel wasn't opened by a toggle.
     fn untoggle(&mut self) -> Option<RightPanel> {
-        let &(opened, before, tool_return) = self.toggle_return.last()?;
+        let &(opened, before, tool_return, _) = self.toggle_return.last()?;
         if opened != self.right {
             return None;
         }
-        self.toggle_return.pop();
+        if let Some((.., Some(tool))) = self.toggle_return.pop() {
+            self.tool = tool;
+        }
         self.tool_return = tool_return;
         // seen already: `note_right` must not take the panel being left for the one this came back from
         self.right_seen = before;
